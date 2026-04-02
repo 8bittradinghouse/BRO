@@ -1,0 +1,125 @@
+{
+  "runs": {
+    "306072a5-d214-460c-9be4-36364cfbcbdb": {
+      "present": true,
+      "duration_minutes": 20.45465,
+      "maker_submits": 7.0,
+      "maker_fills": 2.0,
+      "maker_fill_rate": 0.2857142857142857,
+      "taker_submits": 95.0,
+      "taker_fills": 95.0,
+      "maker_block_reason_distribution": {
+        "maker_no_submission": 601,
+        "token_lag_not_verified_for_maker": 148
+      },
+      "maker_no_submission_cause_distribution": {
+        "submit_rejected_pre_submit_cross_guarded": 129,
+        "submit_rejected_quote_quality_skip_fill_probability": 127,
+        "submit_rejected_quote_quality_skip_queue_depth": 166,
+        "submit_rejected_risk_reject": 179
+      },
+      "maker_no_submission_category_distribution": {
+        "pre_submit_cross_guarded": 129,
+        "quote_quality_skip_fill_probability": 127,
+        "quote_quality_skip_queue_depth": 166,
+        "risk_reject": 179
+      },
+      "fallback_count": 0.0,
+      "fallback_bid_count": 0.0,
+      "fallback_ask_count": 0.0
+    },
+    "92609236-10d5-4f91-9866-2472229b8e0b": {
+      "present": true,
+      "duration_minutes": 20.53145,
+      "maker_submits": 0.0,
+      "maker_fills": 0.0,
+      "maker_fill_rate": 0.0,
+      "taker_submits": 22.0,
+      "taker_fills": 22.0,
+      "maker_block_reason_distribution": {
+        "latency_not_armed_for_maker": 6,
+        "maker_no_submission": 24,
+        "token_lag_not_verified_for_maker": 442
+      },
+      "maker_no_submission_cause_distribution": {
+        "submit_rejected_pre_submit_cross_guarded": 12,
+        "submit_rejected_quote_quality_skip_fill_probability": 9,
+        "submit_rejected_quote_quality_skip_queue_depth": 3
+      },
+      "maker_no_submission_category_distribution": {
+        "pre_submit_cross_guarded": 12,
+        "quote_quality_skip_fill_probability": 9,
+        "quote_quality_skip_queue_depth": 3
+      },
+      "fallback_count": 0.0,
+      "fallback_bid_count": 0.0,
+      "fallback_ask_count": 0.0
+    },
+    "1fa768c5-56bb-43b1-9dc6-002249b5fb5e": {
+      "present": true,
+      "duration_minutes": 20.5074,
+      "maker_submits": 46.0,
+      "maker_fills": 8.0,
+      "maker_fill_rate": 0.17391304347826086,
+      "taker_submits": 76.0,
+      "taker_fills": 76.0,
+      "maker_block_reason_distribution": {
+        "maker_no_submission": 379,
+        "token_lag_not_verified_for_maker": 208
+      },
+      "maker_no_submission_cause_distribution": {
+        "replace_guard_min_rest": 13,
+        "submit_rejected_pre_submit_cross_guarded": 235,
+        "submit_rejected_quote_quality_skip_fill_probability": 37,
+        "submit_rejected_quote_quality_skip_queue_depth": 94
+      },
+      "maker_no_submission_category_distribution": {
+        "pre_submit_cross_guarded": 235,
+        "quote_quality_skip_fill_probability": 37,
+        "quote_quality_skip_queue_depth": 94,
+        "replace_guard_min_rest": 13
+      },
+      "fallback_count": 0.0,
+      "fallback_bid_count": 0.0,
+      "fallback_ask_count": 0.0
+    },
+    "885c68e2-38ea-439f-b8df-5472f05405c8": {
+      "present": true,
+      "duration_minutes": 20.452816666666667,
+      "maker_submits": 64.0,
+      "maker_fills": 45.0,
+      "maker_fill_rate": 0.703125,
+      "taker_submits": 148.0,
+      "taker_fills": 148.0,
+      "maker_block_reason_distribution": {
+        "latency_not_armed_for_maker": 12,
+        "maker_no_submission": 292,
+        "token_lag_not_verified_for_maker": 364
+      },
+      "maker_no_submission_cause_distribution": {
+        "replace_guard_min_rest": 32,
+        "submit_rejected_quote_quality_skip_fill_probability": 186,
+        "submit_rejected_quote_quality_skip_queue_depth": 39,
+        "submit_rejected_risk_reject": 35
+      },
+      "maker_no_submission_category_distribution": {
+        "quote_quality_skip_fill_probability": 186,
+        "quote_quality_skip_queue_depth": 39,
+        "replace_guard_min_rest": 32,
+        "risk_reject": 35
+      },
+      "fallback_count": 0.0,
+      "fallback_bid_count": 0.0,
+      "fallback_ask_count": 0.0
+    }
+  },
+  "comparisons": {
+    "1fa_vs_885": {
+      "maker_submits_delta": 18.0,
+      "maker_fills_delta": 37.0,
+      "maker_fill_rate_delta": 0.5292119565217391,
+      "taker_submits_delta": 72.0,
+      "taker_fills_delta": 72.0
+    }
+  }
+}
