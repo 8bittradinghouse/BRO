@@ -1,0 +1,40 @@
+extends: ./base.yaml
+
+profile:
+  name: live_canary
+
+mode: live
+
+runtime:
+  guard_stop_file: ../../logs_exec/live_canary/guard_stop.txt
+
+storage:
+  log_dir: ../../logs_exec/live_canary
+  state_path: ../../data/live_canary/state.json
+
+alerts:
+  guardian_hook_file: ../../logs_exec/live_canary/guardian_hook.jsonl
+
+security:
+  allowed_storage_roots:
+    - ../../logs_exec
+    - ../../data
+
+sizing:
+  target_usd: 1
+  max_usd: 5
+
+risk:
+  max_total_open_orders: 10
+  max_open_orders_per_token: 2
+
+auth:
+  private_key_source:
+    mode: file
+    path: /run/secrets/polymarket_private_key
+  funder_source:
+    mode: file
+    path: /run/secrets/polymarket_funder
+
+ramp:
+  reconcile_status_path: ../../logs_exec/live_canary/reconcile_latest.json

@@ -1,0 +1,28 @@
+﻿bot_name: "Bro"
+mode: "paper"
+runtime:
+  poll_interval_sec: 0.2
+  reconcile_interval_sec: 0.5
+  status_interval_sec: 1.0
+  max_consecutive_failures: 200
+  persist_seen_trade_ids_max: 100
+storage:
+  log_dir: "./logs_exec_e2e_offline"
+  state_path: "./logs_exec_e2e_offline/state.json"
+market_data:
+  clob_url: "http://127.0.0.1:9"
+  book_path: "/book"
+  timeout_sec: 0.3
+  max_retries: 0
+  ws:
+    enabled: false
+targets:
+  token_ids: ["tok_yes", "tok_no"]
+  discovery:
+    enabled: false
+chainlink:
+  enabled: false
+alerts:
+  enabled: false
+metrics:
+  enabled: false

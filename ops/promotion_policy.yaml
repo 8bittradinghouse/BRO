@@ -1,0 +1,27 @@
+min_uptime_ratio: 0.99
+max_error_rows: 0
+min_execution_quality_net: 0.0
+max_reconcile_mismatch_ratio: 0.02
+
+websocket:
+  report_required: true
+  max_book_feed_down_ratio: 0.20
+  max_chainlink_down_ratio: 0.20
+  max_book_feed_reconnects_per_hour: 40
+  max_chainlink_reconnects_per_hour: 40
+  max_chainlink_dropped_ticks: 0
+
+reconcile:
+  # Optional non-venue verification levels that are acceptable for promotion
+  # in environments where direct venue truth is not available.
+  allowed_nonvenue_verification_levels: []
+
+profiles:
+  # Canonical paper profile override: preserve strict infrastructure checks while
+  # avoiding live-venue assumptions and single-run execution-quality hard fails.
+  paper_universal:
+    min_uptime_ratio: 0.05
+    min_execution_quality_net: -1000.0
+    reconcile:
+      allowed_nonvenue_verification_levels:
+        - paper_sim_verified

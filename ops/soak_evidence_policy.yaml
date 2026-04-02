@@ -1,0 +1,6 @@
+required_runs: 3
+min_reliability_passes: 3
+min_utilization_passes: 2
+min_promotion_passes: 2
+min_total_duration_minutes: 120
+require_monotonic_recency: true

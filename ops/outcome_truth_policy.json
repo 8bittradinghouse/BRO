@@ -1,0 +1,57 @@
+{
+  "policy_version": "outcome_truth_v1",
+  "evaluation_horizon_ms": 5000,
+  "decision_reference": "mid_price_decision",
+  "eval_reference": "mid_price_eval",
+  "slippage_basis": "fill_vs_decision_mid_directional",
+  "adverse_selection_basis": "fill_vs_eval_mid_directional",
+  "edge_realized_basis": "eval_mid_vs_fill_directional",
+  "decision_direction_source": "order_submit.side",
+  "decision_reference_selection": "latest_book_top_at_or_before_decision_ts",
+  "eval_reference_selection": "latest_book_top_at_or_before_eval_ts",
+  "reference_recovery_priority": [
+    "explicit_decision_reference",
+    "target_ref_linkage",
+    "timestamp_bound_artifact_lookup",
+    "token_lookup_non_redacted",
+    "unknown"
+  ],
+  "eval_reference_timestamp_domain": "event_time",
+  "eval_reference_selection_rule": "latest_at_or_before_target",
+  "eval_reference_tolerance_ms": 0,
+  "multi_fill_aggregation": {
+    "fill_price": "vwap",
+    "fill_timestamp": "latest_fill_ts",
+    "fill_trade_id": "single_trade_or_deterministic_aggregate"
+  },
+  "neutral_tolerance": {
+    "decision_quality": 0.0,
+    "execution_quality": 0.0
+  },
+  "claim_boundary": {
+    "proves": [
+      "directional correctness at fixed 5000ms horizon using decision/eval midpoint references",
+      "execution price quality at decision reference midpoint",
+      "bounded realized edge measurement from fill/eval references",
+      "explicit unknown handling for missing linkage or market references",
+      "explicit basis disclosure for direct midpoint vs reconstructed midpoint references"
+    ],
+    "does_not_prove": [
+      "strategy optimality",
+      "long_term_profitability",
+      "live_venue_equivalence",
+      "runtime_feedback_or_control_adjustments"
+    ],
+    "non_goals": [
+      "no_strategy_optimality_proof",
+      "no_long_term_profitability_proof",
+      "no_live_venue_equivalence_proof",
+      "no_runtime_feedback"
+    ],
+    "reference_basis_boundaries": [
+      "direct_book_midpoint means direct midpoint observation path",
+      "edge_market_midpoint and edge_market_midpoint_series are bounded reconstructed midpoint references",
+      "deterministic reconstruction does not imply raw venue-book replay equivalence"
+    ]
+  }
+}

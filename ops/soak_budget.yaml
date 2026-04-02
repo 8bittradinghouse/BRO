@@ -1,0 +1,75 @@
+# Canonical postrun hard-fails only reliability lane.
+# Utilization lane remains visible in findings for operator diagnosis.
+gate_mode: reliability
+
+# Comparator tolerance is explicit and surfaced in soak_hardening_gate output.
+# Keep default at zero; only configured metrics receive tolerance.
+comparison_tolerance:
+  min_default: 0.0
+  max_default: 0.0
+  metrics:
+    # Runtime ratio is sampled from discrete status rows; allow narrow tolerance.
+    quote_uptime_ratio:
+      min_eps: 0.0005
+
+integrity:
+  min_status_rows: 20
+  max_status_age_sec: 180
+  status_tail_lines: 1000
+  event_tail_lines: 1000
+
+performance:
+  min_status_rows: 20
+  max_cycle_latency_p95_ms: 800
+  max_cycle_latency_max_ms: 2000
+  max_process_rss_mb: 1024
+  max_order_capacity_used_ratio: 0.98
+  max_cancel_capacity_used_ratio: 0.98
+  max_order_capacity_breach_rows: 1
+  max_cancel_capacity_breach_rows: 1
+  max_order_capacity_breach_ratio: 0.10
+  max_cancel_capacity_breach_ratio: 0.10
+  max_latency_inactive_cycles: 60
+
+websocket:
+  min_status_rows: 20
+  max_lines_per_file: 50000
+  max_book_feed_down_ratio: 0.20
+  max_chainlink_down_ratio: 0.20
+  # Paper harness realism: websocket is primary; REST fallback is bounded.
+  min_book_updates_total_delta: 1
+  min_book_updates_ws_delta: 1
+  max_book_updates_rest_ratio: 0.35
+  max_book_feed_reconnects_per_hour: 40
+  max_chainlink_reconnects_per_hour: 40
+  max_book_feed_last_msg_age_sec: 12
+  max_chainlink_last_tick_age_sec: 30
+  max_book_feed_last_msg_age_spike_rows: 1
+  max_chainlink_last_tick_age_spike_rows: 0
+  max_book_feed_last_msg_age_spike_ratio: 0.05
+  max_chainlink_last_tick_age_spike_ratio: 0.00
+  max_book_feed_last_msg_age_p95_sec: 8
+  max_chainlink_last_tick_age_p95_sec: 12
+  max_chainlink_dropped_ticks: 0
+  max_chainlink_queue_size: 10000
+
+readiness:
+  policy: ops/ramp_policy.yaml
+  required_stage: paper
+  report_max_lines_per_file: 50000
+
+soak:
+  report_max_lines_per_file: 50000
+  min_duration_minutes: 10
+  min_quote_uptime_ratio: 0.05
+  max_error_rows: 0
+  min_maker_submits: 50
+  # Fail if paper begins behaving like optimistic fill simulation.
+  max_maker_fill_rate: 0.85
+  # Keep fail-closed doctrine intact: taker participation can be legitimately zero
+  # in windows where strategy gate or market-quality gate blocks taker usage.
+  min_taker_bonus_submits: 0
+  min_taker_bonus_fills: 0
+  # Taker is intentionally aggressive; a full fill-rate can be valid.
+  # Keep configurable, but default to non-blocking.
+  max_taker_bonus_fill_rate: 1.0

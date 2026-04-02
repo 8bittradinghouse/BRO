@@ -1,0 +1,146 @@
+name: ${COMPOSE_PROJECT_NAME:-bro}
+
+services:
+  bro-maker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    user: "${BRO_UID:-1001}:${BRO_GID:-1001}"
+    restart: unless-stopped
+    command:
+      - python
+      - executor.py
+      - --config
+      - ${BRO_CONFIG_CONTAINER_PATH:-/config/profiles/paper_universal.yaml}
+      - --mode
+      - ${BRO_MODE:-paper}
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONFAULTHANDLER=1
+      - MALLOC_ARENA_MAX=2
+      - BRO_DOCKER_MODE=${BRO_DOCKER_MODE:-1}
+      - BRO_ASSET=${BRO_ASSET:-btc}
+      - BRO_GIT_COMMIT=${BRO_GIT_COMMIT:-}
+      - BRO_GIT_DIRTY=${BRO_GIT_DIRTY:-}
+      - BRO_DOCKER_IMAGE_HASH=${BRO_DOCKER_IMAGE_HASH:-}
+      - POLYMARKET_PRIVATE_KEY=${POLYMARKET_PRIVATE_KEY:-}
+      - POLYMARKET_FUNDER=${POLYMARKET_FUNDER:-}
+      - POLY_BOT_ALERT_WEBHOOK=${POLY_BOT_ALERT_WEBHOOK:-}
+      - POLY_BOT_TELEGRAM_TOKEN=${POLY_BOT_TELEGRAM_TOKEN:-}
+      - POLY_BOT_TELEGRAM_CHAT_ID=${POLY_BOT_TELEGRAM_CHAT_ID:-}
+      - SECURITY_ACK=${SECURITY_ACK:-}
+      - BRO_CANONICAL_SESSION_CALL=${BRO_CANONICAL_SESSION_CALL:-0}
+      - BRO_CANONICAL_SESSION_TOKEN=${BRO_CANONICAL_SESSION_TOKEN:-}
+      - BRO_CANONICAL_SESSION_CONTEXT_FILE=${BRO_CANONICAL_SESSION_CONTEXT_FILE:-/logs/paper_universal/guardian_session_context.json}
+      - BRO_RUN_ID=${BRO_RUN_ID:-}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: ${BRO_NOFILE_SOFT:-65536}
+        hard: ${BRO_NOFILE_HARD:-65536}
+      nproc: ${BRO_NPROC_LIMIT:-4096}
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    ports:
+      - "127.0.0.1:${BRO_METRICS_PORT:-9108}:9108"
+    volumes:
+      - ${BRO_CONFIG_DIR:-./configs}:/config:ro
+      - ${BRO_EXEC_CONFIG_PATH:-./execution_config.yaml}:/execution_config.yaml:ro
+      - ${BRO_DATA_DIR:-./data}:/data
+      - ${BRO_LOG_DIR:-./logs_exec}:/logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "scripts/container_healthcheck.py",
+          "--config",
+          "${BRO_CONFIG_CONTAINER_PATH:-/config/profiles/paper_universal.yaml}",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  bro-guardian:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    user: "${BRO_UID:-1001}:${BRO_GID:-1001}"
+    restart: unless-stopped
+    depends_on:
+      bro-maker:
+        condition: service_healthy
+    command:
+      - python
+      - scripts/guardian_watchdog.py
+      - --log-dir
+      - ${BRO_GUARDIAN_LOG_DIR:-/logs/paper_universal}
+      - --guard-stop-file
+      - ${BRO_GUARDIAN_GUARD_STOP_FILE:-/logs/paper_universal/guard_stop.txt}
+      - --session-context-file
+      - ${BRO_GUARDIAN_SESSION_CONTEXT_FILE:-/logs/paper_universal/guardian_session_context.json}
+      - --session-token
+      - ${BRO_CANONICAL_SESSION_TOKEN:-}
+      - --require-authoritative-startup
+      - --no-run-id-from-manifest
+      - --trigger-on-kill-switch
+      - --log-level
+      - INFO
+      - --require-chainlink-connected
+      - --require-book-feed-connected
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONFAULTHANDLER=1
+      - MALLOC_ARENA_MAX=2
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    ulimits:
+      nofile:
+        soft: ${BRO_NOFILE_SOFT:-65536}
+        hard: ${BRO_NOFILE_HARD:-65536}
+      nproc: ${BRO_NPROC_LIMIT:-4096}
+    stop_grace_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "scripts/guardian_healthcheck.py",
+          "--log-dir",
+          "${BRO_GUARDIAN_LOG_DIR:-/logs/paper_universal}",
+          "--guard-stop-file",
+          "${BRO_GUARDIAN_GUARD_STOP_FILE:-/logs/paper_universal/guard_stop.txt}",
+          "--max-status-age-sec",
+          "180",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ${BRO_LOG_DIR:-./logs_exec}:/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

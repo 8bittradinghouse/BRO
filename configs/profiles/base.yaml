@@ -1,0 +1,5 @@
+extends: ../../execution_config.yaml
+
+profile:
+  name: base
+  class: canonical

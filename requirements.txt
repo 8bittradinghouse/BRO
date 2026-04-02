@@ -1,0 +1,10 @@
+requests==2.32.5
+websockets==15.0.1
+PyYAML==6.0.2
+prometheus-client==0.23.1
+# Required for live execution mode:
+py-clob-client==0.25.0
+# Optional for parquet export:
+# pyarrow>=15.0.0
+# Optional dependency audit tooling:
+# pip-audit==2.9.0

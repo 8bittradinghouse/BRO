@@ -1,0 +1,331 @@
+BRO OUTCOME TRUTH DOCTRINE (FOUNDATION, LOCKED)
+
+Governance
+
+Document: BRO_OUTCOME_TRUTH_DOCTRINE.txt
+Version: 1.1
+Last Updated (UTC): 2026-03-30
+Authority: BRO Canonical Control-Plane Doctrine
+
+Purpose and Scope
+
+This layer governs interpretation of outcomes.
+It is observational only.
+It does not change runtime trading behavior.
+
+NON-GOALS OF OUTCOME TRUTH LAYER (MANDATORY)
+
+This layer does NOT:
+
+- prove long-term profitability
+- prove strategy optimality
+- prove live venue equivalence
+- modify trading behavior
+- feed adaptive logic
+- replace execution realism modeling
+- justify decisions based on outcomes
+
+Operationally, this remains strict observational measurement only with no runtime feedback into decisions, execution, eligibility, or control-plane behavior.
+
+Core Rule
+
+This layer is not allowed to make the system look good.
+It is only allowed to make the system tell the truth.
+
+OUTCOME REFERENCE AVAILABILITY DOCTRINE (MANDATORY)
+
+Outcome classification is only complete when required references are recoverable
+from authoritative run artifacts.
+
+Reference recovery is deterministic and strict-priority:
+
+1. explicit decision reference fields
+2. target_ref linkage
+3. timestamp-bound artifact lookup
+4. token lookup (non-redacted only)
+5. unknown
+
+This order must not be skipped.
+Unknown is required when references remain unavailable after priority recovery.
+
+Target Reference Contract (Mandatory)
+
+`target_ref` exists only to preserve deterministic decision lineage for attribution.
+
+- origin: decision-stage lineage (edge evaluation context)
+- propagation: passive copy only across submit/fill/audit artifacts
+- mutability: immutable once emitted
+- sensitivity: no redacted/secret identifiers
+- stability: unchanged across export/replay
+
+`target_ref` must not be injected into pure market observation streams unless an event is
+causally tied to an actionable lifecycle.
+`book_top` remains a pure market-observation stream.
+
+Reference availability may improve usability, but never by:
+
+- inference from fill-only data
+- inference from pnl
+- inference from future-only market state
+- suppression of missingness
+
+Non-Negotiable Principles
+
+1. No outcome-driven truth.
+
+- A profitable trade does not imply correct decision, good execution, or valid edge.
+- A losing trade does not imply incorrect decision or poor execution.
+
+2. Causal order is fixed.
+
+- Truth flow is one-way:
+  decision -> execution -> market -> outcome
+- Never:
+  outcome -> reinterpret decision
+
+3. Decomposition is mandatory.
+
+Every emitted record decomposes outcome semantics into:
+
+- decision_component
+- execution_component
+- market_component
+
+4. Observation-only for this phase.
+
+This layer:
+
+- does not modify decisions
+- does not modify execution
+- does not modify control-plane behavior
+
+This layer is strictly:
+
+- measurement
+- attribution
+- classification
+
+5. Explicit claim boundaries.
+
+The system must explicitly state:
+
+- what it can prove
+- what it does not prove
+- non-goals
+
+No implied edge claims are allowed.
+
+Canonical Policy Surface (Packet v1)
+
+Policy file: ops/outcome_truth_policy.json
+
+- evaluation_horizon_ms = 5000
+- decision_reference = mid_price_decision
+- eval_reference = mid_price_eval
+- slippage_basis = fill_vs_decision_mid_directional
+- adverse_selection_basis = fill_vs_eval_mid_directional
+- edge_realized_basis = eval_mid_vs_fill_directional
+- multi_fill_aggregation.fill_price = vwap
+- multi_fill_aggregation.fill_timestamp = latest_fill_ts
+- multi_fill_aggregation.fill_trade_id = single_trade_or_deterministic_aggregate
+- neutral_tolerance.decision_quality = 0.0
+- neutral_tolerance.execution_quality = 0.0
+
+No adaptive horizons are allowed in this packet.
+No non-zero neutral tolerance is allowed in this packet.
+
+Canonical Record Fields
+
+Per outcome record (minimum required semantics):
+
+- decision_id
+- order_submit_id
+- fill_trade_id
+- ts_decision_utc
+- ts_fill_utc
+- ts_eval_utc
+- mid_price_decision
+- fill_price
+- mid_price_eval
+- edge_expected
+- edge_expected_known
+- slippage
+- adverse_selection
+- edge_realized
+- decision_quality
+- execution_quality
+- combined_outcome_class
+- evaluation_horizon_ms
+- outcome_truth_status
+- missing_fields
+- claim_boundary_class
+
+Canonical Definitions
+
+1. Decision timestamp:
+
+- ts_decision_utc
+
+2. Decision price reference:
+
+- mid_price_decision
+- midpoint derived from best_bid_price and best_ask_price at decision reference selection time
+
+3. Expected edge:
+
+- edge_expected
+- source: linked edge_evaluation.edge_value
+- if unavailable -> edge_expected = null and edge_expected_known = false
+
+4. Fill price:
+
+- fill_price
+- single fill: fill price
+- multi-fill: deterministic VWAP
+
+5. Evaluation horizon:
+
+- ts_eval_utc = ts_decision_utc + 5000ms
+
+6. Evaluation market reference:
+
+- mid_price_eval
+- midpoint derived from best_bid_price and best_ask_price at evaluation reference selection time
+- when recovered from canonical edge streams rather than direct book replay, basis must be explicitly emitted as bounded reconstructed reference
+
+7. Slippage (direction-aware):
+
+- slippage = sign(side) * (fill_price - mid_price_decision)
+
+8. Adverse selection (direction-aware):
+
+- adverse_selection = sign(side) * (fill_price - mid_price_eval)
+
+9. Realized edge:
+
+- edge_realized = sign(side) * (mid_price_eval - fill_price)
+
+Reference Basis Semantics (Mandatory)
+
+Each record must explicitly emit:
+
+- decision_reference_basis
+- eval_reference_basis
+
+Allowed basis enums:
+
+- direct_book_midpoint
+- edge_market_midpoint
+- edge_market_midpoint_series
+- other_explicit
+- unknown
+
+Claim boundary interpretation:
+
+- deterministic recovery does not imply direct raw venue-book replay
+- direct and reconstructed midpoint bases must remain explicitly distinguishable in artifacts
+
+Timestamp Anchoring Precedence (Mandatory)
+
+Decision anchoring must prefer:
+
+1. decision_reference_ts_utc
+2. ts_decision_utc
+3. linked edge ts_decision_utc (fallback only)
+
+If none exist:
+
+- keep unknown
+- do not infer from fills or later outcome state
+
+Classification Model (Mandatory)
+
+Decision quality enum:
+
+- correct
+- incorrect
+- neutral
+- unknown
+
+Execution quality enum:
+
+- favorable
+- unfavorable
+- neutral
+- unknown
+
+Combined outcome enum:
+
+- correct_decision_good_execution
+- correct_decision_poor_execution
+- incorrect_decision_good_execution
+- incorrect_decision_poor_execution
+- neutral_decision_neutral_execution
+- unknown
+
+Outcome truth status enum:
+
+- complete
+- unknown_missing_data
+- unknown_incomplete_lifecycle
+- unknown_missing_eval_reference
+- unknown_missing_linkage
+
+Claim boundary class enum:
+
+- bounded_approximation
+- not_modeled_incomplete_lifecycle
+- not_provable_missing_inputs
+
+Critical Rules
+
+Rule 1: No hindsight decision rewrite.
+
+- decision_quality uses only side, mid_price_decision, and mid_price_eval
+
+Rule 2: Unknown is valid and mandatory.
+
+- missing required data yields explicit unknown status/classes
+- never inferred, approximated silently, or dropped silently
+
+Rule 3: PnL is not a classification signal.
+
+- PnL may be reported elsewhere
+- PnL cannot determine decision_quality, execution_quality, or combined_outcome_class
+
+Rule 4: Fixed horizon only.
+
+- all records in packet v1 use evaluation_horizon_ms = 5000
+
+Rule 5: Additive-only integration.
+
+- this layer must not alter runtime decision/execution/control behavior
+
+Required Run-Level Output Surface
+
+Run-level audit artifact: outcome_truth_audit.json
+
+Must include:
+
+- outcome_truth_policy
+- classification_tolerances
+- claim_boundary
+- counts for complete/unknown/incomplete records
+- decision_quality distribution
+- execution_quality distribution
+- combined_outcome distribution
+- slippage/adverse/expected/realized summaries
+- missingness counts
+- deterministic hashes
+
+Failure Conditions
+
+This doctrine layer is invalid if:
+
+- classification depends on PnL
+- horizon is inconsistent or non-canonical
+- required policy surface is missing
+- missing data is silently ignored
+- unknown paths are not counted explicitly
+- claim boundaries are absent
+- runtime behavior is modified by this layer

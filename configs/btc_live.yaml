@@ -1,0 +1,35 @@
+extends: ./profiles/live_pilot.yaml
+bot_name: Bro-BTC-Live
+mode: live
+profile:
+  name: live_pilot
+  class: canonical
+asset:
+  symbol: BTC
+  chainlink_symbols:
+  - btc/usd
+  discovery_symbols:
+  - BTC
+targets:
+  token_ids: []
+  discovery:
+    enabled: true
+    max_pairs: 7
+    allow_token_ids:
+    - '[REDACTED]'
+sizing:
+  mode: notional
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: floor
+  price_source: mid
+  share_step: 0.01
+  exposure_cap_mode: per_market_total
+metrics:
+  enabled: true
+  host: 127.0.0.1
+  port: 9108
+preflight:
+  check_clock_sync: true
+  max_clock_skew_sec: 2.0

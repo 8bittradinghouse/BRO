@@ -1,0 +1,15 @@
+min_status_rows: 20
+max_book_feed_down_ratio: 0.20
+max_chainlink_down_ratio: 0.20
+max_book_feed_reconnects_per_hour: 40
+max_chainlink_reconnects_per_hour: 40
+max_book_feed_last_msg_age_sec: 12
+max_chainlink_last_tick_age_sec: 30
+max_book_feed_last_msg_age_spike_rows: 1
+max_chainlink_last_tick_age_spike_rows: 0
+max_book_feed_last_msg_age_spike_ratio: 0.05
+max_chainlink_last_tick_age_spike_ratio: 0.00
+max_book_feed_last_msg_age_p95_sec: 8
+max_chainlink_last_tick_age_p95_sec: 12
+max_chainlink_dropped_ticks: 0
+max_chainlink_queue_size: 10000

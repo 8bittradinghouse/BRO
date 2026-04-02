@@ -1,0 +1,157 @@
+﻿bot_name: "Bro"
+
+mode: "paper"
+
+asset:
+  symbol: "BTC"
+  chainlink_symbols: ["btc/usd"]
+  discovery_symbols: ["BTC"]
+
+runtime:
+  poll_interval_sec: 1.0
+  reconcile_interval_sec: 2.0
+  status_interval_sec: 30.0
+  duration_min: null
+  max_actions_per_cycle: 8
+  cancel_all_on_exit: true
+  cancel_orphan_orders: true
+  max_consecutive_failures: 12
+  seen_trade_ids_max: 200000
+  persist_seen_trade_ids_max: 5000
+  max_quote_age_sec: 20.0
+  guard_stop_file: "./logs_exec/guard_stop.txt"
+  clear_guard_stop_on_start: false
+
+storage:
+  log_dir: "./logs_exec"
+  state_path: "./logs_exec/state.json"
+
+market_data:
+  clob_url: "https://clob.polymarket.com"
+  book_path: "/book"
+  timeout_sec: 8
+  max_retries: 2
+  ws:
+    enabled: true
+    url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    channel: "market"
+    stale_after_sec: 3
+    heartbeat_timeout_sec: 12
+    ping_interval_sec: 5
+    reconnect_backoff_initial_sec: 1
+    reconnect_backoff_max_sec: 20
+
+chainlink:
+  enabled: true
+  ws_url: "wss://ws-live-data.polymarket.com"
+  topic: "crypto_prices_chainlink"
+  symbols: ["btc/usd"]
+  symbol_for_targets: "btc/usd"
+  log_ticks: true
+  heartbeat_timeout_sec: 15
+  ping_interval_sec: 5
+  reconnect_backoff_initial_sec: 1
+  reconnect_backoff_max_sec: 30
+  mid_move_min_delta: 0.001
+  max_queue_size: 10000
+
+targets:
+  # If discovery.enabled=true, this may be left empty and targets will auto-refresh.
+  token_ids: []
+
+  discovery:
+    enabled: true
+    gamma_url: "https://gamma-api.polymarket.com"
+    markets_path: "/markets"
+    symbols: ["BTC"]
+    keywords_any: ["5 minute", "5-minute", "up or down", "up/down"]
+    tags_any: []
+    require_binary_outcomes: true
+    max_pairs: 7
+    refresh_interval_sec: 30
+    page_limit: 200
+    max_pages: 10
+    max_markets_scan: 1200
+    timeout_sec: 8
+    max_retries: 2
+    require_fee_enabled: true
+
+strategy:
+  base_order_size: 25.0
+  min_order_size: 5.0
+  max_order_size: 200.0
+  min_spread: 0.02
+  max_spread: 0.25
+  tick_size: 0.001
+  inventory_skew_per_share: 0.0002
+  quote_refresh_min_delta: 0.003
+  fair_skew_factor: 0.5
+  volatility:
+    enabled: true
+    window_sec: 30
+    low_vol_threshold: 0.0015
+    high_vol_threshold: 0.008
+    low_vol_spread_mult: 1.35
+    high_vol_spread_mult: 0.8
+    low_vol_size_mult: 0.85
+    high_vol_size_mult: 1.25
+
+risk:
+  max_abs_position_shares: 400.0
+  max_notional_per_token: 250.0
+  max_open_orders_per_token: 4
+  max_total_open_orders: 30
+  max_order_size: 200.0
+  min_order_size: 1.0
+  max_orders_per_min: 120
+  max_cancels_per_min: 220
+  max_book_age_sec: 6.0
+  allow_crossed_quotes: false
+  max_total_loss: null
+  max_loss_per_token: null
+
+alerts:
+  enabled: false
+  webhook_url_env: "POLY_BOT_ALERT_WEBHOOK"
+  telegram_enabled: false
+  telegram_bot_token_env: "POLY_BOT_TELEGRAM_TOKEN"
+  telegram_chat_id_env: "POLY_BOT_TELEGRAM_CHAT_ID"
+  telegram_parse_mode: "Markdown"
+  timeout_sec: 4.0
+  min_interval_sec: 30.0
+
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9108
+  namespace: "prodesk"
+
+preflight:
+  require_live_confirmation: true
+  check_market_data: true
+  max_market_data_failures: 0
+  check_clock_sync: true
+  max_clock_skew_sec: 2.5
+
+sizing:
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+security:
+  require_live_security_ack: true
+  live_security_ack_env: "SECURITY_ACK"
+  live_security_ack_value: "YES"
+
+auth:
+  host: "https://clob.polymarket.com"
+  chain_id: 137
+  signature_type: 1
+  private_key_env: "POLYMARKET_PRIVATE_KEY"
+  funder_env: "POLYMARKET_FUNDER"
+  enforce_post_only: true

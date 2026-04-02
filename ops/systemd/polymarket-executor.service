@@ -1,0 +1,23 @@
+[Unit]
+Description=Polymarket Bro Executor
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/polymarketmakerbot
+EnvironmentFile=/opt/polymarketmakerbot/.env
+ExecStart=/opt/polymarketmakerbot/.venv/bin/python executor.py --config execution_config.yaml --mode live --confirm-live
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=2
+TimeoutStopSec=25
+KillSignal=SIGINT
+StandardOutput=append:/opt/polymarketmakerbot/logs_exec/systemd.out.log
+StandardError=append:/opt/polymarketmakerbot/logs_exec/systemd.err.log
+
+[Install]
+WantedBy=multi-user.target

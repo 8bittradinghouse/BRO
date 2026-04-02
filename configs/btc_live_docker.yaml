@@ -1,0 +1,47 @@
+bot_name: "Bro-BTC-Live-Docker"
+mode: "live"
+
+asset:
+  symbol: "BTC"
+  chainlink_symbols: ["btc/usd"]
+  discovery_symbols: ["BTC"]
+
+targets:
+  token_ids: []
+  discovery:
+    enabled: true
+    max_pairs: 7
+
+sizing:
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+storage:
+  log_dir: "/logs/btc_live"
+  state_path: "/data/btc_live/state.json"
+
+runtime:
+  guard_stop_file: "/logs/btc_live/guard_stop.txt"
+
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9108
+
+preflight:
+  check_clock_sync: true
+  max_clock_skew_sec: 2.0
+
+security:
+  allowed_storage_roots:
+    - "/logs"
+    - "/data"
+
+ramp:
+  reconcile_status_path: "/logs/btc_live/reconcile_latest.json"

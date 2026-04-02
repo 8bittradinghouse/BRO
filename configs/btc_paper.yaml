@@ -1,0 +1,43 @@
+bot_name: "Bro-BTC-Paper"
+mode: "paper"
+profile:
+  name: "paper_universal"
+  class: "canonical"
+
+asset:
+  symbol: "BTC"
+  chainlink_symbols: ["btc/usd"]
+  discovery_symbols: ["BTC"]
+
+targets:
+  token_ids: []
+  discovery:
+    enabled: true
+    max_pairs: 2
+
+sizing:
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+storage:
+  log_dir: "../logs_exec_btc_paper"
+  state_path: "../logs_exec_btc_paper/state.json"
+
+runtime:
+  guard_stop_file: "../logs_exec_btc_paper/guard_stop.txt"
+  paper_enforce_setup_lock: true
+  paper_expected_profile_name: "paper_universal"
+  paper_expected_config_fingerprint_sha256: "78c9fb2bf86a45c9532ed2e4a4875ae1710a47b25ea38eb4954a83da4454f574"
+
+ramp:
+  reconcile_status_path: "../logs_exec_btc_paper/reconcile_latest.json"
+
+security:
+  allowed_storage_roots:
+    - "../logs_exec_btc_paper"

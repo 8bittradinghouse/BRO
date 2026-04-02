@@ -1,0 +1,40 @@
+BRO TEXT FILE GUIDE (CANONICAL ORDER)
+
+Purpose
+
+This guide defines how BRO text files are used so future sessions do not drift.
+
+Authority Order
+
+1. BRO_CANONICAL_DOCTRINE.txt
+   - Primary authority for strategy doctrine, workflow rules, and non-negotiable invariants.
+
+2. BRO_EDGE_DOCTRINE.txt
+   - Canonical edge-origin, execution-mode, and edge-truth constraints.
+
+3. BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt
+   - Canonical realism boundaries for paper harness evidence interpretation.
+
+4. BRO_OUTCOME_TRUTH_DOCTRINE.txt
+   - Canonical outcome attribution and claim-boundary doctrine (measurement only).
+
+5. BRO_MODULE_ARCHITECTURE.txt
+   - Canonical architecture boundaries and module responsibility contract.
+
+6. BRO_SITREP_DOCTRINE.txt
+   - Operator sitrep summary for current phase and priorities.
+   - Summary only. It must not contradict BRO_CANONICAL_DOCTRINE.txt.
+
+7. requirements.txt
+   - Dependency manifest only. Not a doctrine source.
+
+Conflict Rule
+
+If any file conflicts with BRO_CANONICAL_DOCTRINE.txt, the doctrine file wins.
+
+Update Discipline
+
+- Keep doctrine updates explicit and versioned by date.
+- Avoid copying doctrine fragments into multiple files without cross-reference.
+- Prefer referencing the canonical doctrine file over rewriting doctrine text in summaries.
+- Any architecture change must preserve canonical domain separation and fail-closed behavior.

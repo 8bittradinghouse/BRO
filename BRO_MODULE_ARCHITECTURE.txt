@@ -1,0 +1,96 @@
+BRO MODULE ARCHITECTURE
+CANONICAL BOUNDARIES AND RESPONSIBILITY CONTRACT
+
+Version: 2.0
+Updated: 2026-03-12 UTC
+
+Purpose
+
+This file defines required architecture boundaries so implementation does not drift into spaghetti coupling.
+
+Canonical Execution Flow
+
+Strategy Doctrine
+-> Execution Controller
+-> Wallet Doctrine Module
+-> Transaction Manager
+-> Polymarket / Polygon
+-> Settlement / Fill Handling
+-> Reconciliation
+
+Canonical Domains
+
+1. Strategy / Execution Doctrine
+
+Responsibilities:
+- observe market state
+- derive stage
+- evaluate edge and doctrine eligibility
+- emit trade intents
+
+Must not:
+- move funds
+- sign orders
+- manage nonce
+- self-authorize execution
+
+2. Wallet Doctrine Module
+
+Responsibilities:
+- compute deployable capital and reserves
+- enforce gas reserve policy
+- verify allowance
+- manage pending locks
+- own nonce and tx lifecycle truth
+- approve / reduce / reject intent size
+- halt on wallet anomaly
+
+Must not:
+- decide market direction
+- invent strategy
+
+3. Canonical Paper Harness
+
+Responsibilities:
+- lifecycle-faithful simulation
+- queue and latency realism
+- capital lock/release realism
+- integrity checks and replayability
+
+Three-Gate Bundle Contract
+
+Execution authorization must be:
+
+authorized = strategy_ok AND wallet_ok AND market_ok
+
+No order creation, submission, or capital lock is allowed unless all three pass in the same decision cycle.
+
+Separation Invariants
+
+- Strategy emits intents only.
+- Execution controller coordinates flow, not capital truth.
+- Wallet doctrine is sole capital authority.
+- Transaction manager is sole signing/submission authority.
+- Reconciliation is the final runtime truth authority.
+- No module may bypass wallet doctrine.
+- No module may bypass reconciliation.
+
+Fail-Closed Invariants
+
+- Unknown stage fails closed.
+- Stale or missing fair-value context fails closed.
+- Degraded mode must be explicit and narrower than canonical mode.
+- Severe wallet mismatch or lifecycle contradiction halts.
+
+Implementation Guardrails
+
+- Keep modules explicit and testable.
+- Avoid hidden side effects across domains.
+- Avoid direct strategy-to-wallet coupling.
+- Record reasoned gate outcomes and stage decisions in logs.
+
+Primary References
+
+- BRO_CANONICAL_DOCTRINE.txt
+- BRO_SITREP_DOCTRINE.txt
+- docs/DOCTRINE_RUNBOOK.md

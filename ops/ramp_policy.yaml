@@ -1,0 +1,47 @@
+stage_order:
+  - paper
+  - pilot_live
+  - scaled_live
+  - aggressive_live
+
+stages:
+  paper:
+    min_status_rows: 20
+    min_quote_uptime_ratio: 0.05
+    max_error_rows: 200
+    max_reject_ratio_order_rate_limit: 0.80
+    max_safe_stop_transitions: 5
+    max_kill_switch_events: 1
+
+  pilot_live:
+    min_status_rows: 120
+    min_quote_uptime_ratio: 0.60
+    max_error_rows: 80
+    max_reject_ratio_order_rate_limit: 0.55
+    max_reject_ratio_stale_book: 0.25
+    max_safe_stop_transitions: 1
+    max_kill_switch_events: 0
+    min_capture_minus_adverse: -10.0
+    max_latest_operating_mode_state: 2.0
+
+  scaled_live:
+    min_status_rows: 300
+    min_quote_uptime_ratio: 0.70
+    max_error_rows: 40
+    max_reject_ratio_order_rate_limit: 0.40
+    max_reject_ratio_stale_book: 0.20
+    max_safe_stop_transitions: 0
+    max_kill_switch_events: 0
+    min_capture_minus_adverse: -2.5
+    max_latest_operating_mode_state: 1.0
+
+  aggressive_live:
+    min_status_rows: 600
+    min_quote_uptime_ratio: 0.80
+    max_error_rows: 20
+    max_reject_ratio_order_rate_limit: 0.25
+    max_reject_ratio_stale_book: 0.12
+    max_safe_stop_transitions: 0
+    max_kill_switch_events: 0
+    min_capture_minus_adverse: 0.0
+    max_latest_operating_mode_state: 0.0

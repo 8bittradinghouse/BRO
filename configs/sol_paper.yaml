@@ -1,0 +1,37 @@
+bot_name: "Bro-SOL-Paper"
+mode: "paper"
+
+asset:
+  symbol: "SOL"
+  chainlink_symbols: ["sol/usd"]
+  discovery_symbols: ["SOL"]
+
+targets:
+  token_ids: []
+  discovery:
+    enabled: true
+    max_pairs: 7
+
+sizing:
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+storage:
+  log_dir: "../logs_exec_sol_paper"
+  state_path: "../logs_exec_sol_paper/state.json"
+
+runtime:
+  guard_stop_file: "../logs_exec_sol_paper/guard_stop.txt"
+
+ramp:
+  reconcile_status_path: "../logs_exec_sol_paper/reconcile_latest.json"
+
+security:
+  allowed_storage_roots:
+    - "../logs_exec_sol_paper"

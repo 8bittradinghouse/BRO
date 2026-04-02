@@ -1,0 +1,15 @@
+extends: ./paper_universal.yaml
+
+profile:
+  name: paper_maker_isolation
+  class: canonical
+
+sniper:
+  taker:
+    enabled: false
+
+auth:
+  allow_taker: false
+
+runtime:
+  paper_enforce_setup_lock: false

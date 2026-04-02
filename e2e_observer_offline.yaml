@@ -1,0 +1,31 @@
+﻿bot_name: "Bro"
+ws:
+  url: "ws://127.0.0.1:9"
+  channel: "market"
+  stale_after_sec: 1
+  ping_interval_sec: 1
+  ping_timeout_sec: 2
+  reconnect_backoff_initial_sec: 0.2
+  reconnect_backoff_max_sec: 1.0
+rest:
+  clob_url: "http://127.0.0.1:9"
+  book_path: "/book"
+  poll_interval_sec: 0.2
+  timeout_sec: 0.3
+  max_retries: 0
+gamma:
+  url: "http://127.0.0.1:9"
+  markets_path: "/markets"
+  timeout_sec: 0.3
+  page_limit: 50
+  max_pages: 1
+targets:
+  manual_token_ids: ["tok_yes", "tok_no"]
+  discovery:
+    enabled: false
+spot:
+  enabled: false
+storage:
+  log_dir: "./logs_obs_e2e_offline"
+runtime:
+  status_interval_sec: 1

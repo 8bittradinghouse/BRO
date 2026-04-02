@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bro-trading"
+version = "0.1.2"
+description = "BRO execution stack, audits, and operator tooling"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "requests==2.32.5",
+  "websockets==15.0.1",
+  "PyYAML==6.0.2",
+  "prometheus-client==0.23.1",
+  "py-clob-client==0.25.0",
+]
+
+[project.scripts]
+broctl = "prodesk.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["prodesk*", "scripts*"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

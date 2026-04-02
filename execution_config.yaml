@@ -1,0 +1,366 @@
+bot_name: "Bro"
+
+mode: "paper"
+profile:
+  name: "paper_universal"
+  class: "canonical"
+
+asset:
+  symbol: "BTC"
+  chainlink_symbols: ["btc/usd"]
+  discovery_symbols: ["BTC"]
+
+runtime:
+  poll_interval_sec: 1.0
+  reconcile_interval_sec: 2.0
+  status_interval_sec: 30.0
+  duration_min: null
+  max_actions_per_cycle: 8
+  cancel_all_on_exit: true
+  cancel_orphan_orders: true
+  max_consecutive_failures: 12
+  seen_trade_ids_max: 200000
+  persist_seen_trade_ids_max: 5000
+  max_quote_age_sec: 20.0
+  # Soft throttle near limit to avoid hard rate-limit rejects.
+  order_rate_soft_limit_pct: 0.98
+  cancel_rate_soft_limit_pct: 0.98
+  # Set false to reduce high-frequency book_top log volume.
+  log_book_top: true
+  # Set false to reduce lead/lag event log volume in high-frequency runs.
+  log_leadlag_book_move: true
+  # Buffered/async JSONL writer for high event rates.
+  log_async_flush: false
+  log_flush_every_records: 1
+  log_flush_interval_sec: 0.25
+  log_fsync_on_flush: false
+  # Optional external guard stop file. If present, executor engages kill switch.
+  guard_stop_file: "./logs_exec/guard_stop.txt"
+  # Keep false in production so manual guard files survive service restarts.
+  clear_guard_stop_on_start: false
+  # Keep paper conservative: avoid synthetic passive fills easier than live.
+  paper_passive_touch_fill_enabled: false
+  paper_passive_touch_fill_ratio: 0.0
+  paper_passive_min_rest_sec: 1.0
+  # Minimum quote rest time before replace-cancel in maker lane.
+  maker_replace_min_rest_sec: 1.0
+  paper_passive_min_fill_size: 0.01
+  paper_passive_near_touch_band: 0.0
+  paper_passive_near_touch_fill_ratio: 0.0
+  paper_background_fill_ratio: 0.0
+  paper_enforce_setup_lock: true
+  paper_expected_profile_name: "paper_universal"
+  paper_expected_config_fingerprint_sha256: "0194f684c4a7e07f6791e9dbcbb82ea59173950d9d3256484e7507cb25d40eb3"
+
+storage:
+  log_dir: "./logs_exec"
+  state_path: "./logs_exec/state.json"
+
+market_data:
+  clob_url: "https://clob.polymarket.com"
+  book_path: "/book"
+  timeout_sec: 8
+  max_retries: 2
+  ws:
+    enabled: true
+    url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    channel: "market"
+    stale_after_sec: 3
+    heartbeat_timeout_sec: 12
+    ping_interval_sec: 5
+    reconnect_backoff_initial_sec: 1
+    reconnect_backoff_max_sec: 20
+
+chainlink:
+  enabled: true
+  ws_url: "wss://ws-live-data.polymarket.com"
+  topic: "crypto_prices_chainlink"
+  symbols: ["btc/usd"]
+  symbol_for_targets: "btc/usd"
+  log_ticks: true
+  heartbeat_timeout_sec: 15
+  ping_interval_sec: 5
+  reconnect_backoff_initial_sec: 1
+  reconnect_backoff_max_sec: 30
+  mid_move_min_delta: 0.001
+  max_queue_size: 10000
+
+doctrine:
+  mode: canonical
+  oracle_max_tick_age_sec: 1.5
+  maker_allow_bounded_single_side_reference: true
+  min_observe_cycles_on_entry: 2
+  min_observe_seconds_on_entry: 2.0
+
+latency_verifier:
+  enabled: true
+  require_armed_for_maker: true
+  require_armed_for_sniper: true
+  window_samples: 400
+  min_samples: 80
+  hit_threshold_ms: 120
+  armed_min_median_ms: 120
+  armed_min_hit_rate: 0.6
+  probation_min_median_ms: 80
+  probation_min_hit_rate: 0.45
+  arm_consecutive_cycles: 2
+  disarm_consecutive_cycles: 2
+  log_sample_events: false
+  max_sample_lag_ms: 20000
+  score_enabled: true
+  score_min_for_maker: 0.35
+  score_min_for_taker: 0.6
+  score_size_floor: 0.35
+  score_size_ceiling: 1.25
+  drift_window_samples: 80
+  drift_max_median_drop_ms: 40
+  drift_max_hit_rate_drop: 0.2
+
+targets:
+  # If discovery.enabled=true, this may be left empty and targets will auto-refresh.
+  token_ids: []
+  # Optional manual expiry map for static token lists. Format: {token_id: "2026-03-01T12:00:00Z"}
+  token_expiry_utc_by_token: {}
+  # Optional manual metadata maps for Chainlink fair-value edge logic.
+  token_side_by_token: {}
+  token_strike_by_token: {}
+
+  discovery:
+    enabled: true
+    gamma_url: "https://gamma-api.polymarket.com"
+    markets_path: "/markets"
+    symbols: ["BTC"]
+    allow_token_ids: []
+    keywords_any: ["5 minute", "5-minute", "up or down", "up/down"]
+    tags_any: []
+    require_binary_outcomes: true
+    max_pairs: 3
+    refresh_interval_sec: 30
+    page_limit: 200
+    max_pages: 10
+    max_markets_scan: 1200
+    timeout_sec: 8
+    max_retries: 2
+    require_fee_enabled: true
+
+sniper:
+  enabled: true
+  # Paper soak window widened so sniper path is exercised more consistently.
+  arming_horizon_sec: 86400
+  execution_cutoff_sec: 10
+  late_fire_priority_band_sec: 5
+  allow_without_expiry_metadata: false
+  poll_interval_sec: 0.2
+  max_actions_per_cycle: 16
+  cancel_stale_action_budget: 6
+  cancel_orphan_action_budget: 12
+  # Let sniper mode use full hard-cap bandwidth while active.
+  order_rate_soft_limit_pct: 1.0
+  cancel_rate_soft_limit_pct: 1.0
+  # Require statistically verified chainlink->book lag before arming sniper mode.
+  require_lag_verification: true
+  lag_window_samples: 300
+  lag_min_samples: 80
+  lag_hit_threshold_ms: 120
+  lag_min_median_ms: 120
+  lag_min_hit_rate: 0.6
+  fair_vol_scale: 1.0
+  taker:
+    enabled: true
+    min_edge: 0.015
+    extreme_edge_mult: 2.0
+    order_size: 20
+    target_usd: 5
+    max_orders_per_cycle: 2
+    per_token_cooldown_sec: 0.25
+
+strategy:
+  base_order_size: 25.0
+  min_order_size: 5.0
+  max_order_size: 200.0
+  min_spread: 0.02
+  max_spread: 0.25
+  tick_size: 0.001
+  inventory_skew_per_share: 0.0002
+  quote_refresh_min_delta: 0.003
+  fair_skew_factor: 0.5
+  execution_quality:
+    enabled: true
+    min_expected_fill_prob: 0.06
+    max_queue_ahead_size: 200.0
+    queue_depth_scale: 120.0
+    distance_scale: 0.02
+    adverse_selection_penalty: 0.3
+  volatility:
+    enabled: true
+    window_sec: 30
+    low_vol_threshold: 0.0015
+    high_vol_threshold: 0.008
+    low_vol_spread_mult: 1.35
+    high_vol_spread_mult: 0.8
+    low_vol_size_mult: 0.85
+    high_vol_size_mult: 1.25
+
+sizing:
+  # Keep this in notional mode for live dollar-denominated risk control.
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+risk:
+  max_abs_position_shares: 400.0
+  max_notional_per_token: 250.0
+  max_open_orders_per_token: 4
+  max_total_open_orders: 30
+  max_order_size: 200.0
+  min_order_size: 1.0
+  max_orders_per_min: 120
+  max_cancels_per_min: 220
+  max_book_age_sec: 6.0
+  # Reject books that are too far in the future (clock skew / bad payload guardrail).
+  max_book_future_skew_sec: 2.0
+  allow_crossed_quotes: false
+  max_total_loss: null
+  max_loss_per_token: null
+
+alerts:
+  enabled: false
+  webhook_url_env: "POLY_BOT_ALERT_WEBHOOK"
+  telegram_enabled: false
+  telegram_bot_token_env: "POLY_BOT_TELEGRAM_TOKEN"
+  telegram_chat_id_env: "POLY_BOT_TELEGRAM_CHAT_ID"
+  telegram_parse_mode: "Markdown"
+  contacts:
+    primary: ""
+    secondary: ""
+  timeout_sec: 4.0
+  min_interval_sec: 30.0
+  guardian_hook_file: "./logs_exec/guardian_hook.jsonl"
+  warn_thresholds:
+    stale_reject_ratio: 0.2
+    disarmed_ratio: 0.4
+    error_ratio: 0.1
+    reconcile_mismatch_ratio: 0.03
+    mode_transitions_window: 6
+  page_thresholds:
+    stale_reject_ratio: 0.35
+    disarmed_ratio: 0.6
+    error_ratio: 0.2
+    reconcile_mismatch_ratio: 0.05
+    mode_transitions_window: 10
+  auto_stop_thresholds:
+    stale_reject_ratio: 0.5
+    disarmed_ratio: 0.75
+    error_ratio: 0.25
+    reconcile_mismatch_ratio: 0.08
+    mode_transitions_window: 16
+  auto_stop_min_samples: 12
+  auto_stop_min_stale_rejects: 8
+  auto_stop_min_risk_rejects: 24
+
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9108
+  namespace: "prodesk"
+
+preflight:
+  require_live_confirmation: true
+  check_market_data: true
+  max_market_data_failures: 0
+  check_clock_sync: true
+  max_clock_skew_sec: 2.5
+  check_endpoint_health: false
+  endpoint_timeout_sec: 4.0
+  endpoint_urls: []
+
+security:
+  enabled: true
+  enforce_host_allowlist: true
+  allowed_hosts:
+    - "clob.polymarket.com"
+    - "ws-subscriptions-clob.polymarket.com"
+    - "ws-live-data.polymarket.com"
+    - "gamma-api.polymarket.com"
+  require_tls: true
+  block_private_network_hosts: true
+  enforce_storage_roots: true
+  allowed_storage_roots:
+    - "./logs_exec"
+  check_path_symlinks: true
+  check_file_permissions: true
+  # Prevent exposing internal runtime metrics externally in live mode.
+  enforce_local_metrics_bind_in_live: true
+  # Never run live as root.
+  allow_root_user_in_paper: true
+  allow_root_user_in_live: false
+  require_live_security_ack: true
+  live_security_ack_env: "SECURITY_ACK"
+  live_security_ack_value: "YES"
+
+ramp:
+  enabled: false
+  start_usd: 1
+  step_usd: 1
+  max_usd: 20
+  evaluation_window_cycles: 200
+  downshift_reject_ratio: 0.35
+  downshift_stale_oracle_ratio: 0.25
+  downshift_disarmed_ratio: 0.60
+  downshift_reconcile_mismatch_ratio: 0.05
+  reconcile_status_path: "./logs_exec/reconcile_latest.json"
+  disable_sniper_on_breach: true
+
+operating_mode:
+  enabled: true
+  window_cycles: 40
+  caution_stale_reject_ratio: 0.35
+  maker_only_stale_reject_ratio: 0.55
+  caution_outage_ratio: 0.2
+  maker_only_outage_ratio: 0.4
+  caution_disarmed_ratio: 0.5
+  maker_only_disarmed_ratio: 0.75
+  caution_error_ratio: 0.1
+  maker_only_error_ratio: 0.25
+  recover_healthy_cycles: 30
+  safe_stop_severe_cycles: 20
+  cautious_size_mult: 0.75
+  maker_only_size_mult: 0.45
+  cautious_spread_mult: 1.1
+  maker_only_spread_mult: 1.25
+  ws_slo_enforce_health: true
+  ws_slo_require_book_connected: true
+  ws_slo_require_chainlink_connected: true
+  ws_slo_max_book_last_msg_age_sec: 12.0
+  ws_slo_max_chainlink_last_tick_age_sec: 30.0
+  ws_slo_bootstrap_grace_sec: 45.0
+
+simulation:
+  maker_rebate_bps: 0.5
+  taker_fee_curve_rate: 0.0624
+  taker_slippage_bps: 2.0
+  adverse_selection_bps: 1.0
+  # MetaMask-style wallet simulator (paper harness only).
+  wallet_sim_enabled: true
+  wallet_sim_chain_id: 137
+  wallet_sim_account: "0x000000000000000000000000000000000000dEaD"
+  wallet_sim_allowed_assets: "USDC,POL"
+  wallet_sim_allowed_actions: "CONNECT,APPROVE_SPENDER,SIGN_ORDER,CANCEL_ORDER,NONCE_CHECK,GAS_FEE"
+  wallet_sim_allowed_spenders: "CLOB_EXCHANGE,USDC,NEG_RISK_ADAPTER"
+  wallet_sim_security_probe_every_steps: 45
+
+auth:
+  host: "https://clob.polymarket.com"
+  chain_id: 137
+  signature_type: 1
+  private_key_env: "POLYMARKET_PRIVATE_KEY"
+  funder_env: "POLYMARKET_FUNDER"
+  enforce_post_only: true
+  allow_taker: true
+  # Small TTL cache avoids repeated get_orders round-trips in one loop cycle.
+  open_orders_cache_ttl_sec: 0.25

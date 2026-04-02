@@ -1,0 +1,245 @@
+BRO EDGE DOCTRINE (LOCKED, AUDIT GRADE)
+
+Governance
+
+Document: BRO_EDGE_DOCTRINE.txt
+Version: 1.2
+Last Updated (UTC): 2026-03-23
+Authority: BRO Canonical Control-Plane Doctrine
+
+Change Control
+
+Any modification must:
+
+- preserve canonical single-path execution
+- preserve edge-truth determinism
+- be reviewed alongside authority doctrine
+
+No changes may introduce:
+
+- parallel execution logic
+- fabricated metrics
+- runtime decision drift from canonical pathway
+
+Core Principle
+
+BRO has one edge model, one execution pathway, and one truth layer.
+Maker and taker are execution choices, not separate systems.
+Edge truth measures reality; it does not create it.
+
+1. Edge Origin (Latency Edge)
+
+Latency edge is the only source of opportunity.
+
+Definition:
+
+A measurable mismatch between:
+
+- oracle-linked truth (Chainlink)
+- market pricing / threshold expectation
+
+This mismatch must be:
+
+- real (not assumed)
+- fresh (not stale)
+- actionable (not noise)
+
+Fail-Closed Edge Input Rules
+
+If any required edge input is missing, invalid, or stale:
+
+edge = invalid -> system must stand down
+
+Required edge inputs (minimum):
+
+- fair/oracle-derived price or probability
+- market-implied probability/pricing proxy
+- time remaining in window
+- oracle freshness (tick age/update recency)
+- latency verification state (if used in gating)
+
+Hard fail-closed conditions:
+
+BRO must not trade (maker or taker) if:
+
+- oracle data is missing
+- oracle data is stale beyond defined threshold
+- market pricing cannot be read or is inconsistent
+- time remaining cannot be determined
+- latency state is required but unknown
+- edge magnitude cannot be computed deterministically
+
+No fallback behavior allowed:
+
+BRO must not:
+
+- substitute default values
+- reuse prior-window values
+- assume edge from partial inputs
+
+2. Edge Expression (Execution Modes)
+
+Maker:
+
+- passive execution
+- used when sufficient time remains, edge is stable, and market quality supports passive fill
+
+Sniping Taker:
+
+- aggressive execution
+- used when time is short, edge is still valid, and waiting risks loss of opportunity
+
+Hard Rule:
+
+Maker and taker are not separate strategies.
+They are branches of one canonical execution pathway.
+
+3. Stage-Machine Binding
+
+Execution behavior must be bound to the canonical stage machine.
+
+Canonical stage-policy binding (exact):
+
+- `OBSERVE`: maker no, taker no
+- `EVALUATE`: maker no, taker no
+- `MAKER_POSITION`: maker yes, taker no
+- `MAKER_TAKER_SELECTIVE`: maker yes, taker yes
+- `SNIPER_PRIMARY`: maker no, taker yes
+- `EXTREME_ONLY`: maker no, taker yes
+- `EXPIRED`: maker no, taker no
+- `UNKNOWN`: maker no, taker no
+
+Rules:
+
+- stage determines which execution modes are eligible
+- resolver/capability model determines which actions are authorized
+- edge truth determines whether opportunity is valid
+
+All three must align before execution.
+
+4. Edge Truth Doctrine
+
+Edge truth is measurement only.
+
+It must answer:
+
+- did a real edge exist
+- was it tradeable or blocked
+- which execution path was used
+- what action was taken (outcome linkage is deferred in this packet)
+- which conditions correlate with performance
+
+Edge truth must not:
+
+- influence runtime decisions
+- act as a second control plane
+- override canonical logic
+
+5. Edge Truth Schema (Required)
+
+Edge truth must be testable and structured, not conceptual.
+
+At minimum, each edge evaluation must produce:
+
+Core identity:
+
+- run_id
+- token_id
+- timestamp_utc
+
+Context:
+
+- stage
+- time_remaining_sec
+
+Pricing/edge:
+
+- fair_probability (or equivalent)
+- market_probability (or equivalent)
+- edge_value
+
+Quality signals:
+
+- oracle_tick_age_sec
+- latency_state (`disarmed|probation|armed`)
+
+Decision:
+
+- maker_allowed (bool)
+- taker_allowed (bool)
+- action_taken (maker/taker/none)
+- block_reason (if not taken)
+
+Outcome (if applicable):
+
+- submitted (bool)
+- filled (bool)
+- result (reserved; must be null in this packet)
+
+Schema rules:
+
+- fields must be explicit, deterministic, and derived from real data
+- unknown values must be null/unavailable, never fabricated
+- result must be null-only until explicit outcome linkage is introduced in a future packet
+
+6. No Fabrication Rule
+
+- no inferred values presented as truth
+- no backfill of missing data
+- no smoothing or silent substitution
+- if data is incomplete, report explicitly or omit metric
+
+7. Determinism
+
+Same run artifacts -> same edge report output.
+
+No:
+
+- randomness
+- hidden state
+- dependency on external mutable data
+
+8. Single Truth Source
+
+All edge truth must come from:
+
+- canonical run artifacts
+- structured event logs
+
+No:
+
+- side files
+- spreadsheets
+- external reconstructed truth
+
+9. No Parallel Systems
+
+Do not create:
+
+- separate maker analytics engine
+- separate taker scoring system
+- independent latency analysis pipeline
+
+All analysis must operate through:
+
+canonical event -> canonical report -> canonical interpretation
+
+Relationship Model
+
+Latency edge creates opportunity.
+Maker expresses early/passive edge.
+Sniping taker expresses late/aggressive edge.
+Edge truth measures all of it.
+
+Final Lock-In
+
+BRO operates on one edge model driven by measurable latency-based opportunity.
+
+Execution decisions (maker, taker, or stand-down) are determined by:
+
+- stage-machine eligibility
+- canonical authority + capability
+- verified edge conditions
+
+Edge truth is a deterministic measurement layer derived from canonical artifacts.
+It must never fabricate data, create parallel logic, or influence runtime behavior.

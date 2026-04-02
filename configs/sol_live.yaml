@@ -1,0 +1,46 @@
+bot_name: "Bro-SOL-Live"
+mode: "live"
+
+asset:
+  symbol: "SOL"
+  chainlink_symbols: ["sol/usd"]
+  discovery_symbols: ["SOL"]
+
+targets:
+  token_ids: []
+  discovery:
+    enabled: true
+    max_pairs: 7
+
+sizing:
+  mode: "notional"
+  min_usd: 1
+  max_usd: 20
+  target_usd: 5
+  rounding: "floor"
+  price_source: "mid"
+  share_step: 0.01
+  exposure_cap_mode: "per_market_total"
+
+storage:
+  log_dir: "/logs"
+  state_path: "/logs/state.json"
+
+runtime:
+  guard_stop_file: "/logs/guard_stop.txt"
+
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9108
+
+preflight:
+  check_clock_sync: true
+  max_clock_skew_sec: 2.0
+
+security:
+  allowed_storage_roots:
+    - '/logs'
+
+ramp:
+  reconcile_status_path: "/logs/reconcile_latest.json"

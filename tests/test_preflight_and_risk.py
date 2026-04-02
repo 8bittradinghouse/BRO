@@ -1,0 +1,338 @@
+import copy
+import datetime as dt
+import tempfile
+import unittest
+from unittest import mock
+from pathlib import Path
+
+from prodesk.common import utc_iso
+from prodesk.config import DEFAULT_EXECUTION_CONFIG
+from prodesk.models import BookTop, FillEvent, LiveOrder, Position
+from prodesk.preflight import run_preflight_checks
+from prodesk.risk import RiskEngine
+
+_VALID_PK = "0x" + ("a" * 64)
+_VALID_FUNDER = "0x" + ("b" * 40)
+
+
+class PreflightAndRiskTests(unittest.TestCase):
+    def test_live_preflight_requires_confirmation(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["t1"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = True
+        findings = run_preflight_checks(cfg, mode_override="live", confirm_live=False)
+        self.assertIn("live_confirmation_missing", findings)
+
+    def test_live_preflight_requires_security_ack(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["t1"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        with mock.patch.dict(
+            "os.environ",
+            {"POLYMARKET_PRIVATE_KEY": _VALID_PK, "POLYMARKET_FUNDER": _VALID_FUNDER},
+            clear=True,
+        ):
+            findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+        self.assertIn("security_ack_missing:SECURITY_ACK", findings)
+
+    def test_live_preflight_accepts_security_ack(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["t1"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        env = {
+            "POLYMARKET_PRIVATE_KEY": _VALID_PK,
+            "POLYMARKET_FUNDER": _VALID_FUNDER,
+            "SECURITY_ACK": "YES",
+        }
+        with mock.patch.dict("os.environ", env, clear=True):
+            findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+        self.assertNotIn("security_ack_missing:SECURITY_ACK", findings)
+
+    def test_live_preflight_uses_file_secret_sources_without_env_vars(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["t1"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pk_path = root / "private_key.txt"
+            funder_path = root / "funder.txt"
+            pk_path.write_text(_VALID_PK, encoding="utf-8")
+            funder_path.write_text(_VALID_FUNDER, encoding="utf-8")
+            cfg["auth"]["private_key_source"] = {"mode": "file", "path": str(pk_path)}
+            cfg["auth"]["funder_source"] = {"mode": "file", "path": str(funder_path)}
+            with mock.patch.dict("os.environ", {"SECURITY_ACK": "YES"}, clear=True):
+                findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+
+        self.assertFalse(any(finding.startswith("missing_env:") for finding in findings))
+        self.assertFalse(any(finding.startswith("secret_load_failed:") for finding in findings))
+        self.assertFalse(any(finding.startswith("invalid_private_key:") for finding in findings))
+        self.assertFalse(any(finding.startswith("invalid_funder:") for finding in findings))
+
+    def test_live_preflight_reports_missing_env_for_env_secret_sources(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["t1"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        with mock.patch.dict("os.environ", {"SECURITY_ACK": "YES"}, clear=True):
+            findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+        self.assertIn("missing_env:POLYMARKET_PRIVATE_KEY", findings)
+        self.assertIn("missing_env:POLYMARKET_FUNDER", findings)
+
+    def test_preflight_duplicate_tokens_detected(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc", "abc"]
+        cfg["preflight"]["check_market_data"] = False
+        with tempfile.TemporaryDirectory() as td:
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertIn("duplicate_token_ids_detected", findings)
+
+    def test_preflight_flags_invalid_state_file(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        with tempfile.TemporaryDirectory() as td:
+            cfg["storage"]["log_dir"] = td
+            state_path = Path(td) / "state.json"
+            state_path.write_text("{bad json", encoding="utf-8")
+            cfg["storage"]["state_path"] = str(state_path)
+            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertTrue(any(x.startswith("state_file_invalid:") for x in findings))
+
+    def test_risk_cancel_rate_limit(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_cancels_per_min"] = 1
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        allow_first = risk.can_cancel()
+        self.assertTrue(allow_first.allowed)
+        risk.on_order_canceled()
+        deny_second = risk.can_cancel()
+        self.assertFalse(deny_second.allowed)
+
+    def test_mark_to_market_and_loss_limits(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_total_loss"] = 5.0
+        cfg["max_loss_per_token"] = 3.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        risk.on_fill(FillEvent(trade_id="x1", token_id="t1", side="BUY", price=0.9, size=10, ts_utc="2026-01-01T00:00:00Z"))
+        total_pnl, pnl_by_token = risk.mark_to_market({"t1": 0.2})
+        self.assertLess(total_pnl, 0)
+        self.assertLess(pnl_by_token["t1"], 0)
+        decision = risk.evaluate_loss_limits({"t1": 0.2})
+        self.assertFalse(decision.allowed)
+
+    def test_validate_order_rejects_stale_book(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 0.001
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc="2000-01-01T00:00:00Z",
+            source="test",
+            best_bid_price=0.4,
+            best_bid_size=1,
+            best_ask_price=0.6,
+            best_ask_size=1,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=5),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "stale_book")
+
+    def test_validate_order_rejects_future_book_timestamp(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["max_book_future_skew_sec"] = 0.5
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        future_ts = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=5)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=future_ts.isoformat().replace("+00:00", "Z"),
+            source="test",
+            best_bid_price=0.4,
+            best_bid_size=1,
+            best_ask_price=0.6,
+            best_ask_size=1,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=5),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "future_book_timestamp")
+
+    def test_validate_order_rejects_notional_cap_per_side(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["max_notional_per_token"] = 5.0
+        cfg["exposure_cap_mode"] = "per_side"
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.4,
+            best_bid_size=1,
+            best_ask_price=0.6,
+            best_ask_size=1,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=20),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "notional_cap_long")
+
+    def test_validate_order_rejects_when_pending_same_side_exceeds_position_cap(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["max_abs_position_shares"] = 100.0
+        positions = {"t1": Position(token_id="t1", net_shares=0.0)}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        pending = LiveOrder(
+            order_id="o-1",
+            token_id="t1",
+            side="BUY",
+            price=0.5,
+            size=90.0,
+            remaining_size=90.0,
+            status="OPEN",
+        )
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=20.0),
+            top=top,
+            open_orders_for_token=[pending],
+            open_orders_total=1,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "position_cap")
+
+    def test_preflight_clock_sync_finding_when_skew_exceeded(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["check_clock_sync"] = True
+        cfg["preflight"]["max_clock_skew_sec"] = 1.0
+        fake_resp = mock.Mock()
+        fake_resp.headers = {"Date": "Wed, 01 Jan 2020 00:00:00 GMT"}
+        with mock.patch("prodesk.preflight.requests.Session.get", return_value=fake_resp):
+            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertTrue(any(x.startswith("clock_skew_exceeded:") for x in findings))
+
+    def test_preflight_endpoint_health_finding(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["check_endpoint_health"] = True
+        cfg["preflight"]["endpoint_urls"] = ["https://example.invalid/healthz"]
+        with mock.patch("prodesk.preflight.requests.Session.get", side_effect=RuntimeError("boom")):
+            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertTrue(any(x.startswith("endpoint_health_failed:") for x in findings))
+
+    def test_live_preflight_flags_existing_guard_stop_file(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        with tempfile.TemporaryDirectory() as td:
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["runtime"]["guard_stop_file"] = str(Path(td) / "guard_stop.txt")
+            Path(cfg["runtime"]["guard_stop_file"]).write_text("manual stop\n", encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"POLYMARKET_PRIVATE_KEY": _VALID_PK, "POLYMARKET_FUNDER": _VALID_FUNDER},
+            ):
+                findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+        self.assertIn("guard_stop_file_present", findings)
+
+    def test_live_preflight_allows_guard_stop_if_clearing_enabled(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "live"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["preflight"]["require_live_confirmation"] = False
+        cfg["runtime"]["clear_guard_stop_on_start"] = True
+        with tempfile.TemporaryDirectory() as td:
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["runtime"]["guard_stop_file"] = str(Path(td) / "guard_stop.txt")
+            Path(cfg["runtime"]["guard_stop_file"]).write_text("manual stop\n", encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"POLYMARKET_PRIVATE_KEY": _VALID_PK, "POLYMARKET_FUNDER": _VALID_FUNDER},
+            ):
+                findings = run_preflight_checks(cfg, mode_override="live", confirm_live=True)
+        self.assertNotIn("guard_stop_file_present", findings)
+
+    def test_preflight_flags_guard_stop_directory_path(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        with tempfile.TemporaryDirectory() as td:
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["runtime"]["guard_stop_file"] = td
+            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertIn("guard_stop_path_is_directory", findings)
+
+    def test_preflight_includes_security_findings(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["mode"] = "paper"
+        cfg["targets"]["token_ids"] = ["abc"]
+        cfg["preflight"]["check_market_data"] = False
+        cfg["market_data"]["clob_url"] = "https://example.com"
+        findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertTrue(
+            any(x.startswith("security.host_not_allowlisted:market_data.clob_url:example.com") for x in findings)
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

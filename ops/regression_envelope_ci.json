@@ -1,0 +1,46 @@
+{
+  "nightly": {
+    "quote_uptime_ratio": {
+      "min": 0.99,
+      "max": 1.0
+    },
+    "error_rows": {
+      "max": 0.0
+    },
+    "status_rows": {
+      "min": 1.0
+    }
+  },
+  "performance": {
+    "metrics.cycle_latency_p95_ms": {
+      "max": 10000.0
+    },
+    "metrics.cycle_latency_max_ms": {
+      "max": 10000.0
+    },
+    "metrics.process_rss_mb_max": {
+      "max": 4096.0
+    },
+    "metrics.order_capacity_used_ratio_max": {
+      "max": 1.0
+    },
+    "metrics.cancel_capacity_used_ratio_max": {
+      "max": 1.0
+    },
+    "metrics.cycle_span_market_data_max_ms": {
+      "max": 10000.0
+    },
+    "metrics.cycle_span_strategy_exec_max_ms": {
+      "max": 10000.0
+    },
+    "metrics.cycle_span_state_io_max_ms": {
+      "max": 10000.0
+    },
+    "metrics.cycle_span_status_io_max_ms": {
+      "max": 10000.0
+    },
+    "metrics.cycle_span_residual_max_ms": {
+      "max": 10000.0
+    }
+  }
+}

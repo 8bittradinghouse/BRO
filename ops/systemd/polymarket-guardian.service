@@ -1,0 +1,19 @@
+[Unit]
+Description=Polymarket Bro Guardian Watchdog
+After=network-online.target polymarket-executor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/polymarketmakerbot
+ExecStart=/opt/polymarketmakerbot/.venv/bin/python scripts/guardian_watchdog.py --log-dir /opt/polymarketmakerbot/logs_exec --guard-stop-file /opt/polymarketmakerbot/logs_exec/guard_stop.txt --require-chainlink-connected --require-book-feed-connected --chainlink-disconnect-min-age-sec 25 --book-feed-disconnect-min-age-sec 25 --disconnect-confirm-polls 3
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+StandardOutput=append:/opt/polymarketmakerbot/logs_exec/guardian.out.log
+StandardError=append:/opt/polymarketmakerbot/logs_exec/guardian.err.log
+
+[Install]
+WantedBy=multi-user.target

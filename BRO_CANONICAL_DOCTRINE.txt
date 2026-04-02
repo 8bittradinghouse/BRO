@@ -1,0 +1,848 @@
+BRO CANONICAL DOCTRINE AND WORKFLOW SPECIFICATION
+
+Purpose
+
+BRO is a professional-grade automated execution system for Polymarket short-window markets. Its purpose is to participate only when doctrine, wallet safety, and market quality all align. BRO is not designed to force trades. It is designed to seek valid execution and skip poor conditions.
+
+BRO treats each 5-minute market window as a completely new market. No carryover directional bias, conviction, or state from previous windows is allowed to influence the next one except for persistent system-health state such as wallet condition, connectivity, and operator safety controls.
+
+The system must remain fail-closed. When uncertain, stale, degraded, inconsistent, or unsafe, BRO must skip or halt rather than improvise.
+
+1. Core System Doctrine
+
+1.1 Primary Philosophy
+
+BRO follows these core principles:
+
+- execution-seeking, not execution-forcing
+- doctrine over impulse
+- capital protection before opportunity capture
+- skip bad markets without hesitation
+- safety systems override PnL opportunity
+- every market window is independent
+- strategy may express intent, but never control funds
+- all execution must pass three gates
+- fail closed on ambiguity, inconsistency, or degraded trust
+
+1.2 Canonical Domains
+
+BRO is governed by three canonical domains. These must remain distinct in code and in responsibility.
+
+A. Strategy / Execution Doctrine
+
+Responsible for observing the current market window, determining stage, evaluating whether an edge exists, and producing trade intents.
+
+It may:
+
+- observe oracle, orderbook, threshold, time remaining, internal derived metrics
+- determine current stage
+- decide whether conditions justify maker participation, taker participation, or no action
+- produce a trade intent
+
+It may not:
+
+- read raw wallet balances as authority for capital use
+- sign orders
+- move funds
+- manage nonce
+- bypass quality gates
+- self-authorize execution
+
+B. Wallet Doctrine Module
+
+Responsible for all capital authority and wallet safety decisions for the single Polygon trading wallet.
+
+It may:
+
+- determine deployable capital
+- reserve POL gas
+- verify allowance
+- reconcile chain truth vs internal state
+- approve, reduce, or reject requested trade size
+- manage pending capital locks
+- manage nonce and transaction lifecycle truth
+- halt system on wallet anomaly
+
+It may not:
+
+- decide market direction
+- invent strategy
+- override strategy side selection except by rejection or size reduction based on safety rules
+
+C. Canonical Paper Harness
+
+Responsible for simulation realism, auditability, replayability, order lifecycle fidelity, and integrity checking.
+
+It must simulate:
+
+- order submission and acknowledgement
+- open / partial / fill / cancel / expire / reject lifecycle
+- capital locking and release
+- queue position effects for maker orders
+- latency and timing realism
+- stale order behavior
+- invalid transition detection
+- duplicate fill detection
+- reconciliation consistency
+
+2. High-Level Architecture
+
+The required architecture is:
+
+Strategy Doctrine
+-> Execution Controller
+-> Wallet Doctrine Module
+-> Transaction Manager
+-> Polymarket / Polygon
+-> Settlement / Fill Handling
+-> Reconciliation
+
+The architecture must preserve the following separation rules:
+
+- Strategy produces only intents.
+- Execution Controller coordinates but does not own capital truth.
+- Wallet Doctrine is sole authority for capital authorization.
+- Transaction Manager is sole authority for signing/submission mechanics.
+- Reconciliation determines post-trade state truth.
+- No module may bypass wallet doctrine.
+- No module may bypass reconciliation.
+
+3. Three-Gate Execution Model
+
+Every trade must pass three independent gates. Execution is authorized only if all three pass in the same decision cycle.
+
+3.1 Strategy Gate
+
+Confirms that doctrine permits the action.
+
+Questions answered here:
+
+- Is the current stage known and valid?
+- Is the requested action allowed in this stage?
+- Does the observed setup meet doctrine requirements?
+- Is the side selection supported by fair-value logic?
+- Is the edge strong enough for the current stage?
+- Is this action valid for canonical mode vs degraded mode?
+
+If any answer fails, the action is rejected.
+
+3.2 Wallet Gate
+
+Confirms that capital and wallet health permit the action.
+
+Questions answered here:
+
+- Is wallet state healthy and reconciled?
+- Is POL gas reserve above minimum?
+- Is deployable USDC.e sufficient?
+- Is allowance valid?
+- Is there a nonce conflict or pending tx anomaly?
+- Would this action violate capital allocation or exposure rules?
+- Is the requested size safe and permitted?
+
+If any answer fails, the action is rejected or reduced. If the failure is severe, the system halts.
+
+3.3 Market Quality Gate
+
+Confirms the market is safe and suitable for execution.
+
+Questions answered here:
+
+- Is oracle data fresh enough?
+- Is orderbook data fresh enough?
+- Is threshold distance meaningful enough?
+- Is latency acceptable?
+- Is spread / microstructure acceptable?
+- Is there sufficient size / depth?
+- Are there quality problems indicating poor execution conditions?
+
+If any answer fails, the market is skipped.
+
+3.4 Gate Bundle Rule
+
+The gates must be evaluated as a bundled authorization, not as partially mutating sequential steps.
+
+Execution authorization must behave logically as:
+
+authorized = strategy_ok AND wallet_ok AND market_ok
+
+No order may be created, submitted, or capital-locked unless all three gates pass.
+
+4. Single-Wallet Doctrine
+
+BRO uses a single Polygon trading wallet. Because only one wallet exists, the wallet doctrine must logically partition the wallet into protected subdomains even though the address is physically one address.
+
+4.1 Logical Capital Partitions
+
+The single wallet balance must be modeled internally as:
+
+- POL gas reserve
+- minimum protected USDC.e reserve, if configured
+- deployable USDC.e capital
+- locked capital in active or pending orders
+- settled free capital
+- reconciliation adjustment buffer, if needed for bookkeeping
+
+The strategy layer must never directly read or assume these partitions. It receives only wallet-authorized results.
+
+4.2 Wallet Doctrine Responsibilities
+
+The Wallet Doctrine Module is the sole authority over:
+
+- chain verification
+- wallet address verification
+- POL balance health
+- USDC.e balance truth
+- allowance status
+- deployable-capital computation
+- pending capital locks
+- nonce authority
+- tx lifecycle truth
+- post-settlement reconciliation
+- fail-closed halts on anomaly
+
+4.3 Wallet Doctrine Failure Conditions
+
+The system must halt immediately if any of the following occur:
+
+- wallet balance mismatch beyond tolerance
+- nonce conflict or unexpected nonce jump
+- insufficient POL gas reserve
+- insufficient allowance where allowance is required
+- unexpected balance movement not attributable to known settlement or tx flow
+- transaction lifecycle contradiction
+- repeated reconciliation failure
+- chain identity mismatch
+- wallet address mismatch
+- corrupted or unknown pending-order lock state
+
+4.4 Wallet Authority Rule
+
+Strategy may request:
+
+- side
+- requested size
+- reason
+- stage
+- optional price intent if maker logic requires it
+
+Wallet Doctrine may respond with:
+
+- approve as requested
+- approve with reduced size
+- reject
+- halt system
+
+Strategy must not override wallet response.
+
+5. Trade Intent Contract
+
+The strategy layer produces a trade intent, not an executable order.
+
+A canonical intent should include fields like:
+
+- market identifier
+- window identifier
+- side
+- requested size
+- stage
+- reason code
+- fair-value context
+- timestamp
+- mode
+- urgency type
+- execution preference
+
+5.1 Intent Example
+
+A valid conceptual intent is:
+
+- side = YES
+- requested_size = 25 USDC.e
+- reason = sniper_edge
+- stage = SNIPER_PRIMARY
+- execution_preference = taker_only
+- mode = canonical
+
+This is only a request. It has no execution authority by itself.
+
+6. Strategy Doctrine Workflow
+
+This section defines the operational workflow of BRO's strategy engine.
+
+6.1 Workflow: Window Initialization
+
+At the start of each 5-minute market window, BRO must initialize a clean window state.
+
+Required behavior:
+
+- identify current market window
+- reset all window-local bias and directional memory
+- clear previous window's strategy conviction state
+- initialize fresh observation state
+- mark window as active
+- begin observation loop
+
+Persisted system-health state such as wallet condition, connectivity state, and operator kill-switch state may remain. Market bias may not remain.
+
+6.2 Workflow: Observation Loop
+
+During an active window, BRO continuously observes:
+
+- Chainlink / oracle-derived price inputs
+- Polymarket threshold relation
+- orderbook state
+- spread and depth
+- time remaining in current window
+- market microstructure
+- latency and freshness metrics
+- internal execution state
+- doctrine mode state
+
+Observation must be timestamped and freshness-aware. Stale observations cannot be silently reused as fresh truth.
+
+6.3 Workflow: Fair-Value Derivation
+
+BRO must derive fair-value context from trusted oracle input and current threshold structure.
+
+Fair value is required. If oracle-derived fair-value context is unavailable, stale, or degraded beyond doctrine allowance, execution must fail closed.
+
+BRO may not trade based solely on orderbook appearance or momentum feel. Oracle-derived context is a prerequisite.
+
+6.4 Workflow: Stage Determination
+
+BRO uses a stage machine. Current stage must be derived from time remaining, edge strength, doctrine mode, and execution conditions.
+
+Canonical stages are:
+
+- OBSERVE
+- EVALUATE
+- MAKER_POSITION
+- MAKER_TAKER_SELECTIVE
+- SNIPER_PRIMARY
+- EXTREME_ONLY
+- EXPIRED
+- UNKNOWN
+
+Stage meanings
+
+OBSERVE
+
+Early or uncertain phase. BRO gathers information and does not execute.
+
+EVALUATE
+
+BRO has enough information to begin judging edge and market quality but is not yet authorized to act unless specific doctrine rules permit transition.
+
+MAKER_POSITION
+
+Earlier stage where maker placement may be allowed if doctrine conditions support passive positioning.
+
+MAKER_TAKER_SELECTIVE
+
+Intermediate stage where both maker and taker logic may be conditionally allowed, depending on edge and market quality.
+
+SNIPER_PRIMARY
+
+Late stage where BRO primarily seeks short-horizon taker execution only. Maker logic is disallowed.
+
+EXTREME_ONLY
+
+Very late or very strict stage where only unusually strong edge and clean conditions justify execution.
+
+EXPIRED
+
+The market window is effectively no longer tradeable by doctrine.
+
+UNKNOWN
+
+Stage derivation failed or state is inconsistent. Must fail closed.
+
+6.5 Workflow: Stage Transition Rules
+
+Stage transitions must be deterministic and auditable.
+
+Required stage doctrines:
+
+- prerequisites fail closed
+- unknown stage fails closed
+- oracle-derived fair value is required
+- maker participation is restricted to earlier stages
+- SNIPER_PRIMARY is taker-only
+- EXTREME_ONLY requires stronger edge than earlier stages
+- degraded and canonical modes must remain explicitly separated
+- expired stage forbids new trade entry
+- mode downgrade must not silently preserve prior stage permissions
+
+7. Execution Workflows
+
+7.1 Workflow: No-Trade Decision
+
+BRO must be able to do nothing cleanly and intentionally.
+
+This is not a failure state. It is normal doctrine behavior.
+
+BRO should skip when:
+
+- no meaningful edge exists
+- fair value is stale or uncertain
+- market quality is poor
+- spread / depth is unattractive
+- wallet gate fails
+- stage does not authorize the action
+- time remaining is unsuitable
+- doctrine mode is degraded beyond acceptable limits
+
+A skipped market is a valid output.
+
+7.2 Workflow: Maker Workflow
+
+Maker workflow is allowed only in maker-permitted stages.
+
+Maker flow:
+
+1. Strategy derives edge and current stage permits maker participation.
+2. Strategy emits trade intent with maker preference.
+3. Three-gate bundle is evaluated.
+4. Wallet doctrine approves capital and locks size if appropriate.
+5. Execution controller generates order request.
+6. Transaction manager submits maker order.
+7. Order enters open state.
+8. System monitors queue position, fill progress, remaining time, and market drift.
+
+Order may:
+
+- fill fully
+- fill partially
+- remain open
+- be cancelled
+- expire
+
+Capital and state are reconciled after any transition.
+
+Maker order logic must include explicit rules for:
+
+- cancellation on deteriorating edge
+- cancellation on time decay
+- cancellation on stage transition to taker-only zone
+- stale-order invalidation
+- lock release on cancel / expire
+
+7.3 Workflow: Taker Workflow
+
+Taker workflow is used when doctrine authorizes immediate execution, especially in later stages.
+
+Taker flow:
+
+1. Strategy derives a valid near-term edge.
+2. Strategy emits taker-oriented trade intent.
+3. Three-gate bundle is evaluated.
+4. Wallet doctrine approves deployable size.
+5. Transaction manager submits executable order.
+6. Order is monitored through submission and fill lifecycle.
+7. Settlement is captured.
+8. Reconciliation updates free vs locked capital.
+9. Window state records execution outcome.
+
+SNIPER_PRIMARY must be taker-only. No passive maker logic is allowed in that stage.
+
+7.4 Workflow: Selective Maker/Taker Decision
+
+In stages where either maker or taker may be valid, BRO must explicitly choose based on doctrine and not blur the two.
+
+The selection logic should consider:
+
+- time remaining
+- spread
+- depth
+- probability of passive fill
+- queue disadvantage
+- edge decay risk
+- urgency of capture
+- slippage risk
+
+The system must record why maker or taker was chosen.
+
+7.5 Workflow: Extreme-Only Execution
+
+EXTREME_ONLY is the strictest tradeable stage.
+
+Execution is allowed only when:
+
+- fair-value edge is unusually strong
+- market quality is still acceptable
+- latency and freshness are good
+- wallet health is clean
+- doctrine explicitly authorizes the action
+
+This stage should produce many skips and very few trades. If it does not, thresholds are too loose.
+
+8. Transaction and Order Lifecycle Workflow
+
+BRO must model all order states canonically.
+
+Required states:
+
+- created
+- submitted
+- open
+- partial
+- filled
+- cancelled
+- expired
+- rejected
+
+8.1 Valid Lifecycle Principles
+
+- An order cannot move from filled back to open.
+- A cancelled order cannot later fill without explicit contradiction handling.
+- Partial fill must preserve remaining open quantity truth.
+- Expired and rejected must release capital correctly.
+- Duplicate fills must be detected as integrity violations.
+- Unknown state transitions must fail closed and alert.
+
+8.2 Submission Workflow
+
+Submission flow:
+
+1. execution request created
+2. wallet capital lock confirmed
+3. transaction request formed
+4. transaction manager signs/submits
+5. submission acknowledgement captured
+6. order state becomes submitted or rejected
+7. downstream market / tx events move state forward
+
+8.3 Settlement Workflow
+
+Settlement flow:
+
+1. fills or outcome events are received
+2. order state updated
+3. locked capital adjusted
+4. actual fill amount recorded
+5. wallet reconciliation performed
+6. internal ledger aligned with observed truth
+
+Settlement must not rely on optimistic assumptions.
+
+9. Reconciliation Workflow
+
+Reconciliation is one of the most important workflows in BRO.
+
+9.1 When Reconciliation Must Run
+
+Reconciliation must run:
+
+- at startup
+- before execution authorization
+- after submission when relevant
+- after any fill / partial / cancel / expiry event
+- at window close
+- at shutdown
+- after any detected anomaly
+- periodically during runtime
+
+9.2 Reconciliation Purpose
+
+It confirms:
+
+- wallet balances match expected state
+- pending locks are valid
+- allowance truth matches expectation
+- nonce progression is consistent
+- tx and order state match observed reality
+- no unexplained capital movement occurred
+
+9.3 Reconciliation Outcomes
+
+Possible outcomes:
+
+- healthy: continue
+- warning: skip current action and monitor
+- reject: deny execution
+- halt: enter fail-closed safety state
+
+Severe mismatch must halt immediately.
+
+10. Wallet and Capital Workflows
+
+10.1 Deployable Capital Computation
+
+For a single wallet, deployable capital must be derived after subtracting protected reserves and existing obligations.
+
+Conceptually:
+
+deployable USDC.e =
+free USDC.e
+minus locked USDC.e
+minus protected reserves
+subject to max per-trade / per-window / per-exposure rules
+
+POL gas reserve must always remain protected and outside strategy control.
+
+10.2 Capital Lock Workflow
+
+Before an order is submitted:
+
+- requested size is reviewed
+- approved size is computed
+- approved capital is locked
+- submission proceeds only after lock success
+
+If submission fails, the lock must be released or transitioned deterministically.
+
+10.3 Gas Safety Workflow
+
+Wallet doctrine must maintain:
+
+- minimum POL operational reserve
+- preferred POL reserve threshold
+- halt threshold below which execution is forbidden
+
+Gas health must be checked before execution authorization, not after.
+
+10.4 Nonce Workflow
+
+Only wallet / tx authority may control nonce.
+
+Nonce workflow:
+
+1. determine current usable nonce
+2. verify pending tx map
+3. reserve nonce for outgoing tx if needed
+4. submit tx
+5. observe resulting lifecycle
+6. reconcile nonce progression
+
+Unexpected nonce movement must be treated as a potential safety event.
+
+11. Market Quality Workflow
+
+This workflow determines whether the market is worth participating in.
+
+Inputs may include:
+
+- oracle freshness
+- orderbook freshness
+- latency gap
+- spread
+- visible depth
+- threshold proximity
+- quote quality
+- time remaining
+- stale-book symptoms
+- degraded feed conditions
+
+Possible outputs:
+
+- acceptable
+- poor quality, skip
+- degraded, skip
+- severe quality anomaly, halt or stand down
+
+Market quality is not optional. A valid edge in a poor-quality market is still a no-trade.
+
+12. Degraded Mode Workflow
+
+BRO must explicitly distinguish canonical mode from degraded mode.
+
+Degraded mode may occur due to:
+
+- stale oracle
+- partial feed degradation
+- delayed book
+- missing observations
+- external service instability
+
+Rules:
+
+- degraded mode must be explicit in state
+- degraded mode must not silently inherit canonical permissions
+- degraded mode must have narrower or zero execution authority
+- transitions between modes must be logged and auditable
+
+If degradation undermines trust in fair-value or market quality, the correct action is skip or halt.
+
+13. Startup Workflow
+
+At startup, BRO must not begin trading immediately without system-health validation.
+
+Startup flow:
+
+1. verify environment and config integrity
+2. verify chain / network identity
+3. verify wallet address
+4. verify POL and USDC.e visibility
+5. verify allowance state if relevant
+6. reconcile wallet truth
+7. verify data feed connectivity
+8. verify oracle visibility
+9. initialize doctrine mode
+10. initialize active market discovery
+11. enter observe state
+
+Startup must fail closed if core prerequisites are not satisfied.
+
+14. Shutdown Workflow
+
+Shutdown must be orderly and safe.
+
+Shutdown flow:
+
+1. stop new execution authorization
+2. cancel or stand down open maker logic if appropriate
+3. reconcile wallet and order state
+4. flush logs / audits
+5. persist runtime state needed for restart integrity
+6. exit cleanly
+
+Shutdown must not leave ambiguous lock state if avoidable.
+
+15. Paper Harness Doctrine
+
+The canonical paper harness must not be a toy fill engine. It is part of system truth testing.
+
+15.1 Required Simulation Features
+
+The harness must simulate:
+
+- order lifecycle states
+- queue effects for maker orders
+- partial fills
+- cancellation logic
+- expiry behavior
+- capital locking and release
+- latency realism
+- stale data effects where applicable
+- replayable state transitions
+- audit trace output
+
+15.2 Harness Integrity Checks
+
+The harness must detect:
+
+- duplicate fills
+- invalid state transitions
+- capital inconsistencies
+- stale orders not cleaned up
+- impossible settlement outcomes
+- lock release errors
+- contradictory lifecycle updates
+
+15.3 Replayability Rule
+
+A paper run must be auditable and replayable enough to reconstruct:
+
+- what the system saw
+- what doctrine decided
+- what it tried to do
+- what the simulated exchange did
+- how wallet state changed
+
+16. Audit and Logging Workflow
+
+BRO must produce logs suitable for engineering review, not just operator reassurance.
+
+Logs should make it possible to answer:
+
+- why a trade was skipped
+- why a trade was allowed
+- what stage the system believed it was in
+- which gate failed
+- what wallet approved or denied
+- what market quality conditions existed
+- what happened to the order lifecycle
+- what reconciliation concluded
+
+At minimum, decision records should include:
+
+- timestamp
+- market/window id
+- current stage
+- doctrine mode
+- fair-value summary
+- threshold relation
+- gate outcomes
+- action taken: skip / maker / taker / cancel / halt
+- reason codes
+- wallet approval result
+- reconciliation result
+
+17. Canonical Non-Negotiable Rules
+
+These are hard doctrine rules and should be encoded as invariants where possible.
+
+- Every 5-minute window is a new market.
+- No carryover directional bias is allowed.
+- Strategy may not move funds.
+- Strategy may not sign orders.
+- Strategy may only emit intents.
+- Wallet doctrine is sole capital authority.
+- Oracle-derived fair-value context is required.
+- Unknown or inconsistent stage fails closed.
+- All trades must pass all three gates.
+- SNIPER_PRIMARY is taker-only.
+- Maker participation is limited to earlier permitted stages.
+- EXTREME_ONLY requires stronger edge than normal stages.
+- Poor market quality means skip.
+- Reconciliation mismatch means reject or halt.
+- Gas safety overrides trade opportunity.
+- Degraded mode must be explicit and narrower than canonical mode.
+- The system must prefer skipping over forcing.
+
+18. Current Engineering Priority Order
+
+BRO priorities remain:
+
+1. Wallet Doctrine Module completion
+2. Canonical Paper Harness hardening
+3. Security and operational hardening maintenance
+4. Long-duration paper runs, including 12-hour run
+5. Strategy tuning only after system stability is proven
+
+This order must not be reversed.
+
+19. Implementation Guidance for Codex
+
+Codex should treat this doctrine as the authority source and should avoid architectural drift.
+
+Implementation expectations:
+
+- keep canonical domains separate
+- do not let strategy access wallet authority directly
+- do not collapse execution controller and wallet doctrine into one layer
+- implement gate bundle logic explicitly
+- model single-wallet logical partitions internally
+- encode failure conditions as real rejects/halts, not comments
+- keep stage machine explicit and auditable
+- preserve canonical vs degraded distinction in code and state
+- implement reconciliation as a first-class workflow, not an afterthought
+- make paper harness realistic enough to expose lifecycle and capital bugs
+
+When uncertain, Codex should choose the more conservative and more explicit design.
+
+20. One-Line Canonical Summary
+
+BRO is a fail-closed, doctrine-driven Polymarket execution system in which strategy produces intents, wallet doctrine controls capital, market quality filters execution, and every 5-minute market is treated as a fresh opportunity that may be traded only when all gates pass.
+
+21. Protection-Path Semantic Clarity
+
+Control-authoritative safety behavior must remain explicit.
+
+- `alerts.enabled` is notification transport only.
+- Disabling transport must not be interpreted as disabling auto-stop / kill-switch authority.
+- Canonical semantics label:
+  - transport disabled
+  - control authority unchanged
+- If transport/control status fields are missing, emitted semantics must remain explicit unknown (not false default).
+- Artifacts must emit:
+  - `primary_suppression_cause`
+  - `contributing_suppression_causes`
+  - `ambiguous_suppression_cause`
+  - `suppression_dominated_run`
+  - `execution_starvation_mode`
+  - `protected_no_trade_explanation`
+  - `trigger_chain_interpretation`
+
+If primary suppression cause cannot be uniquely determined, the system must emit explicit ambiguity and must not invent a synthetic primary cause.

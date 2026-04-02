@@ -1,0 +1,1364 @@
+#!/usr/bin/env python3
+"""Canonical paper session runner with explicit lifecycle phase machine."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import os
+import pathlib
+import subprocess
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import PurePosixPath
+from typing import Any, Dict, Iterable, List, Optional
+
+from prodesk.canonical_authority import (
+    CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS,
+    CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS,
+)
+from prodesk.config import load_execution_config
+from prodesk.run_contract import build_run_contract, run_contract_path, write_run_contract
+from prodesk.session_phase import (
+    assert_valid_phase_transition,
+    validation_surface_for_phase,
+)
+
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+CANONICAL_CONFIG_PATH = (ROOT_DIR / "configs/profiles/paper_universal.yaml").resolve()
+CANONICAL_LOG_DIR = (ROOT_DIR / "logs_exec/paper_universal").resolve()
+CANONICAL_STATE_PATH = (ROOT_DIR / "data/paper_universal/state.json").resolve()
+CANONICAL_GUARDIAN_CONTEXT_PATH = (ROOT_DIR / "logs_exec/paper_universal/guardian_session_context.json").resolve()
+CANONICAL_VALIDATION_SCRIPT = (ROOT_DIR / "scripts/canonical_paper_validation.sh").resolve()
+DEPLOY_SCRIPT = (ROOT_DIR / "scripts/deploy_paper_clean.sh").resolve()
+
+
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def utc_iso(value: Optional[dt.datetime] = None) -> str:
+    ts = value or utc_now()
+    return ts.astimezone(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def parse_ts(value: Any) -> Optional[dt.datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        out = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if out.tzinfo is None:
+        out = out.replace(tzinfo=dt.timezone.utc)
+    return out.astimezone(dt.timezone.utc)
+
+
+def _resolve_runtime_path(*, config_dir: pathlib.Path, raw_value: str, fallback: pathlib.Path) -> pathlib.Path:
+    text = str(raw_value or "").strip()
+    if not text:
+        return fallback.resolve()
+    if text.startswith("/logs"):
+        rel = PurePosixPath(text).relative_to("/logs")
+        return (ROOT_DIR / "logs_exec" / pathlib.Path(*rel.parts)).resolve()
+    if text.startswith("/data"):
+        rel = PurePosixPath(text).relative_to("/data")
+        return (ROOT_DIR / "data" / pathlib.Path(*rel.parts)).resolve()
+    candidate = pathlib.Path(text).expanduser()
+    if not candidate.is_absolute():
+        candidate = (config_dir / candidate).resolve()
+    return candidate.resolve()
+
+
+def _compute_active_timing(
+    *,
+    requested_active_sec: float,
+    runtime_duration_sec: Optional[float],
+    cutoff_buffer_sec: float,
+    pre_active_elapsed_sec: float,
+) -> Dict[str, Any]:
+    """Compute deterministic active-phase wait semantics.
+
+    Rule:
+    - When requested runtime is below container runtime duration, honor the full
+      requested active duration from active-phase entry (no pre-active subtraction).
+    - When requested runtime would hit/exceed container runtime duration, cap with
+      a safety buffer and subtract pre-active elapsed time to keep the total within
+      the configured runtime window.
+    """
+
+    requested = max(1.0, float(requested_active_sec))
+    pre_elapsed = max(0.0, float(pre_active_elapsed_sec))
+    runtime_cap = None
+    runtime_capped = False
+    if runtime_duration_sec is not None:
+        runtime_cap = max(0.0, float(runtime_duration_sec))
+        runtime_capped = requested >= runtime_cap and runtime_cap > 0.0
+
+    effective = requested
+    if runtime_capped and runtime_cap is not None:
+        effective = max(1.0, runtime_cap - max(0.0, float(cutoff_buffer_sec)))
+
+    if runtime_capped:
+        active_wait = max(0.0, effective - pre_elapsed)
+        elapsed_source = "contract_start"
+    else:
+        active_wait = effective
+        elapsed_source = "active_phase"
+
+    return {
+        "requested_active_sec": float(requested),
+        "effective_active_sec": float(effective),
+        "runtime_duration_sec": float(runtime_cap) if runtime_cap is not None else None,
+        "runtime_cutoff_buffer_sec": float(max(0.0, float(cutoff_buffer_sec))),
+        "pre_active_elapsed_sec": float(pre_elapsed),
+        "runtime_capped": bool(runtime_capped),
+        "active_wait_sec": float(active_wait),
+        "elapsed_source": str(elapsed_source),
+    }
+
+
+def _to_container_logs_path(host_path: pathlib.Path) -> str:
+    host = pathlib.Path(host_path).resolve()
+    logs_root = (ROOT_DIR / "logs_exec").resolve()
+    try:
+        rel = host.relative_to(logs_root)
+    except Exception:
+        return str(host)
+    return str(PurePosixPath("/logs") / PurePosixPath(*rel.parts))
+
+
+def _load_manifest_for_run(log_dir: pathlib.Path, run_id: str) -> Dict[str, Any]:
+    manifest_path = log_dir / f"run_manifest_{run_id}.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"manifest_invalid_root:{manifest_path}")
+    return payload
+
+
+def _observe_manifest_for_run_id(
+    *,
+    log_dir: pathlib.Path,
+    run_id: str,
+    timeout_sec: float,
+) -> Dict[str, Any]:
+    rid = str(run_id or "").strip()
+    if not rid:
+        raise RuntimeError("run_id_missing_for_manifest_observation")
+    manifest_path = (log_dir / f"run_manifest_{rid}.json").resolve()
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    last_reason = ""
+    first_pass = True
+    while first_pass or time.monotonic() <= deadline:
+        first_pass = False
+        if manifest_path.exists():
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                last_reason = f"manifest_invalid_json:{exc.__class__.__name__}"
+                time.sleep(0.5)
+                continue
+            if not isinstance(payload, dict):
+                last_reason = "manifest_invalid_root"
+                time.sleep(0.5)
+                continue
+            observed_run_id = str(payload.get("run_id") or "").strip()
+            if observed_run_id and observed_run_id != rid:
+                raise RuntimeError(f"run_manifest_run_id_mismatch:{observed_run_id}!={rid}")
+            if observed_run_id == rid:
+                return {
+                    "observed": True,
+                    "reason": "manifest_observed",
+                    "manifest_path": str(manifest_path),
+                    "observed_run_id": observed_run_id,
+                }
+            last_reason = "manifest_run_id_missing"
+        if time.monotonic() <= deadline:
+            time.sleep(min(0.5, max(0.01, float(timeout_sec))))
+    return {
+        "observed": False,
+        "reason": last_reason or "run_manifest_not_observed",
+        "manifest_path": str(manifest_path),
+        "observed_run_id": "",
+    }
+
+
+def _load_manifest_for_run_with_timeout(*, log_dir: pathlib.Path, run_id: str, timeout_sec: float) -> Dict[str, Any]:
+    rid = str(run_id or "").strip()
+    if not rid:
+        raise RuntimeError("run_id_missing_for_manifest_load")
+    manifest_path = (log_dir / f"run_manifest_{rid}.json").resolve()
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    last_reason = ""
+    first_pass = True
+    while first_pass or time.monotonic() <= deadline:
+        first_pass = False
+        if manifest_path.exists():
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                last_reason = f"manifest_invalid_json:{exc.__class__.__name__}"
+            else:
+                if not isinstance(payload, dict):
+                    last_reason = "manifest_invalid_root"
+                else:
+                    observed_run_id = str(payload.get("run_id") or "").strip()
+                    if observed_run_id and observed_run_id != rid:
+                        raise RuntimeError(f"run_manifest_run_id_mismatch:{observed_run_id}!={rid}")
+                    if observed_run_id == rid:
+                        return payload
+                    last_reason = "manifest_run_id_missing"
+        if time.monotonic() <= deadline:
+            time.sleep(min(0.5, max(0.01, float(timeout_sec))))
+    raise RuntimeError(
+        f"run_manifest_not_observed_within_timeout:{manifest_path}:{last_reason or 'run_manifest_not_observed'}"
+    )
+
+
+def _compute_workspace_code_fingerprint(root_dir: pathlib.Path) -> tuple[str, int]:
+    """Match executor runtime manifest fingerprint algorithm for consistency checks."""
+    root = root_dir.resolve()
+    candidates = [root / "executor.py"]
+    candidates.extend(sorted((root / "prodesk").rglob("*.py")))
+    digest = hashlib.sha256()
+    count = 0
+    for path in candidates:
+        if not path.exists() or not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(content_hash.encode("ascii"))
+        digest.update(b"\n")
+        count += 1
+    return digest.hexdigest(), count
+
+
+def _load_manifest_for_run_optional(log_dir: pathlib.Path, run_id: str) -> Dict[str, Any]:
+    try:
+        return _load_manifest_for_run(log_dir, run_id)
+    except Exception:
+        return {}
+
+
+def _default_status_events_paths(log_dir: pathlib.Path, *, at_ts: Optional[dt.datetime] = None) -> tuple[pathlib.Path, pathlib.Path]:
+    current = (at_ts or utc_now()).date().isoformat()
+    status_path = (log_dir / f"status_{current}.jsonl").resolve()
+    events_path = (log_dir / f"events_{current}.jsonl").resolve()
+    return status_path, events_path
+
+
+def _stream_source_paths_for_window(
+    *,
+    log_dir: pathlib.Path,
+    prefix: str,
+    start_dt: dt.datetime,
+    stop_dt: dt.datetime,
+    preferred_path: Optional[pathlib.Path] = None,
+) -> List[pathlib.Path]:
+    paths: List[pathlib.Path] = []
+    seen: set[pathlib.Path] = set()
+
+    def _add(candidate: pathlib.Path) -> None:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        paths.append(resolved)
+
+    if preferred_path is not None:
+        _add(preferred_path)
+    day_count = max(0, (stop_dt.date() - start_dt.date()).days)
+    for day_offset in range(0, day_count + 1):
+        day = start_dt.date() + dt.timedelta(days=day_offset)
+        _add(log_dir / f"{prefix}_{day.isoformat()}.jsonl")
+    if len(paths) == 0:
+        for candidate in sorted(log_dir.glob(f"{prefix}_*.jsonl")):
+            _add(candidate)
+    return paths
+
+
+def _docker_compose_ps_lines() -> List[str]:
+    proc = subprocess.run(
+        ["docker", "compose", "ps"],
+        cwd=str(ROOT_DIR),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return [line.rstrip("\n") for line in str(proc.stdout or "").splitlines()]
+
+
+def _service_up(lines: Iterable[str], service_name: str) -> bool:
+    for line in lines:
+        text = str(line)
+        if service_name in text and "Up" in text:
+            return True
+    return False
+
+
+def _service_present(lines: Iterable[str], service_name: str) -> bool:
+    for line in lines:
+        if service_name in str(line):
+            return True
+    return False
+
+
+def _stream_jsonl_rows(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    row = json.loads(text)
+                except Exception:
+                    continue
+                if isinstance(row, dict):
+                    yield row
+    except Exception:
+        return
+
+
+def _filter_rows_for_run(
+    *,
+    source_paths: Iterable[pathlib.Path],
+    destination_path: pathlib.Path,
+    run_id: str,
+    start_ts: dt.datetime,
+    end_ts: dt.datetime,
+) -> int:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with destination_path.open("w", encoding="utf-8") as out:
+        for src in source_paths:
+            if not src.exists():
+                continue
+            for row in _stream_jsonl_rows(src):
+                if str(row.get("run_id") or "").strip() != run_id:
+                    continue
+                row_ts = parse_ts(row.get("ts_utc"))
+                if row_ts is not None and not (start_ts <= row_ts <= end_ts):
+                    continue
+                out.write(json.dumps(row, ensure_ascii=True) + "\n")
+                count += 1
+    return count
+
+
+def _read_json_object(path: pathlib.Path) -> Optional[Dict[str, Any]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def summarize_postrun_validation(
+    *,
+    run_id: str,
+    report_dir: pathlib.Path,
+    script_exit_code: int,
+) -> Dict[str, Any]:
+    normalized_run_id = str(run_id or "").strip()
+    expected_files: Dict[str, pathlib.Path] = {
+        "paper_harness_audit": (report_dir / "paper_harness_audit.json").resolve(),
+        "paper_harness_audit_replay": (report_dir / "paper_harness_audit_replay.json").resolve(),
+        "websocket_hardening_audit": (report_dir / "websocket_hardening_audit.json").resolve(),
+        "websocket_hardening_audit_replay": (report_dir / "websocket_hardening_audit_replay.json").resolve(),
+        "time_discipline_audit": (report_dir / "time_discipline_audit.json").resolve(),
+        "time_discipline_audit_replay": (report_dir / "time_discipline_audit_replay.json").resolve(),
+        "guardian_profile_audit": (report_dir / "guardian_profile_audit.json").resolve(),
+        "guardian_profile_audit_replay": (report_dir / "guardian_profile_audit_replay.json").resolve(),
+        "readiness_gate": (report_dir / "readiness_gate.json").resolve(),
+        "readiness_gate_replay": (report_dir / "readiness_gate_replay.json").resolve(),
+        "nightly_soak_report": (report_dir / "nightly_soak_report.json").resolve(),
+        "nightly_soak_report_replay": (report_dir / "nightly_soak_report_replay.json").resolve(),
+        "edge_truth_audit": (report_dir / "edge_truth_audit.json").resolve(),
+        "edge_truth_audit_replay": (report_dir / "edge_truth_audit_replay.json").resolve(),
+        "order_lifecycle_audit": (report_dir / "order_lifecycle_audit.json").resolve(),
+        "order_lifecycle_audit_replay": (report_dir / "order_lifecycle_audit_replay.json").resolve(),
+        "outcome_truth_audit": (report_dir / "outcome_truth_audit.json").resolve(),
+        "outcome_truth_audit_replay": (report_dir / "outcome_truth_audit_replay.json").resolve(),
+        "soak_hardening_gate": (report_dir / "soak_hardening_gate.json").resolve(),
+        "soak_hardening_gate_replay": (report_dir / "soak_hardening_gate_replay.json").resolve(),
+        "validation_summary": (report_dir / "validation_summary.json").resolve(),
+    }
+    missing_reports: List[str] = []
+    parse_error_reports: List[str] = []
+    payloads: Dict[str, Dict[str, Any]] = {}
+    for name, path in expected_files.items():
+        if not path.exists():
+            missing_reports.append(name)
+            continue
+        parsed = _read_json_object(path)
+        if parsed is None:
+            parse_error_reports.append(name)
+            continue
+        payloads[name] = parsed
+
+    summary_payload = payloads.get("validation_summary", {})
+    validator_exit_codes = summary_payload.get("validator_exit_codes")
+    if not isinstance(validator_exit_codes, dict):
+        validator_exit_codes = {}
+    determinism_consistent = False
+    summary_determinism_flag = summary_payload.get("validator_determinism_ok")
+    if summary_determinism_flag is None:
+        # Backward-compatible fallback for older validation summaries.
+        summary_determinism_flag = summary_payload.get("edge_truth_determinism_ok")
+    if isinstance(summary_determinism_flag, bool):
+        determinism_consistent = bool(summary_determinism_flag)
+    else:
+        summary_determinism_text = str(summary_determinism_flag or "").strip().lower()
+        if summary_determinism_text in {"true", "false"}:
+            determinism_consistent = summary_determinism_text == "true"
+        else:
+            determinism_payload = summary_payload.get("edge_truth_determinism")
+            if isinstance(determinism_payload, dict):
+                structural = determinism_payload.get("structural_consistency")
+                if not isinstance(structural, dict):
+                    structural = {}
+                determinism_consistent = (
+                    bool(str(determinism_payload.get("edge_records_sha256") or "").strip())
+                    and bool(str(determinism_payload.get("replay_edge_records_sha256") or "").strip())
+                    and bool(determinism_payload.get("replay_match", False))
+                    and bool(structural.get("replay_required_fields_match", False))
+                    and bool(structural.get("replay_block_reason_taxonomy_match", False))
+                    and bool(structural.get("replay_stage_policy_match", False))
+                    and bool(structural.get("replay_audit_rule_set_match", False))
+                )
+    overall_exit_code = summary_payload.get("overall_exit_code")
+    summary_exit_matches = False
+    if isinstance(overall_exit_code, int):
+        summary_exit_matches = overall_exit_code == int(script_exit_code)
+    elif isinstance(overall_exit_code, str) and str(overall_exit_code).strip().isdigit():
+        summary_exit_matches = int(str(overall_exit_code).strip()) == int(script_exit_code)
+
+    reports_complete = (len(missing_reports) == 0) and (len(parse_error_reports) == 0)
+    known_policy_exit = int(script_exit_code) in (0, 2)
+    execution_error = (
+        (not known_policy_exit)
+        or (not reports_complete)
+        or (not summary_exit_matches)
+        or (not determinism_consistent)
+    )
+    gate_passed = int(script_exit_code) == 0
+    policy_failed = int(script_exit_code) == 2
+
+    status = "pass"
+    if execution_error:
+        status = "execution_error"
+    elif policy_failed:
+        status = "policy_failed"
+
+    return {
+        "run_id": normalized_run_id,
+        "report_dir": str(report_dir.resolve()),
+        "status": status,
+        "script_exit_code": int(script_exit_code),
+        "known_policy_exit": bool(known_policy_exit),
+        "execution_error": bool(execution_error),
+        "policy_failed": bool(policy_failed),
+        "gate_passed": bool(gate_passed),
+        "reports_complete": bool(reports_complete),
+        "missing_reports": list(missing_reports),
+        "parse_error_reports": list(parse_error_reports),
+        "summary_exit_matches": bool(summary_exit_matches),
+        "determinism_consistent": bool(determinism_consistent),
+        "validator_exit_codes": {str(k): int(v) for k, v in validator_exit_codes.items() if str(v).strip().lstrip("-").isdigit()},
+        "summary_path": str(expected_files["validation_summary"]),
+    }
+
+
+@dataclass
+class PhaseRecord:
+    phase: str
+    entered_ts: str
+    entry_conditions: List[Dict[str, Any]]
+    exited_ts: str = ""
+    exit_conditions: List[Dict[str, Any]] = field(default_factory=list)
+    status: str = "running"
+
+
+@dataclass
+class SessionContext:
+    session_id: str
+    config_path: pathlib.Path
+    active_minutes: float
+    wait_sec: float
+    do_build: bool
+    archive_export: bool
+    max_lines_per_file: int
+    log_dir: pathlib.Path = CANONICAL_LOG_DIR
+    state_path: pathlib.Path = CANONICAL_STATE_PATH
+    guardian_context_path: pathlib.Path = CANONICAL_GUARDIAN_CONTEXT_PATH
+    run_id: str = ""
+    run_manifest_path: pathlib.Path = pathlib.Path()
+    run_contract_path: pathlib.Path = pathlib.Path()
+    run_contract_payload: Dict[str, Any] = field(default_factory=dict)
+    postrun_validation: Dict[str, Any] = field(default_factory=dict)
+    session_token: str = ""
+    current_phase: str = ""
+    phase_history: List[PhaseRecord] = field(default_factory=list)
+    session_root: pathlib.Path = pathlib.Path()
+    session_state_path: pathlib.Path = pathlib.Path()
+    report_root: pathlib.Path = pathlib.Path()
+
+    def initialize_paths(self) -> None:
+        self.session_root = (self.log_dir / "sessions" / self.session_id).resolve()
+        self.report_root = (self.session_root / "reports").resolve()
+        self.session_state_path = (self.session_root / "session_state.json").resolve()
+        self.guardian_context_path = (self.log_dir / "guardian_session_context.json").resolve()
+        self.session_root.mkdir(parents=True, exist_ok=True)
+        self.report_root.mkdir(parents=True, exist_ok=True)
+
+
+class SessionRunner:
+    def __init__(self, ctx: SessionContext):
+        self.ctx = ctx
+        self.ctx.initialize_paths()
+        self._write_state()
+
+    def _write_state(self) -> None:
+        payload: Dict[str, Any] = {
+            "schema_version": 1,
+            "session_id": self.ctx.session_id,
+            "ts_utc": utc_iso(),
+            "phase": self.ctx.current_phase,
+            "run_id": self.ctx.run_id,
+            "config_path": str(self.ctx.config_path),
+            "log_dir": str(self.ctx.log_dir),
+            "state_path": str(self.ctx.state_path),
+            "run_manifest_path": str(self.ctx.run_manifest_path) if str(self.ctx.run_manifest_path) else "",
+            "run_contract_path": str(self.ctx.run_contract_path) if str(self.ctx.run_contract_path) else "",
+            "postrun_validation": dict(self.ctx.postrun_validation),
+            "phase_validation_surface": (
+                validation_surface_for_phase(self.ctx.current_phase)
+                if self.ctx.current_phase
+                else {"legal_validations": [], "actionable_failures": [], "informational_failures": []}
+            ),
+            "phase_history": [
+                {
+                    "phase": rec.phase,
+                    "entered_ts": rec.entered_ts,
+                    "entry_conditions": rec.entry_conditions,
+                    "exited_ts": rec.exited_ts,
+                    "exit_conditions": rec.exit_conditions,
+                    "status": rec.status,
+                }
+                for rec in self.ctx.phase_history
+            ],
+        }
+        self.ctx.session_state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ctx.session_state_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self._write_guardian_context()
+
+    def _write_guardian_context(self) -> None:
+        payload: Dict[str, Any] = {
+            "schema_version": 1,
+            "ts_utc": utc_iso(),
+            "session_id": self.ctx.session_id,
+            "session_token": self.ctx.session_token,
+            "session_phase": self.ctx.current_phase,
+            "run_id": self.ctx.run_id,
+            "run_contract_path": (
+                _to_container_logs_path(self.ctx.run_contract_path)
+                if str(self.ctx.run_contract_path)
+                else ""
+            ),
+        }
+        self.ctx.guardian_context_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ctx.guardian_context_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _phase_enter(self, phase: str, entry_conditions: List[Dict[str, Any]]) -> None:
+        if self.ctx.current_phase:
+            assert_valid_phase_transition(self.ctx.current_phase, phase)
+        rec = PhaseRecord(phase=phase, entered_ts=utc_iso(), entry_conditions=entry_conditions)
+        self.ctx.phase_history.append(rec)
+        self.ctx.current_phase = phase
+        self._write_state()
+
+    def _phase_exit(self, exit_conditions: List[Dict[str, Any]]) -> None:
+        if not self.ctx.phase_history:
+            raise RuntimeError("phase_history_missing")
+        failing = [c for c in exit_conditions if not bool(c.get("passed", False))]
+        rec = self.ctx.phase_history[-1]
+        rec.exited_ts = utc_iso()
+        rec.exit_conditions = exit_conditions
+        rec.status = "failed" if failing else "completed"
+        self._write_state()
+        if failing:
+            labels = ",".join(str(c.get("name") or "unknown") for c in failing)
+            raise RuntimeError(f"phase_exit_failed:{rec.phase}:{labels}")
+
+    def _run_cmd(self, args: List[str], *, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess[str]:
+        merged_env = dict(os.environ)
+        if env:
+            merged_env.update({str(k): str(v) for k, v in env.items()})
+        return subprocess.run(
+            args,
+            cwd=str(ROOT_DIR),
+            text=True,
+            capture_output=True,
+            check=True,
+            env=merged_env,
+        )
+
+    def _condition(self, name: str, passed: bool, detail: str) -> Dict[str, Any]:
+        return {"name": name, "passed": bool(passed), "detail": str(detail)}
+
+    def phase_preflight(self) -> None:
+        entry = [
+            self._condition("session_not_started", self.ctx.current_phase == "", f"current_phase={self.ctx.current_phase or 'none'}"),
+            self._condition("canonical_config_exists", self.ctx.config_path.exists(), str(self.ctx.config_path)),
+        ]
+        self._phase_enter("preflight", entry)
+
+        prev_docker_mode = os.environ.get("BRO_DOCKER_MODE")
+        os.environ["BRO_DOCKER_MODE"] = "1"
+        try:
+            cfg = load_execution_config(self.ctx.config_path)
+        finally:
+            if prev_docker_mode is None:
+                os.environ.pop("BRO_DOCKER_MODE", None)
+            else:
+                os.environ["BRO_DOCKER_MODE"] = prev_docker_mode
+        mode = str(cfg.get("mode") or "").strip().lower()
+        profile_name = str((cfg.get("profile") or {}).get("name") or "").strip()
+        runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime"), dict) else {}
+        storage = cfg.get("storage", {}) if isinstance(cfg.get("storage"), dict) else {}
+        cfg_dir = self.ctx.config_path.parent
+        resolved_log = _resolve_runtime_path(
+            config_dir=cfg_dir,
+            raw_value=str(storage.get("log_dir", "")),
+            fallback=CANONICAL_LOG_DIR,
+        )
+        resolved_state = _resolve_runtime_path(
+            config_dir=cfg_dir,
+            raw_value=str(storage.get("state_path", "")),
+            fallback=CANONICAL_STATE_PATH,
+        )
+        setup_lock_enabled = bool(runtime.get("paper_enforce_setup_lock", False))
+
+        self.ctx.log_dir = resolved_log
+        self.ctx.state_path = resolved_state
+        self.ctx.initialize_paths()
+
+        exit_conditions = [
+            self._condition("mode_is_paper", mode == "paper", f"mode={mode or 'missing'}"),
+            self._condition(
+                "profile_is_paper_universal",
+                profile_name == "paper_universal",
+                f"profile={profile_name or 'missing'}",
+            ),
+            self._condition("setup_lock_enabled", setup_lock_enabled, f"paper_enforce_setup_lock={setup_lock_enabled}"),
+            self._condition(
+                "canonical_log_root",
+                self.ctx.log_dir.resolve() == CANONICAL_LOG_DIR.resolve(),
+                f"resolved={self.ctx.log_dir}",
+            ),
+            self._condition(
+                "canonical_state_root",
+                self.ctx.state_path.resolve() == CANONICAL_STATE_PATH.resolve(),
+                f"resolved={self.ctx.state_path}",
+            ),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_start(self) -> None:
+        self.ctx.run_manifest_path = (self.ctx.log_dir / f"run_manifest_{self.ctx.run_id}.json").resolve()
+        self.ctx.run_contract_path = run_contract_path(log_dir=self.ctx.log_dir, run_id=self.ctx.run_id)
+        if not str(self.ctx.run_id or "").strip():
+            raise RuntimeError("run_id_missing_before_start_phase")
+        if self.ctx.run_manifest_path.exists():
+            raise RuntimeError(f"run_manifest_preexisting_for_run_id:{self.ctx.run_manifest_path}")
+        entry = [
+            self._condition("preflight_completed", self.ctx.current_phase == "preflight", f"current={self.ctx.current_phase}"),
+            self._condition("deploy_script_exists", DEPLOY_SCRIPT.exists(), str(DEPLOY_SCRIPT)),
+            self._condition("run_id_present", bool(self.ctx.run_id), f"run_id={self.ctx.run_id or 'missing'}"),
+            self._condition(
+                "run_manifest_not_preexisting",
+                not self.ctx.run_manifest_path.exists(),
+                str(self.ctx.run_manifest_path),
+            ),
+        ]
+        self._phase_enter("start", entry)
+
+        provisional_start_ts = utc_iso()
+        default_status_path, default_events_path = _default_status_events_paths(self.ctx.log_dir)
+        provisional_contract = build_run_contract(
+            session_id=self.ctx.session_id,
+            run_id=self.ctx.run_id,
+            phase="start",
+            session_type="paper_canonical",
+            authority_level="authoritative",
+            allowed_actions=list(CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
+            manifest_path=self.ctx.run_manifest_path,
+            log_root=self.ctx.log_dir,
+            state_root=self.ctx.state_path.parent,
+            start_ts=provisional_start_ts,
+            stop_ts="",
+            evidence_slice_start_ts=provisional_start_ts,
+            evidence_slice_end_ts="",
+            status_path=str(default_status_path),
+            events_path=str(default_events_path),
+            errors_path="",
+        )
+        write_run_contract(self.ctx.run_contract_path, provisional_contract, allow_open=True)
+        self.ctx.run_contract_payload = provisional_contract
+        self._write_state()
+
+        cmd = [
+            str(DEPLOY_SCRIPT),
+            "--wait-sec",
+            str(int(max(1.0, float(self.ctx.wait_sec)))),
+            "--no-verify",
+            "--run-id",
+            self.ctx.run_id,
+        ]
+        if self.ctx.do_build:
+            cmd.append("--build")
+        else:
+            cmd.append("--no-build")
+        proc = self._run_cmd(
+            cmd,
+            env={
+                "BRO_CONFIG_PATH": str(self.ctx.config_path),
+                "BRO_LOG_DIR": str((ROOT_DIR / "logs_exec").resolve()),
+                "BRO_DATA_DIR": str((ROOT_DIR / "data").resolve()),
+                "BRO_INTERNAL_SESSION_CALL": "1",
+                "BRO_CANONICAL_SESSION_TOKEN": str(self.ctx.session_token),
+                "BRO_CANONICAL_SESSION_CONTEXT_FILE_HOST": str(self.ctx.guardian_context_path),
+                "BRO_CANONICAL_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
+                "BRO_GUARDIAN_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
+                "BRO_RUN_ID": self.ctx.run_id,
+            },
+        )
+        (self.ctx.report_root / "start_stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
+        (self.ctx.report_root / "start_stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+
+        # Manifest is observability/evidence only, not lifecycle authority.
+        # Keep this probe non-blocking for diagnostics; fingerprint consistency
+        # checks use an explicit bounded manifest retrieval below.
+        manifest_observation = _observe_manifest_for_run_id(
+            log_dir=self.ctx.log_dir,
+            run_id=self.ctx.run_id,
+            timeout_sec=0.0,
+        )
+        observed_manifest = bool(manifest_observation.get("observed"))
+        observed_run_id = str(manifest_observation.get("observed_run_id") or "")
+        observed_manifest_path = str(manifest_observation.get("manifest_path") or "")
+        if observed_manifest_path:
+            self.ctx.run_manifest_path = pathlib.Path(observed_manifest_path).resolve()
+        (self.ctx.report_root / "start_manifest_observation.json").write_text(
+            json.dumps(manifest_observation, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        manifest_wait_sec = max(1.0, min(10.0, float(self.ctx.wait_sec)))
+        manifest_load_error = ""
+        manifest_evidence_available = False
+        try:
+            manifest_payload = _load_manifest_for_run_with_timeout(
+                log_dir=self.ctx.log_dir,
+                run_id=self.ctx.run_id,
+                timeout_sec=manifest_wait_sec,
+            )
+            manifest_evidence_available = True
+        except Exception as exc:
+            manifest_payload = {}
+            manifest_load_error = str(exc)
+        manifest_code_hash = str(manifest_payload.get("code_fingerprint_sha256") or "").strip()
+        manifest_code_count: Optional[int] = None
+        try:
+            raw_count = manifest_payload.get("code_fingerprint_file_count")
+            if isinstance(raw_count, (int, float, str)) and str(raw_count).strip():
+                manifest_code_count = int(raw_count)
+        except Exception:
+            manifest_code_count = None
+        workspace_code_hash, workspace_code_count = _compute_workspace_code_fingerprint(ROOT_DIR)
+        fingerprint_match = bool(
+            manifest_evidence_available
+            and bool(manifest_code_hash)
+            and manifest_code_hash == workspace_code_hash
+            and manifest_code_count == workspace_code_count
+        )
+        (self.ctx.report_root / "start_code_fingerprint_check.json").write_text(
+            json.dumps(
+                {
+                    "run_id": self.ctx.run_id,
+                    "manifest_path": str(self.ctx.run_manifest_path),
+                    "manifest_observed": observed_manifest,
+                    "manifest_wait_sec": manifest_wait_sec,
+                    "manifest_evidence_available": manifest_evidence_available,
+                    "manifest_load_error": manifest_load_error,
+                    "manifest_code_fingerprint_sha256": manifest_code_hash,
+                    "manifest_code_fingerprint_file_count": manifest_code_count,
+                    "workspace_code_fingerprint_sha256": workspace_code_hash,
+                    "workspace_code_fingerprint_file_count": workspace_code_count,
+                    "match": fingerprint_match,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        exit_conditions = [
+            self._condition("run_id_bound", bool(self.ctx.run_id), f"run_id={self.ctx.run_id}"),
+            self._condition(
+                "run_contract_written",
+                self.ctx.run_contract_path.exists(),
+                str(self.ctx.run_contract_path),
+            ),
+            self._condition(
+                "manifest_consistency_non_authoritative",
+                (not observed_manifest) or (observed_run_id == self.ctx.run_id),
+                (
+                    f"observed={observed_run_id or 'missing'} "
+                    f"expected={self.ctx.run_id} observed_manifest={observed_manifest}"
+                ),
+            ),
+            self._condition(
+                "runtime_code_fingerprint_matches_workspace",
+                fingerprint_match,
+                (
+                    f"manifest_evidence_available={manifest_evidence_available} "
+                    f"manifest_load_error={manifest_load_error or 'none'} "
+                    f"manifest_hash={manifest_code_hash or 'missing'} "
+                    f"workspace_hash={workspace_code_hash} "
+                    f"manifest_count={manifest_code_count if manifest_code_count is not None else 'missing'} "
+                    f"workspace_count={workspace_code_count}"
+                ),
+            ),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_active(self) -> None:
+        entry = [
+            self._condition("start_completed", self.ctx.current_phase == "start", f"current={self.ctx.current_phase}"),
+            self._condition("run_id_present", bool(self.ctx.run_id), f"run_id={self.ctx.run_id or 'missing'}"),
+        ]
+        self._phase_enter("active", entry)
+        requested_active_sec = max(1.0, float(self.ctx.active_minutes) * 60.0)
+        runtime_duration_sec: Optional[float] = None
+        cutoff_buffer_sec = 30.0
+        try:
+            manifest_payload = _load_manifest_for_run(self.ctx.log_dir, self.ctx.run_id)
+            runtime_cfg = manifest_payload.get("config", {}).get("runtime", {})
+            runtime_duration_min = float(runtime_cfg.get("duration_min")) if isinstance(runtime_cfg, dict) else 0.0
+            if runtime_duration_min > 0:
+                runtime_duration_sec = max(0.0, runtime_duration_min * 60.0)
+        except Exception:
+            runtime_duration_sec = None
+        effective_active_sec = requested_active_sec
+        if runtime_duration_sec is not None and requested_active_sec >= runtime_duration_sec:
+            effective_active_sec = max(1.0, runtime_duration_sec - cutoff_buffer_sec)
+        contract_start_ts = parse_ts(self.ctx.run_contract_payload.get("start_ts"))
+        elapsed_before_active = 0.0
+        if contract_start_ts is not None:
+            elapsed_before_active = max(0.0, (utc_now() - contract_start_ts).total_seconds())
+        timing = _compute_active_timing(
+            requested_active_sec=requested_active_sec,
+            runtime_duration_sec=runtime_duration_sec,
+            cutoff_buffer_sec=cutoff_buffer_sec,
+            pre_active_elapsed_sec=elapsed_before_active,
+        )
+        active_wait_sec = float(timing["active_wait_sec"])
+        effective_active_sec = float(timing["effective_active_sec"])
+        (self.ctx.report_root / "active_timing.json").write_text(
+            json.dumps(timing, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        start_mono = time.monotonic()
+        while (time.monotonic() - start_mono) < active_wait_sec:
+            time.sleep(min(5.0, max(0.5, max(1.0, active_wait_sec) / 12.0)))
+
+        ps_before_stop = _docker_compose_ps_lines()
+        maker_up_before_stop = _service_up(ps_before_stop, "bro-maker")
+        guardian_up_before_stop = _service_up(ps_before_stop, "bro-guardian")
+        (self.ctx.report_root / "active_compose_ps.before_stop.log").write_text(
+            "\n".join(ps_before_stop) + "\n",
+            encoding="utf-8",
+        )
+        # Freeze the stack before validate_active so restart policies cannot create
+        # a second run segment under the same run_id.
+        freeze_proc = self._run_cmd(["docker", "compose", "stop", "bro-maker", "bro-guardian"])
+        (self.ctx.report_root / "active_freeze_stdout.log").write_text(str(freeze_proc.stdout or ""), encoding="utf-8")
+        (self.ctx.report_root / "active_freeze_stderr.log").write_text(str(freeze_proc.stderr or ""), encoding="utf-8")
+        ps_after_stop = _docker_compose_ps_lines()
+        maker_up_after_stop = _service_up(ps_after_stop, "bro-maker")
+        guardian_up_after_stop = _service_up(ps_after_stop, "bro-guardian")
+        (self.ctx.report_root / "active_compose_ps.after_stop.log").write_text(
+            "\n".join(ps_after_stop) + "\n",
+            encoding="utf-8",
+        )
+
+        elapsed_total_sec = time.monotonic() - start_mono
+        if bool(timing.get("runtime_capped")) and contract_start_ts is not None:
+            elapsed_total_sec = max(0.0, (utc_now() - contract_start_ts).total_seconds())
+        exit_conditions = [
+            self._condition(
+                "active_duration_elapsed",
+                elapsed_total_sec >= effective_active_sec,
+                (
+                    f"requested_sec={requested_active_sec:.2f} "
+                    f"effective_sec={effective_active_sec:.2f} "
+                    f"runtime_duration_sec={runtime_duration_sec if runtime_duration_sec is not None else 'na'}"
+                ),
+            ),
+            self._condition("bro_maker_up_before_freeze", maker_up_before_stop, "docker compose ps (before stop)"),
+            self._condition("bro_guardian_up_before_freeze", guardian_up_before_stop, "docker compose ps (before stop)"),
+            self._condition(
+                "runtime_frozen_before_validate_active",
+                (not maker_up_after_stop) and (not guardian_up_after_stop),
+                "docker compose stop bro-maker bro-guardian",
+            ),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_validate_active(self) -> None:
+        entry = [
+            self._condition("active_completed", self.ctx.current_phase == "active", f"current={self.ctx.current_phase}"),
+            self._condition("run_contract_exists", self.ctx.run_contract_path.exists(), str(self.ctx.run_contract_path)),
+        ]
+        self._phase_enter("validate_active", entry)
+        out_dir = (self.ctx.report_root / "validate_active").resolve()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        actionable_ok = True
+        cmds = [
+            (
+                "run_integrity",
+                [
+                    "./.venv/bin/python",
+                    "scripts/run_integrity_audit.py",
+                    "--log-dir",
+                    str(self.ctx.log_dir),
+                    "--run-id",
+                    self.ctx.run_id,
+                    "--session-phase",
+                    "validate_active",
+                    "--run-contract",
+                    str(self.ctx.run_contract_path),
+                    "--min-status-rows",
+                    "1",
+                    "--max-status-age-sec",
+                    "600",
+                    "--out",
+                    str(out_dir / "run_integrity.json"),
+                ],
+                True,
+            ),
+            (
+                "websocket_reliability",
+                [
+                    "./.venv/bin/python",
+                    "scripts/websocket_reliability_gate.py",
+                    "--log-dir",
+                    str(self.ctx.log_dir),
+                    "--run-id",
+                    self.ctx.run_id,
+                    "--session-phase",
+                    "validate_active",
+                    "--run-contract",
+                    str(self.ctx.run_contract_path),
+                    "--min-status-rows",
+                    "1",
+                    "--max-book-feed-down-ratio",
+                    "1.0",
+                    "--max-chainlink-down-ratio",
+                    "1.0",
+                    "--out",
+                    str(out_dir / "websocket_reliability_gate.json"),
+                ],
+                True,
+            ),
+            (
+                "nightly_soak_report",
+                [
+                    "./.venv/bin/python",
+                    "scripts/nightly_soak_report.py",
+                    "--log-dir",
+                    str(self.ctx.log_dir),
+                    "--run-id",
+                    self.ctx.run_id,
+                    "--session-phase",
+                    "validate_active",
+                    "--run-contract",
+                    str(self.ctx.run_contract_path),
+                    "--max-lines-per-file",
+                    str(int(self.ctx.max_lines_per_file)),
+                    "--out",
+                    str(out_dir / "nightly_soak_report.json"),
+                ],
+                False,
+            ),
+        ]
+
+        for name, cmd, actionable in cmds:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(ROOT_DIR),
+                text=True,
+                capture_output=True,
+            )
+            (out_dir / f"{name}.stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
+            (out_dir / f"{name}.stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+            if actionable and proc.returncode != 0:
+                actionable_ok = False
+
+        exit_conditions = [
+            self._condition("active_actionable_validations_passed", actionable_ok, "run_integrity+websocket"),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_stop(self) -> None:
+        entry = [
+            self._condition("validate_active_completed", self.ctx.current_phase == "validate_active", f"current={self.ctx.current_phase}"),
+            self._condition("run_id_present", bool(self.ctx.run_id), f"run_id={self.ctx.run_id or 'missing'}"),
+        ]
+        self._phase_enter("stop", entry)
+
+        stop_proc = self._run_cmd(["docker", "compose", "down"])
+        (self.ctx.report_root / "stop_stdout.log").write_text(str(stop_proc.stdout or ""), encoding="utf-8")
+        (self.ctx.report_root / "stop_stderr.log").write_text(str(stop_proc.stderr or ""), encoding="utf-8")
+        ps_lines = _docker_compose_ps_lines()
+        (self.ctx.report_root / "stop_compose_ps.log").write_text("\n".join(ps_lines) + "\n", encoding="utf-8")
+        maker_present = _service_present(ps_lines, "bro-maker")
+        guardian_present = _service_present(ps_lines, "bro-guardian")
+
+        manifest = _load_manifest_for_run_optional(self.ctx.log_dir, self.ctx.run_id)
+        (self.ctx.report_root / "stop_manifest_observation.json").write_text(
+            json.dumps(
+                {
+                    "manifest_observed": bool(manifest),
+                    "manifest_path": str(self.ctx.run_manifest_path),
+                    "run_id": self.ctx.run_id,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        start_ts = str(manifest.get("start_ts") or "").strip() or str(self.ctx.run_contract_payload.get("start_ts") or "")
+        stop_ts = str(manifest.get("end_ts") or "").strip() or utc_iso()
+        start_dt = parse_ts(start_ts)
+        stop_dt = parse_ts(stop_ts)
+        if start_dt is None:
+            start_dt = utc_now()
+            start_ts = utc_iso(start_dt)
+        if stop_dt is None:
+            stop_dt = utc_now()
+            stop_ts = utc_iso(stop_dt)
+        if stop_dt < start_dt:
+            stop_dt = start_dt
+            stop_ts = utc_iso(stop_dt)
+
+        status_path = _resolve_runtime_path(
+            config_dir=ROOT_DIR,
+            raw_value=str(manifest.get("status_path") or ""),
+            fallback=self.ctx.log_dir / f"status_{start_dt.date().isoformat()}.jsonl",
+        )
+        events_path = _resolve_runtime_path(
+            config_dir=ROOT_DIR,
+            raw_value=str(manifest.get("events_path") or ""),
+            fallback=self.ctx.log_dir / f"events_{start_dt.date().isoformat()}.jsonl",
+        )
+        status_candidates = _stream_source_paths_for_window(
+            log_dir=self.ctx.log_dir,
+            prefix="status",
+            start_dt=start_dt,
+            stop_dt=stop_dt,
+            preferred_path=status_path,
+        )
+        events_candidates = _stream_source_paths_for_window(
+            log_dir=self.ctx.log_dir,
+            prefix="events",
+            start_dt=start_dt,
+            stop_dt=stop_dt,
+            preferred_path=events_path,
+        )
+        errors_candidates: List[pathlib.Path] = []
+        for date_offset in range(0, (stop_dt.date() - start_dt.date()).days + 1):
+            day = start_dt.date() + dt.timedelta(days=date_offset)
+            errors_candidates.append((self.ctx.log_dir / f"errors_{day.isoformat()}.jsonl").resolve())
+        if not errors_candidates:
+            errors_candidates = sorted(self.ctx.log_dir.glob("errors_*.jsonl"))
+
+        slices_dir = (self.ctx.session_root / "slices").resolve()
+        status_slice = slices_dir / "status_slice.jsonl"
+        events_slice = slices_dir / "events_slice.jsonl"
+        errors_slice = slices_dir / "errors_slice.jsonl"
+        status_count = _filter_rows_for_run(
+            source_paths=status_candidates,
+            destination_path=status_slice,
+            run_id=self.ctx.run_id,
+            start_ts=start_dt,
+            end_ts=stop_dt,
+        )
+        event_count = _filter_rows_for_run(
+            source_paths=events_candidates,
+            destination_path=events_slice,
+            run_id=self.ctx.run_id,
+            start_ts=start_dt,
+            end_ts=stop_dt,
+        )
+        error_count = _filter_rows_for_run(
+            source_paths=errors_candidates,
+            destination_path=errors_slice,
+            run_id=self.ctx.run_id,
+            start_ts=start_dt,
+            end_ts=stop_dt,
+        )
+
+        contract = build_run_contract(
+            session_id=self.ctx.session_id,
+            run_id=self.ctx.run_id,
+            phase="validate_postrun",
+            session_type="paper_canonical",
+            authority_level="observational",
+            allowed_actions=list(CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS),
+            manifest_path=self.ctx.run_manifest_path,
+            log_root=self.ctx.log_dir,
+            state_root=self.ctx.state_path.parent,
+            start_ts=start_ts,
+            stop_ts=stop_ts,
+            evidence_slice_start_ts=start_ts,
+            evidence_slice_end_ts=stop_ts,
+            status_path=str(status_path),
+            events_path=str(events_path),
+            errors_path=";".join(str(p) for p in errors_candidates),
+            status_slice_path=str(status_slice),
+            events_slice_path=str(events_slice),
+            errors_slice_path=str(errors_slice),
+        )
+        write_run_contract(self.ctx.run_contract_path, contract, allow_open=False)
+        self.ctx.run_contract_payload = contract
+
+        (self.ctx.report_root / "slice_counts.json").write_text(
+            json.dumps(
+                {
+                    "status_rows": int(status_count),
+                    "event_rows": int(event_count),
+                    "error_rows": int(error_count),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        exit_conditions = [
+            self._condition("docker_stack_stopped", (not maker_present) and (not guardian_present), "docker compose ps"),
+            self._condition("run_contract_closed", bool(str(contract.get("stop_ts") or "").strip()), f"stop_ts={contract.get('stop_ts')}"),
+            self._condition("status_slice_exists", status_slice.exists(), str(status_slice)),
+            self._condition("events_slice_exists", events_slice.exists(), str(events_slice)),
+            self._condition("errors_slice_exists", errors_slice.exists(), str(errors_slice)),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_validate_postrun(self) -> None:
+        entry = [
+            self._condition("stop_completed", self.ctx.current_phase == "stop", f"current={self.ctx.current_phase}"),
+            self._condition("run_contract_closed", self.ctx.run_contract_path.exists(), str(self.ctx.run_contract_path)),
+        ]
+        self._phase_enter("validate_postrun", entry)
+
+        cmd = [
+            str(CANONICAL_VALIDATION_SCRIPT),
+            self.ctx.run_id,
+            "--session-phase",
+            "validate_postrun",
+            "--run-contract",
+            str(self.ctx.run_contract_path),
+            "--max-lines-per-file",
+            str(int(self.ctx.max_lines_per_file)),
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(ROOT_DIR),
+            text=True,
+            capture_output=True,
+        )
+        (self.ctx.report_root / "validate_postrun.stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
+        (self.ctx.report_root / "validate_postrun.stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+
+        report_dir = (self.ctx.log_dir / "reports" / self.ctx.run_id).resolve()
+        postrun_validation = summarize_postrun_validation(
+            run_id=self.ctx.run_id,
+            report_dir=report_dir,
+            script_exit_code=proc.returncode,
+        )
+        self.ctx.postrun_validation = dict(postrun_validation)
+        self._write_state()
+
+        exit_conditions = [
+            self._condition(
+                "postrun_validation_execution_ok",
+                not bool(postrun_validation.get("execution_error", True)),
+                (
+                    f"status={postrun_validation.get('status')} "
+                    f"exit_code={postrun_validation.get('script_exit_code')} "
+                    f"reports_complete={postrun_validation.get('reports_complete')}"
+                ),
+            ),
+            self._condition(
+                "postrun_validation_reports_complete",
+                bool(postrun_validation.get("reports_complete", False)),
+                (
+                    f"missing={','.join(str(x) for x in postrun_validation.get('missing_reports', [])) or 'none'} "
+                    f"parse_errors={','.join(str(x) for x in postrun_validation.get('parse_error_reports', [])) or 'none'}"
+                ),
+            ),
+            self._condition(
+                "postrun_validation_summary_consistent",
+                bool(postrun_validation.get("summary_exit_matches", False)),
+                f"summary_exit_matches={postrun_validation.get('summary_exit_matches')}",
+            ),
+            self._condition(
+                "postrun_validation_determinism_consistent",
+                bool(postrun_validation.get("determinism_consistent", False)),
+                f"determinism_consistent={postrun_validation.get('determinism_consistent')}",
+            ),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def phase_archive_export(self) -> None:
+        entry = [
+            self._condition(
+                "validate_postrun_completed",
+                self.ctx.current_phase == "validate_postrun",
+                f"current={self.ctx.current_phase}",
+            )
+        ]
+        self._phase_enter("archive_export", entry)
+        archive_path = ROOT_DIR / "exports" / f"paper_session_{self.ctx.run_id}.zip"
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.ctx.archive_export:
+            proc = self._run_cmd(
+                [
+                    "zip",
+                    "-rq",
+                    str(archive_path),
+                    str(self.ctx.session_root.relative_to(ROOT_DIR)),
+                    str(self.ctx.run_contract_path.relative_to(ROOT_DIR)),
+                ]
+            )
+            (self.ctx.report_root / "archive_stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
+            (self.ctx.report_root / "archive_stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+            exit_conditions = [
+                self._condition("archive_created", archive_path.exists(), str(archive_path)),
+            ]
+        else:
+            exit_conditions = [
+                self._condition("archive_skipped", True, "archive_export_disabled"),
+            ]
+        self._phase_exit(exit_conditions)
+
+    def phase_complete(self) -> None:
+        entry = [
+            self._condition(
+                "archive_phase_completed",
+                self.ctx.current_phase == "archive_export",
+                f"current={self.ctx.current_phase}",
+            )
+        ]
+        self._phase_enter("complete", entry)
+        exit_conditions = [
+            self._condition("session_complete", True, f"run_id={self.ctx.run_id}"),
+        ]
+        self._phase_exit(exit_conditions)
+
+    def run(self) -> Dict[str, Any]:
+        self.phase_preflight()
+        self.phase_start()
+        self.phase_active()
+        self.phase_validate_active()
+        self.phase_stop()
+        self.phase_validate_postrun()
+        self.phase_archive_export()
+        self.phase_complete()
+        return {
+            "session_id": self.ctx.session_id,
+            "run_id": self.ctx.run_id,
+            "phase": self.ctx.current_phase,
+            "postrun_validation": dict(self.ctx.postrun_validation),
+            "session_state_path": str(self.ctx.session_state_path),
+            "run_contract_path": str(self.ctx.run_contract_path),
+            "report_root": str(self.ctx.report_root),
+        }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="BRO canonical paper session runner")
+    parser.add_argument("--active-minutes", type=float, default=15.0, help="Active runtime duration in minutes")
+    parser.add_argument("--wait-sec", type=float, default=25.0, help="Deploy wait seconds before active phase")
+    parser.add_argument(
+        "--build",
+        dest="build_images",
+        action="store_true",
+        help="Build docker images during start phase (default behavior)",
+    )
+    parser.add_argument(
+        "--no-build",
+        dest="build_images",
+        action="store_false",
+        help="Skip docker image build during start phase (non-canonical fast path)",
+    )
+    parser.set_defaults(build_images=True)
+    parser.add_argument("--archive-export", action="store_true", help="Create an archive artifact in exports/")
+    parser.add_argument("--session-id", default="", help="Optional explicit session id")
+    parser.add_argument("--run-id", default="", help="Optional explicit run id; defaults to a generated UUID")
+    parser.add_argument(
+        "--max-lines-per-file",
+        type=int,
+        default=int(os.environ.get("BRO_REPORT_MAX_LINES_PER_FILE", "50000")),
+        help="Bound passed to postrun report tools; 0 means full-file scan",
+    )
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    session_id = str(args.session_id or "").strip() or str(uuid.uuid4())
+    run_id = str(args.run_id or "").strip() or str(uuid.uuid4())
+    try:
+        uuid.UUID(run_id)
+    except Exception as exc:
+        raise SystemExit(f"invalid run_id (must be UUID): {run_id!r}") from exc
+    ctx = SessionContext(
+        session_id=session_id,
+        run_id=run_id,
+        session_token=str(uuid.uuid4()),
+        config_path=CANONICAL_CONFIG_PATH,
+        active_minutes=max(0.1, float(args.active_minutes)),
+        wait_sec=max(1.0, float(args.wait_sec)),
+        do_build=bool(args.build_images),
+        archive_export=bool(args.archive_export),
+        max_lines_per_file=max(0, int(args.max_lines_per_file)),
+    )
+    runner = SessionRunner(ctx)
+    result = runner.run()
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

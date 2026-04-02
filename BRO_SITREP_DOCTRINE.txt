@@ -1,0 +1,47 @@
+BRO SYSTEM SITREP
+CANONICAL DOCTRINE / ARCHITECTURE / PRO-DESK STANDARD
+
+Version: 2.0
+Project: BRO (Polymarket Execution System)
+Operator: Robb Switzer
+Status: Canon Locked
+Updated: 2026-03-12 UTC
+
+Canonical Doctrine Source
+
+- BRO_CANONICAL_DOCTRINE.txt is the authority source.
+- This sitrep is a summary for quick operator context.
+
+Core Doctrine Summary
+
+- BRO is doctrine-driven and fail-closed.
+- BRO is execution-seeking, not execution-forcing.
+- Every 5-minute market window is treated as a new market.
+- No carryover directional bias is allowed.
+- Every execution decision must pass all three gates in one bundled authorization:
+  strategy gate AND wallet gate AND market quality gate.
+- Strategy emits intent only and never controls funds.
+- Wallet doctrine is sole capital authority.
+- Poor quality, stale truth, unknown stage, degraded trust, or inconsistency must skip or halt.
+
+Canonical Focus Priorities
+
+1. Wallet Doctrine Module completion
+2. Canonical Paper Harness hardening
+3. Security and operational hardening maintenance
+4. Long-duration paper runs (including 12-hour)
+5. Strategy tuning only after system stability is proven
+
+Non-Negotiable Direction
+
+- Preserve domain separation.
+- Preserve explicit canonical vs degraded mode behavior.
+- Preserve auditable stage and gate decisions.
+- Preserve reconciliation as first-class runtime truth.
+- Prefer skip over force.
+
+Reference Files
+
+- BRO_CANONICAL_DOCTRINE.txt
+- BRO_MODULE_ARCHITECTURE.txt
+- BRO_TEXT_GUIDE.txt

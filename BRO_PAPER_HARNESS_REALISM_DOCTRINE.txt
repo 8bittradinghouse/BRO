@@ -1,0 +1,67 @@
+BRO PAPER HARNESS REALISM DOCTRINE (LOCKED)
+
+Authority: BRO Canonical Control-Plane Doctrine
+Scope: Paper harness realism semantics only
+
+Core Rule:
+Paper harness artifacts must be truthful about what is authoritative, what is bounded approximation, and what is not modeled.
+No implied venue-fidelity claims are allowed outside explicit modeled scope.
+
+Claim Classes:
+- authoritative
+- bounded_approximation
+- not_modeled
+
+Authoritative Claims (paper-valid):
+- control-plane authority and gating
+- lifecycle state transitions and standdown semantics
+- canonical decision-path causality (observation -> decision -> action/no-action)
+- run-scoped artifact truth and deterministic validator replay
+
+Bounded Approximation Claims (paper-valid, bounded):
+- taker immediate execution using visible best-touch price and observed top-size bounds
+- source fallback behavior (for example REST under websocket pressure)
+- stale-view risk signaling and degraded-path disclosure
+
+Not Modeled Claims (paper-invalid):
+- venue queue position and exact time-priority outcomes
+- exact maker expectancy and full passive fill economics
+- full transport/exchange race microstructure
+- live PnL equivalence
+
+Maker Policy Semantics:
+- synthetic_touch_fill: disabled by canonical paper profile
+- near_touch_fill: disabled by canonical paper profile
+- background_fill: disabled by canonical paper profile
+- queue_position_mode: not_modeled
+- maker_realism_class: not_modeled
+
+Taker Policy Semantics:
+- price_basis: best_touch
+- size_basis: observed_top_size
+- latency_model: none (explicitly disclosed)
+- stale_view_risk: disclosed_true
+- taker_realism_class: bounded_approximation
+
+Decision Input Truth Semantics:
+Every decision surface must disclose decision_input_type:
+- observed_live
+- replayed
+- emulated
+- bounded_derived
+
+If action uses anything except observed_live, disclosure is mandatory and auditable.
+Action on emulated input is forbidden unless explicitly enabled for controlled scenarios.
+
+Paper Claim Boundary Surface (required in audit output):
+paper_claim_boundary = {
+  control_plane_truth,
+  lifecycle_truth,
+  source_truth,
+  maker_fill_expectancy,
+  taker_fill_expectancy,
+  live_pnl_equivalence
+}
+
+Non-Negotiable:
+If realism class or input provenance is missing for a decision/fill path, the harness audit must fail closed.

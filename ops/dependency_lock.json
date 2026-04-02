@@ -1,0 +1,8 @@
+{
+  "files": {
+    "Dockerfile": "72efdaf3bcfbd4719b86f8fd351784700f4b8e359c1d0b73464b12a2adc635e0",
+    "pyproject.toml": "b71d7a67250d2e43ae42d7bd7814fae192fe762349486c424fc9d40852c5b400",
+    "requirements.txt": "a13835b517f4fe1d03087bc2dd78c227a5cf64bb1f93023c9f854ca419f93539"
+  },
+  "schema_version": 2
+}

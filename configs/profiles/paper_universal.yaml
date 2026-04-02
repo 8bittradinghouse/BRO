@@ -1,0 +1,66 @@
+extends: ./base.yaml
+
+profile:
+  name: paper_universal
+
+mode: paper
+
+runtime:
+  duration_min: 45
+  guard_stop_file: /logs/paper_universal/guard_stop.txt
+  # Keep paper conservative: no synthetic passive fills that are easier than live.
+  paper_passive_touch_fill_enabled: false
+  paper_passive_touch_fill_ratio: 0.0
+  paper_passive_near_touch_band: 0.0
+  paper_passive_near_touch_fill_ratio: 0.0
+  paper_background_fill_ratio: 0.0
+  # Keep maker orders resting long enough to avoid synthetic churn and align with
+  # realistic maker-lifecycle semantics.
+  maker_replace_min_rest_sec: 3.0
+  paper_enforce_setup_lock: true
+  paper_expected_profile_name: paper_universal
+  paper_expected_config_fingerprint_sha256: c083e0d00b11e80d3044df30d17542cf8c9f5b820bcb4be8bb116d80c619d145
+
+# Small, reversible maker-lag relaxation for diagnostic verification.
+# Scope: paper_universal profile only.
+latency_verifier:
+  min_samples: 15
+  armed_min_median_ms: 50
+  armed_min_hit_rate: 0.30
+  probation_min_median_ms: 30
+  probation_min_hit_rate: 0.15
+  score_min_for_maker: 0.08
+
+# Targeted maker-gate hardening (surgical):
+# - widen queue depth tolerance modestly
+# - slightly relax expected-fill floor
+# preserving explicit skip semantics and fail-closed behavior.
+strategy:
+  execution_quality:
+    max_queue_ahead_size: 300.0
+    min_expected_fill_prob: 0.045
+
+# Grok-informed bounded lag accommodation:
+# keep fail-closed behavior but avoid overreacting to short-lived oracle jitter.
+doctrine:
+  oracle_max_tick_age_sec: 5.0
+
+storage:
+  log_dir: /logs/paper_universal
+  state_path: /data/paper_universal/state.json
+
+alerts:
+  guardian_hook_file: /logs/paper_universal/guardian_hook.jsonl
+
+security:
+  allowed_storage_roots:
+    - /logs
+    - /data
+
+ramp:
+  reconcile_status_path: /logs/paper_universal/reconcile_latest.json
+
+targets:
+  discovery:
+    max_pairs: 2
+    event_slug_probe_enabled: true
