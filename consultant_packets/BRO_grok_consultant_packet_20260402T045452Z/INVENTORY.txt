@@ -1,0 +1,8 @@
+CHECKSUMS.txt
+INVENTORY.txt
+README.md
+grok_consult_prompt.md
+pointer_artifacts.md
+run_metrics_summary.json
+sanitization_and_scope.md
+surgical_changes.md
