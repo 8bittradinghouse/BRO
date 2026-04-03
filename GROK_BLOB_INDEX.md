@@ -77,3 +77,33 @@ Branch: `consultant/full-snapshot-public-20260402T055838Z`
 
 - Full code access pointer: https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/GROK_FULL_CODE_ACCESS.md
 - Consultant packet pointer: https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/CONSULTANT_PACKET_LATEST.md
+
+## New Pointers (2026-04-03 Maker Competitiveness Packet)
+
+- Commit (packet + proof):
+  - https://github.com/8bittradinghouse/BRO/commit/c0399d3
+- Proof note (tracked):
+  - blob: https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/BRO_MAKER_COMPETITIVENESS_PACKET_PROOF_20260403T070616Z.md
+  - raw: https://raw.githubusercontent.com/8bittradinghouse/BRO/consultant/full-snapshot-public-20260402T055838Z/BRO_MAKER_COMPETITIVENESS_PACKET_PROOF_20260403T070616Z.md
+- Validation summary for run `23e1187c-4aee-4a58-bc83-0719f55624b5` is local artifact at:
+  - `/home/odah/bro/base/logs_exec/paper_universal/reports/23e1187c-4aee-4a58-bc83-0719f55624b5/validation_summary.json`
+  - note: runtime report artifacts are intentionally not git-tracked
+
+### Key changed code blobs for this packet
+
+- `executor.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/executor.py
+- `prodesk/order_manager.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/order_manager.py
+- `prodesk/config.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/config.py
+- `prodesk/edge_truth_contract.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/edge_truth_contract.py
+- `scripts/nightly_soak_report.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/scripts/nightly_soak_report.py
+- `configs/profiles/paper_universal.yaml`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/configs/profiles/paper_universal.yaml
+- `execution_config.yaml`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/execution_config.yaml
+- `BRO_CANONICAL_DOCTRINE.txt`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/BRO_CANONICAL_DOCTRINE.txt
