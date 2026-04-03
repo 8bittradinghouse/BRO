@@ -1204,6 +1204,39 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sizing.max_usd must be >= sizing.min_usd")
     if not (min_usd <= target_usd <= max_usd):
         raise ValueError("sizing.target_usd must be between sizing.min_usd and sizing.max_usd")
+    maker_competitiveness_sizing_configured = any(
+        float(value) > 0.0
+        for value in (
+            maker_notional_min,
+            maker_notional_max,
+            maker_shares_min,
+            maker_shares_max,
+            maker_depth_min,
+            maker_depth_max,
+            maker_depth_target,
+        )
+    )
+    if maker_competitiveness_sizing_configured and sizing_mode != "notional":
+        raise ValueError(
+            "sizing.mode must be notional when maker competitive floors/depth targets are configured"
+        )
+    if maker_notional_min > 0.0 and max_usd + 1e-9 < maker_notional_min:
+        raise ValueError(
+            "sizing.max_usd must be >= sizing.maker_competitive_min_notional_usd when maker hard floor is enabled"
+        )
+    if maker_notional_max > 0.0 and min_usd - 1e-9 > maker_notional_max:
+        raise ValueError(
+            "sizing.min_usd must be <= sizing.maker_competitive_max_notional_usd when maker hard cap is enabled"
+        )
+    if maker_shares_min > 0.0 and max_size + 1e-9 < maker_shares_min:
+        raise ValueError(
+            "strategy.max_order_size must be >= sizing.maker_competitive_min_shares when maker hard share floor is enabled"
+        )
+    risk_max_order_size = _require_positive("risk.max_order_size", cfg["risk"]["max_order_size"])
+    if maker_shares_min > 0.0 and risk_max_order_size + 1e-9 < maker_shares_min:
+        raise ValueError(
+            "risk.max_order_size must be >= sizing.maker_competitive_min_shares when maker hard share floor is enabled"
+        )
 
     wallet_cfg = cfg.get("wallet")
     if not isinstance(wallet_cfg, dict):

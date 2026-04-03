@@ -389,6 +389,71 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(aggressiveness.get("spread_tightened", 0)), 1)
             self.assertEqual(int(aggressiveness.get("requote_tightened", 0)), 1)
 
+    def test_build_report_emits_maker_sizing_competitiveness_metrics(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-maker-sizing",
+                    "order_id": "m1",
+                    "submission_lane": "maker",
+                    "size_resolution": {
+                        "size_decision_reasons": [
+                            "maker_hard_min_notional_floor",
+                            "maker_hard_min_shares_floor",
+                            "maker_depth_target_notional_floor",
+                        ],
+                        "maker_hard_floor_active": True,
+                        "maker_depth_scaling_active": True,
+                        "resolved_notional_usd": 120.0,
+                        "visible_depth_shares": 500.0,
+                        "effective_depth_shares": 300.0,
+                        "maker_depth_target_ratio_applied": 0.2,
+                    },
+                },
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-maker-sizing",
+                    "order_id": "m2",
+                    "submission_lane": "maker",
+                    "size_resolution": {
+                        "size_decision_reasons": [
+                            "maker_hard_max_notional_cap",
+                            "maker_hard_max_shares_cap",
+                        ],
+                        "maker_hard_floor_active": True,
+                        "maker_depth_scaling_active": False,
+                        "resolved_notional_usd": 280.0,
+                        "visible_depth_shares": 600.0,
+                        "effective_depth_shares": 600.0,
+                        "maker_depth_target_ratio_applied": 0.2,
+                    },
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-maker-sizing", "gauge.open_orders": 1}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-maker-sizing")
+            maker_sizing = report.get("maker_sizing_competitiveness", {})
+            self.assertEqual(float(maker_sizing.get("maker_submit_rows") or 0.0), 2.0)
+            self.assertEqual(float(maker_sizing.get("maker_size_resolution_rows") or 0.0), 2.0)
+            self.assertEqual(float(maker_sizing.get("hard_min_notional_floor_applied_count") or 0.0), 1.0)
+            self.assertEqual(float(maker_sizing.get("hard_min_share_floor_applied_count") or 0.0), 1.0)
+            self.assertEqual(float(maker_sizing.get("depth_target_notional_floor_applied_count") or 0.0), 1.0)
+            self.assertEqual(float(maker_sizing.get("hard_max_notional_cap_applied_count") or 0.0), 1.0)
+            self.assertEqual(float(maker_sizing.get("hard_max_share_cap_applied_count") or 0.0), 1.0)
+            self.assertEqual(float(maker_sizing.get("hard_floor_active_rows") or 0.0), 2.0)
+            self.assertEqual(float(maker_sizing.get("depth_scaling_active_rows") or 0.0), 1.0)
+            self.assertAlmostEqual(float(maker_sizing.get("resolved_notional_usd_p50") or 0.0), 120.0, places=6)
+
     def test_build_report_emits_maker_regression_sentinel_triggered_for_near_zero_pattern(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

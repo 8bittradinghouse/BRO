@@ -906,6 +906,18 @@ class OrderManager:
             visible_depth_shares = self._maker_visible_depth_shares(top, intent.side)
             tod_depth_multiplier, tod_mode = self._maker_liquidity_tod_scale()
             effective_depth_shares = visible_depth_shares * tod_depth_multiplier
+            details["maker_hard_floor_active"] = bool(
+                self.maker_competitive_min_notional_usd > 0.0
+                or self.maker_competitive_min_shares > 0.0
+            )
+            details["maker_hard_notional_range_usd"] = {
+                "min": float(self.maker_competitive_min_notional_usd),
+                "max": float(self.maker_competitive_max_notional_usd),
+            }
+            details["maker_hard_share_range"] = {
+                "min": float(self.maker_competitive_min_shares),
+                "max": float(self.maker_competitive_max_shares),
+            }
             details["visible_depth_shares"] = float(visible_depth_shares)
             details["maker_liquidity_tod_depth_multiplier"] = float(tod_depth_multiplier)
             details["maker_liquidity_tod_mode"] = tod_mode
@@ -918,6 +930,14 @@ class OrderManager:
             if self.maker_depth_target_max_ratio > 0.0:
                 depth_target_ratio = min(depth_target_ratio, self.maker_depth_target_max_ratio)
             details["maker_depth_target_ratio_applied"] = float(depth_target_ratio)
+            details["maker_depth_target_ratio_window"] = {
+                "min": float(self.maker_depth_target_min_ratio),
+                "target": float(self.maker_depth_target_ratio),
+                "max": float(self.maker_depth_target_max_ratio),
+            }
+            details["maker_depth_scaling_active"] = bool(
+                effective_depth_shares > 0.0 and depth_target_ratio > 0.0
+            )
             if effective_depth_shares > 0.0 and depth_target_ratio > 0.0:
                 depth_target_shares = effective_depth_shares * depth_target_ratio
                 depth_target_usd = depth_target_shares * float(price)

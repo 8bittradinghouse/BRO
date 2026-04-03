@@ -164,6 +164,30 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_maker_competitive_floor_when_notional_mode_disabled(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sizing"]["mode"] = "shares"
+        cfg["sizing"]["maker_competitive_min_notional_usd"] = 100.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_unachievable_maker_notional_floor(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sizing"]["maker_competitive_min_notional_usd"] = 100.0
+        cfg["sizing"]["max_usd"] = 50.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_unachievable_maker_share_floor_against_risk_cap(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sizing"]["maker_competitive_min_shares"] = 200.0
+        cfg["risk"]["max_order_size"] = 100.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_strategy_emits_two_sided_quotes(self):
         strategy = MarketMakingStrategy(DEFAULT_EXECUTION_CONFIG["strategy"])
         top = BookTop(

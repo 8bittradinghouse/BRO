@@ -1291,6 +1291,93 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     }
 
 
+def _maker_sizing_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    maker_submit_rows = 0
+    maker_size_resolution_rows = 0
+    hard_min_notional_floor_applied = 0
+    hard_min_share_floor_applied = 0
+    depth_target_notional_floor_applied = 0
+    hard_max_notional_cap_applied = 0
+    hard_max_share_cap_applied = 0
+    hard_floor_active_rows = 0
+    depth_scaling_active_rows = 0
+    resolved_notional_values: List[float] = []
+    visible_depth_values: List[float] = []
+    effective_depth_values: List[float] = []
+    depth_target_ratio_values: List[float] = []
+
+    for evt in events:
+        if str(evt.get("event_type") or "").strip().lower() != "order_submit":
+            continue
+        if str(evt.get("submission_lane") or "").strip().lower() != "maker":
+            continue
+        maker_submit_rows += 1
+        size_resolution = evt.get("size_resolution")
+        if not isinstance(size_resolution, dict):
+            continue
+        maker_size_resolution_rows += 1
+        reasons = {
+            str(item).strip().lower()
+            for item in list(size_resolution.get("size_decision_reasons") or [])
+            if str(item).strip()
+        }
+        if "maker_hard_min_notional_floor" in reasons:
+            hard_min_notional_floor_applied += 1
+        if "maker_hard_min_shares_floor" in reasons:
+            hard_min_share_floor_applied += 1
+        if "maker_depth_target_notional_floor" in reasons:
+            depth_target_notional_floor_applied += 1
+        if "maker_hard_max_notional_cap" in reasons:
+            hard_max_notional_cap_applied += 1
+        if "maker_hard_max_shares_cap" in reasons:
+            hard_max_share_cap_applied += 1
+
+        hard_floor_active = _as_bool(size_resolution.get("maker_hard_floor_active"))
+        if hard_floor_active is True:
+            hard_floor_active_rows += 1
+        elif hard_floor_active is None:
+            # backward-safe inference for older rows where explicit boolean may be absent
+            min_notional = _safe_float(size_resolution.get("maker_hard_min_notional_usd"), 0.0)
+            min_shares = _safe_float(size_resolution.get("maker_hard_min_shares"), 0.0)
+            if min_notional > 0.0 or min_shares > 0.0:
+                hard_floor_active_rows += 1
+
+        depth_scaling_active = _as_bool(size_resolution.get("maker_depth_scaling_active"))
+        if depth_scaling_active is True:
+            depth_scaling_active_rows += 1
+
+        resolved_notional = size_resolution.get("resolved_notional_usd")
+        if isinstance(resolved_notional, (int, float)):
+            resolved_notional_values.append(float(resolved_notional))
+        visible_depth = size_resolution.get("visible_depth_shares")
+        if isinstance(visible_depth, (int, float)):
+            visible_depth_values.append(float(visible_depth))
+        effective_depth = size_resolution.get("effective_depth_shares")
+        if isinstance(effective_depth, (int, float)):
+            effective_depth_values.append(float(effective_depth))
+        depth_ratio = size_resolution.get("maker_depth_target_ratio_applied")
+        if isinstance(depth_ratio, (int, float)):
+            depth_target_ratio_values.append(float(depth_ratio))
+
+    return {
+        "maker_submit_rows": float(maker_submit_rows),
+        "maker_size_resolution_rows": float(maker_size_resolution_rows),
+        "hard_min_notional_floor_applied_count": float(hard_min_notional_floor_applied),
+        "hard_min_share_floor_applied_count": float(hard_min_share_floor_applied),
+        "depth_target_notional_floor_applied_count": float(depth_target_notional_floor_applied),
+        "hard_max_notional_cap_applied_count": float(hard_max_notional_cap_applied),
+        "hard_max_share_cap_applied_count": float(hard_max_share_cap_applied),
+        "hard_floor_active_rows": float(hard_floor_active_rows),
+        "depth_scaling_active_rows": float(depth_scaling_active_rows),
+        "resolved_notional_usd_p50": _percentile(resolved_notional_values, 0.50),
+        "resolved_notional_usd_p90": _percentile(resolved_notional_values, 0.90),
+        "resolved_notional_usd_max": max(resolved_notional_values) if resolved_notional_values else 0.0,
+        "visible_depth_shares_p50": _percentile(visible_depth_values, 0.50),
+        "effective_depth_shares_p50": _percentile(effective_depth_values, 0.50),
+        "depth_target_ratio_applied_p50": _percentile(depth_target_ratio_values, 0.50),
+    }
+
+
 def build_report(
     log_dir: pathlib.Path,
     *,
@@ -1349,6 +1436,7 @@ def build_report(
     taker_stage_net_breakout = _taker_stage_net_breakout(events)
     edge_quality = _edge_quality_by_regime(events)
     maker_competitiveness = _maker_competitiveness_stats(events)
+    maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
     latency_stats = _latency_distribution(events)
@@ -1429,6 +1517,7 @@ def build_report(
         "maker_regression_sentinel": maker_regression_sentinel,
         "edge_truth": edge_truth,
         "maker_competitiveness": maker_competitiveness,
+        "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
         "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
         "maker_market_reference_fallback_count": _safe_float(
@@ -1487,6 +1576,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
+    maker_size_comp = (
+        report.get("maker_sizing_competitiveness", {})
+        if isinstance(report.get("maker_sizing_competitiveness"), dict)
+        else {}
+    )
     runtime_class = report.get("runtime_classification", {}) if isinstance(report.get("runtime_classification"), dict) else {}
     runtime_class_name = str(runtime_class.get("classification") or "")
     runtime_promotable = bool(runtime_class.get("promotion_eligible", False))
@@ -1545,6 +1639,14 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"one_sided_submit_buy={int(_safe_float(maker_comp.get('one_sided_activation_submit_buy_count')))},"
             + f"one_sided_submit_sell={int(_safe_float(maker_comp.get('one_sided_activation_submit_sell_count')))},"
             + f"aggressiveness={json.dumps(maker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
+        ),
+        (
+            "maker_sizing_competitiveness="
+            + f"submit_rows={int(_safe_float(maker_size_comp.get('maker_submit_rows')))},"
+            + f"hard_min_notional_applied={int(_safe_float(maker_size_comp.get('hard_min_notional_floor_applied_count')))},"
+            + f"depth_target_applied={int(_safe_float(maker_size_comp.get('depth_target_notional_floor_applied_count')))},"
+            + f"resolved_notional_p50={_safe_float(maker_size_comp.get('resolved_notional_usd_p50')):.2f},"
+            + f"resolved_notional_p90={_safe_float(maker_size_comp.get('resolved_notional_usd_p90')):.2f}"
         ),
         (
             "stale="
