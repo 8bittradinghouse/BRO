@@ -33,13 +33,22 @@ Maker Policy Semantics:
 - synthetic_touch_fill: disabled by canonical paper profile
 - near_touch_fill: disabled by canonical paper profile
 - background_fill: disabled by canonical paper profile
-- queue_position_mode: not_modeled
-- maker_realism_class: not_modeled
+- queue_position_mode:
+  - not_modeled
+  - bounded_top_depth_proxy (bounded depth-consumption approximation)
+- maker_realism_class:
+  - bounded_approximation when queue_position_mode == bounded_top_depth_proxy and synthetic maker fill paths are disabled
+  - not_modeled otherwise
 
 Taker Policy Semantics:
 - price_basis: best_touch
 - size_basis: observed_top_size
-- latency_model: none (explicitly disclosed)
+- latency_model:
+  - none
+  - bounded_lag_emulation
+- lag_unknown_handling: fail_closed_no_penalty
+- lag classes: within_window | below_window | above_window | unknown
+- unknown lag class never applies inferred lag penalty
 - stale_view_risk: disclosed_true
 - taker_realism_class: bounded_approximation
 
@@ -65,3 +74,12 @@ paper_claim_boundary = {
 
 Non-Negotiable:
 If realism class or input provenance is missing for a decision/fill path, the harness audit must fail closed.
+
+Audit Surface Addendum (required):
+- harness_realism_grade (0-100, non-gating, machine-readable)
+- harness_realism_grade_breakdown:
+  - tod_liquidity_scaling
+  - maker_queue_proxy_depth_model
+  - taker_depth_slippage_model
+  - taker_lag_emulation_with_unknown_guard
+  - truth_surface_completeness

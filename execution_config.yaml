@@ -48,9 +48,21 @@ runtime:
   paper_passive_near_touch_band: 0.0
   paper_passive_near_touch_fill_ratio: 0.0
   paper_background_fill_ratio: 0.0
+  paper_liquidity_tod_scaler_enabled: false
+  paper_liquidity_tod_start_hour_utc: 2
+  paper_liquidity_tod_end_hour_utc: 6
+  paper_liquidity_tod_depth_multiplier: 1.0
+  paper_queue_position_mode: "not_modeled"
+  paper_queue_position_ahead_ratio: 0.0
+  paper_chainlink_lag_emulation_enabled: false
+  paper_chainlink_lag_window_low_sec: 2.0
+  paper_chainlink_lag_window_high_sec: 15.0
+  paper_chainlink_lag_penalty_bps_below_window: 0.0
+  paper_chainlink_lag_penalty_bps_within_window: 0.0
+  paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "0194f684c4a7e07f6791e9dbcbb82ea59173950d9d3256484e7507cb25d40eb3"
+  paper_expected_config_fingerprint_sha256: "b5291c3f9e726f9849d846a43fec4228cc88f9b364270787d1de6e11142b0547"
 
 storage:
   log_dir: "./logs_exec"
@@ -211,6 +223,17 @@ sizing:
   price_source: "mid"
   share_step: 0.01
   exposure_cap_mode: "per_market_total"
+  maker_competitive_min_notional_usd: 0.0
+  maker_competitive_max_notional_usd: 0.0
+  maker_competitive_min_shares: 0.0
+  maker_competitive_max_shares: 0.0
+  maker_depth_target_min_ratio: 0.0
+  maker_depth_target_max_ratio: 0.0
+  maker_depth_target_ratio: 0.0
+  maker_liquidity_tod_scaler_enabled: false
+  maker_liquidity_tod_start_hour_utc: 2
+  maker_liquidity_tod_end_hour_utc: 6
+  maker_liquidity_tod_depth_multiplier: 1.0
 
 risk:
   max_abs_position_shares: 400.0

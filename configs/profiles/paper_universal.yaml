@@ -14,12 +14,25 @@ runtime:
   paper_passive_near_touch_band: 0.0
   paper_passive_near_touch_fill_ratio: 0.0
   paper_background_fill_ratio: 0.0
+  # Paper realism: thin overnight books and bounded queue-ahead proxy are explicit.
+  paper_liquidity_tod_scaler_enabled: true
+  paper_liquidity_tod_start_hour_utc: 2
+  paper_liquidity_tod_end_hour_utc: 6
+  paper_liquidity_tod_depth_multiplier: 0.6
+  paper_queue_position_mode: bounded_top_depth_proxy
+  paper_queue_position_ahead_ratio: 0.35
+  paper_chainlink_lag_emulation_enabled: true
+  paper_chainlink_lag_window_low_sec: 2.0
+  paper_chainlink_lag_window_high_sec: 15.0
+  paper_chainlink_lag_penalty_bps_below_window: 0.0
+  paper_chainlink_lag_penalty_bps_within_window: 2.0
+  paper_chainlink_lag_penalty_bps_above_window: 4.0
   # Keep maker orders resting long enough to avoid synthetic churn and align with
   # realistic maker-lifecycle semantics.
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: c083e0d00b11e80d3044df30d17542cf8c9f5b820bcb4be8bb116d80c619d145
+  paper_expected_config_fingerprint_sha256: 90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -40,10 +53,34 @@ strategy:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
 
+# Maker competitiveness sizing: enforce desk-viable minimum quote presence and
+# bind to visible depth while preserving deterministic, bounded behavior.
+sizing:
+  max_usd: 300.0
+  maker_competitive_min_notional_usd: 100.0
+  maker_competitive_max_notional_usd: 250.0
+  maker_competitive_min_shares: 200.0
+  maker_competitive_max_shares: 800.0
+  maker_depth_target_min_ratio: 0.15
+  maker_depth_target_max_ratio: 0.30
+  maker_depth_target_ratio: 0.20
+  maker_liquidity_tod_scaler_enabled: true
+  maker_liquidity_tod_start_hour_utc: 2
+  maker_liquidity_tod_end_hour_utc: 6
+  maker_liquidity_tod_depth_multiplier: 0.6
+
 # Grok-informed bounded lag accommodation:
 # keep fail-closed behavior but avoid overreacting to short-lived oracle jitter.
 doctrine:
   oracle_max_tick_age_sec: 5.0
+
+# P1 taker tightening:
+# keep high-conviction stages unchanged and only raise the selective-stage floor.
+sniper:
+  taker:
+    min_edge_by_stage:
+      MAKER_TAKER_SELECTIVE: 0.12
+      SNIPER_PRIMARY: 0.10
 
 storage:
   log_dir: /logs/paper_universal

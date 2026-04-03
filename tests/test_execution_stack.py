@@ -68,6 +68,21 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_invalid_paper_queue_position_mode(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["runtime"]["paper_queue_position_mode"] = "bad_mode"
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_invalid_maker_depth_target_ratio_bounds(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sizing"]["maker_depth_target_min_ratio"] = 0.3
+        cfg["sizing"]["maker_depth_target_max_ratio"] = 0.2
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_config_rejects_non_boolean_log_async_flush(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -268,6 +283,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["max_order_size"] = 1000.0
             risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
             risk_cfg["max_book_age_sec"] = 100.0
 
@@ -1356,6 +1372,116 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_maker_notional_sizing_applies_competitive_depth_overlay(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["max_order_size"] = 1000.0
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
+            sizing_cfg["mode"] = "notional"
+            sizing_cfg["min_usd"] = 1.0
+            sizing_cfg["max_usd"] = 300.0
+            sizing_cfg["target_usd"] = 5.0
+            sizing_cfg["maker_competitive_min_notional_usd"] = 100.0
+            sizing_cfg["maker_competitive_max_notional_usd"] = 250.0
+            sizing_cfg["maker_competitive_min_shares"] = 200.0
+            sizing_cfg["maker_competitive_max_shares"] = 800.0
+            sizing_cfg["maker_depth_target_min_ratio"] = 0.15
+            sizing_cfg["maker_depth_target_max_ratio"] = 0.30
+            sizing_cfg["maker_depth_target_ratio"] = 0.20
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(
+                gateway,
+                strategy,
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=2200.0,
+                best_ask_price=0.51,
+                best_ask_size=2200.0,
+            )
+            sized = manager._resolve_order_size_shares(  # pylint: disable=protected-access
+                OrderIntent(token_id="t1", side="BUY", price=0.50, size=25.0, tif="GTC", post_only=True),
+                top,
+            )
+            # 20% of visible buy-side depth -> 440 shares at ~0.50 midpoint (220 USD notional).
+            self.assertAlmostEqual(sized or 0.0, 440.0, places=6)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_taker_notional_sizing_ignores_maker_competitive_minimums(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
+            sizing_cfg["mode"] = "notional"
+            sizing_cfg["min_usd"] = 1.0
+            sizing_cfg["max_usd"] = 300.0
+            sizing_cfg["target_usd"] = 5.0
+            sizing_cfg["maker_competitive_min_notional_usd"] = 100.0
+            sizing_cfg["maker_competitive_min_shares"] = 200.0
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(
+                gateway,
+                strategy,
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=2200.0,
+                best_ask_price=0.51,
+                best_ask_size=2200.0,
+            )
+            sized = manager._resolve_order_size_shares(  # pylint: disable=protected-access
+                OrderIntent(token_id="t1", side="BUY", price=0.50, size=25.0, tif="IOC", post_only=False),
+                top,
+                notional_target_usd=5.0,
+            )
+            self.assertAlmostEqual(sized or 0.0, 10.0, places=6)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_paper_gateway_passive_touch_fill_generates_fills(self):
         gateway = PaperGateway(
             {
@@ -1534,6 +1660,161 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertGreater(sum(fill.size for fill in fills), 0.0)
         self.assertTrue(all(str(fill.fill_policy_basis or "") == "synthetic_background_fill" for fill in fills))
         self.assertTrue(all(str(fill.execution_realism_class or "") == "not_modeled" for fill in fills))
+
+    def test_paper_gateway_tod_liquidity_scaler_reduces_immediate_fill_depth(self):
+        gateway = PaperGateway(
+            {
+                "paper_liquidity_tod_scaler_enabled": True,
+                "paper_liquidity_tod_start_hour_utc": 2,
+                "paper_liquidity_tod_end_hour_utc": 6,
+                "paper_liquidity_tod_depth_multiplier": 0.5,
+            }
+        )
+        top = BookTop(
+            token_id="t1",
+            ts_utc="2026-01-01T03:00:00Z",
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.50,
+            best_ask_size=100.0,
+        )
+        gateway.on_book(top)
+        order = gateway.place_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.50, size=100.0, tif="IOC", post_only=False),
+            client_order_id="cid-tod-liq",
+        )
+        fills = gateway.poll_fills()
+        self.assertEqual(order.status, "PARTIAL")
+        self.assertEqual(len(fills), 1)
+        self.assertAlmostEqual(float(fills[0].size), 50.0, places=6)
+        self.assertAlmostEqual(float(fills[0].paper_liquidity_depth_multiplier or 0.0), 0.5, places=6)
+
+    def test_paper_gateway_queue_proxy_reduces_resting_cross_fill(self):
+        gateway = PaperGateway(
+            {
+                "paper_queue_position_mode": "bounded_top_depth_proxy",
+                "paper_queue_position_ahead_ratio": 0.4,
+            }
+        )
+        initial = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.60,
+            best_ask_size=100.0,
+        )
+        gateway.on_book(initial)
+        gateway.place_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.55, size=100.0, tif="GTC", post_only=True),
+            client_order_id="cid-queue-proxy",
+        )
+        crossed = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.54,
+            best_bid_size=100.0,
+            best_ask_price=0.55,
+            best_ask_size=100.0,
+        )
+        gateway.on_book(crossed)
+        fills = gateway.poll_fills()
+        self.assertEqual(len(fills), 1)
+        self.assertAlmostEqual(float(fills[0].size), 60.0, places=6)
+        self.assertEqual(
+            str(fills[0].fill_policy_basis or ""),
+            "bounded_visible_liquidity_top_of_book_with_queue_proxy",
+        )
+        self.assertEqual(str(fills[0].paper_queue_position_mode or ""), "bounded_top_depth_proxy")
+        self.assertAlmostEqual(float(fills[0].paper_queue_fill_multiplier or 0.0), 0.6, places=6)
+        self.assertAlmostEqual(float(fills[0].paper_maker_eligible_depth or 0.0), 60.0, places=6)
+        self.assertAlmostEqual(float(fills[0].paper_maker_depth_consumption_ratio or 0.0), 0.6, places=6)
+
+    def test_paper_gateway_taker_lag_unknown_is_fail_closed_no_penalty(self):
+        gateway = PaperGateway(
+            {
+                "paper_chainlink_lag_emulation_enabled": True,
+                "paper_chainlink_lag_window_low_sec": 2.0,
+                "paper_chainlink_lag_window_high_sec": 15.0,
+                "paper_chainlink_lag_penalty_bps_within_window": 2.0,
+            }
+        )
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="ws",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.50,
+            best_ask_size=100.0,
+        )
+        gateway.on_book(top)
+        order = gateway.place_order(
+            OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=10.0,
+                tif="IOC",
+                post_only=False,
+                reason="sniper_taker_chainlink",
+                oracle_tick_age_sec=3.0,
+                token_median_lag_ms=None,
+            ),
+            client_order_id="cid-lag-unknown",
+        )
+        fills = gateway.poll_fills()
+        self.assertEqual(order.status, "FILLED")
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(str(fills[0].paper_chainlink_lag_class or ""), "unknown")
+        self.assertIsNone(fills[0].paper_chainlink_lag_sec_effective)
+        self.assertAlmostEqual(float(fills[0].paper_chainlink_lag_penalty_bps or 0.0), 0.0, places=9)
+        self.assertAlmostEqual(float(fills[0].price), 0.50, places=9)
+
+    def test_paper_gateway_taker_lag_penalty_applies_when_classified(self):
+        gateway = PaperGateway(
+            {
+                "paper_chainlink_lag_emulation_enabled": True,
+                "paper_chainlink_lag_window_low_sec": 2.0,
+                "paper_chainlink_lag_window_high_sec": 15.0,
+                "paper_chainlink_lag_penalty_bps_below_window": 0.0,
+                "paper_chainlink_lag_penalty_bps_within_window": 2.0,
+                "paper_chainlink_lag_penalty_bps_above_window": 4.0,
+            }
+        )
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="ws",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.50,
+            best_ask_size=100.0,
+        )
+        gateway.on_book(top)
+        gateway.place_order(
+            OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=10.0,
+                tif="IOC",
+                post_only=False,
+                reason="sniper_taker_chainlink",
+                oracle_tick_age_sec=3.0,
+                token_median_lag_ms=5000.0,
+            ),
+            client_order_id="cid-lag-known",
+        )
+        fills = gateway.poll_fills()
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(str(fills[0].paper_chainlink_lag_class or ""), "within_window")
+        self.assertAlmostEqual(float(fills[0].paper_chainlink_lag_sec_effective or 0.0), 5.0, places=9)
+        self.assertAlmostEqual(float(fills[0].paper_chainlink_lag_penalty_bps or 0.0), 2.0, places=9)
+        self.assertAlmostEqual(float(fills[0].price), 0.50 * (1.0 + 2.0 / 10000.0), places=9)
 
     def test_runner_recovers_from_corrupt_state_file(self):
         with tempfile.TemporaryDirectory() as td:

@@ -47,6 +47,8 @@ class OrderIntent:
     decision_reference_source: Optional[str] = None
     decision_reference_lookup_key: Optional[str] = None
     decision_reference_ts_utc: Optional[str] = None
+    token_median_lag_ms: Optional[float] = None
+    oracle_tick_age_sec: Optional[float] = None
 
 
 @dataclasses.dataclass
@@ -76,6 +78,14 @@ class FillEvent:
     execution_realism_class: Optional[str] = None
     decision_input_type: Optional[str] = None
     target_ref: Optional[str] = None
+    paper_liquidity_depth_multiplier: Optional[float] = None
+    paper_queue_position_mode: Optional[str] = None
+    paper_queue_fill_multiplier: Optional[float] = None
+    paper_maker_depth_consumption_ratio: Optional[float] = None
+    paper_maker_eligible_depth: Optional[float] = None
+    paper_chainlink_lag_class: Optional[str] = None
+    paper_chainlink_lag_sec_effective: Optional[float] = None
+    paper_chainlink_lag_penalty_bps: Optional[float] = None
 
 
 @dataclasses.dataclass

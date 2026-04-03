@@ -1,0 +1,93 @@
+{
+  "execution_paths": {
+    "maker_fill_rate": 0.12903225806451613,
+    "maker_fills": 4.0,
+    "maker_fire_rate_per_min": 1.5128937590692286,
+    "maker_submits": 31.0,
+    "taker_bonus_fill_rate": 1.0,
+    "taker_bonus_fills": 59.0,
+    "taker_bonus_fire_rate_per_min": 2.8793784446801447,
+    "taker_bonus_submits": 59.0
+  },
+  "execution_quality": {
+    "adverse_selection": 220.22994999999983,
+    "capture_minus_adverse": -220.22994999999983,
+    "fills_scored": 63.0,
+    "realized_capture": 0.0
+  },
+  "harness_realism_grade": 100,
+  "harness_realism_grade_breakdown": {
+    "maker_queue_proxy_depth_model": 20,
+    "taker_depth_slippage_model": 20,
+    "taker_lag_emulation_with_unknown_guard": 20,
+    "tod_liquidity_scaling": 20,
+    "truth_surface_completeness": 20
+  },
+  "maker_policy": {
+    "background_fill": "disabled",
+    "liquidity_tod_depth_multiplier": 0.6,
+    "liquidity_tod_end_hour_utc": 6,
+    "liquidity_tod_scaler_enabled": true,
+    "liquidity_tod_start_hour_utc": 2,
+    "maker_realism_class": "bounded_approximation",
+    "near_touch_fill": "disabled",
+    "queue_position_ahead_ratio": 0.35,
+    "queue_position_mode": "bounded_top_depth_proxy",
+    "queue_proxy_depth_model_active": true,
+    "synthetic_touch_fill": "disabled"
+  },
+  "paper_claim_boundary": {
+    "action_source_truth": "authoritative",
+    "control_plane_truth": "authoritative",
+    "decision_source_truth": "bounded_approximation",
+    "lifecycle_truth": "authoritative",
+    "live_pnl_equivalence": false,
+    "maker_fill_expectancy": "bounded_approximation",
+    "source_truth": "authoritative",
+    "source_truth_semantics": "legacy_alias_of_action_source_truth",
+    "taker_fill_expectancy": "bounded_approximation"
+  },
+  "proof_zip_local": "exports/paper_session_4dee0545-3a42-4cde-9b2d-30e16e0764fd.zip",
+  "report_dir": "logs_exec/paper_universal/reports/4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+  "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+  "session_id": "9c1ee9b1-8e19-43ef-93b7-bd0b0a426759",
+  "taker_policy": {
+    "lag_penalty_bps_above_window": 4.0,
+    "lag_penalty_bps_below_window": 0.0,
+    "lag_penalty_bps_within_window": 2.0,
+    "lag_unknown_handling": "fail_closed_no_penalty",
+    "lag_window_high_sec": 15.0,
+    "lag_window_low_sec": 2.0,
+    "latency_model": "bounded_lag_emulation",
+    "price_basis": "best_touch",
+    "size_basis": "observed_top_size",
+    "stale_view_risk": "disclosed_true",
+    "taker_realism_class": "bounded_approximation"
+  },
+  "validation_status": {
+    "overall_exit_code": 0,
+    "validator_determinism_ok": true,
+    "validator_exit_codes": {
+      "edge_truth_audit": 0,
+      "edge_truth_audit_replay": 0,
+      "guardian_profile_audit": 0,
+      "guardian_profile_audit_replay": 0,
+      "nightly_soak_report": 0,
+      "nightly_soak_report_replay": 0,
+      "order_lifecycle_audit": 0,
+      "order_lifecycle_audit_replay": 0,
+      "outcome_truth_audit": 0,
+      "outcome_truth_audit_replay": 0,
+      "paper_harness_audit": 0,
+      "paper_harness_audit_replay": 0,
+      "readiness_gate": 0,
+      "readiness_gate_replay": 0,
+      "soak_hardening_gate": 0,
+      "soak_hardening_gate_replay": 0,
+      "time_discipline_audit": 0,
+      "time_discipline_audit_replay": 0,
+      "websocket_hardening_audit": 0,
+      "websocket_hardening_audit_replay": 0
+    }
+  }
+}

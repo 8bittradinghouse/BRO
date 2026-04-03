@@ -93,6 +93,126 @@ class PaperGateway(BaseGateway):
             0.0, min(1.0, float(cfg.get("paper_passive_near_touch_fill_ratio", 0.08)))
         )
         self._paper_background_fill_ratio = max(0.0, min(1.0, float(cfg.get("paper_background_fill_ratio", 0.0))))
+        self._paper_liquidity_tod_scaler_enabled = bool(cfg.get("paper_liquidity_tod_scaler_enabled", False))
+        self._paper_liquidity_tod_start_hour_utc = int(float(cfg.get("paper_liquidity_tod_start_hour_utc", 2)))
+        self._paper_liquidity_tod_end_hour_utc = int(float(cfg.get("paper_liquidity_tod_end_hour_utc", 6)))
+        self._paper_liquidity_tod_depth_multiplier = max(
+            0.0,
+            float(cfg.get("paper_liquidity_tod_depth_multiplier", 1.0)),
+        )
+        queue_mode = str(cfg.get("paper_queue_position_mode", "not_modeled")).strip().lower()
+        if queue_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
+            queue_mode = "not_modeled"
+        self._paper_queue_position_mode = queue_mode
+        self._paper_queue_position_ahead_ratio = max(
+            0.0,
+            min(1.0, float(cfg.get("paper_queue_position_ahead_ratio", 0.0))),
+        )
+        self._paper_chainlink_lag_emulation_enabled = bool(
+            cfg.get("paper_chainlink_lag_emulation_enabled", False)
+        )
+        self._paper_chainlink_lag_window_low_sec = max(
+            0.0,
+            float(cfg.get("paper_chainlink_lag_window_low_sec", 2.0)),
+        )
+        self._paper_chainlink_lag_window_high_sec = max(
+            self._paper_chainlink_lag_window_low_sec,
+            float(cfg.get("paper_chainlink_lag_window_high_sec", 15.0)),
+        )
+        self._paper_chainlink_lag_penalty_bps_below_window = max(
+            0.0,
+            float(cfg.get("paper_chainlink_lag_penalty_bps_below_window", 0.0)),
+        )
+        self._paper_chainlink_lag_penalty_bps_within_window = max(
+            0.0,
+            float(cfg.get("paper_chainlink_lag_penalty_bps_within_window", 0.0)),
+        )
+        self._paper_chainlink_lag_penalty_bps_above_window = max(
+            0.0,
+            float(cfg.get("paper_chainlink_lag_penalty_bps_above_window", 0.0)),
+        )
+
+    @staticmethod
+    def _hour_in_window(*, hour_utc: int, start_hour: int, end_hour: int) -> bool:
+        start = max(0, min(23, int(start_hour)))
+        end = max(0, min(23, int(end_hour)))
+        if start == end:
+            return True
+        if start < end:
+            return start <= hour_utc < end
+        return hour_utc >= start or hour_utc < end
+
+    def _paper_liquidity_depth_scale(self, top: BookTop) -> float:
+        if not self._paper_liquidity_tod_scaler_enabled:
+            return 1.0
+        ts = parse_ts(top.ts_utc)
+        if ts is None:
+            return 1.0
+        if self._hour_in_window(
+            hour_utc=int(ts.hour),
+            start_hour=self._paper_liquidity_tod_start_hour_utc,
+            end_hour=self._paper_liquidity_tod_end_hour_utc,
+        ):
+            return float(self._paper_liquidity_tod_depth_multiplier)
+        return 1.0
+
+    def _paper_queue_fill_multiplier(self) -> float:
+        if self._paper_queue_position_mode != "bounded_top_depth_proxy":
+            return 1.0
+        # Deterministic bounded proxy: reserve a fixed fraction of visible depth
+        # as queue-ahead before this order is eligible to fill.
+        return max(0.0, min(1.0, 1.0 - float(self._paper_queue_position_ahead_ratio)))
+
+    def _maker_depth_fill_plan(self, *, side_liq: float, remaining: float) -> Dict[str, float]:
+        # Deterministic bounded plan for maker on-book fills.
+        queue_mult = self._paper_queue_fill_multiplier()
+        eligible_depth = max(0.0, float(side_liq) * float(queue_mult))
+        fill_size = max(0.0, min(float(remaining), eligible_depth))
+        depth_ratio = (fill_size / float(side_liq)) if float(side_liq) > 0.0 else 0.0
+        return {
+            "queue_fill_multiplier": float(queue_mult),
+            "eligible_depth": float(eligible_depth),
+            "fill_size": float(fill_size),
+            "depth_consumption_ratio": float(depth_ratio),
+        }
+
+    def _classify_chainlink_lag(self, *, intent: OrderIntent) -> tuple[str, Optional[float]]:
+        token_median_lag_ms = (
+            float(intent.token_median_lag_ms)
+            if isinstance(intent.token_median_lag_ms, (int, float))
+            else None
+        )
+        oracle_tick_age_sec = (
+            float(intent.oracle_tick_age_sec)
+            if isinstance(intent.oracle_tick_age_sec, (int, float))
+            else None
+        )
+        if (
+            token_median_lag_ms is None
+            or token_median_lag_ms < 0.0
+            or oracle_tick_age_sec is None
+            or oracle_tick_age_sec < 0.0
+        ):
+            return "unknown", None
+        effective_lag_sec = max(token_median_lag_ms / 1000.0, oracle_tick_age_sec)
+        if effective_lag_sec < float(self._paper_chainlink_lag_window_low_sec):
+            return "below_window", float(effective_lag_sec)
+        if effective_lag_sec > float(self._paper_chainlink_lag_window_high_sec):
+            return "above_window", float(effective_lag_sec)
+        return "within_window", float(effective_lag_sec)
+
+    def _chainlink_lag_penalty_bps(self, *, lag_class: str) -> float:
+        if not self._paper_chainlink_lag_emulation_enabled:
+            return 0.0
+        normalized = str(lag_class or "").strip().lower()
+        if normalized == "below_window":
+            return float(self._paper_chainlink_lag_penalty_bps_below_window)
+        if normalized == "within_window":
+            return float(self._paper_chainlink_lag_penalty_bps_within_window)
+        if normalized == "above_window":
+            return float(self._paper_chainlink_lag_penalty_bps_above_window)
+        # Fail closed for unknown lag class: do not infer penalty.
+        return 0.0
 
     @staticmethod
     def _decision_input_type_from_book_source(source: Any) -> str:
@@ -156,18 +276,36 @@ class PaperGateway(BaseGateway):
         remaining = float(intent.size)
         status = "CANCELED"
         top = self._latest_top_by_token.get(intent.token_id)
+        liquidity_depth_multiplier = self._paper_liquidity_depth_scale(top) if top is not None else 1.0
+        is_sniper_taker = str(intent.reason or "").strip().lower() == "sniper_taker_chainlink"
+        lag_class: Optional[str] = None
+        lag_sec_effective: Optional[float] = None
+        lag_penalty_bps = 0.0
+        if is_sniper_taker:
+            lag_class, lag_sec_effective = self._classify_chainlink_lag(intent=intent)
+            if lag_class == "unknown":
+                lag_penalty_bps = 0.0
+                lag_sec_effective = None
+            else:
+                lag_penalty_bps = self._chainlink_lag_penalty_bps(lag_class=lag_class)
         if top is not None:
             if intent.side == "BUY" and top.best_ask_price is not None and intent.price >= top.best_ask_price:
-                ask_liq = float(top.best_ask_size) if top.best_ask_size is not None else 0.0
+                ask_liq = (
+                    (float(top.best_ask_size) if top.best_ask_size is not None else 0.0)
+                    * float(liquidity_depth_multiplier)
+                )
                 fill_size = max(0.0, min(remaining, ask_liq))
                 if fill_size > 0:
                     remaining -= fill_size
+                    fill_price = float(top.best_ask_price)
+                    if is_sniper_taker and lag_penalty_bps > 0.0:
+                        fill_price *= 1.0 + (lag_penalty_bps / 10000.0)
                     self._fill_queue.append(
                         FillEvent(
                             trade_id=self._next_trade_id(),
                             token_id=intent.token_id,
                             side="BUY",
-                            price=float(top.best_ask_price),
+                            price=float(fill_price),
                             size=fill_size,
                             ts_utc=utc_iso(),
                             order_id=order_id,
@@ -175,19 +313,31 @@ class PaperGateway(BaseGateway):
                             fill_policy_basis="bounded_visible_liquidity_top_of_book",
                             execution_realism_class="bounded_approximation",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
+                            paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
+                            paper_queue_position_mode="not_applicable",
+                            paper_queue_fill_multiplier=1.0,
+                            paper_chainlink_lag_class=lag_class,
+                            paper_chainlink_lag_sec_effective=lag_sec_effective,
+                            paper_chainlink_lag_penalty_bps=float(lag_penalty_bps),
                         )
                     )
             elif intent.side == "SELL" and top.best_bid_price is not None and intent.price <= top.best_bid_price:
-                bid_liq = float(top.best_bid_size) if top.best_bid_size is not None else 0.0
+                bid_liq = (
+                    (float(top.best_bid_size) if top.best_bid_size is not None else 0.0)
+                    * float(liquidity_depth_multiplier)
+                )
                 fill_size = max(0.0, min(remaining, bid_liq))
                 if fill_size > 0:
                     remaining -= fill_size
+                    fill_price = float(top.best_bid_price)
+                    if is_sniper_taker and lag_penalty_bps > 0.0:
+                        fill_price *= 1.0 - (lag_penalty_bps / 10000.0)
                     self._fill_queue.append(
                         FillEvent(
                             trade_id=self._next_trade_id(),
                             token_id=intent.token_id,
                             side="SELL",
-                            price=float(top.best_bid_price),
+                            price=float(fill_price),
                             size=fill_size,
                             ts_utc=utc_iso(),
                             order_id=order_id,
@@ -195,6 +345,12 @@ class PaperGateway(BaseGateway):
                             fill_policy_basis="bounded_visible_liquidity_top_of_book",
                             execution_realism_class="bounded_approximation",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
+                            paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
+                            paper_queue_position_mode="not_applicable",
+                            paper_queue_fill_multiplier=1.0,
+                            paper_chainlink_lag_class=lag_class,
+                            paper_chainlink_lag_sec_effective=lag_sec_effective,
+                            paper_chainlink_lag_penalty_bps=float(lag_penalty_bps),
                         )
                     )
 
@@ -240,8 +396,16 @@ class PaperGateway(BaseGateway):
 
     def on_book(self, top: BookTop) -> None:
         self._latest_top_by_token[top.token_id] = top
-        ask_liq = float(top.best_ask_size) if top.best_ask_size is not None else 0.0
-        bid_liq = float(top.best_bid_size) if top.best_bid_size is not None else 0.0
+        liquidity_depth_multiplier = self._paper_liquidity_depth_scale(top)
+        ask_liq = (
+            (float(top.best_ask_size) if top.best_ask_size is not None else 0.0)
+            * float(liquidity_depth_multiplier)
+        )
+        bid_liq = (
+            (float(top.best_bid_size) if top.best_bid_size is not None else 0.0)
+            * float(liquidity_depth_multiplier)
+        )
+        queue_fill_multiplier = self._paper_queue_fill_multiplier()
         now_ts = parse_ts(utc_iso())
 
         to_remove: List[str] = []
@@ -299,36 +463,46 @@ class PaperGateway(BaseGateway):
             if fill_price is None:
                 continue
 
+            consume_bid_liquidity = False
+            order_queue_fill_multiplier = float(queue_fill_multiplier)
+            maker_depth_consumption_ratio: Optional[float] = None
+            maker_eligible_depth: Optional[float] = None
             if crossed and order.side == "BUY":
-                fill_size = min(order.remaining_size, ask_liq)
-                ask_liq -= fill_size
+                depth_plan = self._maker_depth_fill_plan(side_liq=ask_liq, remaining=order.remaining_size)
+                fill_size = float(depth_plan["fill_size"])
+                order_queue_fill_multiplier = float(depth_plan["queue_fill_multiplier"])
+                maker_eligible_depth = float(depth_plan["eligible_depth"])
+                maker_depth_consumption_ratio = float(depth_plan["depth_consumption_ratio"])
             elif crossed and order.side == "SELL":
-                fill_size = min(order.remaining_size, bid_liq)
-                bid_liq -= fill_size
+                depth_plan = self._maker_depth_fill_plan(side_liq=bid_liq, remaining=order.remaining_size)
+                fill_size = float(depth_plan["fill_size"])
+                order_queue_fill_multiplier = float(depth_plan["queue_fill_multiplier"])
+                maker_eligible_depth = float(depth_plan["eligible_depth"])
+                maker_depth_consumption_ratio = float(depth_plan["depth_consumption_ratio"])
+                consume_bid_liquidity = True
             elif touched and order.side == "BUY":
                 candidate = bid_liq * self._passive_touch_fill_ratio
                 fill_size = min(order.remaining_size, candidate)
-                bid_liq -= fill_size
+                consume_bid_liquidity = True
             elif touched:
                 candidate = ask_liq * self._passive_touch_fill_ratio
                 fill_size = min(order.remaining_size, candidate)
-                ask_liq -= fill_size
             elif near_touched and order.side == "BUY":
                 candidate = bid_liq * self._passive_near_touch_fill_ratio * near_touch_factor
                 fill_size = min(order.remaining_size, candidate)
-                bid_liq -= fill_size
+                consume_bid_liquidity = True
             elif near_touched:
                 candidate = ask_liq * self._passive_near_touch_fill_ratio * near_touch_factor
                 fill_size = min(order.remaining_size, candidate)
-                ask_liq -= fill_size
             elif background_touched and order.side == "BUY":
                 candidate = bid_liq * self._paper_background_fill_ratio
                 fill_size = min(order.remaining_size, candidate)
-                bid_liq -= fill_size
+                consume_bid_liquidity = True
             else:
                 candidate = ask_liq * self._paper_background_fill_ratio
                 fill_size = min(order.remaining_size, candidate)
-                ask_liq -= fill_size
+            if self._paper_queue_position_mode == "bounded_top_depth_proxy" and not crossed:
+                fill_size *= float(order_queue_fill_multiplier)
             if fill_size < self._passive_min_fill_size and touched:
                 continue
             if fill_size < self._passive_min_fill_size and near_touched:
@@ -337,9 +511,15 @@ class PaperGateway(BaseGateway):
                 continue
             if fill_size <= 0:
                 continue
+            if consume_bid_liquidity:
+                bid_liq = max(0.0, bid_liq - fill_size)
+            else:
+                ask_liq = max(0.0, ask_liq - fill_size)
 
             fill_policy_basis = "bounded_visible_liquidity_top_of_book"
             execution_realism_class = "bounded_approximation"
+            if self._paper_queue_position_mode == "bounded_top_depth_proxy":
+                fill_policy_basis = "bounded_visible_liquidity_top_of_book_with_queue_proxy"
             if touched:
                 fill_policy_basis = "synthetic_touch_fill"
                 execution_realism_class = "not_modeled"
@@ -349,6 +529,13 @@ class PaperGateway(BaseGateway):
             elif background_touched:
                 fill_policy_basis = "synthetic_background_fill"
                 execution_realism_class = "not_modeled"
+            if self._paper_queue_position_mode == "bounded_top_depth_proxy":
+                if touched:
+                    fill_policy_basis = "synthetic_touch_fill_with_queue_proxy"
+                elif near_touched:
+                    fill_policy_basis = "synthetic_near_touch_fill_with_queue_proxy"
+                elif background_touched:
+                    fill_policy_basis = "synthetic_background_fill_with_queue_proxy"
 
             order.remaining_size -= fill_size
             if order.remaining_size <= 1e-9:
@@ -371,6 +558,15 @@ class PaperGateway(BaseGateway):
                     fill_policy_basis=fill_policy_basis,
                     execution_realism_class=execution_realism_class,
                     decision_input_type=self._decision_input_type_from_book_source(top.source),
+                    paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
+                    paper_queue_position_mode=str(self._paper_queue_position_mode),
+                    paper_queue_fill_multiplier=(
+                        float(order_queue_fill_multiplier)
+                        if self._paper_queue_position_mode == "bounded_top_depth_proxy"
+                        else 1.0
+                    ),
+                    paper_maker_depth_consumption_ratio=maker_depth_consumption_ratio,
+                    paper_maker_eligible_depth=maker_eligible_depth,
                 )
             )
 

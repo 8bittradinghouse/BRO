@@ -51,6 +51,18 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "paper_passive_near_touch_band": 0.02,
         "paper_passive_near_touch_fill_ratio": 0.08,
         "paper_background_fill_ratio": 0.0,
+        "paper_liquidity_tod_scaler_enabled": False,
+        "paper_liquidity_tod_start_hour_utc": 2,
+        "paper_liquidity_tod_end_hour_utc": 6,
+        "paper_liquidity_tod_depth_multiplier": 1.0,
+        "paper_queue_position_mode": "not_modeled",
+        "paper_queue_position_ahead_ratio": 0.0,
+        "paper_chainlink_lag_emulation_enabled": False,
+        "paper_chainlink_lag_window_low_sec": 2.0,
+        "paper_chainlink_lag_window_high_sec": 15.0,
+        "paper_chainlink_lag_penalty_bps_below_window": 0.0,
+        "paper_chainlink_lag_penalty_bps_within_window": 0.0,
+        "paper_chainlink_lag_penalty_bps_above_window": 0.0,
         "paper_enforce_setup_lock": False,
         "paper_expected_profile_name": "",
         "paper_expected_config_fingerprint_sha256": "",
@@ -224,6 +236,17 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "price_source": "mid",
         "share_step": 0.01,
         "exposure_cap_mode": "per_market_total",
+        "maker_competitive_min_notional_usd": 0.0,
+        "maker_competitive_max_notional_usd": 0.0,
+        "maker_competitive_min_shares": 0.0,
+        "maker_competitive_max_shares": 0.0,
+        "maker_depth_target_min_ratio": 0.0,
+        "maker_depth_target_max_ratio": 0.0,
+        "maker_depth_target_ratio": 0.0,
+        "maker_liquidity_tod_scaler_enabled": False,
+        "maker_liquidity_tod_start_hour_utc": 2,
+        "maker_liquidity_tod_end_hour_utc": 6,
+        "maker_liquidity_tod_depth_multiplier": 1.0,
     },
     "wallet": {
         "paper_starting_usdc": 1000.0,
@@ -643,6 +666,63 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     background_fill_ratio = parse_float(cfg["runtime"]["paper_background_fill_ratio"])
     if background_fill_ratio is None or background_fill_ratio < 0 or background_fill_ratio > 1:
         raise ValueError("runtime.paper_background_fill_ratio must be in [0, 1]")
+    runtime_tod_start = int(float(cfg["runtime"]["paper_liquidity_tod_start_hour_utc"]))
+    runtime_tod_end = int(float(cfg["runtime"]["paper_liquidity_tod_end_hour_utc"]))
+    if runtime_tod_start < 0 or runtime_tod_start > 23:
+        raise ValueError("runtime.paper_liquidity_tod_start_hour_utc must be in [0, 23]")
+    if runtime_tod_end < 0 or runtime_tod_end > 23:
+        raise ValueError("runtime.paper_liquidity_tod_end_hour_utc must be in [0, 23]")
+    _require_positive(
+        "runtime.paper_liquidity_tod_start_hour_utc",
+        cfg["runtime"]["paper_liquidity_tod_start_hour_utc"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_liquidity_tod_end_hour_utc",
+        cfg["runtime"]["paper_liquidity_tod_end_hour_utc"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_liquidity_tod_depth_multiplier",
+        cfg["runtime"]["paper_liquidity_tod_depth_multiplier"],
+        allow_zero=True,
+    )
+    _require_fraction(
+        "runtime.paper_queue_position_ahead_ratio",
+        cfg["runtime"]["paper_queue_position_ahead_ratio"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_chainlink_lag_window_low_sec",
+        cfg["runtime"]["paper_chainlink_lag_window_low_sec"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_chainlink_lag_window_high_sec",
+        cfg["runtime"]["paper_chainlink_lag_window_high_sec"],
+        allow_zero=True,
+    )
+    if float(cfg["runtime"]["paper_chainlink_lag_window_high_sec"]) < float(
+        cfg["runtime"]["paper_chainlink_lag_window_low_sec"]
+    ):
+        raise ValueError(
+            "runtime.paper_chainlink_lag_window_high_sec must be >= runtime.paper_chainlink_lag_window_low_sec"
+        )
+    _require_positive(
+        "runtime.paper_chainlink_lag_penalty_bps_below_window",
+        cfg["runtime"]["paper_chainlink_lag_penalty_bps_below_window"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_chainlink_lag_penalty_bps_within_window",
+        cfg["runtime"]["paper_chainlink_lag_penalty_bps_within_window"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.paper_chainlink_lag_penalty_bps_above_window",
+        cfg["runtime"]["paper_chainlink_lag_penalty_bps_above_window"],
+        allow_zero=True,
+    )
     _require_positive("sniper.arming_horizon_sec", cfg["sniper"]["arming_horizon_sec"])
     _require_positive("sniper.execution_cutoff_sec", cfg["sniper"]["execution_cutoff_sec"], allow_zero=True)
     _require_positive(
@@ -758,6 +838,56 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("sizing.max_usd", cfg["sizing"]["max_usd"])
     _require_positive("sizing.target_usd", cfg["sizing"]["target_usd"])
     _require_positive("sizing.share_step", cfg["sizing"]["share_step"])
+    _require_positive(
+        "sizing.maker_competitive_min_notional_usd",
+        cfg["sizing"]["maker_competitive_min_notional_usd"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_competitive_max_notional_usd",
+        cfg["sizing"]["maker_competitive_max_notional_usd"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_competitive_min_shares",
+        cfg["sizing"]["maker_competitive_min_shares"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_competitive_max_shares",
+        cfg["sizing"]["maker_competitive_max_shares"],
+        allow_zero=True,
+    )
+    _require_fraction(
+        "sizing.maker_depth_target_min_ratio",
+        cfg["sizing"]["maker_depth_target_min_ratio"],
+        allow_zero=True,
+    )
+    _require_fraction(
+        "sizing.maker_depth_target_max_ratio",
+        cfg["sizing"]["maker_depth_target_max_ratio"],
+        allow_zero=True,
+    )
+    _require_fraction(
+        "sizing.maker_depth_target_ratio",
+        cfg["sizing"]["maker_depth_target_ratio"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_liquidity_tod_start_hour_utc",
+        cfg["sizing"]["maker_liquidity_tod_start_hour_utc"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_liquidity_tod_end_hour_utc",
+        cfg["sizing"]["maker_liquidity_tod_end_hour_utc"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "sizing.maker_liquidity_tod_depth_multiplier",
+        cfg["sizing"]["maker_liquidity_tod_depth_multiplier"],
+        allow_zero=True,
+    )
     _require_fraction(
         "strategy.execution_quality.min_expected_fill_prob",
         cfg["strategy"]["execution_quality"]["min_expected_fill_prob"],
@@ -951,6 +1081,32 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     exposure_cap_mode = str(cfg["sizing"].get("exposure_cap_mode", "per_market_total")).strip().lower()
     if exposure_cap_mode not in {"per_market_total", "per_side"}:
         raise ValueError("sizing.exposure_cap_mode must be one of: per_market_total, per_side")
+    maker_depth_min = float(cfg["sizing"].get("maker_depth_target_min_ratio", 0.0) or 0.0)
+    maker_depth_max = float(cfg["sizing"].get("maker_depth_target_max_ratio", 0.0) or 0.0)
+    maker_depth_target = float(cfg["sizing"].get("maker_depth_target_ratio", 0.0) or 0.0)
+    if maker_depth_max > 0.0 and maker_depth_min > maker_depth_max:
+        raise ValueError("sizing.maker_depth_target_max_ratio must be >= sizing.maker_depth_target_min_ratio")
+    if maker_depth_target > 0.0:
+        if maker_depth_min > 0.0 and maker_depth_target < maker_depth_min:
+            raise ValueError("sizing.maker_depth_target_ratio must be >= sizing.maker_depth_target_min_ratio")
+        if maker_depth_max > 0.0 and maker_depth_target > maker_depth_max:
+            raise ValueError("sizing.maker_depth_target_ratio must be <= sizing.maker_depth_target_max_ratio")
+    maker_notional_min = float(cfg["sizing"].get("maker_competitive_min_notional_usd", 0.0) or 0.0)
+    maker_notional_max = float(cfg["sizing"].get("maker_competitive_max_notional_usd", 0.0) or 0.0)
+    if maker_notional_max > 0.0 and maker_notional_min > maker_notional_max:
+        raise ValueError(
+            "sizing.maker_competitive_max_notional_usd must be >= sizing.maker_competitive_min_notional_usd"
+        )
+    maker_shares_min = float(cfg["sizing"].get("maker_competitive_min_shares", 0.0) or 0.0)
+    maker_shares_max = float(cfg["sizing"].get("maker_competitive_max_shares", 0.0) or 0.0)
+    if maker_shares_max > 0.0 and maker_shares_min > maker_shares_max:
+        raise ValueError("sizing.maker_competitive_max_shares must be >= sizing.maker_competitive_min_shares")
+    sizing_tod_start = int(float(cfg["sizing"].get("maker_liquidity_tod_start_hour_utc", 0.0) or 0.0))
+    sizing_tod_end = int(float(cfg["sizing"].get("maker_liquidity_tod_end_hour_utc", 0.0) or 0.0))
+    if sizing_tod_start < 0 or sizing_tod_start > 23:
+        raise ValueError("sizing.maker_liquidity_tod_start_hour_utc must be in [0, 23]")
+    if sizing_tod_end < 0 or sizing_tod_end > 23:
+        raise ValueError("sizing.maker_liquidity_tod_end_hour_utc must be in [0, 23]")
     min_usd = _require_positive("sizing.min_usd", cfg["sizing"]["min_usd"])
     target_usd = _require_positive("sizing.target_usd", cfg["sizing"]["target_usd"])
     max_usd = _require_positive("sizing.max_usd", cfg["sizing"]["max_usd"])
@@ -1050,6 +1206,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sizing.price_source must be a string")
     if not isinstance(cfg["sizing"]["exposure_cap_mode"], str):
         raise ValueError("sizing.exposure_cap_mode must be a string")
+    if not isinstance(cfg["sizing"]["maker_liquidity_tod_scaler_enabled"], bool):
+        raise ValueError("sizing.maker_liquidity_tod_scaler_enabled must be boolean")
     if not isinstance(cfg["security"]["enabled"], bool):
         raise ValueError("security.enabled must be boolean")
     if not isinstance(cfg["security"]["enforce_host_allowlist"], bool):
@@ -1210,6 +1368,14 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("runtime.clear_guard_stop_on_start must be boolean")
     if not isinstance(cfg["runtime"]["paper_passive_touch_fill_enabled"], bool):
         raise ValueError("runtime.paper_passive_touch_fill_enabled must be boolean")
+    if not isinstance(cfg["runtime"]["paper_liquidity_tod_scaler_enabled"], bool):
+        raise ValueError("runtime.paper_liquidity_tod_scaler_enabled must be boolean")
+    if not isinstance(cfg["runtime"]["paper_chainlink_lag_emulation_enabled"], bool):
+        raise ValueError("runtime.paper_chainlink_lag_emulation_enabled must be boolean")
+    runtime_queue_mode = str(cfg["runtime"].get("paper_queue_position_mode", "not_modeled")).strip().lower()
+    if runtime_queue_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
+        raise ValueError("runtime.paper_queue_position_mode must be one of: not_modeled, bounded_top_depth_proxy")
+    cfg["runtime"]["paper_queue_position_mode"] = runtime_queue_mode
     if not isinstance(cfg["runtime"]["paper_enforce_setup_lock"], bool):
         raise ValueError("runtime.paper_enforce_setup_lock must be boolean")
     if not isinstance(cfg["runtime"]["paper_expected_profile_name"], str):

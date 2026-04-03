@@ -245,8 +245,51 @@ def run_audit(
         runtime.get("paper_passive_near_touch_fill_ratio", 0.0) or 0.0
     )
     checks["paper_background_fill_ratio"] = float(runtime.get("paper_background_fill_ratio", 0.0) or 0.0)
-    queue_position_mode = "not_modeled"
-    maker_realism_class = "not_modeled"
+    checks["paper_liquidity_tod_scaler_enabled"] = bool(runtime.get("paper_liquidity_tod_scaler_enabled", False))
+    checks["paper_liquidity_tod_start_hour_utc"] = int(float(runtime.get("paper_liquidity_tod_start_hour_utc", 2)))
+    checks["paper_liquidity_tod_end_hour_utc"] = int(float(runtime.get("paper_liquidity_tod_end_hour_utc", 6)))
+    checks["paper_liquidity_tod_depth_multiplier"] = float(
+        runtime.get("paper_liquidity_tod_depth_multiplier", 1.0) or 1.0
+    )
+    checks["paper_chainlink_lag_emulation_enabled"] = bool(
+        runtime.get("paper_chainlink_lag_emulation_enabled", False)
+    )
+    checks["paper_chainlink_lag_window_low_sec"] = float(
+        runtime.get("paper_chainlink_lag_window_low_sec", 2.0) or 2.0
+    )
+    checks["paper_chainlink_lag_window_high_sec"] = float(
+        runtime.get("paper_chainlink_lag_window_high_sec", 15.0) or 15.0
+    )
+    checks["paper_chainlink_lag_penalty_bps_below_window"] = float(
+        runtime.get("paper_chainlink_lag_penalty_bps_below_window", 0.0) or 0.0
+    )
+    checks["paper_chainlink_lag_penalty_bps_within_window"] = float(
+        runtime.get("paper_chainlink_lag_penalty_bps_within_window", 0.0) or 0.0
+    )
+    checks["paper_chainlink_lag_penalty_bps_above_window"] = float(
+        runtime.get("paper_chainlink_lag_penalty_bps_above_window", 0.0) or 0.0
+    )
+    queue_position_mode = str(runtime.get("paper_queue_position_mode", "not_modeled")).strip().lower() or "not_modeled"
+    if queue_position_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
+        findings.append(f"paper_harness_queue_position_mode_invalid:{queue_position_mode}")
+        queue_position_mode = "not_modeled"
+    checks["paper_queue_position_ahead_ratio"] = float(runtime.get("paper_queue_position_ahead_ratio", 0.0) or 0.0)
+    maker_queue_proxy_active = (
+        queue_position_mode == "bounded_top_depth_proxy"
+        and not checks["paper_passive_touch_fill_enabled"]
+        and checks["paper_passive_touch_fill_ratio"] <= 0.0
+        and checks["paper_passive_near_touch_fill_ratio"] <= 0.0
+        and checks["paper_background_fill_ratio"] <= 0.0
+    )
+    checks["maker_queue_proxy_depth_model_active"] = bool(maker_queue_proxy_active)
+    maker_realism_class = "bounded_approximation" if maker_queue_proxy_active else "not_modeled"
+    lag_enabled = bool(checks["paper_chainlink_lag_emulation_enabled"])
+    taker_latency_model = "bounded_lag_emulation" if lag_enabled else "none"
+    lag_unknown_handling = "fail_closed_no_penalty" if lag_enabled else "none"
+    if lag_enabled and (
+        checks["paper_chainlink_lag_window_high_sec"] < checks["paper_chainlink_lag_window_low_sec"]
+    ):
+        findings.append("paper_harness_lag_window_invalid")
     maker_policy = {
         "synthetic_touch_fill": "enabled"
         if checks["paper_passive_touch_fill_enabled"] and checks["paper_passive_touch_fill_ratio"] > 0.0
@@ -258,13 +301,25 @@ def run_audit(
         if checks["paper_passive_touch_fill_enabled"] and checks["paper_background_fill_ratio"] > 0.0
         else "disabled",
         "queue_position_mode": queue_position_mode,
+        "queue_position_ahead_ratio": float(checks["paper_queue_position_ahead_ratio"]),
+        "liquidity_tod_scaler_enabled": bool(checks["paper_liquidity_tod_scaler_enabled"]),
+        "liquidity_tod_start_hour_utc": int(checks["paper_liquidity_tod_start_hour_utc"]),
+        "liquidity_tod_end_hour_utc": int(checks["paper_liquidity_tod_end_hour_utc"]),
+        "liquidity_tod_depth_multiplier": float(checks["paper_liquidity_tod_depth_multiplier"]),
+        "queue_proxy_depth_model_active": bool(maker_queue_proxy_active),
         "maker_realism_class": maker_realism_class,
     }
     checks["maker_policy"] = maker_policy
     checks["taker_policy"] = {
         "price_basis": "best_touch",
         "size_basis": "observed_top_size",
-        "latency_model": "none",
+        "latency_model": taker_latency_model,
+        "lag_unknown_handling": lag_unknown_handling,
+        "lag_window_low_sec": float(checks["paper_chainlink_lag_window_low_sec"]),
+        "lag_window_high_sec": float(checks["paper_chainlink_lag_window_high_sec"]),
+        "lag_penalty_bps_below_window": float(checks["paper_chainlink_lag_penalty_bps_below_window"]),
+        "lag_penalty_bps_within_window": float(checks["paper_chainlink_lag_penalty_bps_within_window"]),
+        "lag_penalty_bps_above_window": float(checks["paper_chainlink_lag_penalty_bps_above_window"]),
         "stale_view_risk": "disclosed_true",
         "taker_realism_class": "bounded_approximation",
     }
@@ -283,7 +338,7 @@ def run_audit(
         "maker_realism_class": maker_realism_class,
         "taker_realism_class": "bounded_approximation",
         "queue_position_mode": queue_position_mode,
-        "latency_model": "none",
+        "latency_model": taker_latency_model,
         "stale_view_modeling": "disclosed_true",
     }
     if checks["paper_passive_touch_fill_enabled"]:
@@ -569,6 +624,7 @@ def run_audit(
             "taker_realism_class": str(checks.get("taker_policy", {}).get("taker_realism_class") or "bounded_approximation"),
             "queue_position_mode": str(checks.get("maker_policy", {}).get("queue_position_mode") or "not_modeled"),
             "latency_model": str(checks.get("taker_policy", {}).get("latency_model") or "none"),
+            "lag_unknown_handling": str(checks.get("taker_policy", {}).get("lag_unknown_handling") or "none"),
             "stale_view_modeling": str(checks.get("taker_policy", {}).get("stale_view_risk") or "disclosed_true"),
         }
         checks["paper_source_truth_counts"] = {
@@ -600,6 +656,41 @@ def run_audit(
         if not immediate_fills_bounded_visible_only:
             findings.append("paper_harness_immediate_fill_policy_not_bounded_visible_liquidity")
 
+    realism_breakdown: Dict[str, int] = {
+        "tod_liquidity_scaling": 0,
+        "maker_queue_proxy_depth_model": 0,
+        "taker_depth_slippage_model": 0,
+        "taker_lag_emulation_with_unknown_guard": 0,
+        "truth_surface_completeness": 0,
+    }
+    if bool(checks.get("paper_liquidity_tod_scaler_enabled", False)):
+        realism_breakdown["tod_liquidity_scaling"] = 20
+    if str(checks.get("maker_policy", {}).get("maker_realism_class") or "") == "bounded_approximation":
+        realism_breakdown["maker_queue_proxy_depth_model"] = 20
+    taker_policy = checks.get("taker_policy", {}) if isinstance(checks.get("taker_policy"), dict) else {}
+    if (
+        str(taker_policy.get("price_basis") or "") == "best_touch"
+        and str(taker_policy.get("size_basis") or "") == "observed_top_size"
+    ):
+        realism_breakdown["taker_depth_slippage_model"] = 20
+    if (
+        str(taker_policy.get("latency_model") or "") == "bounded_lag_emulation"
+        and str(taker_policy.get("lag_unknown_handling") or "") == "fail_closed_no_penalty"
+    ):
+        realism_breakdown["taker_lag_emulation_with_unknown_guard"] = 20
+    required_truth_surfaces_present = all(
+        isinstance(checks.get(key), dict) and bool(checks.get(key))
+        for key in ("maker_policy", "taker_policy", "paper_claim_boundary", "paper_execution_realism_summary")
+    )
+    if required_truth_surfaces_present and bool(checks.get("paper_realism_doctrine_present", False)):
+        realism_breakdown["truth_surface_completeness"] = 20
+    missing_disclosure_rows = int(checks.get("edge_decision_input_missing_disclosure_rows", 0) or 0)
+    if missing_disclosure_rows > 0:
+        realism_breakdown["truth_surface_completeness"] = 0
+    harness_realism_grade = int(sum(int(v) for v in realism_breakdown.values()))
+    checks["harness_realism_grade"] = int(harness_realism_grade)
+    checks["harness_realism_grade_breakdown"] = dict(realism_breakdown)
+
     cfg_meta = cfg.get("_meta", {}) if isinstance(cfg.get("_meta"), dict) else {}
     return {
         "config_path": str(config_path.resolve()),
@@ -609,6 +700,8 @@ def run_audit(
         "config_fingerprint_sha256": str(cfg_meta.get("effective_config_sha256", "")),
         "log_dir": str(resolved_log_dir),
         "checks": checks,
+        "harness_realism_grade": int(harness_realism_grade),
+        "harness_realism_grade_breakdown": dict(realism_breakdown),
         "finding_count": len(findings),
         "warning_count": len(warnings),
         "findings": findings,

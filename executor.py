@@ -313,6 +313,20 @@ class ExecutionRunner:
         taker_cfg = sniper_cfg.get("taker", {})
         self.sniper_taker_enabled = bool(taker_cfg.get("enabled", False))
         self.sniper_taker_min_edge = float(taker_cfg.get("min_edge", 0.015))
+        raw_min_edge_by_stage = taker_cfg.get("min_edge_by_stage", {})
+        self.sniper_taker_min_edge_by_stage: Dict[str, float] = {}
+        if isinstance(raw_min_edge_by_stage, dict):
+            for stage_name, edge_value in raw_min_edge_by_stage.items():
+                normalized_stage = str(stage_name or "").strip().upper()
+                if not normalized_stage:
+                    continue
+                try:
+                    normalized_edge = float(edge_value)
+                except (TypeError, ValueError):
+                    continue
+                if normalized_edge < 0.0:
+                    continue
+                self.sniper_taker_min_edge_by_stage[normalized_stage] = normalized_edge
         self.sniper_taker_extreme_edge_mult = float(taker_cfg.get("extreme_edge_mult", 2.0))
         self.sniper_taker_order_size = float(taker_cfg.get("order_size", 20.0))
         self.sizing_mode = str(self.cfg.get("sizing", {}).get("mode", "shares")).strip().lower()
@@ -1130,6 +1144,18 @@ class ExecutionRunner:
     def _stage_policy(stage: str) -> Tuple[bool, bool]:
         return edge_stage_policy(stage)
 
+    def _resolve_taker_required_min_edge(self, stage: str) -> float:
+        normalized_stage = str(stage or "").strip().upper()
+        explicit_stage_edge = self.sniper_taker_min_edge_by_stage.get(normalized_stage)
+        if explicit_stage_edge is not None:
+            return float(explicit_stage_edge)
+        required_min_edge = float(self.sniper_taker_min_edge)
+        if normalized_stage == STAGE_EXTREME_ONLY:
+            required_min_edge = float(self.sniper_taker_min_edge) * max(
+                1.0, float(self.sniper_taker_extreme_edge_mult)
+            )
+        return required_min_edge
+
     def _token_stage_info(self, token_id: str) -> Dict[str, Any]:
         now = utc_now()
         expiry = self.token_expiry_dt_by_token.get(token_id)
@@ -1843,6 +1869,7 @@ class ExecutionRunner:
 
         attempts = 0
         submitted = 0
+        fills_accepted_total = 0
         submitted_token_ids: set[str] = set()
         filled_token_ids: set[str] = set()
         max_orders = max(0, int(self.sniper_taker_max_orders_per_cycle))
@@ -1906,11 +1933,7 @@ class ExecutionRunner:
             was_filled = False
             emitted_order_id: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
-            required_min_edge = float(self.sniper_taker_min_edge)
-            if stage == STAGE_EXTREME_ONLY:
-                required_min_edge = float(self.sniper_taker_min_edge) * max(
-                    1.0, float(self.sniper_taker_extreme_edge_mult)
-                )
+            required_min_edge = self._resolve_taker_required_min_edge(stage)
 
             if not self.sniper_enabled:
                 block_reason = "sniper_disabled"
@@ -1963,6 +1986,13 @@ class ExecutionRunner:
                         if price is None:
                             block_reason = "taker_price_unavailable"
                         else:
+                            token_stats = self.latency_verifier.token_stats(token_id)
+                            token_median_lag_ms = (
+                                float(token_stats.median_lag_ms)
+                                if token_stats is not None
+                                and isinstance(getattr(token_stats, "median_lag_ms", None), (int, float))
+                                else None
+                            )
                             attempts += 1
                             outcome = self.manager.place_taker_order_with_outcome(
                                 token_id=token_id,
@@ -1981,6 +2011,12 @@ class ExecutionRunner:
                                     f"target_ref:{decision_target_ref}" if decision_target_ref else None
                                 ),
                                 decision_reference_ts_utc=utc_iso(),
+                                token_median_lag_ms=token_median_lag_ms,
+                                oracle_tick_age_sec=(
+                                    float(oracle_tick_age_sec)
+                                    if isinstance(oracle_tick_age_sec, (int, float))
+                                    else None
+                                ),
                             )
                             if bool(outcome.get("submitted", False)):
                                 submitted += 1
@@ -1992,6 +2028,7 @@ class ExecutionRunner:
                                 if fills_accepted > 0:
                                     was_filled = True
                                     filled_token_ids.add(token_id)
+                                fills_accepted_total += max(0, fills_accepted)
                                 emitted_order_id = str(outcome.get("order_id") or "").strip() or None
                                 self.events.log_event(
                                     "sniper_taker_submit",
@@ -1999,6 +2036,7 @@ class ExecutionRunner:
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
                                         "token_id": token_id,
+                                        "order_id": emitted_order_id,
                                         "side": side,
                                         "price": float(price),
                                         "size": (
@@ -2050,6 +2088,7 @@ class ExecutionRunner:
         return {
             "attempts": attempts,
             "submitted": submitted,
+            "fills_accepted": fills_accepted_total,
             "submitted_token_ids": sorted(submitted_token_ids),
             "filled_token_ids": sorted(filled_token_ids),
         }
@@ -2563,6 +2602,12 @@ class ExecutionRunner:
         stop_after_sec = duration_min * 60.0 if duration_min and duration_min > 0 else None
         next_status = time.monotonic()
         next_state_flush = time.monotonic()
+        status_window_actions = 0
+        status_window_fills = 0
+        status_window_taker_actions = 0
+        status_window_taker_submitted = 0
+        status_window_taker_fills = 0
+        status_window_order_submit_attempts = 0
 
         self.events.log_event(
             "runner_start",
@@ -3191,13 +3236,16 @@ class ExecutionRunner:
                 taker_summary: Dict[str, Any] = {
                     "attempts": 0,
                     "submitted": 0,
+                    "fills_accepted": 0,
                     "submitted_token_ids": [],
                     "filled_token_ids": [],
                 }
                 self.telemetry.set_gauge("maker_submitted_token_count_last_cycle", 0.0)
                 self.telemetry.set_gauge("maker_no_submission_token_count_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_attempts_last_cycle", 0.0)
+                self.telemetry.set_gauge("taker_actions_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_submitted_last_cycle", 0.0)
+                self.telemetry.set_gauge("taker_fills_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_filled_token_count_last_cycle", 0.0)
                 lag_verified_token_ids = [str(x) for x in list(sniper_ctx.get("lag_verified_token_ids", []))]
 
@@ -3342,6 +3390,8 @@ class ExecutionRunner:
                         self.telemetry.set_gauge("open_orders", float(summary["open_orders"]))
                         self.telemetry.set_gauge("actions_last_cycle", float(summary["actions"]))
                         self.telemetry.set_gauge("fills_last_cycle", float(summary["fills"]))
+                        status_window_actions += int(summary.get("actions", 0) or 0)
+                        status_window_fills += int(summary.get("fills", 0) or 0)
                         self.telemetry.set_gauge(
                             "maker_submitted_token_count_last_cycle",
                             float(len(maker_submitted_token_ids)),
@@ -3355,9 +3405,20 @@ class ExecutionRunner:
                             float(taker_summary.get("attempts", 0)),
                         )
                         self.telemetry.set_gauge(
+                            "taker_actions_last_cycle",
+                            float(taker_summary.get("submitted", 0)),
+                        )
+                        self.telemetry.set_gauge(
                             "taker_submitted_last_cycle",
                             float(taker_summary.get("submitted", 0)),
                         )
+                        self.telemetry.set_gauge(
+                            "taker_fills_last_cycle",
+                            float(taker_summary.get("fills_accepted", 0)),
+                        )
+                        status_window_taker_actions += int(taker_summary.get("submitted", 0) or 0)
+                        status_window_taker_submitted += int(taker_summary.get("submitted", 0) or 0)
+                        status_window_taker_fills += int(taker_summary.get("fills_accepted", 0) or 0)
                         self.telemetry.set_gauge(
                             "taker_filled_token_count_last_cycle",
                             float(len(taker_summary.get("filled_token_ids", []))),
@@ -3407,6 +3468,7 @@ class ExecutionRunner:
                     - order_submission_transport_attempted_start
                 )
                 self._order_submission_attempts_last_cycle = max(0, int(order_submission_attempts_delta))
+                status_window_order_submit_attempts += int(self._order_submission_attempts_last_cycle)
                 self.telemetry.set_gauge(
                     "order_submission_attempts_last_cycle",
                     float(self._order_submission_attempts_last_cycle),
@@ -3635,6 +3697,15 @@ class ExecutionRunner:
                 if now >= next_status:
                     status_io_started = time.monotonic()
                     self._update_runtime_semantics(has_targets=bool(self.token_ids))
+                    self.telemetry.set_gauge("actions_last_status_window", float(status_window_actions))
+                    self.telemetry.set_gauge("fills_last_status_window", float(status_window_fills))
+                    self.telemetry.set_gauge("taker_actions_last_status_window", float(status_window_taker_actions))
+                    self.telemetry.set_gauge("taker_submitted_last_status_window", float(status_window_taker_submitted))
+                    self.telemetry.set_gauge("taker_fills_last_status_window", float(status_window_taker_fills))
+                    self.telemetry.set_gauge(
+                        "order_submission_attempts_last_status_window",
+                        float(status_window_order_submit_attempts),
+                    )
                     telemetry = self.telemetry.snapshot()
                     positions = {token: pos.net_shares for token, pos in self.risk.positions.items()}
                     chainlink_status = self.chainlink.status()
@@ -3721,6 +3792,12 @@ class ExecutionRunner:
                         positions,
                     )
                     next_status = now + status_interval
+                    status_window_actions = 0
+                    status_window_fills = 0
+                    status_window_taker_actions = 0
+                    status_window_taker_submitted = 0
+                    status_window_taker_fills = 0
+                    status_window_order_submit_attempts = 0
                     phase_status_io_ms = max(0.0, (time.monotonic() - status_io_started) * 1000.0)
 
                 cycle_elapsed = time.monotonic() - cycle_started

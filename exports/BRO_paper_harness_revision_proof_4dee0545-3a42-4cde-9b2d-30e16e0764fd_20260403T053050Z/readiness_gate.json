@@ -1,0 +1,645 @@
+{
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "session_phase": "validate_postrun",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+  "run_id_filter": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+  "run_id_resolution": "explicit",
+  "highest_passing_stage": "paper",
+  "blocking_stage": "pilot_live",
+  "recommended_next_stage": "pilot_live",
+  "metrics": {
+    "status_rows": 41.0,
+    "error_rows": 0.0,
+    "quote_uptime_ratio": 0.2682991987535721,
+    "capture_minus_adverse": -220.22994999999983,
+    "total_rejects": 1176.0,
+    "reject_ratio_order_rate_limit": 0.0,
+    "reject_ratio_stale_book": 0.0,
+    "kill_switch_events": 0.0,
+    "safe_stop_transitions": 0.0,
+    "maker_only_transitions": 0.0,
+    "latest_operating_mode_state": 0.0,
+    "runtime_promotion_eligible": 1.0,
+    "runtime_active_targets_seen": 1.0,
+    "runtime_meaningful_participation": 1.0,
+    "runtime_deadlock_rows": 0.0,
+    "runtime_safety_rows": 0.0,
+    "runtime_required_book_feed_disconnected_rows": 1.0,
+    "runtime_no_target_standdown_ratio": 0.0,
+    "suppression_dominated_run": 0.0,
+    "runtime_ambiguous_suppression_cause": 0.0,
+    "quote_window_ratio": 1.0,
+    "quote_active_within_window_ratio": 0.2682926829268293,
+    "participation_ratio": 0.21951219512195122,
+    "participation_within_quote_window_ratio": 0.21951219512195122,
+    "maker_reference_direct_midpoint_activity": 652.0,
+    "maker_reference_bounded_fallback_activity": 40.0,
+    "maker_reference_direct_midpoint_action_activity": 30.0,
+    "maker_reference_bounded_fallback_action_activity": 0.0,
+    "maker_market_reference_fallback_bid_count": 20.0,
+    "maker_market_reference_fallback_ask_count": 20.0,
+    "runtime_classification_name": "VALID_ACTIVE",
+    "runtime_primary_suppression_cause": "none",
+    "runtime_contributing_suppression_causes": [],
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated",
+    "context_hints": {
+      "candidate_log_dirs_for_run": [
+        "/home/odah/bro/base/logs_exec/paper_universal"
+      ]
+    },
+    "runtime_findings": [],
+    "readiness_report_max_lines_per_file": 50000.0
+  },
+  "suppression_summary": {
+    "primary_suppression_cause": "none",
+    "contributing_suppression_causes": [],
+    "ambiguous_suppression_cause": false,
+    "suppression_dominated_run": false,
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated"
+  },
+  "stage_results": [
+    {
+      "stage": "paper",
+      "passed": true,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "threshold": 20.0,
+          "value": 41.0,
+          "passed": true
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "threshold": 0.05,
+          "value": 0.2682991987535721,
+          "passed": true
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "threshold": 200.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "threshold": 0.8,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "threshold": 5.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "pilot_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "threshold": 120.0,
+          "value": 41.0,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "threshold": 0.6,
+          "value": 0.2682991987535721,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "threshold": 80.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "threshold": 0.55,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "threshold": 0.25,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "threshold": -10.0,
+          "value": -220.22994999999983,
+          "passed": false
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "threshold": 2.0,
+          "value": 0.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "scaled_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "threshold": 300.0,
+          "value": 41.0,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "threshold": 0.7,
+          "value": 0.2682991987535721,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "threshold": 40.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "threshold": 0.4,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "threshold": 0.2,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "threshold": -2.5,
+          "value": -220.22994999999983,
+          "passed": false
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "aggressive_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "threshold": 600.0,
+          "value": 41.0,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "threshold": 0.8,
+          "value": 0.2682991987535721,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "threshold": 20.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "threshold": 0.25,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "threshold": 0.12,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "threshold": 0.0,
+          "value": -220.22994999999983,
+          "passed": false
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "runtime_findings": [],
+  "report": {
+    "schema_version": 2,
+    "ts_utc": "2026-04-03T05:29:26.161528Z",
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "session_phase": "validate_postrun",
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+    "run_id_filter": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+    "run_id_resolution": "explicit",
+    "artifact_identity": {
+      "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+      "manifest_schema_version": 2,
+      "profile_name": "paper_universal",
+      "config_fingerprint_sha256": "90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0",
+      "code_fingerprint_sha256": "dc095adb5a499c5c229979b45b9a1f5fd45d44490c475415a4d04ecf4fd0d5a5",
+      "dependency_lock_sha256": "099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8",
+      "git_commit": "a45de631c052145d8e1f5a12378891ce49b12aee",
+      "git_dirty": true,
+      "docker_image_hash": "sha256:04b40151c3296063b33cf500404c2bfc837e98cde04f7d0794d84fb7e4bdad60",
+      "config_source_path": "/config/profiles/paper_universal.yaml",
+      "config_source_sha256": "2082f235ea10eb586c360af308fe0a9fd79c3f1d3fad0c86b82f8fd571fb8070"
+    },
+    "event_files": 1,
+    "status_files": 1,
+    "error_files": 1,
+    "duration_minutes": 20.490533333333335,
+    "status_rows": 41,
+    "error_rows": 0,
+    "quote_uptime_ratio": 0.2682991987535721,
+    "quote_diagnostics": {
+      "status_rows_total": 41.0,
+      "quote_window_rows": 41.0,
+      "quote_window_ratio": 1.0,
+      "quote_active_rows": 11.0,
+      "quote_active_ratio": 0.2682926829268293,
+      "quote_active_within_window_ratio": 0.2682926829268293,
+      "participation_rows": 9.0,
+      "participation_ratio": 0.21951219512195122,
+      "participation_within_window_ratio": 0.21951219512195122
+    },
+    "reject_reason_distribution": {
+      "notional_cap": 267,
+      "position_cap": 295,
+      "size_notional_bounds": 614
+    },
+    "errors_by_component": {},
+    "stale_data": {
+      "stale_book_rejects": 0.0,
+      "stale_oracle_edge_blocks": 0.0,
+      "disarmed_edge_blocks": 2159.0
+    },
+    "latency_distribution_ms": {
+      "sample_count": 1180.0,
+      "median_ms": 489.99292496591806,
+      "p90_ms": 918.4232889674604,
+      "p95_ms": 958.3576982840896,
+      "max_ms": 1214.3802256323397
+    },
+    "sniper": {
+      "submits": 59.0,
+      "fills": 59.0,
+      "fill_rate": 1.0,
+      "midpoint_win_rate_proxy": 0.0,
+      "fire_rate_per_min": 2.8793784446801447
+    },
+    "execution_paths": {
+      "maker_submits": 31.0,
+      "maker_fills": 4.0,
+      "maker_fill_rate": 0.12903225806451613,
+      "maker_fire_rate_per_min": 1.5128937590692286,
+      "taker_bonus_submits": 59.0,
+      "taker_bonus_fills": 59.0,
+      "taker_bonus_fill_rate": 1.0,
+      "taker_bonus_fire_rate_per_min": 2.8793784446801447
+    },
+    "maker_regression_sentinel": {
+      "observational_only": true,
+      "maker_behavior_freeze_state": "provisional_freeze_no_runtime_change",
+      "triggered": false,
+      "regression_reasons": [],
+      "maker_submits": 31.0,
+      "maker_fills": 4.0,
+      "maker_fill_rate": 0.12903225806451613,
+      "maker_fire_rate_per_min": 1.5128937590692286,
+      "thresholds": {
+        "near_zero_submit_rate_threshold_per_min": 0.25,
+        "near_zero_submit_count_threshold": 5.122633333333334,
+        "near_zero_fill_count_threshold": 1.0,
+        "low_fill_rate_threshold": 0.05,
+        "low_fill_rate_requires_submits": 5.0
+      },
+      "watch_item_primary": "quote_quality_skip_and_replace_guard_distribution",
+      "watch_item_distribution": {
+        "quote_quality_skip_fill_probability": 27,
+        "quote_quality_skip_queue_depth": 27,
+        "replace_guard_min_rest": 11
+      }
+    },
+    "edge_truth": {
+      "rows_total": 6562.0,
+      "maker_rows": 800.0,
+      "taker_rows": 5762.0,
+      "action_rows": 89.0,
+      "blocked_rows": 6473.0,
+      "maker_blocked_rows": 770.0,
+      "taker_blocked_rows": 5703.0,
+      "block_reason_distribution": {
+        "edge_below_min": 163,
+        "latency_not_armed": 40,
+        "maker_no_submission": 624,
+        "market_probability_missing": 104,
+        "stage_disallow_taker": 2996,
+        "taker_submit_rejected": 342,
+        "taker_token_cooldown": 42,
+        "token_lag_not_verified": 1973,
+        "token_lag_not_verified_for_maker": 146,
+        "token_score_below_taker_min": 43
+      },
+      "maker_block_reason_distribution": {
+        "maker_no_submission": 624,
+        "token_lag_not_verified_for_maker": 146
+      },
+      "taker_block_reason_distribution": {
+        "edge_below_min": 163,
+        "latency_not_armed": 40,
+        "market_probability_missing": 104,
+        "stage_disallow_taker": 2996,
+        "taker_submit_rejected": 342,
+        "taker_token_cooldown": 42,
+        "token_lag_not_verified": 1973,
+        "token_score_below_taker_min": 43
+      },
+      "maker_no_submission_cause_distribution": {
+        "no_desired_quote": 40,
+        "replace_guard_min_rest": 11,
+        "submit_rejected_quote_quality_skip_fill_probability": 27,
+        "submit_rejected_quote_quality_skip_queue_depth": 27,
+        "submit_rejected_risk_reject": 212,
+        "submit_rejected_sizing_reject": 307
+      },
+      "maker_no_submission_category_distribution": {
+        "no_desired_quote": 40,
+        "quote_quality_skip_fill_probability": 27,
+        "quote_quality_skip_queue_depth": 27,
+        "replace_guard_min_rest": 11,
+        "risk_reject": 212,
+        "sizing_reject": 307
+      },
+      "maker_market_reference_mode_distribution": {
+        "bounded_single_side_touch": 40,
+        "direct_midpoint": 652,
+        "missing": 108
+      },
+      "maker_market_reference_fallback_count": 40.0,
+      "maker_market_reference_fallback_bid_count": 20.0,
+      "maker_market_reference_fallback_ask_count": 20.0,
+      "maker_reference_direct_midpoint_activity": 652.0,
+      "maker_reference_bounded_fallback_activity": 40.0,
+      "maker_reference_direct_midpoint_action_activity": 30.0,
+      "maker_reference_bounded_fallback_action_activity": 0.0
+    },
+    "harness_realism_grade": 100,
+    "harness_realism_grade_breakdown": {
+      "tod_liquidity_scaling": 20,
+      "maker_queue_proxy_depth_model": 20,
+      "taker_depth_slippage_model": 20,
+      "taker_lag_emulation_with_unknown_guard": 20,
+      "truth_surface_completeness": 20
+    },
+    "maker_market_reference_fallback_count": 40.0,
+    "maker_market_reference_fallback_bid_count": 20.0,
+    "maker_market_reference_fallback_ask_count": 20.0,
+    "maker_reference_direct_midpoint_activity": 652.0,
+    "maker_reference_bounded_fallback_activity": 40.0,
+    "maker_reference_direct_midpoint_action_activity": 30.0,
+    "maker_reference_bounded_fallback_action_activity": 0.0,
+    "mode_transitions": [],
+    "kill_switch_events": 0.0,
+    "safe_stop_transitions": 0.0,
+    "maker_only_transitions": 0.0,
+    "primary_suppression_cause": "none",
+    "contributing_suppression_causes": [],
+    "ambiguous_suppression_cause": false,
+    "suppression_dominated_run": false,
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated",
+    "control_authority_clarity": {
+      "alert_transport_enabled": false,
+      "auto_stop_control_authority_enabled": true,
+      "transport_disable_control_authority_unchanged": true,
+      "transport_layer_class": "notification_transport",
+      "control_authority_class": "risk_control_authority",
+      "transport_disable_semantics": "transport_disabled_control_authority_unchanged",
+      "control_authority_observation_status": "explicit"
+    },
+    "protection_path_trigger_chain": {
+      "trigger_chain_interpretation": "observational_timeline_only",
+      "suppression_dominated_run": false,
+      "first_blocked_edge_signal": {
+        "event_type": "edge_evaluation",
+        "ts_utc": "2026-04-03T05:08:07.794Z",
+        "block_reason": "latency_not_armed"
+      },
+      "first_latency_regime_change": {
+        "event_type": "latency_regime_change",
+        "ts_utc": "2026-04-03T05:08:16.667Z",
+        "reason": "probation_thresholds_met",
+        "reasons": [],
+        "state": "probation",
+        "previous_state": "disarmed"
+      },
+      "first_operating_mode_transition": {},
+      "first_alert_policy_auto_stop": {},
+      "first_kill_switch_cancel_all": {},
+      "runtime_primary_suppression_cause": "none",
+      "runtime_contributing_suppression_causes": [],
+      "runtime_ambiguous_suppression_cause": false,
+      "final_execution_starvation_mode": "none",
+      "final_protected_no_trade_explanation": "execution_not_suppression_dominated"
+    },
+    "latest_operating_mode_state": 0.0,
+    "pickoff_indicator": {
+      "fills_scored": 63.0,
+      "adverse_after_fill_count": 59.0,
+      "adverse_after_fill_ratio": 0.9365079365079365,
+      "horizon_sec": 3.0,
+      "adverse_threshold": 0.003
+    },
+    "market_data_source": {
+      "book_updates_ws_delta": 4290.0,
+      "book_updates_rest_delta": 1510.0,
+      "book_updates_total_delta": 5876.0,
+      "book_updates_rest_ratio": 0.2603448275862069,
+      "status_rows_with_ws_updates": 39.0,
+      "status_rows_with_rest_updates": 40.0
+    },
+    "execution_quality": {
+      "fills_scored": 63.0,
+      "realized_capture": 0.0,
+      "adverse_selection": 220.22994999999983,
+      "capture_minus_adverse": -220.22994999999983
+    },
+    "taker_stage_net_breakout": {
+      "UNKNOWN": {
+        "fills_scored": 59.0,
+        "capture": 0.0,
+        "adverse_selection": 157.4723199999999,
+        "net": -157.4723199999999
+      }
+    },
+    "edge_activation_quality_by_regime": {
+      "armed": {
+        "taker_submits": 59.0,
+        "taker_fills": 59.0,
+        "taker_fill_rate": 1.0
+      }
+    },
+    "runtime_classification": {
+      "classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "reasons": [
+        "active_targets_with_participation"
+      ],
+      "primary_suppression_cause": "none",
+      "contributing_suppression_causes": [],
+      "ambiguous_suppression_cause": false,
+      "suppression_cause_candidates": [],
+      "suppression_cause_precedence": [],
+      "metrics": {
+        "status_rows": 41.0,
+        "active_target_rows": 41.0,
+        "standdown_rows": 0.0,
+        "deadlock_rows": 0.0,
+        "safety_rows": 0.0,
+        "required_book_feed_rows": 41.0,
+        "required_book_feed_disconnected_rows": 1.0,
+        "required_book_feed_disconnected_active_target_rows": 1.0,
+        "required_book_feed_disconnected_unknown_age_rows": 1.0,
+        "required_book_feed_disconnected_unknown_age_max_streak": 1.0,
+        "active_target_guard_or_kill_rows": 0.0,
+        "active_target_required_feed_disconnected_rows": 0.0,
+        "standdown_order_submission_violation_rows": 0.0,
+        "standdown_book_feed_required_violation_rows": 0.0,
+        "duration_minutes": 20.3008,
+        "decision_events": 1388.0,
+        "max_cycles_counter": 1470.0,
+        "order_submission_attempt_rows": 8.0,
+        "participation_rows": 8.0,
+        "active_targets_seen": 1.0,
+        "meaningful_participation": 1.0
+      }
+    }
+  }
+}
