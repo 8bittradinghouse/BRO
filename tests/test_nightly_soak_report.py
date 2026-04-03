@@ -40,6 +40,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("sniper", report)
             self.assertIn("execution_paths", report)
             self.assertIn("edge_truth", report)
+            self.assertIn("harness_realism_grade", report)
+            self.assertIn("harness_realism_grade_breakdown", report)
+            self.assertIn("taker_stage_net_breakout", report)
             self.assertIn("mode_transitions", report)
             self.assertIn("pickoff_indicator", report)
             self.assertIn("runtime_classification", report)
@@ -52,6 +55,50 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("protection_path_trigger_chain", report)
             self.assertGreaterEqual(report["execution_paths"].get("maker_submits", 0.0), 0.0)
             self.assertEqual(report["edge_truth"].get("rows_total"), 0.0)
+
+    def test_build_report_includes_taker_stage_net_breakout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "book_top",
+                    "token_id": "tok-1",
+                    "midpoint": 0.52,
+                    "ts_utc": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "event_type": "order_submit",
+                    "order_id": "o-stage",
+                    "reason": "sniper_taker_chainlink",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                },
+                {
+                    "event_type": "fill",
+                    "order_id": "o-stage",
+                    "token_id": "tok-1",
+                    "side": "BUY",
+                    "price": 0.50,
+                    "size": 10,
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                },
+            ]
+            status = [{"gauge.open_orders": 0, "ts_utc": "2026-01-01T00:00:05Z"}]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            breakout = report.get("taker_stage_net_breakout", {})
+            self.assertIn("MAKER_TAKER_SELECTIVE", breakout)
+            row = breakout["MAKER_TAKER_SELECTIVE"]
+            self.assertEqual(float(row.get("fills_scored", 0.0)), 1.0)
+            self.assertAlmostEqual(float(row.get("capture", 0.0)), 0.2, places=6)
+            self.assertAlmostEqual(float(row.get("adverse_selection", 0.0)), 0.0, places=6)
+            self.assertAlmostEqual(float(row.get("net", 0.0)), 0.2, places=6)
 
     def test_build_report_run_id_filter(self):
         with tempfile.TemporaryDirectory() as td:
@@ -90,6 +137,24 @@ class NightlySoakReportTests(unittest.TestCase):
                 {"gauge.open_orders": 0, "gauge.actions_last_cycle": 2},
                 {"gauge.open_orders": 0, "gauge.quote_active": 1},
                 {"gauge.open_orders": 0, "gauge.actions_last_cycle": 0, "gauge.quote_active": 0},
+            ]
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            self.assertAlmostEqual(report["quote_uptime_ratio"], 2.0 / 3.0)
+
+    def test_build_report_quote_uptime_uses_taker_quick_read_signals(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            status = [
+                {"gauge.open_orders": 0, "gauge.taker_actions_last_cycle": 1},
+                {"gauge.open_orders": 0, "gauge.taker_fills_last_cycle": 2},
+                {"gauge.open_orders": 0, "gauge.quote_active": 0},
             ]
             (root / "status_2026-01-01.jsonl").write_text(
                 "\n".join(json.dumps(x) for x in status) + "\n",
@@ -256,6 +321,102 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(report.get("maker_market_reference_fallback_ask_count"), 1.0)
             self.assertEqual(report.get("maker_reference_direct_midpoint_activity"), 0.0)
             self.assertEqual(report.get("maker_reference_bounded_fallback_activity"), 1.0)
+
+    def test_build_report_emits_maker_regression_sentinel_triggered_for_near_zero_pattern(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-maker-sentinel",
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "order_id": "m1",
+                    "reason": "mm_quote:high_vol",
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-maker-sentinel",
+                    "ts_utc": "2099-01-01T00:20:00Z",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "maker_no_submission",
+                    "maker_no_submission_category": "quote_quality_skip_queue_depth",
+                },
+            ]
+            status = [{"run_id": "rid-maker-sentinel", "ts_utc": "2099-01-01T00:10:00Z", "gauge.open_orders": 0}]
+            (root / "events_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in events) + "\n",
+                encoding="utf-8",
+            )
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-maker-sentinel")
+            sentinel = report.get("maker_regression_sentinel", {})
+            self.assertEqual(sentinel.get("observational_only"), True)
+            self.assertEqual(sentinel.get("maker_behavior_freeze_state"), "provisional_freeze_no_runtime_change")
+            self.assertEqual(sentinel.get("triggered"), True)
+            self.assertIn("near_zero_maker_submit_fill_pattern", sentinel.get("regression_reasons", []))
+            self.assertIn("watch_item_distribution", sentinel)
+
+    def test_build_report_emits_maker_regression_sentinel_not_triggered_for_healthy_activity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events = []
+            for idx in range(8):
+                ts = f"2099-01-01T00:{idx:02d}:00Z"
+                events.append(
+                    {
+                        "event_type": "order_submit",
+                        "run_id": "rid-maker-healthy",
+                        "ts_utc": ts,
+                        "order_id": f"m{idx}",
+                        "reason": "mm_quote:high_vol",
+                    }
+                )
+                if idx < 5:
+                    events.append(
+                        {
+                            "event_type": "fill",
+                            "run_id": "rid-maker-healthy",
+                            "ts_utc": ts,
+                            "order_id": f"m{idx}",
+                            "token_id": "t1",
+                            "side": "BUY",
+                            "price": 0.5,
+                            "size": 1,
+                        }
+                    )
+            events.append(
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-maker-healthy",
+                    "ts_utc": "2099-01-01T00:20:00Z",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "maker_no_submission",
+                    "maker_no_submission_category": "replace_guard_min_rest",
+                }
+            )
+            status = [{"run_id": "rid-maker-healthy", "ts_utc": "2099-01-01T00:10:00Z", "gauge.open_orders": 1}]
+            (root / "events_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in events) + "\n",
+                encoding="utf-8",
+            )
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-maker-healthy")
+            sentinel = report.get("maker_regression_sentinel", {})
+            self.assertEqual(sentinel.get("triggered"), False)
+            self.assertEqual(float(sentinel.get("maker_submits") or 0.0), 8.0)
+            self.assertEqual(float(sentinel.get("maker_fills") or 0.0), 5.0)
 
     def test_build_report_stale_stats_use_edge_evaluation_block_reason(self):
         with tempfile.TemporaryDirectory() as td:

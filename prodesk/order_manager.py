@@ -96,6 +96,47 @@ class OrderManager:
         self.sizing_rounding = str(self.sizing_cfg.get("rounding", "floor")).strip().lower()
         self.sizing_price_source = str(self.sizing_cfg.get("price_source", "mid")).strip().lower()
         self.sizing_share_step = max(1e-9, float(self.sizing_cfg.get("share_step", 0.01)))
+        self.maker_competitive_min_notional_usd = max(
+            0.0,
+            float(self.sizing_cfg.get("maker_competitive_min_notional_usd", 0.0)),
+        )
+        self.maker_competitive_max_notional_usd = max(
+            0.0,
+            float(self.sizing_cfg.get("maker_competitive_max_notional_usd", 0.0)),
+        )
+        self.maker_competitive_min_shares = max(
+            0.0,
+            float(self.sizing_cfg.get("maker_competitive_min_shares", 0.0)),
+        )
+        self.maker_competitive_max_shares = max(
+            0.0,
+            float(self.sizing_cfg.get("maker_competitive_max_shares", 0.0)),
+        )
+        self.maker_depth_target_min_ratio = max(
+            0.0,
+            min(1.0, float(self.sizing_cfg.get("maker_depth_target_min_ratio", 0.0))),
+        )
+        self.maker_depth_target_max_ratio = max(
+            0.0,
+            min(1.0, float(self.sizing_cfg.get("maker_depth_target_max_ratio", 0.0))),
+        )
+        self.maker_depth_target_ratio = max(
+            0.0,
+            min(1.0, float(self.sizing_cfg.get("maker_depth_target_ratio", 0.0))),
+        )
+        self.maker_liquidity_tod_scaler_enabled = bool(
+            self.sizing_cfg.get("maker_liquidity_tod_scaler_enabled", False)
+        )
+        self.maker_liquidity_tod_start_hour_utc = int(
+            float(self.sizing_cfg.get("maker_liquidity_tod_start_hour_utc", 2))
+        )
+        self.maker_liquidity_tod_end_hour_utc = int(
+            float(self.sizing_cfg.get("maker_liquidity_tod_end_hour_utc", 6))
+        )
+        self.maker_liquidity_tod_depth_multiplier = max(
+            0.0,
+            float(self.sizing_cfg.get("maker_liquidity_tod_depth_multiplier", 1.0)),
+        )
         self.base_order_size = max(1e-9, float(strategy_cfg.get("base_order_size", 1.0)))
         self.strategy_min_order_size = max(1e-9, float(strategy_cfg.get("min_order_size", 1.0)))
         self.strategy_max_order_size = max(self.strategy_min_order_size, float(strategy_cfg.get("max_order_size", 200.0)))
@@ -357,7 +398,11 @@ class OrderManager:
                 },
             )
             return _local_reject("order_soft_throttle")
-        resolved_size = self._resolve_order_size_shares(intent, top, notional_target_usd=notional_target_usd)
+        resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
+            intent,
+            top,
+            notional_target_usd=notional_target_usd,
+        )
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
             self.events.log_event(
@@ -370,9 +415,14 @@ class OrderManager:
                     "size": intent.size,
                     "reason": "size_notional_bounds",
                     "detail": f"mode={self.sizing_mode}",
+                    "size_resolution": size_resolution,
                 },
             )
-            return _local_reject("sizing_reject", detail=f"mode={self.sizing_mode}")
+            return _local_reject(
+                "sizing_reject",
+                detail=f"mode={self.sizing_mode}",
+                extra={"size_resolution": size_resolution},
+            )
         intent_ts = utc_iso()
         default_execution_pref = (
             "taker_only"
@@ -734,6 +784,8 @@ class OrderManager:
                 ),
                 "sizing_mode": self.sizing_mode,
                 "sizing_target_usd": float(notional_target_usd) if notional_target_usd is not None else None,
+                "size_selection_authority": "order_manager_notional_sizing_v2",
+                "size_resolution": size_resolution,
                 **quality_fields,
             },
         )
@@ -759,6 +811,180 @@ class OrderManager:
             return top.best_ask_price or top.best_bid_price
         return top.best_bid_price or top.best_ask_price
 
+    @staticmethod
+    def _is_maker_lane(intent: OrderIntent) -> bool:
+        tif = str(intent.tif or "GTC").upper()
+        return not (bool(intent.post_only is False) or tif in {"IOC", "FOK"})
+
+    @staticmethod
+    def _hour_in_window(*, hour_utc: int, start_hour: int, end_hour: int) -> bool:
+        start = max(0, min(23, int(start_hour)))
+        end = max(0, min(23, int(end_hour)))
+        if start == end:
+            return True
+        if start < end:
+            return start <= hour_utc < end
+        return hour_utc >= start or hour_utc < end
+
+    def _maker_liquidity_tod_scale(self) -> Tuple[float, str]:
+        if not self.maker_liquidity_tod_scaler_enabled:
+            return 1.0, "disabled"
+        now = self._now_fn()
+        active = self._hour_in_window(
+            hour_utc=int(now.hour),
+            start_hour=self.maker_liquidity_tod_start_hour_utc,
+            end_hour=self.maker_liquidity_tod_end_hour_utc,
+        )
+        if active:
+            return max(0.0, float(self.maker_liquidity_tod_depth_multiplier)), "overnight_window_active"
+        return 1.0, "outside_window"
+
+    @staticmethod
+    def _maker_visible_depth_shares(top: BookTop, side: str) -> float:
+        normalized_side = str(side or "").strip().upper()
+        if normalized_side == "BUY":
+            return max(0.0, float(top.best_bid_size) if top.best_bid_size is not None else 0.0)
+        return max(0.0, float(top.best_ask_size) if top.best_ask_size is not None else 0.0)
+
+    def _resolve_order_size_shares_with_details(
+        self,
+        intent: OrderIntent,
+        top: BookTop,
+        *,
+        notional_target_usd: Optional[float] = None,
+    ) -> Tuple[Optional[float], Dict[str, Any]]:
+        mode = str(self.sizing_mode).strip().lower()
+        lane = "maker" if self._is_maker_lane(intent) else "taker"
+        details: Dict[str, Any] = {
+            "sizing_mode": mode,
+            "submission_lane": lane,
+            "price_source": str(self.sizing_price_source),
+            "global_min_usd": float(self.sizing_min_usd),
+            "global_max_usd": float(self.sizing_max_usd),
+            "size_decision_reasons": [],
+        }
+        if mode != "notional":
+            passthrough = float(intent.size)
+            details["size_decision_reasons"] = ["shares_mode_passthrough"]
+            details["resolved_shares"] = float(passthrough)
+            details["resolved_notional_usd"] = None
+            return passthrough, details
+
+        price = self._sizing_price(top, intent.side)
+        if price is None or price <= 0:
+            details["size_decision_reasons"] = ["price_unavailable"]
+            details["resolved_shares"] = None
+            details["resolved_notional_usd"] = None
+            return None, details
+        details["price_used"] = float(price)
+
+        if notional_target_usd is None:
+            scale = max(0.01, float(intent.size) / self.base_order_size)
+            desired_usd = self.sizing_target_usd * scale
+            details["base_target_usd"] = float(self.sizing_target_usd)
+            details["intent_size_scale"] = float(scale)
+        else:
+            desired_usd = float(notional_target_usd)
+            details["override_target_usd"] = float(notional_target_usd)
+        details["desired_usd_initial"] = float(desired_usd)
+
+        desired_usd = max(self.sizing_min_usd, min(self.sizing_max_usd, desired_usd))
+        details["desired_usd_after_global_bounds"] = float(desired_usd)
+
+        if lane == "maker":
+            visible_depth_shares = self._maker_visible_depth_shares(top, intent.side)
+            tod_depth_multiplier, tod_mode = self._maker_liquidity_tod_scale()
+            effective_depth_shares = visible_depth_shares * tod_depth_multiplier
+            details["visible_depth_shares"] = float(visible_depth_shares)
+            details["maker_liquidity_tod_depth_multiplier"] = float(tod_depth_multiplier)
+            details["maker_liquidity_tod_mode"] = tod_mode
+            details["effective_depth_shares"] = float(effective_depth_shares)
+
+            depth_target_ratio = max(
+                self.maker_depth_target_min_ratio,
+                float(self.maker_depth_target_ratio),
+            )
+            if self.maker_depth_target_max_ratio > 0.0:
+                depth_target_ratio = min(depth_target_ratio, self.maker_depth_target_max_ratio)
+            details["maker_depth_target_ratio_applied"] = float(depth_target_ratio)
+            if effective_depth_shares > 0.0 and depth_target_ratio > 0.0:
+                depth_target_shares = effective_depth_shares * depth_target_ratio
+                depth_target_usd = depth_target_shares * float(price)
+                details["depth_target_shares"] = float(depth_target_shares)
+                details["depth_target_notional_usd"] = float(depth_target_usd)
+                if depth_target_usd > desired_usd:
+                    desired_usd = float(depth_target_usd)
+                    details["size_decision_reasons"].append("maker_depth_target_notional_floor")
+            else:
+                details["depth_target_shares"] = 0.0
+                details["depth_target_notional_usd"] = 0.0
+
+            if self.maker_competitive_min_notional_usd > 0.0:
+                if desired_usd < self.maker_competitive_min_notional_usd:
+                    desired_usd = float(self.maker_competitive_min_notional_usd)
+                    details["size_decision_reasons"].append("maker_hard_min_notional_floor")
+                details["maker_hard_min_notional_usd"] = float(self.maker_competitive_min_notional_usd)
+            if self.maker_competitive_max_notional_usd > 0.0:
+                if desired_usd > self.maker_competitive_max_notional_usd:
+                    desired_usd = float(self.maker_competitive_max_notional_usd)
+                    details["size_decision_reasons"].append("maker_hard_max_notional_cap")
+                details["maker_hard_max_notional_usd"] = float(self.maker_competitive_max_notional_usd)
+
+        details["desired_usd_after_lane_overlays"] = float(desired_usd)
+        raw_shares = desired_usd / float(price)
+        details["raw_shares"] = float(raw_shares)
+        if lane == "maker":
+            if self.maker_competitive_min_shares > 0.0 and raw_shares < self.maker_competitive_min_shares:
+                raw_shares = float(self.maker_competitive_min_shares)
+                details["size_decision_reasons"].append("maker_hard_min_shares_floor")
+            if self.maker_competitive_max_shares > 0.0 and raw_shares > self.maker_competitive_max_shares:
+                raw_shares = float(self.maker_competitive_max_shares)
+                details["size_decision_reasons"].append("maker_hard_max_shares_cap")
+            if self.maker_competitive_min_shares > 0.0:
+                details["maker_hard_min_shares"] = float(self.maker_competitive_min_shares)
+            if self.maker_competitive_max_shares > 0.0:
+                details["maker_hard_max_shares"] = float(self.maker_competitive_max_shares)
+
+        rounded = self._round_shares(raw_shares)
+        rounded = min(rounded, self.strategy_max_order_size)
+        details["rounded_shares"] = float(rounded)
+        if rounded <= 0.0:
+            details["size_decision_reasons"].append("rounded_shares_nonpositive")
+            details["resolved_shares"] = None
+            details["resolved_notional_usd"] = None
+            return None, details
+
+        rounded_notional = rounded * float(price)
+        details["rounded_notional_usd"] = float(rounded_notional)
+        if rounded_notional < self.sizing_min_usd or rounded_notional > self.sizing_max_usd:
+            details["size_decision_reasons"].append("global_notional_bounds_after_rounding")
+            details["resolved_shares"] = None
+            details["resolved_notional_usd"] = None
+            return None, details
+        if lane == "maker":
+            if (
+                self.maker_competitive_min_notional_usd > 0.0
+                and rounded_notional + 1e-9 < self.maker_competitive_min_notional_usd
+            ):
+                details["size_decision_reasons"].append("maker_hard_min_notional_failed_after_rounding")
+                details["resolved_shares"] = None
+                details["resolved_notional_usd"] = None
+                return None, details
+            if (
+                self.maker_competitive_max_notional_usd > 0.0
+                and rounded_notional - 1e-9 > self.maker_competitive_max_notional_usd
+            ):
+                details["size_decision_reasons"].append("maker_hard_max_notional_failed_after_rounding")
+                details["resolved_shares"] = None
+                details["resolved_notional_usd"] = None
+                return None, details
+
+        if not details["size_decision_reasons"]:
+            details["size_decision_reasons"] = ["baseline_notional_sizing"]
+        details["resolved_shares"] = float(rounded)
+        details["resolved_notional_usd"] = float(rounded_notional)
+        return rounded, details
+
     def _resolve_order_size_shares(
         self,
         intent: OrderIntent,
@@ -766,28 +992,12 @@ class OrderManager:
         *,
         notional_target_usd: Optional[float] = None,
     ) -> Optional[float]:
-        size = float(intent.size)
-        if self.sizing_mode != "notional":
-            return size
-        price = self._sizing_price(top, intent.side)
-        if price is None or price <= 0:
-            return None
-        if notional_target_usd is None:
-            scale = max(0.01, size / self.base_order_size)
-            desired_usd = self.sizing_target_usd * scale
-        else:
-            desired_usd = float(notional_target_usd)
-        desired_usd = max(self.sizing_min_usd, min(self.sizing_max_usd, desired_usd))
-        raw_shares = desired_usd / float(price)
-        rounded = self._round_shares(raw_shares)
-        # Keep notional sizing inside configured share guardrails to avoid avoidable risk rejects.
-        rounded = min(rounded, self.strategy_max_order_size)
-        if rounded <= 0:
-            return None
-        rounded_notional = rounded * float(price)
-        if rounded_notional < self.sizing_min_usd or rounded_notional > self.sizing_max_usd:
-            return None
-        return rounded
+        resolved, _details = self._resolve_order_size_shares_with_details(
+            intent,
+            top,
+            notional_target_usd=notional_target_usd,
+        )
+        return resolved
 
     def _remember_trade_id(self, trade_id: str) -> bool:
         if trade_id in self.seen_trade_ids:
@@ -844,6 +1054,46 @@ class OrderManager:
                 "decision_input_type": fill.decision_input_type,
                 "target_ref": (
                     str(fill.target_ref).strip() if str(fill.target_ref or "").strip() else None
+                ),
+                "paper_liquidity_depth_multiplier": (
+                    float(fill.paper_liquidity_depth_multiplier)
+                    if isinstance(fill.paper_liquidity_depth_multiplier, (int, float))
+                    else None
+                ),
+                "paper_queue_position_mode": (
+                    str(fill.paper_queue_position_mode).strip()
+                    if str(fill.paper_queue_position_mode or "").strip()
+                    else None
+                ),
+                "paper_queue_fill_multiplier": (
+                    float(fill.paper_queue_fill_multiplier)
+                    if isinstance(fill.paper_queue_fill_multiplier, (int, float))
+                    else None
+                ),
+                "paper_maker_depth_consumption_ratio": (
+                    float(fill.paper_maker_depth_consumption_ratio)
+                    if isinstance(fill.paper_maker_depth_consumption_ratio, (int, float))
+                    else None
+                ),
+                "paper_maker_eligible_depth": (
+                    float(fill.paper_maker_eligible_depth)
+                    if isinstance(fill.paper_maker_eligible_depth, (int, float))
+                    else None
+                ),
+                "paper_chainlink_lag_class": (
+                    str(fill.paper_chainlink_lag_class).strip()
+                    if str(fill.paper_chainlink_lag_class or "").strip()
+                    else None
+                ),
+                "paper_chainlink_lag_sec_effective": (
+                    float(fill.paper_chainlink_lag_sec_effective)
+                    if isinstance(fill.paper_chainlink_lag_sec_effective, (int, float))
+                    else None
+                ),
+                "paper_chainlink_lag_penalty_bps": (
+                    float(fill.paper_chainlink_lag_penalty_bps)
+                    if isinstance(fill.paper_chainlink_lag_penalty_bps, (int, float))
+                    else None
                 ),
             },
         )
@@ -903,6 +1153,8 @@ class OrderManager:
         decision_reference_source: Optional[str] = None,
         decision_reference_lookup_key: Optional[str] = None,
         decision_reference_ts_utc: Optional[str] = None,
+        token_median_lag_ms: Optional[float] = None,
+        oracle_tick_age_sec: Optional[float] = None,
     ) -> bool:
         outcome = self.place_taker_order_with_outcome(
             token_id=token_id,
@@ -917,6 +1169,8 @@ class OrderManager:
             decision_reference_source=decision_reference_source,
             decision_reference_lookup_key=decision_reference_lookup_key,
             decision_reference_ts_utc=decision_reference_ts_utc,
+            token_median_lag_ms=token_median_lag_ms,
+            oracle_tick_age_sec=oracle_tick_age_sec,
         )
         return bool(outcome.get("submitted", False))
 
@@ -935,6 +1189,8 @@ class OrderManager:
         decision_reference_source: Optional[str] = None,
         decision_reference_lookup_key: Optional[str] = None,
         decision_reference_ts_utc: Optional[str] = None,
+        token_median_lag_ms: Optional[float] = None,
+        oracle_tick_age_sec: Optional[float] = None,
     ) -> Dict[str, Any]:
         base_size = float(size) if size is not None else float(self.base_order_size)
         intent = OrderIntent(
@@ -965,6 +1221,16 @@ class OrderManager:
                 str(decision_reference_ts_utc).strip()
                 if str(decision_reference_ts_utc or "").strip()
                 else utc_iso()
+            ),
+            token_median_lag_ms=(
+                float(token_median_lag_ms)
+                if isinstance(token_median_lag_ms, (int, float))
+                else None
+            ),
+            oracle_tick_age_sec=(
+                float(oracle_tick_age_sec)
+                if isinstance(oracle_tick_age_sec, (int, float))
+                else None
             ),
         )
         open_orders = self.tx_manager.get_open_orders()

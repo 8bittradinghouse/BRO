@@ -157,6 +157,15 @@ def _is_quote_active_row(row: Dict[str, Any]) -> bool:
     actions_last_cycle = row.get("gauge.actions_last_cycle")
     if isinstance(actions_last_cycle, (int, float)) and float(actions_last_cycle) > 0:
         return True
+    taker_actions_last_cycle = row.get("gauge.taker_actions_last_cycle")
+    if isinstance(taker_actions_last_cycle, (int, float)) and float(taker_actions_last_cycle) > 0:
+        return True
+    taker_submitted_last_cycle = row.get("gauge.taker_submitted_last_cycle")
+    if isinstance(taker_submitted_last_cycle, (int, float)) and float(taker_submitted_last_cycle) > 0:
+        return True
+    taker_fills_last_cycle = row.get("gauge.taker_fills_last_cycle")
+    if isinstance(taker_fills_last_cycle, (int, float)) and float(taker_fills_last_cycle) > 0:
+        return True
     return False
 
 
@@ -225,7 +234,14 @@ def _status_activity_diagnostics(status_rows: List[Dict[str, Any]]) -> Dict[str,
             quote_active_rows += 1.0
 
         participated = False
-        for key in ("gauge.actions_last_cycle", "gauge.order_submission_attempts_last_cycle", "order_submission_attempts_last_cycle"):
+        for key in (
+            "gauge.actions_last_cycle",
+            "gauge.taker_actions_last_cycle",
+            "gauge.taker_submitted_last_cycle",
+            "gauge.taker_fills_last_cycle",
+            "gauge.order_submission_attempts_last_cycle",
+            "order_submission_attempts_last_cycle",
+        ):
             value = row.get(key)
             if isinstance(value, (int, float)) and float(value) > 0:
                 participated = True
@@ -383,6 +399,62 @@ def _market_data_source_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, fl
     }
 
 
+def _harness_realism_grade(
+    *,
+    events: List[Dict[str, Any]],
+    edge_truth: Dict[str, Any],
+) -> Tuple[int, Dict[str, int]]:
+    breakdown: Dict[str, int] = {
+        "tod_liquidity_scaling": 0,
+        "maker_queue_proxy_depth_model": 0,
+        "taker_depth_slippage_model": 0,
+        "taker_lag_emulation_with_unknown_guard": 0,
+        "truth_surface_completeness": 0,
+    }
+
+    fill_rows = [evt for evt in events if str(evt.get("event_type") or "") == "fill"]
+    if any(
+        isinstance(evt.get("paper_liquidity_depth_multiplier"), (int, float))
+        and float(evt.get("paper_liquidity_depth_multiplier")) != 1.0
+        for evt in fill_rows
+    ):
+        breakdown["tod_liquidity_scaling"] = 20
+
+    if any(
+        str(evt.get("paper_queue_position_mode") or "").strip().lower() == "bounded_top_depth_proxy"
+        and isinstance(evt.get("paper_maker_depth_consumption_ratio"), (int, float))
+        for evt in fill_rows
+    ):
+        breakdown["maker_queue_proxy_depth_model"] = 20
+
+    if any(
+        str(evt.get("fill_policy_basis") or "").strip().lower()
+        in {"bounded_visible_liquidity_top_of_book", "bounded_visible_liquidity_top_of_book_with_queue_proxy"}
+        for evt in fill_rows
+    ):
+        breakdown["taker_depth_slippage_model"] = 20
+
+    lag_rows = [
+        evt for evt in fill_rows if str(evt.get("paper_chainlink_lag_class") or "").strip().lower()
+    ]
+    if lag_rows:
+        unknown_fail_closed_ok = True
+        for row in lag_rows:
+            lag_class = str(row.get("paper_chainlink_lag_class") or "").strip().lower()
+            penalty = _safe_float(row.get("paper_chainlink_lag_penalty_bps"), default=0.0)
+            if lag_class == "unknown" and abs(float(penalty)) > 1e-9:
+                unknown_fail_closed_ok = False
+                break
+        if unknown_fail_closed_ok:
+            breakdown["taker_lag_emulation_with_unknown_guard"] = 20
+
+    if float(_safe_float(edge_truth.get("rows_total"), 0.0)) > 0.0:
+        breakdown["truth_surface_completeness"] = 20
+
+    grade = int(sum(int(v) for v in breakdown.values()))
+    return grade, breakdown
+
+
 def _fill_capture_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
     latest_mid_by_token: Dict[str, float] = {}
     capture = 0.0
@@ -423,6 +495,72 @@ def _fill_capture_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
         "adverse_selection": adverse,
         "capture_minus_adverse": capture - adverse,
     }
+
+
+def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    latest_mid_by_token: Dict[str, float] = {}
+    taker_stage_by_order_id: Dict[str, str] = {}
+    stage_capture: Counter[str] = Counter()
+    stage_adverse: Counter[str] = Counter()
+    stage_fills: Counter[str] = Counter()
+
+    for evt in events:
+        event_type = str(evt.get("event_type") or "")
+        if event_type == "book_top":
+            token_id = str(evt.get("token_id") or "").strip()
+            midpoint = evt.get("midpoint")
+            if token_id and isinstance(midpoint, (int, float)):
+                latest_mid_by_token[token_id] = float(midpoint)
+            continue
+        if event_type == "order_submit":
+            reason = str(evt.get("reason") or "").strip().lower()
+            if "sniper_taker" not in reason:
+                continue
+            order_id = str(evt.get("order_id") or "").strip()
+            if not order_id:
+                continue
+            stage = str(evt.get("stage") or "UNKNOWN").strip().upper() or "UNKNOWN"
+            taker_stage_by_order_id[order_id] = stage
+            continue
+        if event_type != "fill":
+            continue
+        order_id = str(evt.get("order_id") or "").strip()
+        if not order_id:
+            continue
+        stage = taker_stage_by_order_id.get(order_id)
+        if not stage:
+            continue
+        token_id = str(evt.get("token_id") or "").strip()
+        side = str(evt.get("side") or "").strip().upper()
+        mid = latest_mid_by_token.get(token_id)
+        price = evt.get("price")
+        size = evt.get("size")
+        if mid is None or not isinstance(price, (int, float)) or not isinstance(size, (int, float)):
+            continue
+        qty = float(size)
+        if side == "BUY":
+            delta = (float(mid) - float(price)) * qty
+        elif side == "SELL":
+            delta = (float(price) - float(mid)) * qty
+        else:
+            continue
+        if delta >= 0.0:
+            stage_capture[stage] += float(delta)
+        else:
+            stage_adverse[stage] += abs(float(delta))
+        stage_fills[stage] += 1
+
+    out: Dict[str, Dict[str, float]] = {}
+    for stage in sorted(set(stage_fills.keys()) | set(stage_capture.keys()) | set(stage_adverse.keys())):
+        capture = float(stage_capture.get(stage, 0.0))
+        adverse = float(stage_adverse.get(stage, 0.0))
+        out[stage] = {
+            "fills_scored": float(stage_fills.get(stage, 0)),
+            "capture": capture,
+            "adverse_selection": adverse,
+            "net": capture - adverse,
+        }
+    return out
 
 
 def _edge_quality_by_regime(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
@@ -646,6 +784,76 @@ def _execution_path_stats(events: List[Dict[str, Any]], duration_minutes: float)
         "taker_bonus_fills": taker_bonus_fills,
         "taker_bonus_fill_rate": (taker_bonus_fills / taker_bonus_submits) if taker_bonus_submits > 0 else 0.0,
         "taker_bonus_fire_rate_per_min": (taker_bonus_submits / duration_minutes) if duration_minutes > 0 else 0.0,
+    }
+
+
+def _maker_regression_sentinel(
+    execution_paths: Dict[str, Any],
+    edge_truth: Dict[str, Any],
+    duration_minutes: float,
+) -> Dict[str, Any]:
+    maker_submits = _safe_float(execution_paths.get("maker_submits"))
+    maker_fills = _safe_float(execution_paths.get("maker_fills"))
+    maker_fill_rate = _safe_float(execution_paths.get("maker_fill_rate"))
+    maker_fire_rate_per_min = _safe_float(execution_paths.get("maker_fire_rate_per_min"))
+
+    near_zero_submit_rate_threshold_per_min = 0.25
+    near_zero_fill_count_threshold = 1.0
+    low_fill_rate_threshold = 0.05
+    low_fill_rate_requires_submits = 5.0
+
+    submit_count_threshold = (
+        max(1.0, near_zero_submit_rate_threshold_per_min * duration_minutes)
+        if duration_minutes > 0
+        else 1.0
+    )
+    near_zero_submits = maker_submits <= submit_count_threshold
+    near_zero_fills = maker_fills <= near_zero_fill_count_threshold
+    fill_rate_collapse = (
+        maker_submits >= low_fill_rate_requires_submits and maker_fill_rate < low_fill_rate_threshold
+    )
+    triggered = (near_zero_submits and near_zero_fills) or fill_rate_collapse
+
+    regression_reasons: List[str] = []
+    if near_zero_submits and near_zero_fills:
+        regression_reasons.append("near_zero_maker_submit_fill_pattern")
+    if fill_rate_collapse:
+        regression_reasons.append("maker_fill_rate_collapse")
+
+    maker_no_submission_categories = edge_truth.get("maker_no_submission_category_distribution")
+    if not isinstance(maker_no_submission_categories, dict):
+        maker_no_submission_categories = {}
+
+    watch_categories = {
+        "quote_quality_skip_fill_probability": int(
+            _safe_float(maker_no_submission_categories.get("quote_quality_skip_fill_probability"))
+        ),
+        "quote_quality_skip_queue_depth": int(
+            _safe_float(maker_no_submission_categories.get("quote_quality_skip_queue_depth"))
+        ),
+        "replace_guard_min_rest": int(
+            _safe_float(maker_no_submission_categories.get("replace_guard_min_rest"))
+        ),
+    }
+
+    return {
+        "observational_only": True,
+        "maker_behavior_freeze_state": "provisional_freeze_no_runtime_change",
+        "triggered": bool(triggered),
+        "regression_reasons": regression_reasons,
+        "maker_submits": float(maker_submits),
+        "maker_fills": float(maker_fills),
+        "maker_fill_rate": float(maker_fill_rate),
+        "maker_fire_rate_per_min": float(maker_fire_rate_per_min),
+        "thresholds": {
+            "near_zero_submit_rate_threshold_per_min": float(near_zero_submit_rate_threshold_per_min),
+            "near_zero_submit_count_threshold": float(submit_count_threshold),
+            "near_zero_fill_count_threshold": float(near_zero_fill_count_threshold),
+            "low_fill_rate_threshold": float(low_fill_rate_threshold),
+            "low_fill_rate_requires_submits": float(low_fill_rate_requires_submits),
+        },
+        "watch_item_primary": "quote_quality_skip_and_replace_guard_distribution",
+        "watch_item_distribution": watch_categories,
     }
 
 
@@ -1049,6 +1257,7 @@ def build_report(
     quote_diagnostics = _status_activity_diagnostics(status)
     by_component = Counter(str(err.get("component") or "unknown") for err in errors)
     capture_stats = _fill_capture_stats(events)
+    taker_stage_net_breakout = _taker_stage_net_breakout(events)
     edge_quality = _edge_quality_by_regime(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
@@ -1056,6 +1265,15 @@ def build_report(
     sniper = _sniper_stats(events, duration_minutes)
     execution_paths = _execution_path_stats(events, duration_minutes)
     edge_truth = _edge_truth_summary(events)
+    harness_realism_grade, harness_realism_grade_breakdown = _harness_realism_grade(
+        events=events,
+        edge_truth=edge_truth,
+    )
+    maker_regression_sentinel = _maker_regression_sentinel(
+        execution_paths=execution_paths,
+        edge_truth=edge_truth,
+        duration_minutes=duration_minutes,
+    )
     mode_timeline = _mode_transition_timeline(events)
     pickoff = _pickoff_indicator(events)
     runtime_classification = classify_runtime(status_rows=status, events=events)
@@ -1118,7 +1336,10 @@ def build_report(
         "latency_distribution_ms": latency_stats,
         "sniper": sniper,
         "execution_paths": execution_paths,
+        "maker_regression_sentinel": maker_regression_sentinel,
         "edge_truth": edge_truth,
+        "harness_realism_grade": int(harness_realism_grade),
+        "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
         "maker_market_reference_fallback_count": _safe_float(
             edge_truth.get("maker_market_reference_fallback_count")
         ),
@@ -1156,6 +1377,7 @@ def build_report(
         "pickoff_indicator": pickoff,
         "market_data_source": market_data_source,
         "execution_quality": capture_stats,
+        "taker_stage_net_breakout": taker_stage_net_breakout,
         "edge_activation_quality_by_regime": edge_quality,
         "runtime_classification": runtime_classification,
     }
@@ -1171,6 +1393,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     market_data_source = report.get("market_data_source", {})
     mode_transitions = report.get("mode_transitions", [])
     eq = report.get("execution_quality", {})
+    taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     runtime_class = report.get("runtime_classification", {}) if isinstance(report.get("runtime_classification"), dict) else {}
     runtime_class_name = str(runtime_class.get("classification") or "")
@@ -1184,6 +1407,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         f"duration_minutes={_safe_float(report.get('duration_minutes')):.2f}",
         f"quote_uptime_ratio={_safe_float(report.get('quote_uptime_ratio')):.4f}",
         f"error_rows={int(_safe_float(report.get('error_rows')))}",
+        (
+            "harness_realism="
+            + f"grade={int(_safe_float(report.get('harness_realism_grade')))},"
+            + f"breakdown={json.dumps(report.get('harness_realism_grade_breakdown', {}), sort_keys=True)}"
+        ),
         f"top_rejects={top_reject}",
         (
             "latency_ms="
@@ -1206,6 +1434,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"maker_fills={int(_safe_float(paths.get('maker_fills')))},"
             + f"taker_bonus_submits={int(_safe_float(paths.get('taker_bonus_submits')))},"
             + f"taker_bonus_fills={int(_safe_float(paths.get('taker_bonus_fills')))}"
+        ),
+        (
+            "maker_regression_sentinel="
+            + f"triggered={1 if bool((report.get('maker_regression_sentinel') or {}).get('triggered', False)) else 0},"
+            + f"reasons={list((report.get('maker_regression_sentinel') or {}).get('regression_reasons') or [])}"
         ),
         (
             "maker_reference_activity="
@@ -1239,6 +1472,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"adverse={_safe_float(eq.get('adverse_selection')):.6f},"
             + f"net={_safe_float(eq.get('capture_minus_adverse')):.6f}"
         ),
+        f"taker_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",
         f"runtime_classification={runtime_class_name or 'UNKNOWN'}",
         f"runtime_promotion_eligible={1 if runtime_promotable else 0}",
         f"primary_suppression_cause={primary_suppression_cause}",

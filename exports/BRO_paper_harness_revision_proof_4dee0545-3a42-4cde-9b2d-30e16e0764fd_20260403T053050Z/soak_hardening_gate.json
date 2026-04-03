@@ -1,0 +1,1279 @@
+{
+  "artifact_identity": {
+    "code_fingerprint_sha256": "dc095adb5a499c5c229979b45b9a1f5fd45d44490c475415a4d04ecf4fd0d5a5",
+    "config_fingerprint_sha256": "90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0",
+    "config_source_path": "/config/profiles/paper_universal.yaml",
+    "config_source_sha256": "2082f235ea10eb586c360af308fe0a9fd79c3f1d3fad0c86b82f8fd571fb8070",
+    "dependency_lock_sha256": "099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8",
+    "docker_image_hash": "sha256:04b40151c3296063b33cf500404c2bfc837e98cde04f7d0794d84fb7e4bdad60",
+    "git_commit": "a45de631c052145d8e1f5a12378891ce49b12aee",
+    "git_dirty": true,
+    "manifest_schema_version": 2,
+    "profile_name": "paper_universal",
+    "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd"
+  },
+  "budget_path": "/home/odah/bro/base/ops/soak_budget.yaml",
+  "decision_trace": [
+    {
+      "check": "readiness_required_stage",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "readiness_stage_met",
+      "note": "required=paper highest=paper causes=unknown",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 1.0
+    },
+    {
+      "check": "runtime_classification_promotion_eligibility",
+      "comparator": "eq",
+      "level": "hard_fail",
+      "metric": "runtime_promotion_eligible",
+      "note": "classification=VALID_ACTIVE",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 1.0
+    },
+    {
+      "check": "runtime_active_target_meaningful_participation",
+      "comparator": "eq",
+      "level": "hard_fail",
+      "metric": "meaningful_participation_when_active_targets_seen",
+      "note": "active_targets_seen=1.000000 meaningful_participation=1.000000",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 1.0
+    },
+    {
+      "check": "soak_duration_minutes",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "duration_minutes",
+      "note": "minimum soak time eps=0.000000",
+      "passed": true,
+      "threshold": 10.0,
+      "value": 20.490533333333335
+    },
+    {
+      "check": "soak_quote_uptime_ratio",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "quote_uptime_ratio",
+      "note": "minimum uptime eps=0.000500",
+      "passed": true,
+      "threshold": 0.05,
+      "value": 0.2682991987535721
+    },
+    {
+      "check": "soak_error_rows",
+      "comparator": "max",
+      "level": "hard_fail",
+      "metric": "error_rows",
+      "note": "maximum error rows eps=0.000000",
+      "passed": true,
+      "threshold": 0.0,
+      "value": 0.0
+    },
+    {
+      "check": "soak_maker_submits",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "maker_submits",
+      "note": "execution-path health signal eps=0.000000 enforcement_applied=1 mode=absolute actionable_rows=30.000000 min_opportunity_rows=1.000000",
+      "passed": false,
+      "threshold": 50.0,
+      "value": 31.0
+    },
+    {
+      "check": "soak_maker_fill_rate",
+      "comparator": "max",
+      "level": "hard_fail",
+      "metric": "maker_fill_rate",
+      "note": "maker_submits=31.000000 eps=0.000000",
+      "passed": true,
+      "threshold": 0.85,
+      "value": 0.12903225806451613
+    },
+    {
+      "check": "soak_taker_bonus_submits",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "taker_bonus_submits",
+      "note": "execution-path health signal eps=0.000000",
+      "passed": true,
+      "threshold": 0.0,
+      "value": 59.0
+    },
+    {
+      "check": "soak_taker_bonus_fills",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "taker_bonus_fills",
+      "note": "execution-path health signal eps=0.000000",
+      "passed": true,
+      "threshold": 0.0,
+      "value": 59.0
+    },
+    {
+      "check": "soak_taker_bonus_fill_rate",
+      "comparator": "max",
+      "level": "hard_fail",
+      "metric": "taker_bonus_fill_rate",
+      "note": "taker_bonus_submits=59.000000 eps=0.000000",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 1.0
+    },
+    {
+      "check": "soak_book_updates_total_delta",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "book_updates_total_delta",
+      "note": "market data continuity signal eps=0.000000",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 5876.0
+    },
+    {
+      "check": "soak_book_updates_ws_delta",
+      "comparator": "min",
+      "level": "hard_fail",
+      "metric": "book_updates_ws_delta",
+      "note": "ws primary source continuity eps=0.000000",
+      "passed": true,
+      "threshold": 1.0,
+      "value": 4290.0
+    },
+    {
+      "check": "soak_book_updates_rest_ratio",
+      "comparator": "max",
+      "level": "hard_fail",
+      "metric": "book_updates_rest_ratio",
+      "note": "ws_delta=4290.000000 rest_delta=1510.000000 eps=0.000000",
+      "passed": true,
+      "threshold": 0.35,
+      "value": 0.2603448275862069
+    }
+  ],
+  "error_codes": [
+    "BRO-2005"
+  ],
+  "finding_count": 1,
+  "findings": [
+    "soak_maker_submits_too_low:31.000000<min:50.000000"
+  ],
+  "gate_mode": "reliability",
+  "integrity": {
+    "allow_legacy_manifest": false,
+    "cancel_all_event_count": 1,
+    "context_hints": {
+      "candidate_log_dirs_for_run": [
+        "/home/odah/bro/base/logs_exec/paper_universal"
+      ]
+    },
+    "duplicate_fill_trade_id_count": 0,
+    "error_codes": [],
+    "event_row_count": 19311,
+    "fill_event_count": 63,
+    "finding_count": 0,
+    "findings": [],
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+    "monotonic_violations": {},
+    "ok": true,
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+    "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+    "session_phase": "validate_postrun",
+    "status_row_count": 41,
+    "warning_count": 0,
+    "warnings": []
+  },
+  "lanes": {
+    "reliability": {
+      "error_codes": [],
+      "finding_count": 0,
+      "findings": [],
+      "ok": true
+    },
+    "utilization": {
+      "error_codes": [
+        "BRO-2005"
+      ],
+      "finding_count": 1,
+      "findings": [
+        "soak_maker_submits_too_low:31.000000<min:50.000000"
+      ],
+      "ok": false
+    }
+  },
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "ok": true,
+  "performance": {
+    "advisories": [],
+    "advisory_count": 0,
+    "context_hints": {
+      "candidate_log_dirs_for_run": [
+        "/home/odah/bro/base/logs_exec/paper_universal"
+      ]
+    },
+    "decision_trace": [
+      {
+        "check": "status_row_count",
+        "comparator": "min",
+        "level": "hard_fail",
+        "metric": "status_row_count",
+        "note": "minimum evidence rows required",
+        "passed": true,
+        "threshold": 20.0,
+        "value": 41.0
+      },
+      {
+        "check": "cycle_latency_p95",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "cycle_latency_p95_ms",
+        "note": "hard fail threshold",
+        "passed": true,
+        "threshold": 800.0,
+        "value": 277.6007237844169
+      },
+      {
+        "check": "cycle_latency_max",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "cycle_latency_max_ms",
+        "note": "hard fail threshold",
+        "passed": true,
+        "threshold": 2000.0,
+        "value": 506.90632266923785
+      },
+      {
+        "check": "process_rss_max",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "process_rss_mb_max",
+        "note": "hard fail threshold",
+        "passed": true,
+        "threshold": 1024.0,
+        "value": 80.19140625
+      },
+      {
+        "check": "order_capacity_peak_ratio",
+        "comparator": "max",
+        "level": "advisory",
+        "metric": "order_capacity_used_ratio_max",
+        "note": "peak ratio is advisory; hard fail uses breach rows + breach ratio",
+        "passed": true,
+        "threshold": 0.98,
+        "value": 0.5083333333333333
+      },
+      {
+        "check": "order_capacity_breach_rows",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "order_capacity_breach_rows",
+        "note": "must pass with breach ratio check",
+        "passed": true,
+        "threshold": 1.0,
+        "value": 0.0
+      },
+      {
+        "check": "order_capacity_breach_ratio",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "order_capacity_breach_ratio",
+        "note": "must pass with breach rows check",
+        "passed": true,
+        "threshold": 0.1,
+        "value": 0.0
+      },
+      {
+        "check": "cancel_capacity_peak_ratio",
+        "comparator": "max",
+        "level": "advisory",
+        "metric": "cancel_capacity_used_ratio_max",
+        "note": "peak ratio is advisory; hard fail uses breach rows + breach ratio",
+        "passed": true,
+        "threshold": 0.98,
+        "value": 0.05454545454545454
+      },
+      {
+        "check": "cancel_capacity_breach_rows",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "cancel_capacity_breach_rows",
+        "note": "must pass with breach ratio check",
+        "passed": true,
+        "threshold": 1.0,
+        "value": 0.0
+      },
+      {
+        "check": "cancel_capacity_breach_ratio",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "cancel_capacity_breach_ratio",
+        "note": "must pass with breach rows check",
+        "passed": true,
+        "threshold": 0.1,
+        "value": 0.0
+      },
+      {
+        "check": "latency_sampling_inactive_cycles_max",
+        "comparator": "max",
+        "level": "hard_fail",
+        "metric": "latency_sampling_inactive_cycles_max",
+        "note": "hard fail threshold",
+        "passed": true,
+        "threshold": 60.0,
+        "value": 0.0
+      },
+      {
+        "check": "cycle_span_market_data_max",
+        "comparator": "max",
+        "level": "warning",
+        "metric": "cycle_span_market_data_max_ms",
+        "note": "execution-pipeline decomposition signal",
+        "passed": true,
+        "threshold": 2000.0,
+        "value": 495.8496391773224
+      },
+      {
+        "check": "cycle_span_strategy_exec_max",
+        "comparator": "max",
+        "level": "warning",
+        "metric": "cycle_span_strategy_exec_max_ms",
+        "note": "execution-pipeline decomposition signal",
+        "passed": true,
+        "threshold": 2000.0,
+        "value": 18.66163406521082
+      },
+      {
+        "check": "cycle_span_state_io_max",
+        "comparator": "max",
+        "level": "warning",
+        "metric": "cycle_span_state_io_max_ms",
+        "note": "execution-pipeline decomposition signal",
+        "passed": true,
+        "threshold": 1000.0,
+        "value": 2.6312898844480515
+      },
+      {
+        "check": "cycle_span_status_io_max",
+        "comparator": "max",
+        "level": "warning",
+        "metric": "cycle_span_status_io_max_ms",
+        "note": "execution-pipeline decomposition signal",
+        "passed": true,
+        "threshold": 1000.0,
+        "value": 0.0
+      },
+      {
+        "check": "cycle_span_residual_max",
+        "comparator": "max",
+        "level": "warning",
+        "metric": "cycle_span_residual_max_ms",
+        "note": "execution-pipeline decomposition signal",
+        "passed": true,
+        "threshold": 1000.0,
+        "value": 0.1976429484784603
+      }
+    ],
+    "error_codes": [],
+    "finding_count": 0,
+    "findings": [],
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "metrics": {
+      "cancel_capacity_breach_ratio": 0.0,
+      "cancel_capacity_breach_rows": 0,
+      "cancel_capacity_used_ratio_max": 0.05454545454545454,
+      "cycle_latency_max_ms": 506.90632266923785,
+      "cycle_latency_p95_ms": 277.6007237844169,
+      "cycle_span_market_data_max_ms": 495.8496391773224,
+      "cycle_span_residual_max_ms": 0.1976429484784603,
+      "cycle_span_state_io_max_ms": 2.6312898844480515,
+      "cycle_span_status_io_max_ms": 0.0,
+      "cycle_span_strategy_exec_max_ms": 18.66163406521082,
+      "latency_sampling_inactive_cycles_max": 0.0,
+      "order_capacity_breach_ratio": 0.0,
+      "order_capacity_breach_rows": 0,
+      "order_capacity_used_ratio_max": 0.5083333333333333,
+      "process_rss_mb_max": 80.19140625
+    },
+    "ok": true,
+    "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+    "status_row_count": 41,
+    "threshold_semantics": {
+      "advisory": [
+        "order_capacity_used_ratio_max",
+        "cancel_capacity_used_ratio_max"
+      ],
+      "hard_fail": [
+        "status_row_count",
+        "cycle_latency_p95_ms",
+        "cycle_latency_max_ms",
+        "process_rss_mb_max",
+        "order_capacity_breach_rows + order_capacity_breach_ratio",
+        "cancel_capacity_breach_rows + cancel_capacity_breach_ratio",
+        "latency_sampling_inactive_cycles_max"
+      ],
+      "warning": [
+        "cycle_span_market_data_max_ms",
+        "cycle_span_strategy_exec_max_ms",
+        "cycle_span_state_io_max_ms",
+        "cycle_span_status_io_max_ms",
+        "cycle_span_residual_max_ms"
+      ]
+    },
+    "thresholds": {
+      "max_cancel_capacity_breach_ratio": 0.1,
+      "max_cancel_capacity_breach_rows": 1,
+      "max_cancel_capacity_used_ratio": 0.98,
+      "max_cycle_latency_max_ms": 2000.0,
+      "max_cycle_latency_p95_ms": 800.0,
+      "max_cycle_residual_span_ms": 1000.0,
+      "max_latency_inactive_cycles": 60.0,
+      "max_market_data_span_ms": 2000.0,
+      "max_order_capacity_breach_ratio": 0.1,
+      "max_order_capacity_breach_rows": 1,
+      "max_order_capacity_used_ratio": 0.98,
+      "max_process_rss_mb": 1024.0,
+      "max_state_io_span_ms": 1000.0,
+      "max_status_io_span_ms": 1000.0,
+      "max_strategy_exec_span_ms": 2000.0,
+      "min_status_rows": 20
+    },
+    "warning_count": 0,
+    "warnings": []
+  },
+  "readiness": {
+    "blocking_stage": "pilot_live",
+    "highest_passing_stage": "paper",
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "metrics": {
+      "capture_minus_adverse": -220.22994999999983,
+      "context_hints": {
+        "candidate_log_dirs_for_run": [
+          "/home/odah/bro/base/logs_exec/paper_universal"
+        ]
+      },
+      "error_rows": 0.0,
+      "execution_starvation_mode": "none",
+      "kill_switch_events": 0.0,
+      "latest_operating_mode_state": 0.0,
+      "maker_market_reference_fallback_ask_count": 20.0,
+      "maker_market_reference_fallback_bid_count": 20.0,
+      "maker_only_transitions": 0.0,
+      "maker_reference_bounded_fallback_action_activity": 0.0,
+      "maker_reference_bounded_fallback_activity": 40.0,
+      "maker_reference_direct_midpoint_action_activity": 30.0,
+      "maker_reference_direct_midpoint_activity": 652.0,
+      "participation_ratio": 0.21951219512195122,
+      "participation_within_quote_window_ratio": 0.21951219512195122,
+      "protected_no_trade_explanation": "execution_not_suppression_dominated",
+      "quote_active_within_window_ratio": 0.2682926829268293,
+      "quote_uptime_ratio": 0.2682991987535721,
+      "quote_window_ratio": 1.0,
+      "readiness_report_max_lines_per_file": 50000.0,
+      "reject_ratio_order_rate_limit": 0.0,
+      "reject_ratio_stale_book": 0.0,
+      "runtime_active_targets_seen": 1.0,
+      "runtime_ambiguous_suppression_cause": 0.0,
+      "runtime_classification_name": "VALID_ACTIVE",
+      "runtime_contributing_suppression_causes": [],
+      "runtime_deadlock_rows": 0.0,
+      "runtime_findings": [],
+      "runtime_meaningful_participation": 1.0,
+      "runtime_no_target_standdown_ratio": 0.0,
+      "runtime_primary_suppression_cause": "none",
+      "runtime_promotion_eligible": 1.0,
+      "runtime_required_book_feed_disconnected_rows": 1.0,
+      "runtime_safety_rows": 0.0,
+      "safe_stop_transitions": 0.0,
+      "status_rows": 41.0,
+      "suppression_dominated_run": 0.0,
+      "total_rejects": 1176.0
+    },
+    "recommended_next_stage": "pilot_live",
+    "report": {
+      "ambiguous_suppression_cause": false,
+      "artifact_identity": {
+        "code_fingerprint_sha256": "dc095adb5a499c5c229979b45b9a1f5fd45d44490c475415a4d04ecf4fd0d5a5",
+        "config_fingerprint_sha256": "90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0",
+        "config_source_path": "/config/profiles/paper_universal.yaml",
+        "config_source_sha256": "2082f235ea10eb586c360af308fe0a9fd79c3f1d3fad0c86b82f8fd571fb8070",
+        "dependency_lock_sha256": "099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8",
+        "docker_image_hash": "sha256:04b40151c3296063b33cf500404c2bfc837e98cde04f7d0794d84fb7e4bdad60",
+        "git_commit": "a45de631c052145d8e1f5a12378891ce49b12aee",
+        "git_dirty": true,
+        "manifest_schema_version": 2,
+        "profile_name": "paper_universal",
+        "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd"
+      },
+      "contributing_suppression_causes": [],
+      "control_authority_clarity": {
+        "alert_transport_enabled": false,
+        "auto_stop_control_authority_enabled": true,
+        "control_authority_class": "risk_control_authority",
+        "control_authority_observation_status": "explicit",
+        "transport_disable_control_authority_unchanged": true,
+        "transport_disable_semantics": "transport_disabled_control_authority_unchanged",
+        "transport_layer_class": "notification_transport"
+      },
+      "duration_minutes": 20.490533333333335,
+      "edge_activation_quality_by_regime": {
+        "armed": {
+          "taker_fill_rate": 1.0,
+          "taker_fills": 59.0,
+          "taker_submits": 59.0
+        }
+      },
+      "edge_truth": {
+        "action_rows": 89.0,
+        "block_reason_distribution": {
+          "edge_below_min": 163,
+          "latency_not_armed": 40,
+          "maker_no_submission": 624,
+          "market_probability_missing": 104,
+          "stage_disallow_taker": 2996,
+          "taker_submit_rejected": 342,
+          "taker_token_cooldown": 42,
+          "token_lag_not_verified": 1973,
+          "token_lag_not_verified_for_maker": 146,
+          "token_score_below_taker_min": 43
+        },
+        "blocked_rows": 6473.0,
+        "maker_block_reason_distribution": {
+          "maker_no_submission": 624,
+          "token_lag_not_verified_for_maker": 146
+        },
+        "maker_blocked_rows": 770.0,
+        "maker_market_reference_fallback_ask_count": 20.0,
+        "maker_market_reference_fallback_bid_count": 20.0,
+        "maker_market_reference_fallback_count": 40.0,
+        "maker_market_reference_mode_distribution": {
+          "bounded_single_side_touch": 40,
+          "direct_midpoint": 652,
+          "missing": 108
+        },
+        "maker_no_submission_category_distribution": {
+          "no_desired_quote": 40,
+          "quote_quality_skip_fill_probability": 27,
+          "quote_quality_skip_queue_depth": 27,
+          "replace_guard_min_rest": 11,
+          "risk_reject": 212,
+          "sizing_reject": 307
+        },
+        "maker_no_submission_cause_distribution": {
+          "no_desired_quote": 40,
+          "replace_guard_min_rest": 11,
+          "submit_rejected_quote_quality_skip_fill_probability": 27,
+          "submit_rejected_quote_quality_skip_queue_depth": 27,
+          "submit_rejected_risk_reject": 212,
+          "submit_rejected_sizing_reject": 307
+        },
+        "maker_reference_bounded_fallback_action_activity": 0.0,
+        "maker_reference_bounded_fallback_activity": 40.0,
+        "maker_reference_direct_midpoint_action_activity": 30.0,
+        "maker_reference_direct_midpoint_activity": 652.0,
+        "maker_rows": 800.0,
+        "rows_total": 6562.0,
+        "taker_block_reason_distribution": {
+          "edge_below_min": 163,
+          "latency_not_armed": 40,
+          "market_probability_missing": 104,
+          "stage_disallow_taker": 2996,
+          "taker_submit_rejected": 342,
+          "taker_token_cooldown": 42,
+          "token_lag_not_verified": 1973,
+          "token_score_below_taker_min": 43
+        },
+        "taker_blocked_rows": 5703.0,
+        "taker_rows": 5762.0
+      },
+      "error_files": 1,
+      "error_rows": 0,
+      "errors_by_component": {},
+      "event_files": 1,
+      "execution_paths": {
+        "maker_fill_rate": 0.12903225806451613,
+        "maker_fills": 4.0,
+        "maker_fire_rate_per_min": 1.5128937590692286,
+        "maker_submits": 31.0,
+        "taker_bonus_fill_rate": 1.0,
+        "taker_bonus_fills": 59.0,
+        "taker_bonus_fire_rate_per_min": 2.8793784446801447,
+        "taker_bonus_submits": 59.0
+      },
+      "execution_quality": {
+        "adverse_selection": 220.22994999999983,
+        "capture_minus_adverse": -220.22994999999983,
+        "fills_scored": 63.0,
+        "realized_capture": 0.0
+      },
+      "execution_starvation_mode": "none",
+      "harness_realism_grade": 100,
+      "harness_realism_grade_breakdown": {
+        "maker_queue_proxy_depth_model": 20,
+        "taker_depth_slippage_model": 20,
+        "taker_lag_emulation_with_unknown_guard": 20,
+        "tod_liquidity_scaling": 20,
+        "truth_surface_completeness": 20
+      },
+      "kill_switch_events": 0.0,
+      "latency_distribution_ms": {
+        "max_ms": 1214.3802256323397,
+        "median_ms": 489.99292496591806,
+        "p90_ms": 918.4232889674604,
+        "p95_ms": 958.3576982840896,
+        "sample_count": 1180.0
+      },
+      "latest_operating_mode_state": 0.0,
+      "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+      "maker_market_reference_fallback_ask_count": 20.0,
+      "maker_market_reference_fallback_bid_count": 20.0,
+      "maker_market_reference_fallback_count": 40.0,
+      "maker_only_transitions": 0.0,
+      "maker_reference_bounded_fallback_action_activity": 0.0,
+      "maker_reference_bounded_fallback_activity": 40.0,
+      "maker_reference_direct_midpoint_action_activity": 30.0,
+      "maker_reference_direct_midpoint_activity": 652.0,
+      "maker_regression_sentinel": {
+        "maker_behavior_freeze_state": "provisional_freeze_no_runtime_change",
+        "maker_fill_rate": 0.12903225806451613,
+        "maker_fills": 4.0,
+        "maker_fire_rate_per_min": 1.5128937590692286,
+        "maker_submits": 31.0,
+        "observational_only": true,
+        "regression_reasons": [],
+        "thresholds": {
+          "low_fill_rate_requires_submits": 5.0,
+          "low_fill_rate_threshold": 0.05,
+          "near_zero_fill_count_threshold": 1.0,
+          "near_zero_submit_count_threshold": 5.122633333333334,
+          "near_zero_submit_rate_threshold_per_min": 0.25
+        },
+        "triggered": false,
+        "watch_item_distribution": {
+          "quote_quality_skip_fill_probability": 27,
+          "quote_quality_skip_queue_depth": 27,
+          "replace_guard_min_rest": 11
+        },
+        "watch_item_primary": "quote_quality_skip_and_replace_guard_distribution"
+      },
+      "market_data_source": {
+        "book_updates_rest_delta": 1510.0,
+        "book_updates_rest_ratio": 0.2603448275862069,
+        "book_updates_total_delta": 5876.0,
+        "book_updates_ws_delta": 4290.0,
+        "status_rows_with_rest_updates": 40.0,
+        "status_rows_with_ws_updates": 39.0
+      },
+      "mode_transitions": [],
+      "pickoff_indicator": {
+        "adverse_after_fill_count": 59.0,
+        "adverse_after_fill_ratio": 0.9365079365079365,
+        "adverse_threshold": 0.003,
+        "fills_scored": 63.0,
+        "horizon_sec": 3.0
+      },
+      "primary_suppression_cause": "none",
+      "protected_no_trade_explanation": "execution_not_suppression_dominated",
+      "protection_path_trigger_chain": {
+        "final_execution_starvation_mode": "none",
+        "final_protected_no_trade_explanation": "execution_not_suppression_dominated",
+        "first_alert_policy_auto_stop": {},
+        "first_blocked_edge_signal": {
+          "block_reason": "latency_not_armed",
+          "event_type": "edge_evaluation",
+          "ts_utc": "2026-04-03T05:08:07.794Z"
+        },
+        "first_kill_switch_cancel_all": {},
+        "first_latency_regime_change": {
+          "event_type": "latency_regime_change",
+          "previous_state": "disarmed",
+          "reason": "probation_thresholds_met",
+          "reasons": [],
+          "state": "probation",
+          "ts_utc": "2026-04-03T05:08:16.667Z"
+        },
+        "first_operating_mode_transition": {},
+        "runtime_ambiguous_suppression_cause": false,
+        "runtime_contributing_suppression_causes": [],
+        "runtime_primary_suppression_cause": "none",
+        "suppression_dominated_run": false,
+        "trigger_chain_interpretation": "observational_timeline_only"
+      },
+      "quote_diagnostics": {
+        "participation_ratio": 0.21951219512195122,
+        "participation_rows": 9.0,
+        "participation_within_window_ratio": 0.21951219512195122,
+        "quote_active_ratio": 0.2682926829268293,
+        "quote_active_rows": 11.0,
+        "quote_active_within_window_ratio": 0.2682926829268293,
+        "quote_window_ratio": 1.0,
+        "quote_window_rows": 41.0,
+        "status_rows_total": 41.0
+      },
+      "quote_uptime_ratio": 0.2682991987535721,
+      "reject_reason_distribution": {
+        "notional_cap": 267,
+        "position_cap": 295,
+        "size_notional_bounds": 614
+      },
+      "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+      "run_id_filter": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+      "run_id_resolution": "explicit",
+      "runtime_classification": {
+        "ambiguous_suppression_cause": false,
+        "classification": "VALID_ACTIVE",
+        "contributing_suppression_causes": [],
+        "metrics": {
+          "active_target_guard_or_kill_rows": 0.0,
+          "active_target_required_feed_disconnected_rows": 0.0,
+          "active_target_rows": 41.0,
+          "active_targets_seen": 1.0,
+          "deadlock_rows": 0.0,
+          "decision_events": 1388.0,
+          "duration_minutes": 20.3008,
+          "max_cycles_counter": 1470.0,
+          "meaningful_participation": 1.0,
+          "order_submission_attempt_rows": 8.0,
+          "participation_rows": 8.0,
+          "required_book_feed_disconnected_active_target_rows": 1.0,
+          "required_book_feed_disconnected_rows": 1.0,
+          "required_book_feed_disconnected_unknown_age_max_streak": 1.0,
+          "required_book_feed_disconnected_unknown_age_rows": 1.0,
+          "required_book_feed_rows": 41.0,
+          "safety_rows": 0.0,
+          "standdown_book_feed_required_violation_rows": 0.0,
+          "standdown_order_submission_violation_rows": 0.0,
+          "standdown_rows": 0.0,
+          "status_rows": 41.0
+        },
+        "primary_suppression_cause": "none",
+        "promotion_eligible": true,
+        "reasons": [
+          "active_targets_with_participation"
+        ],
+        "suppression_cause_candidates": [],
+        "suppression_cause_precedence": []
+      },
+      "safe_stop_transitions": 0.0,
+      "schema_version": 2,
+      "session_phase": "validate_postrun",
+      "sniper": {
+        "fill_rate": 1.0,
+        "fills": 59.0,
+        "fire_rate_per_min": 2.8793784446801447,
+        "midpoint_win_rate_proxy": 0.0,
+        "submits": 59.0
+      },
+      "stale_data": {
+        "disarmed_edge_blocks": 2159.0,
+        "stale_book_rejects": 0.0,
+        "stale_oracle_edge_blocks": 0.0
+      },
+      "status_files": 1,
+      "status_rows": 41,
+      "suppression_dominated_run": false,
+      "taker_stage_net_breakout": {
+        "UNKNOWN": {
+          "adverse_selection": 157.4723199999999,
+          "capture": 0.0,
+          "fills_scored": 59.0,
+          "net": -157.4723199999999
+        }
+      },
+      "ts_utc": "2026-04-03T05:29:45.220407Z"
+    },
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+    "run_id_filter": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+    "run_id_resolution": "explicit",
+    "runtime_findings": [],
+    "session_phase": "validate_postrun",
+    "stage_results": [
+      {
+        "checks": [
+          {
+            "criterion": "min_status_rows",
+            "metric": "status_rows",
+            "passed": true,
+            "rule": "min",
+            "threshold": 20.0,
+            "value": 41.0
+          },
+          {
+            "criterion": "min_quote_uptime_ratio",
+            "metric": "quote_uptime_ratio",
+            "passed": true,
+            "rule": "min",
+            "threshold": 0.05,
+            "value": 0.2682991987535721
+          },
+          {
+            "criterion": "max_error_rows",
+            "metric": "error_rows",
+            "passed": true,
+            "rule": "max",
+            "threshold": 200.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_order_rate_limit",
+            "metric": "reject_ratio_order_rate_limit",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.8,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_safe_stop_transitions",
+            "metric": "safe_stop_transitions",
+            "passed": true,
+            "rule": "max",
+            "threshold": 5.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_kill_switch_events",
+            "metric": "kill_switch_events",
+            "passed": true,
+            "rule": "max",
+            "threshold": 1.0,
+            "value": 0.0
+          }
+        ],
+        "passed": true,
+        "stage": "paper"
+      },
+      {
+        "checks": [
+          {
+            "criterion": "min_status_rows",
+            "metric": "status_rows",
+            "passed": false,
+            "rule": "min",
+            "threshold": 120.0,
+            "value": 41.0
+          },
+          {
+            "criterion": "min_quote_uptime_ratio",
+            "metric": "quote_uptime_ratio",
+            "passed": false,
+            "rule": "min",
+            "threshold": 0.6,
+            "value": 0.2682991987535721
+          },
+          {
+            "criterion": "max_error_rows",
+            "metric": "error_rows",
+            "passed": true,
+            "rule": "max",
+            "threshold": 80.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_order_rate_limit",
+            "metric": "reject_ratio_order_rate_limit",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.55,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_stale_book",
+            "metric": "reject_ratio_stale_book",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.25,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_safe_stop_transitions",
+            "metric": "safe_stop_transitions",
+            "passed": true,
+            "rule": "max",
+            "threshold": 1.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_kill_switch_events",
+            "metric": "kill_switch_events",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "min_capture_minus_adverse",
+            "metric": "capture_minus_adverse",
+            "passed": false,
+            "rule": "min",
+            "threshold": -10.0,
+            "value": -220.22994999999983
+          },
+          {
+            "criterion": "max_latest_operating_mode_state",
+            "metric": "latest_operating_mode_state",
+            "passed": true,
+            "rule": "max",
+            "threshold": 2.0,
+            "value": 0.0
+          }
+        ],
+        "passed": false,
+        "stage": "pilot_live"
+      },
+      {
+        "checks": [
+          {
+            "criterion": "min_status_rows",
+            "metric": "status_rows",
+            "passed": false,
+            "rule": "min",
+            "threshold": 300.0,
+            "value": 41.0
+          },
+          {
+            "criterion": "min_quote_uptime_ratio",
+            "metric": "quote_uptime_ratio",
+            "passed": false,
+            "rule": "min",
+            "threshold": 0.7,
+            "value": 0.2682991987535721
+          },
+          {
+            "criterion": "max_error_rows",
+            "metric": "error_rows",
+            "passed": true,
+            "rule": "max",
+            "threshold": 40.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_order_rate_limit",
+            "metric": "reject_ratio_order_rate_limit",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.4,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_stale_book",
+            "metric": "reject_ratio_stale_book",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.2,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_safe_stop_transitions",
+            "metric": "safe_stop_transitions",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_kill_switch_events",
+            "metric": "kill_switch_events",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "min_capture_minus_adverse",
+            "metric": "capture_minus_adverse",
+            "passed": false,
+            "rule": "min",
+            "threshold": -2.5,
+            "value": -220.22994999999983
+          },
+          {
+            "criterion": "max_latest_operating_mode_state",
+            "metric": "latest_operating_mode_state",
+            "passed": true,
+            "rule": "max",
+            "threshold": 1.0,
+            "value": 0.0
+          }
+        ],
+        "passed": false,
+        "stage": "scaled_live"
+      },
+      {
+        "checks": [
+          {
+            "criterion": "min_status_rows",
+            "metric": "status_rows",
+            "passed": false,
+            "rule": "min",
+            "threshold": 600.0,
+            "value": 41.0
+          },
+          {
+            "criterion": "min_quote_uptime_ratio",
+            "metric": "quote_uptime_ratio",
+            "passed": false,
+            "rule": "min",
+            "threshold": 0.8,
+            "value": 0.2682991987535721
+          },
+          {
+            "criterion": "max_error_rows",
+            "metric": "error_rows",
+            "passed": true,
+            "rule": "max",
+            "threshold": 20.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_order_rate_limit",
+            "metric": "reject_ratio_order_rate_limit",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.25,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_reject_ratio_stale_book",
+            "metric": "reject_ratio_stale_book",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.12,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_safe_stop_transitions",
+            "metric": "safe_stop_transitions",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "max_kill_switch_events",
+            "metric": "kill_switch_events",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          },
+          {
+            "criterion": "min_capture_minus_adverse",
+            "metric": "capture_minus_adverse",
+            "passed": false,
+            "rule": "min",
+            "threshold": 0.0,
+            "value": -220.22994999999983
+          },
+          {
+            "criterion": "max_latest_operating_mode_state",
+            "metric": "latest_operating_mode_state",
+            "passed": true,
+            "rule": "max",
+            "threshold": 0.0,
+            "value": 0.0
+          }
+        ],
+        "passed": false,
+        "stage": "aggressive_live"
+      }
+    ],
+    "suppression_summary": {
+      "ambiguous_suppression_cause": false,
+      "contributing_suppression_causes": [],
+      "execution_starvation_mode": "none",
+      "primary_suppression_cause": "none",
+      "protected_no_trade_explanation": "execution_not_suppression_dominated",
+      "suppression_dominated_run": false
+    }
+  },
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+  "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+  "session_phase": "validate_postrun",
+  "soak_report": {
+    "book_updates_rest_delta": 1510.0,
+    "book_updates_rest_ratio": 0.2603448275862069,
+    "book_updates_total_delta": 5876.0,
+    "book_updates_ws_delta": 4290.0,
+    "comparison_tolerance": {
+      "max_default": 0.0,
+      "metric_overrides": {
+        "quote_uptime_ratio": {
+          "min_eps": 0.0005
+        }
+      },
+      "min_default": 0.0
+    },
+    "control_authority_clarity": {
+      "alert_transport_enabled": false,
+      "auto_stop_control_authority_enabled": true,
+      "control_authority_class": "risk_control_authority",
+      "control_authority_observation_status": "explicit",
+      "transport_disable_control_authority_unchanged": true,
+      "transport_disable_semantics": "transport_disabled_control_authority_unchanged",
+      "transport_layer_class": "notification_transport"
+    },
+    "duration_minutes": 20.490533333333335,
+    "error_rows": 0.0,
+    "execution_starvation_mode": "none",
+    "maker_fill_rate": 0.12903225806451613,
+    "maker_submit_enforcement": {
+      "applied": true,
+      "maker_actionable_opportunity_rows": 30.0,
+      "maker_block_reason_distribution": {
+        "maker_no_submission": 624,
+        "token_lag_not_verified_for_maker": 146
+      },
+      "maker_non_actionable_block_rows": 770.0,
+      "maker_rows_total": 800.0,
+      "min_opportunity_rows": 1.0,
+      "mode": "absolute",
+      "non_actionable_block_reasons": [
+        "maker_no_submission",
+        "token_lag_not_verified_for_maker",
+        "latency_not_armed",
+        "fair_probability_unavailable",
+        "oracle_unavailable_or_stale",
+        "token_score_below_maker_min",
+        "missing_expiry_metadata",
+        "missing_threshold_metadata",
+        "missing_side_metadata"
+      ],
+      "opportunity_surface_missing": [],
+      "opportunity_surface_ok": true,
+      "opportunity_surface_source": "edge_truth.maker_block_reason_distribution",
+      "reason": "absolute_mode"
+    },
+    "maker_submits": 31.0,
+    "protected_no_trade_explanation": "execution_not_suppression_dominated",
+    "protection_path_trigger_chain": {
+      "final_execution_starvation_mode": "none",
+      "final_protected_no_trade_explanation": "execution_not_suppression_dominated",
+      "first_alert_policy_auto_stop": {},
+      "first_blocked_edge_signal": {
+        "block_reason": "latency_not_armed",
+        "event_type": "edge_evaluation",
+        "ts_utc": "2026-04-03T05:08:07.794Z"
+      },
+      "first_kill_switch_cancel_all": {},
+      "first_latency_regime_change": {
+        "event_type": "latency_regime_change",
+        "previous_state": "disarmed",
+        "reason": "probation_thresholds_met",
+        "reasons": [],
+        "state": "probation",
+        "ts_utc": "2026-04-03T05:08:16.667Z"
+      },
+      "first_operating_mode_transition": {},
+      "runtime_ambiguous_suppression_cause": false,
+      "runtime_contributing_suppression_causes": [],
+      "runtime_primary_suppression_cause": "none",
+      "suppression_dominated_run": false,
+      "trigger_chain_interpretation": "observational_timeline_only"
+    },
+    "quote_uptime_ratio": 0.2682991987535721,
+    "readiness_required_stage_failure_causes": [],
+    "report_max_lines_per_file": 50000,
+    "runtime_ambiguous_suppression_cause": false,
+    "runtime_classification": "VALID_ACTIVE",
+    "runtime_contributing_suppression_causes": [],
+    "runtime_primary_suppression_cause": "none",
+    "runtime_promotion_eligible": true,
+    "suppression_dominated_run": false,
+    "taker_bonus_fill_rate": 1.0,
+    "taker_bonus_fills": 59.0,
+    "taker_bonus_submits": 59.0
+  },
+  "threshold_semantics": {
+    "advisory": [
+      "lane splitting via gate_mode"
+    ],
+    "hard_fail": [
+      "run_integrity_audit findings",
+      "performance_budget_gate findings",
+      "websocket_reliability_gate findings",
+      "readiness required stage",
+      "soak duration/uptime/error rows",
+      "active-target meaningful participation when targets are present",
+      "market-data source realism ratios",
+      "maker/taker bonus execution-path minimums"
+    ],
+    "warning": []
+  },
+  "websocket": {
+    "artifact_identity": {
+      "code_fingerprint_sha256": "dc095adb5a499c5c229979b45b9a1f5fd45d44490c475415a4d04ecf4fd0d5a5",
+      "config_fingerprint_sha256": "90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0",
+      "config_source_path": "/config/profiles/paper_universal.yaml",
+      "config_source_sha256": "2082f235ea10eb586c360af308fe0a9fd79c3f1d3fad0c86b82f8fd571fb8070",
+      "dependency_lock_sha256": "099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8",
+      "docker_image_hash": "sha256:04b40151c3296063b33cf500404c2bfc837e98cde04f7d0794d84fb7e4bdad60",
+      "git_commit": "a45de631c052145d8e1f5a12378891ce49b12aee",
+      "git_dirty": true,
+      "manifest_schema_version": 2,
+      "profile_name": "paper_universal",
+      "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd"
+    },
+    "context_hints": {
+      "candidate_log_dirs_for_run": []
+    },
+    "error_codes": [],
+    "finding_count": 0,
+    "findings": [],
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "metrics": {
+      "book_feed_down_ratio": 0.024390243902439025,
+      "book_feed_last_msg_age_max_sec": 2.4372303569689393,
+      "book_feed_last_msg_age_missing_or_invalid_rows": 0,
+      "book_feed_last_msg_age_p95_sec": 0.6970427720807493,
+      "book_feed_last_msg_age_spike_ratio": 0.0,
+      "book_feed_last_msg_age_spike_rows": 0,
+      "book_feed_missing_rows": 0,
+      "book_feed_reconnects_missing_or_invalid_rows": 0,
+      "book_feed_reconnects_per_hour": 0.0,
+      "chainlink_down_ratio": 0.024390243902439025,
+      "chainlink_dropped_ticks_max": 0.0,
+      "chainlink_dropped_ticks_missing_or_invalid_rows": 0,
+      "chainlink_last_tick_age_max_sec": 0.9991349950432777,
+      "chainlink_last_tick_age_missing_or_invalid_rows": 0,
+      "chainlink_last_tick_age_p95_sec": 0.9662270848639309,
+      "chainlink_last_tick_age_spike_ratio": 0.0,
+      "chainlink_last_tick_age_spike_rows": 0,
+      "chainlink_missing_rows": 0,
+      "chainlink_queue_size_max": 1.0,
+      "chainlink_queue_size_missing_or_invalid_rows": 0,
+      "chainlink_reconnects_missing_or_invalid_rows": 0,
+      "chainlink_reconnects_per_hour": 0.0,
+      "duration_sec": 1218.048
+    },
+    "ok": true,
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_4dee0545-3a42-4cde-9b2d-30e16e0764fd.json",
+    "run_id": "4dee0545-3a42-4cde-9b2d-30e16e0764fd",
+    "run_id_resolution": "explicit",
+    "session_phase": "validate_postrun",
+    "status_row_count": 41,
+    "thresholds": {
+      "max_book_feed_down_ratio": 0.2,
+      "max_book_feed_last_msg_age_p95_sec": 8.0,
+      "max_book_feed_last_msg_age_sec": 12.0,
+      "max_book_feed_last_msg_age_spike_ratio": 0.05,
+      "max_book_feed_last_msg_age_spike_rows": 1,
+      "max_book_feed_reconnects_per_hour": 40.0,
+      "max_chainlink_down_ratio": 0.2,
+      "max_chainlink_dropped_ticks": 0.0,
+      "max_chainlink_last_tick_age_p95_sec": 12.0,
+      "max_chainlink_last_tick_age_sec": 30.0,
+      "max_chainlink_last_tick_age_spike_ratio": 0.0,
+      "max_chainlink_last_tick_age_spike_rows": 0,
+      "max_chainlink_queue_size": 10000.0,
+      "max_chainlink_reconnects_per_hour": 40.0,
+      "max_lines_per_file": 50000,
+      "min_status_rows": 20
+    },
+    "warning_count": 0,
+    "warnings": []
+  }
+}
