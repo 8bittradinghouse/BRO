@@ -733,20 +733,55 @@ class SessionRunner:
             cmd.append("--build")
         else:
             cmd.append("--no-build")
-        proc = self._run_cmd(
-            cmd,
-            env={
-                "BRO_CONFIG_PATH": str(self.ctx.config_path),
-                "BRO_LOG_DIR": str((ROOT_DIR / "logs_exec").resolve()),
-                "BRO_DATA_DIR": str((ROOT_DIR / "data").resolve()),
-                "BRO_INTERNAL_SESSION_CALL": "1",
-                "BRO_CANONICAL_SESSION_TOKEN": str(self.ctx.session_token),
-                "BRO_CANONICAL_SESSION_CONTEXT_FILE_HOST": str(self.ctx.guardian_context_path),
-                "BRO_CANONICAL_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
-                "BRO_GUARDIAN_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
-                "BRO_RUN_ID": self.ctx.run_id,
-            },
+        deploy_env = {
+            "BRO_CONFIG_PATH": str(self.ctx.config_path),
+            "BRO_LOG_DIR": str((ROOT_DIR / "logs_exec").resolve()),
+            "BRO_DATA_DIR": str((ROOT_DIR / "data").resolve()),
+            "BRO_INTERNAL_SESSION_CALL": "1",
+            "BRO_CANONICAL_SESSION_TOKEN": str(self.ctx.session_token),
+            "BRO_CANONICAL_SESSION_CONTEXT_FILE_HOST": str(self.ctx.guardian_context_path),
+            "BRO_CANONICAL_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
+            "BRO_GUARDIAN_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
+            "BRO_RUN_ID": self.ctx.run_id,
+        }
+        (self.ctx.report_root / "start_command.json").write_text(
+            json.dumps(
+                {
+                    "cmd": list(cmd),
+                    "cwd": str(ROOT_DIR),
+                    "env_keys": sorted(deploy_env.keys()),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
         )
+        try:
+            proc = self._run_cmd(
+                cmd,
+                env=deploy_env,
+            )
+        except subprocess.CalledProcessError as exc:
+            (self.ctx.report_root / "start_stdout.log").write_text(str(exc.stdout or ""), encoding="utf-8")
+            (self.ctx.report_root / "start_stderr.log").write_text(str(exc.stderr or ""), encoding="utf-8")
+            (self.ctx.report_root / "start_command_failure.json").write_text(
+                json.dumps(
+                    {
+                        "cmd": [str(part) for part in getattr(exc, "cmd", cmd)],
+                        "cwd": str(ROOT_DIR),
+                        "returncode": int(getattr(exc, "returncode", 1)),
+                        "run_id": self.ctx.run_id,
+                        "session_id": self.ctx.session_id,
+                        "ts_utc": utc_iso(),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            raise
         (self.ctx.report_root / "start_stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
         (self.ctx.report_root / "start_stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
 

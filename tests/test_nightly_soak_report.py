@@ -322,6 +322,73 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(report.get("maker_reference_direct_midpoint_activity"), 0.0)
             self.assertEqual(report.get("maker_reference_bounded_fallback_activity"), 1.0)
 
+    def test_build_report_emits_maker_competitiveness_metrics(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "maker_competitiveness_decision",
+                    "run_id": "rid-competitiveness",
+                    "token_id": "t1",
+                    "timing_gate_blocked": True,
+                    "one_sided_active": True,
+                    "side_policy": "BUY_ONLY",
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-competitiveness",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "maker_timing_gate_closed",
+                },
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-competitiveness",
+                    "order_id": "m1",
+                    "reason": "mm_quote:high_vol",
+                    "maker_competitiveness": {
+                        "edge_bucket": "0p10_0p20",
+                        "one_sided_active": True,
+                        "side_policy": "BUY_ONLY",
+                        "size_multiplier_competitiveness": 1.2,
+                        "spread_multiplier_competitiveness": 0.8,
+                        "requote_delta_multiplier_competitiveness": 0.7,
+                    },
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": "rid-competitiveness",
+                    "order_id": "m1",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.5,
+                    "size": 1,
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-competitiveness", "gauge.open_orders": 1}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-competitiveness")
+            maker_comp = report.get("maker_competitiveness", {})
+            self.assertEqual(float(maker_comp.get("timing_gate_blocked_count_edge_eval") or 0.0), 1.0)
+            self.assertEqual(float(maker_comp.get("timing_gate_blocked_count_decision") or 0.0), 1.0)
+            self.assertEqual(float(maker_comp.get("one_sided_activation_submit_buy_count") or 0.0), 1.0)
+            submit_buckets = maker_comp.get("maker_submit_edge_bucket_distribution", {})
+            fill_buckets = maker_comp.get("maker_fill_edge_bucket_distribution", {})
+            self.assertEqual(int(submit_buckets.get("0p10_0p20", 0)), 1)
+            self.assertEqual(int(fill_buckets.get("0p10_0p20", 0)), 1)
+            aggressiveness = maker_comp.get("aggressiveness_application_counts", {})
+            self.assertEqual(int(aggressiveness.get("size_scaled", 0)), 1)
+            self.assertEqual(int(aggressiveness.get("spread_tightened", 0)), 1)
+            self.assertEqual(int(aggressiveness.get("requote_tightened", 0)), 1)
+
     def test_build_report_emits_maker_regression_sentinel_triggered_for_near_zero_pattern(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

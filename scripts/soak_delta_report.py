@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 from typing import Any, Dict, List, Tuple
 
@@ -55,6 +56,26 @@ def _extract(bundle_dir: pathlib.Path) -> Dict[str, float]:
     }
 
 
+def _stage_metric_key(stage_name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(stage_name or "").strip().lower()).strip("_")
+    if not normalized:
+        normalized = "unknown"
+    return f"taker_stage_net_{normalized}"
+
+
+def _extract_taker_stage_net_breakout(bundle_dir: pathlib.Path) -> Dict[str, float]:
+    nightly = _load(bundle_dir / "nightly.json")
+    raw = nightly.get("taker_stage_net_breakout", {})
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, float] = {}
+    for stage_name, row in raw.items():
+        if not isinstance(row, dict):
+            continue
+        out[str(stage_name).strip().upper() or "UNKNOWN"] = _safe_float(row.get("net"))
+    return out
+
+
 def run_report(
     *,
     baseline_dir: pathlib.Path,
@@ -72,8 +93,23 @@ def run_report(
 ) -> Dict[str, Any]:
     base = _extract(baseline_dir.resolve())
     cand = _extract(candidate_dir.resolve())
+    base_stage_net = _extract_taker_stage_net_breakout(baseline_dir.resolve())
+    cand_stage_net = _extract_taker_stage_net_breakout(candidate_dir.resolve())
+    all_stage_names = sorted(set(base_stage_net.keys()) | set(cand_stage_net.keys()))
+    for stage_name in all_stage_names:
+        metric_key = _stage_metric_key(stage_name)
+        base[metric_key] = float(base_stage_net.get(stage_name, 0.0))
+        cand[metric_key] = float(cand_stage_net.get(stage_name, 0.0))
     findings: List[str] = []
     deltas: Dict[str, float] = {k: cand[k] - base[k] for k in base.keys()}
+    taker_stage_net_breakout: Dict[str, Dict[str, float]] = {}
+    for stage_name in all_stage_names:
+        metric_key = _stage_metric_key(stage_name)
+        taker_stage_net_breakout[stage_name] = {
+            "baseline_net": float(base.get(metric_key, 0.0)),
+            "candidate_net": float(cand.get(metric_key, 0.0)),
+            "delta_net": float(deltas.get(metric_key, 0.0)),
+        }
 
     if deltas["quote_uptime_ratio"] < float(min_uptime_delta):
         findings.append(
@@ -125,6 +161,7 @@ def run_report(
         "baseline": base,
         "candidate": cand,
         "deltas": deltas,
+        "taker_stage_net_breakout": taker_stage_net_breakout,
         "thresholds": {
             "min_uptime_delta": float(min_uptime_delta),
             "max_error_rows_delta": float(max_error_rows_delta),

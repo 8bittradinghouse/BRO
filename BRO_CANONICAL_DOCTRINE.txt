@@ -428,6 +428,32 @@ Maker order logic must include explicit rules for:
 - stale-order invalidation
 - lock release on cancel / expire
 
+7.2.1 Maker Competitiveness Gate (Deterministic, Bounded)
+
+Maker competitiveness overlays are additive and must not bypass risk/control gates.
+
+Required semantics:
+
+- timing gate may be enabled to allow maker submission only inside a configured expiry window
+- when timing gate is enabled, missing or non-numeric expiry is fail-closed
+- timing-gate block reason must be explicit (`maker_timing_gate_closed`)
+- edge-strength scaling must be bounded and deterministic:
+  - size can scale up only within configured max multiplier
+  - spread can tighten only within configured min multiplier
+  - requote delta can tighten only within configured min multiplier
+- one-sided maker mode may be enabled only:
+  - above configured absolute edge threshold
+  - in explicitly allowed stages
+  - with explicit side-policy emission (`BUY_ONLY` / `SELL_ONLY`)
+- one-sided suppression of disallowed side must be explicit (`one_sided_mode_disallow_side`)
+
+Truth and audit surfaces must include:
+
+- timing gate state and bounds
+- edge magnitude and normalized strength
+- applied size/spread/requote multipliers
+- one-sided mode state and selected side
+
 7.3 Workflow: Taker Workflow
 
 Taker workflow is used when doctrine authorizes immediate execution, especially in later stages.

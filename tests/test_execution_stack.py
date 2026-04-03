@@ -149,6 +149,21 @@ class ExecutionStackTests(unittest.TestCase):
         cfg["_meta"] = {"effective_config_sha256": "a" * 64}
         validate_execution_config(cfg)
 
+    def test_config_rejects_invalid_maker_competitiveness_timing_window(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["strategy"]["maker_competitiveness"]["timing_gate_min_sec_to_expiry"] = 61.0
+        cfg["strategy"]["maker_competitiveness"]["timing_gate_max_sec_to_expiry"] = 60.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_invalid_maker_competitiveness_one_sided_stage(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = ["SNIPER_PRIMARY"]
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_strategy_emits_two_sided_quotes(self):
         strategy = MarketMakingStrategy(DEFAULT_EXECUTION_CONFIG["strategy"])
         top = BookTop(
@@ -268,6 +283,71 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertGreaterEqual(second["fills"], 1)
             self.assertGreater(positions["t1"].buy_shares + positions["t1"].sell_shares, 0.0)
 
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_manager_one_sided_policy_and_competitiveness_context(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            manager.step(
+                {"t1": top},
+                side_policy_by_token={"t1": "BUY_ONLY"},
+                competitiveness_context_by_token={
+                    "t1": {
+                        "side_policy": "BUY_ONLY",
+                        "one_sided_active": True,
+                        "edge_bucket": "0p10_0p20",
+                        "size_multiplier_competitiveness": 1.2,
+                        "spread_multiplier_competitiveness": 0.85,
+                        "requote_delta_multiplier_competitiveness": 0.7,
+                    }
+                },
+            )
+
+            open_orders = gateway.get_open_orders()
+            self.assertEqual(len(open_orders), 1)
+            self.assertEqual(str(open_orders[0].side), "BUY")
+
+            events.close()
+            events = None
+            order_submit_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "order_submit":
+                        order_submit_rows.append(payload)
+            self.assertTrue(order_submit_rows)
+            competitiveness_payload = order_submit_rows[-1].get("maker_competitiveness")
+            self.assertIsInstance(competitiveness_payload, dict)
+            self.assertEqual(str(competitiveness_payload.get("side_policy") or ""), "BUY_ONLY")
+            self.assertEqual(bool(competitiveness_payload.get("one_sided_active")), True)
         finally:
             if events is not None:
                 events.close()

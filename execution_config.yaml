@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "b5291c3f9e726f9849d846a43fec4228cc88f9b364270787d1de6e11142b0547"
+  paper_expected_config_fingerprint_sha256: "2f1c67d28430aa18acb3cf48605ff057ba1e369c033e5e2407d3420d096a7e98"
 
 storage:
   log_dir: "./logs_exec"
@@ -212,6 +212,20 @@ strategy:
     high_vol_spread_mult: 0.8
     low_vol_size_mult: 0.85
     high_vol_size_mult: 1.25
+  maker_competitiveness:
+    timing_gate_enabled: false
+    timing_gate_min_sec_to_expiry: 45.0
+    timing_gate_max_sec_to_expiry: 60.0
+    edge_scale_enabled: false
+    edge_scale_start_abs: 0.05
+    edge_scale_full_abs: 0.20
+    size_mult_max: 1.35
+    spread_mult_min: 0.75
+    requote_delta_mult_min: 0.50
+    one_sided_enabled: false
+    one_sided_edge_threshold_abs: 0.18
+    one_sided_allowed_stages:
+      - MAKER_TAKER_SELECTIVE
 
 sizing:
   # Keep this in notional mode for live dollar-denominated risk control.

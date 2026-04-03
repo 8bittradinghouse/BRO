@@ -348,6 +348,38 @@ class ExecutionRunner:
         self._cached_reconcile_mismatch_ratio = 0.0
         self.sniper_taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
         self.sniper_taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
+        maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
+        if not isinstance(maker_comp_cfg, dict):
+            maker_comp_cfg = {}
+        self.maker_comp_timing_gate_enabled = bool(maker_comp_cfg.get("timing_gate_enabled", False))
+        self.maker_comp_timing_gate_min_sec_to_expiry = float(
+            maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 45.0)
+        )
+        self.maker_comp_timing_gate_max_sec_to_expiry = float(
+            maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 60.0)
+        )
+        self.maker_comp_edge_scale_enabled = bool(maker_comp_cfg.get("edge_scale_enabled", False))
+        self.maker_comp_edge_scale_start_abs = float(maker_comp_cfg.get("edge_scale_start_abs", 0.05))
+        self.maker_comp_edge_scale_full_abs = float(maker_comp_cfg.get("edge_scale_full_abs", 0.20))
+        self.maker_comp_size_mult_max = float(maker_comp_cfg.get("size_mult_max", 1.35))
+        self.maker_comp_spread_mult_min = float(maker_comp_cfg.get("spread_mult_min", 0.75))
+        self.maker_comp_requote_delta_mult_min = float(maker_comp_cfg.get("requote_delta_mult_min", 0.50))
+        self.maker_comp_one_sided_enabled = bool(maker_comp_cfg.get("one_sided_enabled", False))
+        self.maker_comp_one_sided_edge_threshold_abs = float(
+            maker_comp_cfg.get("one_sided_edge_threshold_abs", 0.18)
+        )
+        raw_one_sided_allowed_stages = maker_comp_cfg.get("one_sided_allowed_stages", [])
+        if not isinstance(raw_one_sided_allowed_stages, list):
+            raw_one_sided_allowed_stages = []
+        self.maker_comp_one_sided_allowed_stages = {
+            str(stage or "").strip().upper()
+            for stage in raw_one_sided_allowed_stages
+            if str(stage or "").strip()
+        }
+        self.maker_comp_base_requote_delta = max(
+            1e-9,
+            float(self.cfg.get("runtime", {}).get("replace_threshold", 0.005)),
+        )
         chainlink_symbols = [str(x).lower().strip() for x in self.cfg.get("chainlink", {}).get("symbols", []) if str(x).strip()]
         self.chainlink_symbol_for_targets = str(
             self.cfg.get("chainlink", {}).get("symbol_for_targets", chainlink_symbols[0] if chainlink_symbols else "")
@@ -1155,6 +1187,120 @@ class ExecutionRunner:
                 1.0, float(self.sniper_taker_extreme_edge_mult)
             )
         return required_min_edge
+
+    def _maker_timing_gate_open(self, sec_to_expiry: Optional[float]) -> bool:
+        if not self.maker_comp_timing_gate_enabled:
+            return True
+        if not isinstance(sec_to_expiry, (int, float)):
+            return False
+        sec = float(sec_to_expiry)
+        return self.maker_comp_timing_gate_min_sec_to_expiry <= sec <= self.maker_comp_timing_gate_max_sec_to_expiry
+
+    def _maker_edge_strength(self, edge_abs: Optional[float]) -> float:
+        if (not self.maker_comp_edge_scale_enabled) or (not isinstance(edge_abs, (int, float))):
+            return 0.0
+        start = float(self.maker_comp_edge_scale_start_abs)
+        full = float(self.maker_comp_edge_scale_full_abs)
+        edge = max(0.0, float(edge_abs))
+        if edge <= start:
+            return 0.0
+        if edge >= full:
+            return 1.0
+        span = max(1e-9, full - start)
+        return max(0.0, min(1.0, (edge - start) / span))
+
+    @staticmethod
+    def _maker_edge_bucket(edge_abs: Optional[float]) -> str:
+        if not isinstance(edge_abs, (int, float)):
+            return "unknown"
+        edge = float(edge_abs)
+        if edge <= 0.05:
+            return "le_0p05"
+        if edge <= 0.10:
+            return "0p05_0p10"
+        if edge <= 0.20:
+            return "0p10_0p20"
+        return "gt_0p20"
+
+    def _maker_competitiveness_profile(
+        self,
+        *,
+        token_id: str,
+        top: Any,
+        fair_probability: Optional[float],
+        stage: str,
+        sec_to_expiry: Optional[float],
+        base_size_multiplier: float,
+        base_spread_multiplier: float,
+        timing_gate_open: bool,
+    ) -> Dict[str, Any]:
+        market_probability = (
+            float(getattr(top, "midpoint"))
+            if top is not None and isinstance(getattr(top, "midpoint", None), (int, float))
+            else None
+        )
+        fair = float(fair_probability) if isinstance(fair_probability, (int, float)) else None
+        edge_signed = (fair - market_probability) if (fair is not None and market_probability is not None) else None
+        edge_abs = abs(edge_signed) if edge_signed is not None else None
+        strength = self._maker_edge_strength(edge_abs)
+        size_mult_comp = 1.0 + ((float(self.maker_comp_size_mult_max) - 1.0) * strength)
+        spread_mult_comp = 1.0 - ((1.0 - float(self.maker_comp_spread_mult_min)) * strength)
+        requote_mult_comp = 1.0 - ((1.0 - float(self.maker_comp_requote_delta_mult_min)) * strength)
+        size_multiplier_applied = max(0.01, float(base_size_multiplier) * size_mult_comp)
+        spread_multiplier_applied = max(1e-6, float(base_spread_multiplier) * spread_mult_comp)
+        requote_delta_applied = max(1e-9, float(self.maker_comp_base_requote_delta) * requote_mult_comp)
+
+        normalized_stage = str(stage or "").strip().upper()
+        one_sided_stage_allowed = normalized_stage in self.maker_comp_one_sided_allowed_stages
+        side_policy = "TWO_SIDED"
+        one_sided_active = False
+        if (
+            self.maker_comp_one_sided_enabled
+            and one_sided_stage_allowed
+            and edge_signed is not None
+            and abs(edge_signed) >= float(self.maker_comp_one_sided_edge_threshold_abs)
+        ):
+            side_policy = "BUY_ONLY" if edge_signed >= 0.0 else "SELL_ONLY"
+            one_sided_active = True
+
+        edge_bucket = self._maker_edge_bucket(edge_abs)
+        competitiveness_context = {
+            "token_id": str(token_id),
+            "stage": normalized_stage,
+            "sec_to_expiry": (float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None),
+            "timing_gate_enabled": bool(self.maker_comp_timing_gate_enabled),
+            "timing_gate_open": bool(timing_gate_open),
+            "timing_gate_min_sec_to_expiry": float(self.maker_comp_timing_gate_min_sec_to_expiry),
+            "timing_gate_max_sec_to_expiry": float(self.maker_comp_timing_gate_max_sec_to_expiry),
+            "edge_scale_enabled": bool(self.maker_comp_edge_scale_enabled),
+            "edge_signed": (float(edge_signed) if edge_signed is not None else None),
+            "edge_abs": (float(edge_abs) if edge_abs is not None else None),
+            "edge_bucket": edge_bucket,
+            "edge_strength_normalized": float(strength),
+            "market_probability": market_probability,
+            "fair_probability": fair,
+            "size_multiplier_base": float(base_size_multiplier),
+            "size_multiplier_competitiveness": float(size_mult_comp),
+            "size_multiplier_applied": float(size_multiplier_applied),
+            "spread_multiplier_base": float(base_spread_multiplier),
+            "spread_multiplier_competitiveness": float(spread_mult_comp),
+            "spread_multiplier_applied": float(spread_multiplier_applied),
+            "requote_delta_base": float(self.maker_comp_base_requote_delta),
+            "requote_delta_multiplier_competitiveness": float(requote_mult_comp),
+            "requote_delta_applied": float(requote_delta_applied),
+            "one_sided_enabled": bool(self.maker_comp_one_sided_enabled),
+            "one_sided_allowed_stage": bool(one_sided_stage_allowed),
+            "one_sided_edge_threshold_abs": float(self.maker_comp_one_sided_edge_threshold_abs),
+            "side_policy": side_policy,
+            "one_sided_active": bool(one_sided_active),
+        }
+        return {
+            "size_multiplier_applied": float(size_multiplier_applied),
+            "spread_multiplier_applied": float(spread_multiplier_applied),
+            "requote_delta_applied": float(requote_delta_applied),
+            "side_policy": side_policy,
+            "context": competitiveness_context,
+        }
 
     def _token_stage_info(self, token_id: str) -> Dict[str, Any]:
         now = utc_now()
@@ -3142,10 +3288,17 @@ class ExecutionRunner:
                     self.telemetry.set_gauge("doctrine_oracle_tick_age_sec", float(oracle_tick_age_sec))
                 self.telemetry.set_gauge("doctrine_oracle_fresh", 1.0 if oracle_fresh else 0.0)
                 maker_prereq_failure_by_token: Dict[str, str] = {}
+                maker_timing_gate_open_by_token: Dict[str, bool] = {
+                    token_id: self._maker_timing_gate_open(
+                        stage_info_by_token.get(token_id, {}).get("sec_to_expiry")
+                    )
+                    for token_id in maker_stage_tokens
+                }
                 maker_eligible_tokens = set(maker_stage_tokens)
                 if self.doctrine_mode == "canonical":
                     maker_eligible_tokens = set()
                     for token_id in maker_stage_tokens:
+                        timing_gate_open = bool(maker_timing_gate_open_by_token.get(token_id, False))
                         failure_reason = self._maker_prereq_failure_reason(
                             token_id,
                             fair_probability_by_token=fair_probability_by_token,
@@ -3154,6 +3307,9 @@ class ExecutionRunner:
                         )
                         if failure_reason:
                             maker_prereq_failure_by_token[token_id] = failure_reason
+                            continue
+                        if self.maker_comp_timing_gate_enabled and not timing_gate_open:
+                            maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
                         maker_eligible_tokens.add(token_id)
                     maker_eligible_tokens = self._apply_canonical_maker_ws_source_gate(
@@ -3227,6 +3383,77 @@ class ExecutionRunner:
                     extra_stale_canceled = self.manager.cancel_stale_orders(action_budget=stale_action_budget - 2)
                     if extra_stale_canceled:
                         self.telemetry.incr("stale_quote_cancels", extra_stale_canceled)
+
+                maker_requote_delta_by_token: Dict[str, float] = {}
+                maker_side_policy_by_token: Dict[str, str] = {}
+                maker_competitiveness_context_by_token: Dict[str, Dict[str, Any]] = {}
+                maker_competitiveness_profiles_by_token: Dict[str, Dict[str, Any]] = {}
+                maker_one_sided_buy_active_count = 0
+                maker_one_sided_sell_active_count = 0
+                for token_id in sorted(maker_stage_tokens):
+                    info = stage_info_by_token.get(token_id, {})
+                    sec_to_expiry = info.get("sec_to_expiry")
+                    stage = str(info.get("stage", STAGE_UNKNOWN))
+                    top = books.get(token_id)
+                    fair = fair_probability_by_token.get(token_id)
+                    base_size_mult = float(size_multiplier_by_token.get(token_id, 1.0))
+                    base_spread_mult = float(spread_multiplier_by_token.get(token_id, 1.0))
+                    profile = self._maker_competitiveness_profile(
+                        token_id=token_id,
+                        top=top,
+                        fair_probability=fair,
+                        stage=stage,
+                        sec_to_expiry=sec_to_expiry,
+                        base_size_multiplier=base_size_mult,
+                        base_spread_multiplier=base_spread_mult,
+                        timing_gate_open=bool(maker_timing_gate_open_by_token.get(token_id, True)),
+                    )
+                    maker_competitiveness_profiles_by_token[token_id] = profile
+                    if token_id in maker_eligible_tokens:
+                        size_multiplier_by_token[token_id] = float(profile["size_multiplier_applied"])
+                        spread_multiplier_by_token[token_id] = float(profile["spread_multiplier_applied"])
+                        maker_requote_delta_by_token[token_id] = float(profile["requote_delta_applied"])
+                        maker_side_policy_by_token[token_id] = str(profile["side_policy"])
+                        maker_competitiveness_context_by_token[token_id] = dict(profile["context"])
+                    side_policy = str(profile.get("side_policy") or "TWO_SIDED").upper()
+                    if side_policy == "BUY_ONLY":
+                        maker_one_sided_buy_active_count += 1
+                    elif side_policy == "SELL_ONLY":
+                        maker_one_sided_sell_active_count += 1
+
+                if (
+                    self.maker_comp_timing_gate_enabled
+                    or self.maker_comp_edge_scale_enabled
+                    or self.maker_comp_one_sided_enabled
+                ):
+                    for token_id in sorted(maker_stage_tokens):
+                        profile = maker_competitiveness_profiles_by_token.get(token_id, {})
+                        context_payload = dict(profile.get("context") or {})
+                        block_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
+                        self.events.log_event(
+                            "maker_competitiveness_decision",
+                            {
+                                "ts_utc": utc_iso(),
+                                "run_id": self.run_id,
+                                "token_id": token_id,
+                                "maker_stage_allowed": True,
+                                "maker_eligible": bool(token_id in maker_eligible_tokens),
+                                "block_reason": block_reason or None,
+                                "timing_gate_blocked": block_reason == "maker_timing_gate_closed",
+                                **context_payload,
+                            },
+                        )
+                maker_timing_gate_blocked_count = sum(
+                    1
+                    for token_id in maker_stage_tokens
+                    if str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower() == "maker_timing_gate_closed"
+                )
+                self.telemetry.set_gauge("maker_timing_gate_blocked_count_last_cycle", float(maker_timing_gate_blocked_count))
+                self.telemetry.set_gauge("maker_one_sided_buy_active_count_last_cycle", float(maker_one_sided_buy_active_count))
+                self.telemetry.set_gauge(
+                    "maker_one_sided_sell_active_count_last_cycle",
+                    float(maker_one_sided_sell_active_count),
+                )
 
                 maker_eval_token_ids = set(maker_stage_tokens) | set(maker_prereq_failure_by_token.keys())
                 maker_submitted_token_ids: set[str] = set()
@@ -3317,6 +3544,21 @@ class ExecutionRunner:
                             for token_id, value in spread_multiplier_by_token.items()
                             if token_id in maker_eligible_tokens
                         }
+                        requote_delta_for_manager = {
+                            token_id: value
+                            for token_id, value in maker_requote_delta_by_token.items()
+                            if token_id in maker_eligible_tokens
+                        }
+                        side_policy_for_manager = {
+                            token_id: value
+                            for token_id, value in maker_side_policy_by_token.items()
+                            if token_id in maker_eligible_tokens
+                        }
+                        competitiveness_context_for_manager = {
+                            token_id: dict(value)
+                            for token_id, value in maker_competitiveness_context_by_token.items()
+                            if token_id in maker_eligible_tokens
+                        }
                         tracked_tokens_for_manager = (
                             set(self.token_ids) if self.doctrine_mode != "canonical" else set(maker_eligible_tokens)
                         )
@@ -3327,6 +3569,9 @@ class ExecutionRunner:
                             realized_volatility_by_token=volatility_for_manager,
                             size_multiplier_by_token=size_mult_for_manager,
                             spread_multiplier_by_token=spread_mult_for_manager,
+                            requote_delta_by_token=requote_delta_for_manager,
+                            side_policy_by_token=side_policy_for_manager,
+                            competitiveness_context_by_token=competitiveness_context_for_manager,
                             max_actions_override=max_actions_override,
                         )
                         maker_submitted_token_ids = {

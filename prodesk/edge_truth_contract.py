@@ -49,6 +49,7 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "token_lag_not_verified_for_maker",
     "token_score_below_maker_min",
     "fair_probability_unavailable",
+    "maker_timing_gate_closed",
     "sniper_disabled",
     "sniper_taker_disabled",
     "taker_budget_disabled",

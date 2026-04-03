@@ -1202,6 +1202,95 @@ def _pickoff_indicator(events: List[Dict[str, Any]], *, horizon_sec: float = 3.0
     }
 
 
+def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    timing_gate_blocked_edge_eval = 0.0
+    timing_gate_blocked_decision = 0.0
+    one_sided_decision_buy = 0.0
+    one_sided_decision_sell = 0.0
+    one_sided_submit_buy = 0.0
+    one_sided_submit_sell = 0.0
+    edge_bucket_submit = Counter()
+    edge_bucket_fill = Counter()
+    aggressiveness_application_counts = Counter()
+    order_bucket_by_id: Dict[str, str] = {}
+
+    for evt in events:
+        event_type = str(evt.get("event_type") or "").strip()
+        if event_type == "edge_evaluation":
+            if (
+                str(evt.get("evaluation_scope") or "").strip().lower() == "maker"
+                and str(evt.get("action_taken") or "").strip().lower() == "none"
+                and str(evt.get("block_reason") or "").strip().lower() == "maker_timing_gate_closed"
+            ):
+                timing_gate_blocked_edge_eval += 1.0
+            continue
+
+        if event_type == "maker_competitiveness_decision":
+            if bool(evt.get("timing_gate_blocked", False)):
+                timing_gate_blocked_decision += 1.0
+            if bool(evt.get("one_sided_active", False)):
+                policy = str(evt.get("side_policy") or "").strip().upper()
+                if policy == "BUY_ONLY":
+                    one_sided_decision_buy += 1.0
+                elif policy == "SELL_ONLY":
+                    one_sided_decision_sell += 1.0
+            continue
+
+        if event_type == "order_submit":
+            reason = str(evt.get("reason") or "").strip().lower()
+            if "sniper_taker" in reason or "taker_bonus" in reason:
+                continue
+            comp = evt.get("maker_competitiveness")
+            if not isinstance(comp, dict):
+                continue
+            bucket = str(comp.get("edge_bucket") or "unknown").strip().lower() or "unknown"
+            edge_bucket_submit[bucket] += 1
+            order_id = str(evt.get("order_id") or "").strip()
+            if order_id:
+                order_bucket_by_id[order_id] = bucket
+
+            if _safe_float(comp.get("size_multiplier_competitiveness"), 1.0) > 1.0:
+                aggressiveness_application_counts["size_scaled"] += 1
+            if _safe_float(comp.get("spread_multiplier_competitiveness"), 1.0) < 1.0:
+                aggressiveness_application_counts["spread_tightened"] += 1
+            if _safe_float(comp.get("requote_delta_multiplier_competitiveness"), 1.0) < 1.0:
+                aggressiveness_application_counts["requote_tightened"] += 1
+
+            if bool(comp.get("one_sided_active", False)):
+                policy = str(comp.get("side_policy") or "").strip().upper()
+                if policy == "BUY_ONLY":
+                    one_sided_submit_buy += 1.0
+                elif policy == "SELL_ONLY":
+                    one_sided_submit_sell += 1.0
+            continue
+
+        if event_type == "fill":
+            order_id = str(evt.get("order_id") or "").strip()
+            if not order_id:
+                continue
+            bucket = order_bucket_by_id.get(order_id)
+            if bucket:
+                edge_bucket_fill[bucket] += 1
+
+    return {
+        "timing_gate_blocked_count_edge_eval": float(timing_gate_blocked_edge_eval),
+        "timing_gate_blocked_count_decision": float(timing_gate_blocked_decision),
+        "one_sided_activation_decision_buy_count": float(one_sided_decision_buy),
+        "one_sided_activation_decision_sell_count": float(one_sided_decision_sell),
+        "one_sided_activation_submit_buy_count": float(one_sided_submit_buy),
+        "one_sided_activation_submit_sell_count": float(one_sided_submit_sell),
+        "maker_submit_edge_bucket_distribution": dict(
+            sorted(edge_bucket_submit.items(), key=lambda item: item[0])
+        ),
+        "maker_fill_edge_bucket_distribution": dict(
+            sorted(edge_bucket_fill.items(), key=lambda item: item[0])
+        ),
+        "aggressiveness_application_counts": dict(
+            sorted(aggressiveness_application_counts.items(), key=lambda item: item[0])
+        ),
+    }
+
+
 def build_report(
     log_dir: pathlib.Path,
     *,
@@ -1259,6 +1348,7 @@ def build_report(
     capture_stats = _fill_capture_stats(events)
     taker_stage_net_breakout = _taker_stage_net_breakout(events)
     edge_quality = _edge_quality_by_regime(events)
+    maker_competitiveness = _maker_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
     latency_stats = _latency_distribution(events)
@@ -1338,6 +1428,7 @@ def build_report(
         "execution_paths": execution_paths,
         "maker_regression_sentinel": maker_regression_sentinel,
         "edge_truth": edge_truth,
+        "maker_competitiveness": maker_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
         "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
         "maker_market_reference_fallback_count": _safe_float(
@@ -1395,6 +1486,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     eq = report.get("execution_quality", {})
     taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
+    maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
     runtime_class = report.get("runtime_classification", {}) if isinstance(report.get("runtime_classification"), dict) else {}
     runtime_class_name = str(runtime_class.get("classification") or "")
     runtime_promotable = bool(runtime_class.get("promotion_eligible", False))
@@ -1446,6 +1538,13 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"bounded_fallback={int(_safe_float(edge_truth.get('maker_reference_bounded_fallback_activity')))},"
             + f"fallback_bid={int(_safe_float(edge_truth.get('maker_market_reference_fallback_bid_count')))},"
             + f"fallback_ask={int(_safe_float(edge_truth.get('maker_market_reference_fallback_ask_count')))}"
+        ),
+        (
+            "maker_competitiveness="
+            + f"timing_gate_blocked={int(_safe_float(maker_comp.get('timing_gate_blocked_count_edge_eval')))},"
+            + f"one_sided_submit_buy={int(_safe_float(maker_comp.get('one_sided_activation_submit_buy_count')))},"
+            + f"one_sided_submit_sell={int(_safe_float(maker_comp.get('one_sided_activation_submit_sell_count')))},"
+            + f"aggressiveness={json.dumps(maker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
         ),
         (
             "stale="

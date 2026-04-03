@@ -22,9 +22,19 @@ class SoakDeltaReportTests(unittest.TestCase):
         ws_chain_down: float,
         ws_book_age_p95: float,
         ws_chain_age_p95: float,
+        stage_nets=None,
     ) -> Path:
         d = root / name
         d.mkdir(parents=True, exist_ok=True)
+        taker_stage_breakout = {
+            stage: {
+                "fills_scored": 0.0,
+                "capture": max(0.0, float(net)),
+                "adverse_selection": max(0.0, -float(net)),
+                "net": float(net),
+            }
+            for stage, net in (stage_nets or {}).items()
+        }
         (d / "nightly.json").write_text(
             json.dumps(
                 {
@@ -37,6 +47,7 @@ class SoakDeltaReportTests(unittest.TestCase):
                         "taker_bonus_submits": taker_submits,
                         "taker_bonus_fills": taker_fills,
                     },
+                    "taker_stage_net_breakout": taker_stage_breakout,
                 }
             ),
             encoding="utf-8",
@@ -129,6 +140,57 @@ class SoakDeltaReportTests(unittest.TestCase):
             out = run_report(baseline_dir=b, candidate_dir=c, min_uptime_delta=-0.02, max_error_rows_delta=0.0, min_capture_delta=-10.0, min_maker_submits_delta=-10.0, min_taker_bonus_submits_delta=-3.0, min_taker_bonus_fills_delta=-2.0, max_ws_book_down_ratio_delta=0.05, max_ws_chain_down_ratio_delta=0.05, max_ws_book_age_p95_delta=2.0, max_ws_chain_age_p95_delta=2.0)
             self.assertFalse(out["ok"])
             self.assertIn("BRO-2403", out["error_codes"])
+
+    def test_delta_includes_stage_level_taker_net_breakout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            b = self._write_bundle(
+                root,
+                "b",
+                uptime=0.80,
+                errors=0,
+                capture=100,
+                maker_submits=100,
+                taker_submits=10,
+                taker_fills=5,
+                ws_book_down=0.01,
+                ws_chain_down=0.01,
+                ws_book_age_p95=3.0,
+                ws_chain_age_p95=3.0,
+                stage_nets={"MAKER_TAKER_SELECTIVE": -5.0, "SNIPER_PRIMARY": 8.0},
+            )
+            c = self._write_bundle(
+                root,
+                "c",
+                uptime=0.80,
+                errors=0,
+                capture=101,
+                maker_submits=102,
+                taker_submits=10,
+                taker_fills=5,
+                ws_book_down=0.01,
+                ws_chain_down=0.01,
+                ws_book_age_p95=3.0,
+                ws_chain_age_p95=3.0,
+                stage_nets={"MAKER_TAKER_SELECTIVE": 2.0, "SNIPER_PRIMARY": 6.0},
+            )
+            out = run_report(
+                baseline_dir=b,
+                candidate_dir=c,
+                min_uptime_delta=-0.05,
+                max_error_rows_delta=1.0,
+                min_capture_delta=-10.0,
+                min_maker_submits_delta=-10.0,
+                min_taker_bonus_submits_delta=-5.0,
+                min_taker_bonus_fills_delta=-5.0,
+                max_ws_book_down_ratio_delta=0.1,
+                max_ws_chain_down_ratio_delta=0.1,
+                max_ws_book_age_p95_delta=5.0,
+                max_ws_chain_age_p95_delta=5.0,
+            )
+            breakout = out.get("taker_stage_net_breakout", {})
+            self.assertIn("MAKER_TAKER_SELECTIVE", breakout)
+            self.assertAlmostEqual(float(breakout["MAKER_TAKER_SELECTIVE"].get("delta_net", 0.0)), 7.0, places=6)
 
 
 if __name__ == "__main__":

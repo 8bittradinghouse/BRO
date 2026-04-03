@@ -243,6 +243,7 @@ class OrderManager:
             "order_soft_throttle": "soft_throttle",
             "quote_quality_skip_fill_probability": "quote_quality_skip_fill_probability",
             "quote_quality_skip_queue_depth": "quote_quality_skip_queue_depth",
+            "one_sided_mode_disallow_side": "one_sided_mode_disallow_side",
             "risk_reject": "risk_reject",
             "replace_guard_min_rest": "replace_guard_min_rest",
             "replace_cancel_unavailable": "replace_cancel_unavailable",
@@ -263,8 +264,9 @@ class OrderManager:
             return None
         return (self._now_fn() - ts).total_seconds()
 
-    def _needs_replace(self, order: LiveOrder, intent: OrderIntent) -> bool:
-        if abs(order.price - intent.price) >= self.requote_delta:
+    def _needs_replace(self, order: LiveOrder, intent: OrderIntent, *, requote_delta: Optional[float] = None) -> bool:
+        delta = self.requote_delta if requote_delta is None else max(1e-9, float(requote_delta))
+        if abs(order.price - intent.price) >= delta:
             return True
         if abs(order.remaining_size - intent.size) >= max(1.0, intent.size * 0.15):
             return True
@@ -345,6 +347,7 @@ class OrderManager:
         open_orders_for_token: List[LiveOrder],
         open_orders_total: int,
         notional_target_usd: Optional[float] = None,
+        competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[LiveOrder], Optional[str]]:
         lane = self._submission_lane(intent)
 
@@ -722,6 +725,13 @@ class OrderManager:
             return None, "wallet_confirm_submission_failed"
 
         self.telemetry.incr("orders_submitted")
+        competitiveness_payload = (
+            dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        )
+        size_resolution_payload = dict(size_resolution)
+        if competitiveness_payload:
+            size_resolution_payload["maker_competitiveness"] = competitiveness_payload
+
         self.events.log_event(
             "order_submit",
             {
@@ -785,7 +795,8 @@ class OrderManager:
                 "sizing_mode": self.sizing_mode,
                 "sizing_target_usd": float(notional_target_usd) if notional_target_usd is not None else None,
                 "size_selection_authority": "order_manager_notional_sizing_v2",
-                "size_resolution": size_resolution,
+                "size_resolution": size_resolution_payload,
+                "maker_competitiveness": (competitiveness_payload or None),
                 **quality_fields,
             },
         )
@@ -1300,6 +1311,9 @@ class OrderManager:
         realized_volatility_by_token: Optional[Dict[str, float]] = None,
         size_multiplier_by_token: Optional[Dict[str, float]] = None,
         spread_multiplier_by_token: Optional[Dict[str, float]] = None,
+        requote_delta_by_token: Optional[Dict[str, float]] = None,
+        side_policy_by_token: Optional[Dict[str, str]] = None,
+        competitiveness_context_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         max_actions_override: Optional[int] = None,
     ) -> Dict[str, Any]:
         max_actions = self.max_actions_per_cycle if max_actions_override is None else max(1, int(max_actions_override))
@@ -1380,6 +1394,21 @@ class OrderManager:
             by_token.setdefault(order.token_id, []).append(order)
 
         for token_id, top in books.items():
+            token_requote_delta = None
+            if isinstance(requote_delta_by_token, dict):
+                token_requote_delta_raw = requote_delta_by_token.get(token_id)
+                if isinstance(token_requote_delta_raw, (int, float)):
+                    token_requote_delta = max(1e-9, float(token_requote_delta_raw))
+            token_side_policy = "TWO_SIDED"
+            if isinstance(side_policy_by_token, dict):
+                token_side_policy = str(side_policy_by_token.get(token_id, "TWO_SIDED") or "TWO_SIDED").strip().upper()
+            if token_side_policy not in {"TWO_SIDED", "BUY_ONLY", "SELL_ONLY"}:
+                token_side_policy = "TWO_SIDED"
+            token_competitiveness_context = (
+                competitiveness_context_by_token.get(token_id)
+                if isinstance(competitiveness_context_by_token, dict)
+                else None
+            )
             if actions >= max_actions:
                 _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                 continue
@@ -1426,7 +1455,28 @@ class OrderManager:
                 primary: Optional[LiveOrder] = side_orders[0] if side_orders else None
                 extras = side_orders[1:] if len(side_orders) > 1 else []
 
-                replace_needed = primary is None or self._needs_replace(primary, desired_intent)
+                side_allowed = (
+                    token_side_policy == "TWO_SIDED"
+                    or (token_side_policy == "BUY_ONLY" and side == "BUY")
+                    or (token_side_policy == "SELL_ONLY" and side == "SELL")
+                )
+                if not side_allowed:
+                    _record_maker_no_submission_reason(token_id, "one_sided_mode_disallow_side")
+                    for order in side_orders:
+                        if actions >= max_actions:
+                            _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
+                            break
+                        if self._cancel_order(order, "one_sided_mode_disallow_side"):
+                            actions += 1
+                            open_orders_total = max(0, open_orders_total - 1)
+                            with suppress(ValueError):
+                                token_orders.remove(order)
+                    continue
+
+                replace_needed = (
+                    primary is None
+                    or self._needs_replace(primary, desired_intent, requote_delta=token_requote_delta)
+                )
 
                 if replace_needed:
                     if primary is not None and self.maker_replace_min_rest_sec > 0.0:
@@ -1456,6 +1506,7 @@ class OrderManager:
                         top,
                         open_orders_for_token=token_orders,
                         open_orders_total=open_orders_total,
+                        competitiveness_context=token_competitiveness_context,
                     )
                     if placed is not None:
                         actions += 1

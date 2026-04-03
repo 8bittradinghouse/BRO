@@ -32,7 +32,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: 90d4f1462155589ce9f9f82cb1d5f03036b9326c6e156d96ca3afa518a9e30f0
+  paper_expected_config_fingerprint_sha256: e0f0617adffa90158aba129609bb91b6a44e9faa671ae3fba5a571b57a2d1ec5
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -52,6 +52,20 @@ strategy:
   execution_quality:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
+  maker_competitiveness:
+    timing_gate_enabled: true
+    timing_gate_min_sec_to_expiry: 45.0
+    timing_gate_max_sec_to_expiry: 60.0
+    edge_scale_enabled: true
+    edge_scale_start_abs: 0.05
+    edge_scale_full_abs: 0.20
+    size_mult_max: 1.35
+    spread_mult_min: 0.75
+    requote_delta_mult_min: 0.50
+    one_sided_enabled: true
+    one_sided_edge_threshold_abs: 0.18
+    one_sided_allowed_stages:
+      - MAKER_TAKER_SELECTIVE
 
 # Maker competitiveness sizing: enforce desk-viable minimum quote presence and
 # bind to visible depth while preserving deterministic, bounded behavior.

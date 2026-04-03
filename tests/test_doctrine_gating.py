@@ -106,6 +106,16 @@ class DoctrineGatingTests(unittest.TestCase):
         )
         self.assertEqual(reason, "fair_probability_unavailable")
 
+    def test_maker_timing_gate_is_fail_closed_outside_window(self):
+        runner = self._runner()
+        runner.maker_comp_timing_gate_enabled = True
+        runner.maker_comp_timing_gate_min_sec_to_expiry = 45.0
+        runner.maker_comp_timing_gate_max_sec_to_expiry = 60.0
+        self.assertFalse(runner._maker_timing_gate_open(None))
+        self.assertFalse(runner._maker_timing_gate_open(30.0))
+        self.assertTrue(runner._maker_timing_gate_open(50.0))
+        self.assertFalse(runner._maker_timing_gate_open(75.0))
+
     def test_maker_canonical_mode_blocks_non_ws_book_source(self):
         runner = self._runner()
         ws_top = BookTop(
@@ -209,6 +219,89 @@ class DoctrineGatingTests(unittest.TestCase):
         ]
         self.assertTrue(bool(submitted_rows))
         self.assertIsNone(submitted_rows[-1].get("block_reason"))
+
+    def test_stage_specific_min_edge_override_only_tightens_target_stage(self):
+        runner = self._runner()
+        runner.sniper_taker_enabled = True
+        runner.sniper_taker_min_edge = 0.01
+        runner.sniper_taker_extreme_edge_mult = 2.0
+        runner.sniper_taker_min_edge_by_stage = {STAGE_MAKER_TAKER_SELECTIVE: 0.05}
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="ws",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.51,
+            best_ask_size=100.0,
+        )
+        books = {"t1": top}
+        fair = {"t1": 0.53}  # edge=0.03
+
+        with mock.patch.object(
+            runner.manager,
+            "place_taker_order_with_outcome",
+            return_value={"submitted": True, "fills_accepted": 0, "order_id": "ord-1"},
+        ) as placed:
+            out_selective = runner._run_sniper_taker(
+                books=books,
+                fair_probability_by_token=fair,
+                token_ids=["t1"],
+                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 45.0}},
+                oracle_tick_age_sec=0.0,
+                lag_verified_token_ids=["t1"],
+            )
+            out_primary = runner._run_sniper_taker(
+                books=books,
+                fair_probability_by_token=fair,
+                token_ids=["t1"],
+                stage_info_by_token={"t1": {"stage": STAGE_SNIPER_PRIMARY, "sec_to_expiry": 25.0}},
+                oracle_tick_age_sec=0.0,
+                lag_verified_token_ids=["t1"],
+            )
+        self.assertEqual(out_selective["submitted"], 0)
+        self.assertEqual(out_primary["submitted"], 1)
+        placed.assert_called_once()
+
+    def test_sniper_taker_submit_event_emits_order_id(self):
+        runner = self._runner()
+        runner.sniper_taker_enabled = True
+        runner.sniper_taker_min_edge = 0.01
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="ws",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.51,
+            best_ask_size=100.0,
+        )
+        with mock.patch.object(
+            runner.manager,
+            "place_taker_order_with_outcome",
+            return_value={"submitted": True, "fills_accepted": 1, "order_id": "ord-42"},
+        ):
+            out = runner._run_sniper_taker(
+                books={"t1": top},
+                fair_probability_by_token={"t1": 0.53},
+                token_ids=["t1"],
+                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 45.0}},
+                oracle_tick_age_sec=0.0,
+                lag_verified_token_ids=["t1"],
+            )
+        self.assertEqual(out["submitted"], 1)
+        self.assertEqual(out["fills_accepted"], 1)
+        runner.events.close()
+        submit_rows: list[dict] = []
+        for path in sorted(Path(runner.log_dir).glob("events_*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if str(payload.get("event_type") or "") == "sniper_taker_submit":
+                    submit_rows.append(payload)
+        self.assertTrue(bool(submit_rows))
+        self.assertEqual(str(submit_rows[-1].get("order_id") or ""), "ord-42")
 
     def test_maker_edge_evaluation_emits_block_reason_when_not_submitted(self):
         runner = self._runner()

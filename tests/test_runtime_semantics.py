@@ -239,6 +239,23 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
         self.assertFalse(out["promotion_eligible"])
 
+    def test_classify_runtime_invalid_when_standdown_has_order_submission_attempts_in_status_window(self):
+        status_rows = [
+            {
+                "ts_utc": "2099-01-01T00:00:00Z",
+                "runtime_state": "no_target_standdown",
+                "active_targets_present": False,
+                "no_target_standdown": True,
+                "book_feed_required": False,
+                "kill_switch": False,
+                "external_guard_active": False,
+                "gauge.order_submission_attempts_last_status_window": 2,
+            }
+        ]
+        out = classify_runtime(status_rows=status_rows, events=[])
+        self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
+        self.assertFalse(out["promotion_eligible"])
+
     def test_classify_runtime_invalid_when_standdown_requires_book_feed(self):
         status_rows = [
             {
@@ -284,6 +301,42 @@ class RuntimeSemanticsTests(unittest.TestCase):
         ]
         events = [{"event_type": "risk_reject"}, {"event_type": "targets_updated"}]
         out = classify_runtime(status_rows=status_rows, events=events)
+        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
+        self.assertTrue(out["promotion_eligible"])
+
+    def test_classify_runtime_taker_quick_read_counts_as_participation(self):
+        status_rows = [
+            {
+                "ts_utc": "2099-01-01T00:00:00Z",
+                "runtime_state": "active",
+                "active_targets_present": True,
+                "no_target_standdown": False,
+                "book_feed_required": True,
+                "kill_switch": False,
+                "external_guard_active": False,
+                "gauge.taker_actions_last_cycle": 1,
+                "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.3},
+            }
+        ]
+        out = classify_runtime(status_rows=status_rows, events=[{"event_type": "targets_updated"}])
+        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
+        self.assertTrue(out["promotion_eligible"])
+
+    def test_classify_runtime_taker_status_window_counts_as_participation(self):
+        status_rows = [
+            {
+                "ts_utc": "2099-01-01T00:00:00Z",
+                "runtime_state": "active",
+                "active_targets_present": True,
+                "no_target_standdown": False,
+                "book_feed_required": True,
+                "kill_switch": False,
+                "external_guard_active": False,
+                "gauge.taker_submitted_last_status_window": 3,
+                "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.3},
+            }
+        ]
+        out = classify_runtime(status_rows=status_rows, events=[{"event_type": "targets_updated"}])
         self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
         self.assertTrue(out["promotion_eligible"])
 

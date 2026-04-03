@@ -226,6 +226,20 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "low_vol_size_mult": 0.85,
             "high_vol_size_mult": 1.25,
         },
+        "maker_competitiveness": {
+            "timing_gate_enabled": False,
+            "timing_gate_min_sec_to_expiry": 45.0,
+            "timing_gate_max_sec_to_expiry": 60.0,
+            "edge_scale_enabled": False,
+            "edge_scale_start_abs": 0.05,
+            "edge_scale_full_abs": 0.20,
+            "size_mult_max": 1.35,
+            "spread_mult_min": 0.75,
+            "requote_delta_mult_min": 0.50,
+            "one_sided_enabled": False,
+            "one_sided_edge_threshold_abs": 0.18,
+            "one_sided_allowed_stages": ["MAKER_TAKER_SELECTIVE"],
+        },
     },
     "sizing": {
         "mode": "shares",
@@ -977,6 +991,82 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("strategy.volatility.high_vol_spread_mult", cfg["strategy"]["volatility"]["high_vol_spread_mult"])
     _require_positive("strategy.volatility.low_vol_size_mult", cfg["strategy"]["volatility"]["low_vol_size_mult"])
     _require_positive("strategy.volatility.high_vol_size_mult", cfg["strategy"]["volatility"]["high_vol_size_mult"])
+    maker_comp_cfg = cfg["strategy"].get("maker_competitiveness", {})
+    if not isinstance(maker_comp_cfg, dict):
+        raise ValueError("strategy.maker_competitiveness must be a mapping")
+    _require_positive(
+        "strategy.maker_competitiveness.timing_gate_min_sec_to_expiry",
+        maker_comp_cfg.get("timing_gate_min_sec_to_expiry"),
+    )
+    _require_positive(
+        "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry",
+        maker_comp_cfg.get("timing_gate_max_sec_to_expiry"),
+    )
+    timing_min = float(maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 45.0))
+    timing_max = float(maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 60.0))
+    if timing_max < timing_min:
+        raise ValueError(
+            "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry must be >= timing_gate_min_sec_to_expiry"
+        )
+    _require_fraction(
+        "strategy.maker_competitiveness.edge_scale_start_abs",
+        maker_comp_cfg.get("edge_scale_start_abs"),
+        allow_zero=True,
+    )
+    _require_fraction(
+        "strategy.maker_competitiveness.edge_scale_full_abs",
+        maker_comp_cfg.get("edge_scale_full_abs"),
+        allow_zero=True,
+    )
+    edge_start = float(maker_comp_cfg.get("edge_scale_start_abs", 0.05) or 0.0)
+    edge_full = float(maker_comp_cfg.get("edge_scale_full_abs", 0.20) or 0.0)
+    if edge_full < edge_start:
+        raise ValueError("strategy.maker_competitiveness.edge_scale_full_abs must be >= edge_scale_start_abs")
+    _require_positive(
+        "strategy.maker_competitiveness.size_mult_max",
+        maker_comp_cfg.get("size_mult_max"),
+    )
+    if float(maker_comp_cfg.get("size_mult_max", 1.35) or 0.0) < 1.0:
+        raise ValueError("strategy.maker_competitiveness.size_mult_max must be >= 1.0")
+    _require_fraction(
+        "strategy.maker_competitiveness.spread_mult_min",
+        maker_comp_cfg.get("spread_mult_min"),
+        allow_zero=False,
+    )
+    if float(maker_comp_cfg.get("spread_mult_min", 0.75) or 0.0) > 1.0:
+        raise ValueError("strategy.maker_competitiveness.spread_mult_min must be <= 1.0")
+    _require_fraction(
+        "strategy.maker_competitiveness.requote_delta_mult_min",
+        maker_comp_cfg.get("requote_delta_mult_min"),
+        allow_zero=False,
+    )
+    if float(maker_comp_cfg.get("requote_delta_mult_min", 0.50) or 0.0) > 1.0:
+        raise ValueError("strategy.maker_competitiveness.requote_delta_mult_min must be <= 1.0")
+    _require_fraction(
+        "strategy.maker_competitiveness.one_sided_edge_threshold_abs",
+        maker_comp_cfg.get("one_sided_edge_threshold_abs"),
+        allow_zero=True,
+    )
+    one_sided_allowed_stages = maker_comp_cfg.get("one_sided_allowed_stages")
+    if not isinstance(one_sided_allowed_stages, list):
+        raise ValueError("strategy.maker_competitiveness.one_sided_allowed_stages must be a list")
+    canonical_allowed_stages = {
+        "MAKER_POSITION",
+        "MAKER_TAKER_SELECTIVE",
+    }
+    normalized_stages: List[str] = []
+    for idx, stage in enumerate(one_sided_allowed_stages):
+        stage_name = str(stage or "").strip().upper()
+        if not stage_name:
+            raise ValueError(
+                f"strategy.maker_competitiveness.one_sided_allowed_stages[{idx}] must be a non-empty stage name"
+            )
+        if stage_name not in canonical_allowed_stages:
+            raise ValueError(
+                "strategy.maker_competitiveness.one_sided_allowed_stages must only include maker-allowed stages"
+            )
+        normalized_stages.append(stage_name)
+    cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = sorted(set(normalized_stages))
 
     if not isinstance(cfg["targets"]["token_ids"], list):
         raise ValueError("targets.token_ids must be a list")
@@ -1208,6 +1298,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sizing.exposure_cap_mode must be a string")
     if not isinstance(cfg["sizing"]["maker_liquidity_tod_scaler_enabled"], bool):
         raise ValueError("sizing.maker_liquidity_tod_scaler_enabled must be boolean")
+    if not isinstance(cfg["strategy"]["maker_competitiveness"]["timing_gate_enabled"], bool):
+        raise ValueError("strategy.maker_competitiveness.timing_gate_enabled must be boolean")
+    if not isinstance(cfg["strategy"]["maker_competitiveness"]["edge_scale_enabled"], bool):
+        raise ValueError("strategy.maker_competitiveness.edge_scale_enabled must be boolean")
+    if not isinstance(cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"], bool):
+        raise ValueError("strategy.maker_competitiveness.one_sided_enabled must be boolean")
     if not isinstance(cfg["security"]["enabled"], bool):
         raise ValueError("security.enabled must be boolean")
     if not isinstance(cfg["security"]["enforce_host_allowlist"], bool):

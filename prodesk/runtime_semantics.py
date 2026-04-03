@@ -130,7 +130,15 @@ def _status_active_targets_present(status_row: Dict[str, Any]) -> bool:
         "gauge.open_orders",
         "gauge.quote_active",
         "gauge.actions_last_cycle",
+        "gauge.actions_last_status_window",
+        "gauge.taker_actions_last_cycle",
+        "gauge.taker_actions_last_status_window",
+        "gauge.taker_submitted_last_cycle",
+        "gauge.taker_submitted_last_status_window",
+        "gauge.taker_fills_last_cycle",
+        "gauge.taker_fills_last_status_window",
         "gauge.order_submission_attempts_last_cycle",
+        "gauge.order_submission_attempts_last_status_window",
     ):
         value = parse_float(status_row.get(key))
         if value is not None and value > 0.0:
@@ -243,11 +251,17 @@ def _status_cycle_counter(row: Dict[str, Any]) -> float:
 
 
 def _status_order_submit_attempts(row: Dict[str, Any]) -> float:
-    for key in ("order_submission_attempts_last_cycle", "gauge.order_submission_attempts_last_cycle"):
+    max_value = 0.0
+    for key in (
+        "order_submission_attempts_last_cycle",
+        "gauge.order_submission_attempts_last_cycle",
+        "order_submission_attempts_last_status_window",
+        "gauge.order_submission_attempts_last_status_window",
+    ):
         value = parse_float(row.get(key))
         if value is not None:
-            return max(0.0, float(value))
-    return 0.0
+            max_value = max(max_value, max(0.0, float(value)))
+    return max_value
 
 
 def _status_duration_minutes(status_rows: Sequence[Dict[str, Any]]) -> float:
@@ -347,10 +361,24 @@ def classify_runtime(
         open_orders = parse_float(row.get("gauge.open_orders"))
         quote_active = parse_float(row.get("gauge.quote_active"))
         actions_last_cycle = parse_float(row.get("gauge.actions_last_cycle"))
+        actions_last_status_window = parse_float(row.get("gauge.actions_last_status_window"))
+        taker_actions_last_cycle = parse_float(row.get("gauge.taker_actions_last_cycle"))
+        taker_actions_last_status_window = parse_float(row.get("gauge.taker_actions_last_status_window"))
+        taker_submitted_last_cycle = parse_float(row.get("gauge.taker_submitted_last_cycle"))
+        taker_submitted_last_status_window = parse_float(row.get("gauge.taker_submitted_last_status_window"))
+        taker_fills_last_cycle = parse_float(row.get("gauge.taker_fills_last_cycle"))
+        taker_fills_last_status_window = parse_float(row.get("gauge.taker_fills_last_status_window"))
         if (
             (open_orders is not None and open_orders > 0.0)
             or (quote_active is not None and quote_active > 0.0)
             or (actions_last_cycle is not None and actions_last_cycle > 0.0)
+            or (actions_last_status_window is not None and actions_last_status_window > 0.0)
+            or (taker_actions_last_cycle is not None and taker_actions_last_cycle > 0.0)
+            or (taker_actions_last_status_window is not None and taker_actions_last_status_window > 0.0)
+            or (taker_submitted_last_cycle is not None and taker_submitted_last_cycle > 0.0)
+            or (taker_submitted_last_status_window is not None and taker_submitted_last_status_window > 0.0)
+            or (taker_fills_last_cycle is not None and taker_fills_last_cycle > 0.0)
+            or (taker_fills_last_status_window is not None and taker_fills_last_status_window > 0.0)
             or order_submit_attempts > 0.0
         ):
             participation_rows += 1
