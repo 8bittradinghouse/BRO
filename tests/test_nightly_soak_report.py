@@ -100,6 +100,36 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertAlmostEqual(float(row.get("adverse_selection", 0.0)), 0.0, places=6)
             self.assertAlmostEqual(float(row.get("net", 0.0)), 0.2, places=6)
 
+    def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {"event_type": "order_submit", "order_id": "m1", "reason": "maker_quote"},
+                {"event_type": "fill", "order_id": "m1", "token_id": "t1", "side": "BUY", "price": 0.50, "size": 1},
+                {"event_type": "fill", "order_id": "m1", "token_id": "t1", "side": "BUY", "price": 0.50, "size": 1},
+                {"event_type": "order_submit", "order_id": "t1", "reason": "sniper_taker_chainlink"},
+                {"event_type": "fill", "order_id": "t1", "token_id": "t2", "side": "BUY", "price": 0.50, "size": 1},
+                {"event_type": "fill", "order_id": "t1", "token_id": "t2", "side": "BUY", "price": 0.50, "size": 1},
+            ]
+            status = [{"gauge.open_orders": 0}]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            paths = report.get("execution_paths", {})
+            self.assertEqual(float(paths.get("maker_submits") or 0.0), 1.0)
+            self.assertEqual(float(paths.get("maker_fills") or 0.0), 2.0)
+            self.assertEqual(float(paths.get("maker_filled_orders") or 0.0), 1.0)
+            self.assertAlmostEqual(float(paths.get("maker_fill_rate") or 0.0), 1.0)
+            self.assertEqual(float(paths.get("taker_bonus_submits") or 0.0), 1.0)
+            self.assertEqual(float(paths.get("taker_bonus_fills") or 0.0), 2.0)
+            self.assertEqual(float(paths.get("taker_bonus_filled_orders") or 0.0), 1.0)
+            self.assertAlmostEqual(float(paths.get("taker_bonus_fill_rate") or 0.0), 1.0)
+
     def test_build_report_run_id_filter(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -453,6 +483,111 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(maker_sizing.get("hard_floor_active_rows") or 0.0), 2.0)
             self.assertEqual(float(maker_sizing.get("depth_scaling_active_rows") or 0.0), 1.0)
             self.assertAlmostEqual(float(maker_sizing.get("resolved_notional_usd_p50") or 0.0), 120.0, places=6)
+
+    def test_build_report_emits_taker_competitiveness_metrics(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-taker-competitiveness",
+                    "evaluation_scope": "taker",
+                    "action_taken": "none",
+                    "block_reason": "taker_outside_final_window",
+                },
+                {
+                    "event_type": "sniper_taker_decision",
+                    "run_id": "rid-taker-competitiveness",
+                    "token_id": "t1",
+                    "timing_window_class": "outside_window",
+                    "edge_abs": 0.08,
+                    "conviction_score": 0.10,
+                    "block_reason": "taker_outside_final_window",
+                    "aggressiveness_level": "none",
+                    "hard_min_unachievable": False,
+                    "dynamic_size_capped_by_risk": False,
+                    "multi_oracle_status": "unknown",
+                    "multi_oracle_confirmation": False,
+                    "multi_oracle_boost_applied": False,
+                },
+                {
+                    "event_type": "sniper_taker_decision",
+                    "run_id": "rid-taker-competitiveness",
+                    "token_id": "t2",
+                    "timing_window_class": "final15",
+                    "edge_abs": 0.24,
+                    "conviction_score": 0.82,
+                    "block_reason": None,
+                    "aggressiveness_level": "final15",
+                    "hard_min_unachievable": False,
+                    "dynamic_size_capped_by_risk": True,
+                    "multi_oracle_status": "confirmed",
+                    "multi_oracle_confirmation": True,
+                    "multi_oracle_boost_applied": True,
+                },
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-taker-competitiveness",
+                    "order_id": "taker-1",
+                    "reason": "sniper_taker_chainlink",
+                    "taker_competitiveness": {
+                        "edge_abs": 0.24,
+                        "conviction_score": 0.82,
+                        "timing_window_class": "final15",
+                        "price_aggress_bps_applied": 2.0,
+                        "hard_min_floor_applied": True,
+                        "dynamic_size_capped_by_risk": True,
+                        "multi_oracle_status": "confirmed",
+                        "multi_oracle_confirmation": True,
+                        "multi_oracle_boost_applied": True,
+                    },
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": "rid-taker-competitiveness",
+                    "order_id": "taker-1",
+                    "token_id": "t2",
+                    "side": "BUY",
+                    "price": 0.5,
+                    "size": 10,
+                    "paper_chainlink_lag_class": "within_window",
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-taker-competitiveness", "gauge.open_orders": 0}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-taker-competitiveness")
+            taker_comp = report.get("taker_competitiveness", {})
+            self.assertEqual(float(taker_comp.get("outside_window_blocked_count_edge_eval") or 0.0), 1.0)
+            decision_blocks = taker_comp.get("decision_block_reason_distribution", {})
+            self.assertEqual(int(decision_blocks.get("taker_outside_final_window", 0)), 1)
+            decision_windows = taker_comp.get("decision_timing_window_distribution", {})
+            self.assertEqual(int(decision_windows.get("outside_window", 0)), 1)
+            self.assertEqual(int(decision_windows.get("final15", 0)), 1)
+            submit_buckets = taker_comp.get("submit_edge_bucket_distribution", {})
+            self.assertEqual(int(submit_buckets.get("0p10_0p30", 0)), 1)
+            fill_buckets = taker_comp.get("fill_edge_bucket_distribution", {})
+            self.assertEqual(int(fill_buckets.get("0p10_0p30", 0)), 1)
+            lag_distribution = taker_comp.get("lag_class_distribution", {})
+            self.assertEqual(int(lag_distribution.get("within_window", 0)), 1)
+            self.assertEqual(float(taker_comp.get("dynamic_size_capped_by_risk_count_decision") or 0.0), 1.0)
+            decision_oracle_status = taker_comp.get("decision_multi_oracle_status_distribution", {})
+            self.assertEqual(int(decision_oracle_status.get("unknown", 0)), 1)
+            self.assertEqual(int(decision_oracle_status.get("confirmed", 0)), 1)
+            submit_oracle_status = taker_comp.get("submit_multi_oracle_status_distribution", {})
+            self.assertEqual(int(submit_oracle_status.get("confirmed", 0)), 1)
+            self.assertEqual(float(taker_comp.get("multi_oracle_confirmation_count_decision") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("multi_oracle_boost_applied_count_decision") or 0.0), 1.0)
+            aggressiveness = taker_comp.get("aggressiveness_application_counts", {})
+            self.assertEqual(int(aggressiveness.get("price_aggressed", 0)), 1)
+            self.assertEqual(int(aggressiveness.get("hard_min_floor_applied", 0)), 1)
 
     def test_build_report_emits_maker_regression_sentinel_triggered_for_near_zero_pattern(self):
         with tempfile.TemporaryDirectory() as td:

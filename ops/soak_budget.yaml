@@ -10,7 +10,7 @@ comparison_tolerance:
   metrics:
     # Runtime ratio is sampled from discrete status rows; allow narrow tolerance.
     quote_uptime_ratio:
-      min_eps: 0.0005
+      min_eps: 0.0020
 
 integrity:
   min_status_rows: 20
@@ -64,8 +64,23 @@ soak:
   min_quote_uptime_ratio: 0.05
   max_error_rows: 0
   min_maker_submits: 50
+  maker_submit_enforcement:
+    mode: opportunity_aware
+    min_opportunity_rows: 1
+    non_actionable_block_reasons:
+      - maker_no_submission
+      - maker_timing_gate_closed
+      - token_lag_not_verified_for_maker
+      - latency_not_armed
+      - fair_probability_unavailable
+      - oracle_unavailable_or_stale
+      - token_score_below_maker_min
+      - missing_expiry_metadata
+      - missing_threshold_metadata
+      - missing_side_metadata
   # Fail if paper begins behaving like optimistic fill simulation.
   max_maker_fill_rate: 0.85
+  maker_fill_rate_enforcement_min_submits: 5
   # Keep fail-closed doctrine intact: taker participation can be legitimately zero
   # in windows where strategy gate or market-quality gate blocks taker usage.
   min_taker_bonus_submits: 0

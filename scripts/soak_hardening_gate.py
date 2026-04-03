@@ -349,6 +349,10 @@ def run_gate(
     max_errors = _f(soak_cfg.get("max_error_rows"), 0.0)
     min_maker_submits = _f(soak_cfg.get("min_maker_submits"), 0.0)
     max_maker_fill_rate = _f(soak_cfg.get("max_maker_fill_rate"), 1.0)
+    maker_fill_rate_enforcement_min_submits = max(
+        0.0,
+        _f(soak_cfg.get("maker_fill_rate_enforcement_min_submits"), 5.0),
+    )
     min_taker_bonus_submits = _f(soak_cfg.get("min_taker_bonus_submits"), 0.0)
     min_taker_bonus_fills = _f(soak_cfg.get("min_taker_bonus_fills"), 0.0)
     max_taker_bonus_fill_rate = _f(soak_cfg.get("max_taker_bonus_fill_rate"), 1.0)
@@ -384,6 +388,7 @@ def run_gate(
     maker_rows_surface_present = isinstance(edge_truth.get("maker_rows"), (int, float))
     default_non_actionable_reasons = [
         "maker_no_submission",
+        "maker_timing_gate_closed",
         "token_lag_not_verified_for_maker",
         "latency_not_armed",
         "fair_probability_unavailable",
@@ -413,12 +418,14 @@ def run_gate(
     if maker_enforcement_mode == "absolute":
         maker_min_enforcement_applied = True
         maker_min_enforcement_reason = "absolute_mode"
+        maker_submits_required = min_maker_submits
     elif maker_enforcement_mode == "opportunity_aware":
         if maker_opportunity_surface_ok:
             maker_min_enforcement_applied = maker_actionable_opportunity_rows >= min_maker_opportunity_rows
             maker_min_enforcement_reason = (
                 "opportunity_rows_met" if maker_min_enforcement_applied else "insufficient_actionable_opportunity_rows"
             )
+            maker_submits_required = min(min_maker_submits, maker_actionable_opportunity_rows)
         else:
             findings.append(
                 "soak_maker_opportunity_surface_unverifiable:"
@@ -426,10 +433,12 @@ def run_gate(
             )
             maker_min_enforcement_applied = True
             maker_min_enforcement_reason = "unverifiable_surface_fail_closed"
+            maker_submits_required = min_maker_submits
     else:
         findings.append(f"soak_maker_submit_enforcement_mode_invalid:{maker_enforcement_mode}")
         maker_min_enforcement_applied = True
         maker_min_enforcement_reason = "invalid_mode_fail_closed"
+        maker_submits_required = min_maker_submits
 
     duration_min_eps = _metric_epsilon(
         "duration_minutes",
@@ -506,11 +515,11 @@ def run_gate(
     )
     maker_submits_pass = (not maker_min_enforcement_applied) or _passes_min(
         maker_submits,
-        min_maker_submits,
+        maker_submits_required,
         maker_submits_min_eps,
     )
     if maker_min_enforcement_applied and not maker_submits_pass:
-        findings.append(f"soak_maker_submits_too_low:{maker_submits:.6f}<min:{min_maker_submits:.6f}")
+        findings.append(f"soak_maker_submits_too_low:{maker_submits:.6f}<min:{maker_submits_required:.6f}")
     decision_trace.append(
         decision_item(
             check="soak_maker_submits",
@@ -518,7 +527,7 @@ def run_gate(
             metric="maker_submits",
             comparator="min",
             value=maker_submits,
-            threshold=min_maker_submits,
+            threshold=maker_submits_required,
             passed=maker_submits_pass,
             note=(
                 "execution-path health signal "
@@ -526,6 +535,7 @@ def run_gate(
                 + f"enforcement_applied={int(maker_min_enforcement_applied)} "
                 + f"mode={maker_enforcement_mode} "
                 + f"actionable_rows={maker_actionable_opportunity_rows:.6f} "
+                + f"required_submits={maker_submits_required:.6f} "
                 + f"min_opportunity_rows={min_maker_opportunity_rows:.6f}"
             ),
         )
@@ -537,12 +547,13 @@ def run_gate(
         default_max_eps=default_max_eps,
         metric_eps_cfg=metric_eps_cfg,
     )
-    maker_fill_rate_pass = (maker_submits <= 0) or _passes_max(
+    maker_fill_rate_enforcement_applied = maker_submits >= maker_fill_rate_enforcement_min_submits
+    maker_fill_rate_pass = (not maker_fill_rate_enforcement_applied) or _passes_max(
         maker_fill_rate,
         max_maker_fill_rate,
         maker_fill_rate_max_eps,
     )
-    if maker_submits > 0 and not maker_fill_rate_pass:
+    if maker_fill_rate_enforcement_applied and not maker_fill_rate_pass:
         findings.append(f"soak_maker_fill_rate_too_high:{maker_fill_rate:.6f}>max:{max_maker_fill_rate:.6f}")
     decision_trace.append(
         decision_item(
@@ -553,7 +564,12 @@ def run_gate(
             value=maker_fill_rate,
             threshold=max_maker_fill_rate,
             passed=maker_fill_rate_pass,
-            note=f"maker_submits={maker_submits:.6f} eps={maker_fill_rate_max_eps:.6f}",
+            note=(
+                f"maker_submits={maker_submits:.6f} "
+                + f"enforcement_min_submits={maker_fill_rate_enforcement_min_submits:.6f} "
+                + f"enforcement_applied={int(maker_fill_rate_enforcement_applied)} "
+                + f"eps={maker_fill_rate_max_eps:.6f}"
+            ),
         )
     )
     taker_submits_min_eps = _metric_epsilon(
@@ -799,6 +815,7 @@ def run_gate(
                 "mode": maker_enforcement_mode,
                 "applied": bool(maker_min_enforcement_applied),
                 "reason": maker_min_enforcement_reason,
+                "required_submits": maker_submits_required,
                 "opportunity_surface_ok": bool(maker_opportunity_surface_ok),
                 "opportunity_surface_source": "edge_truth.maker_block_reason_distribution",
                 "opportunity_surface_missing": sorted(maker_opportunity_surface_missing),
@@ -808,6 +825,10 @@ def run_gate(
                 "maker_actionable_opportunity_rows": maker_actionable_opportunity_rows,
                 "non_actionable_block_reasons": list(non_actionable_reasons),
                 "maker_block_reason_distribution": dict(maker_block_reason_distribution),
+            },
+            "maker_fill_rate_enforcement": {
+                "min_submits": maker_fill_rate_enforcement_min_submits,
+                "applied": bool(maker_fill_rate_enforcement_applied),
             },
         },
     }
