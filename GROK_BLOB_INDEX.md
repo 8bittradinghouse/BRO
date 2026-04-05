@@ -145,3 +145,36 @@ Branch: `consultant/full-snapshot-public-20260402T055838Z`
   - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_execution_stack.py
 - `tests/test_nightly_soak_report.py`
   - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_nightly_soak_report.py
+
+## Sync Pointer (2026-04-05T23:17:23Z)
+
+- Branch: `consultant/full-snapshot-public-20260402T055838Z`
+- Commit: [`5fa55f8`](https://github.com/8bittradinghouse/BRO/commit/5fa55f87726b1c97c993d1cc0b0f1b32e4384e05)
+
+### Changed Files
+- `configs/profiles/paper_universal.yaml`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/configs/profiles/paper_universal.yaml
+- `execution_config.yaml`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/execution_config.yaml
+- `executor.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/executor.py
+- `prodesk/config.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/config.py
+- `prodesk/order_manager.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/order_manager.py
+- `prodesk/pyth_feed.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/pyth_feed.py
+- `prodesk/sniper_tool.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/prodesk/sniper_tool.py
+- `scripts/nightly_soak_report.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/scripts/nightly_soak_report.py
+- `tests/test_doctrine_gating.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_doctrine_gating.py
+- `tests/test_execution_stack.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_execution_stack.py
+- `tests/test_nightly_soak_report.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_nightly_soak_report.py
+- `tests/test_pyth_feed.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_pyth_feed.py
+- `tests/test_sniper_tool.py`
+  - https://github.com/8bittradinghouse/BRO/blob/consultant/full-snapshot-public-20260402T055838Z/tests/test_sniper_tool.py
