@@ -346,6 +346,9 @@ class OrderManager:
         top: BookTop,
         open_orders_for_token: List[LiveOrder],
         open_orders_total: int,
+        open_orders_all: Optional[List[LiveOrder]] = None,
+        reference_mid_by_token: Optional[Dict[str, Optional[float]]] = None,
+        risk_context: Optional[Dict[str, Any]] = None,
         notional_target_usd: Optional[float] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[LiveOrder], Optional[str]]:
@@ -472,7 +475,17 @@ class OrderManager:
                 else intent_ts
             ),
         )
-        decision = self.risk.validate_order(intent_sized, top, open_orders_for_token, open_orders_total)
+        risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
+        risk_context_payload.setdefault("submission_lane", lane)
+        decision = self.risk.validate_order(
+            intent_sized,
+            top,
+            open_orders_for_token,
+            open_orders_total,
+            open_orders_all=open_orders_all,
+            reference_mid_by_token=reference_mid_by_token,
+            risk_context=risk_context_payload,
+        )
         if not decision.allowed:
             self.telemetry.incr("risk_rejects")
             self.telemetry.incr(f"risk_reject_{decision.reason}")
@@ -484,11 +497,17 @@ class OrderManager:
                     "side": intent_sized.side,
                     "price": intent_sized.price,
                     "size": intent_sized.size,
+                    "submission_lane": lane,
                     "reason": decision.reason,
                     "detail": decision.detail,
+                    "risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None),
                 },
             )
-            return _local_reject("risk_reject", detail=f"{decision.reason}:{decision.detail}")
+            return _local_reject(
+                "risk_reject",
+                detail=f"{decision.reason}:{decision.detail}",
+                extra={"risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None)},
+            )
 
         adjusted_intent, cross_clamp = self._maybe_clamp_post_only_intent(intent_sized, top)
         if cross_clamp is not None:
@@ -748,6 +767,7 @@ class OrderManager:
                 "submission_lane": lane,
                 "submission_reject_class": None,
                 "submission_state": "accepted",
+                "risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None),
                 "tif": intent_authorized.tif,
                 "post_only": intent_authorized.post_only,
                 "reason": intent_authorized.reason,
@@ -1194,6 +1214,7 @@ class OrderManager:
         decision_reference_ts_utc: Optional[str] = None,
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
+        realized_volatility: Optional[float] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         outcome = self.place_taker_order_with_outcome(
@@ -1211,6 +1232,7 @@ class OrderManager:
             decision_reference_ts_utc=decision_reference_ts_utc,
             token_median_lag_ms=token_median_lag_ms,
             oracle_tick_age_sec=oracle_tick_age_sec,
+            realized_volatility=realized_volatility,
             competitiveness_context=competitiveness_context,
         )
         return bool(outcome.get("submitted", False))
@@ -1232,6 +1254,7 @@ class OrderManager:
         decision_reference_ts_utc: Optional[str] = None,
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
+        realized_volatility: Optional[float] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         base_size = float(size) if size is not None else float(self.base_order_size)
@@ -1277,11 +1300,21 @@ class OrderManager:
         )
         open_orders = self.tx_manager.get_open_orders()
         token_orders = [o for o in open_orders if o.token_id == token_id]
+        risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        risk_context_payload.setdefault("submission_lane", "taker")
+        risk_context_payload.setdefault("stage", str(intent.stage or "").strip().upper() or "UNKNOWN")
+        if isinstance(realized_volatility, (int, float)):
+            risk_context_payload["realized_volatility"] = float(realized_volatility)
         placed, _submit_reject_reason = self._place_order(
             intent,
             top,
             open_orders_for_token=token_orders,
             open_orders_total=len(open_orders),
+            open_orders_all=open_orders,
+            reference_mid_by_token={
+                token_id: (float(top.midpoint) if isinstance(top.midpoint, (int, float)) else None)
+            },
+            risk_context=risk_context_payload,
             notional_target_usd=target_usd,
             competitiveness_context=competitiveness_context,
         )
@@ -1421,6 +1454,14 @@ class OrderManager:
             open_orders, canceled_actions = self._cancel_orphan_orders(open_orders, tracked, max_actions=max_actions)
             actions += canceled_actions
         open_orders_total = len(open_orders)
+        reference_mid_by_token: Dict[str, Optional[float]] = {
+            str(token_id): (
+                float(top.midpoint)
+                if top is not None and isinstance(getattr(top, "midpoint", None), (int, float))
+                else None
+            )
+            for token_id, top in books.items()
+        }
         by_token: Dict[str, List[LiveOrder]] = {}
         for order in open_orders:
             by_token.setdefault(order.token_id, []).append(order)
@@ -1533,11 +1574,18 @@ class OrderManager:
                             _record_maker_no_submission_reason(token_id, "replace_cancel_unavailable")
                     if actions >= max_actions:
                         break
+                    risk_context_payload = dict(token_competitiveness_context) if isinstance(token_competitiveness_context, dict) else {}
+                    risk_context_payload.setdefault("submission_lane", "maker")
+                    if isinstance(realized_vol, (int, float)):
+                        risk_context_payload["realized_volatility"] = float(realized_vol)
                     placed, submit_reject_reason = self._place_order(
                         desired_intent,
                         top,
                         open_orders_for_token=token_orders,
                         open_orders_total=open_orders_total,
+                        open_orders_all=[order for rows in by_token.values() for order in rows],
+                        reference_mid_by_token=reference_mid_by_token,
+                        risk_context=risk_context_payload,
                         competitiveness_context=token_competitiveness_context,
                     )
                     if placed is not None:

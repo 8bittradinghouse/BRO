@@ -2089,6 +2089,7 @@ class ExecutionRunner:
         *,
         books: Dict[str, Any],
         fair_probability_by_token: Dict[str, float],
+        realized_volatility_by_token: Optional[Dict[str, float]] = None,
         secondary_fair_probability_by_token: Optional[Dict[str, float]] = None,
         secondary_oracle_base_status: str = "disabled",
         token_ids: list[str],
@@ -2377,6 +2378,12 @@ class ExecutionRunner:
                                     oracle_tick_age_sec=(
                                         float(oracle_tick_age_sec)
                                         if isinstance(oracle_tick_age_sec, (int, float))
+                                        else None
+                                    ),
+                                    realized_volatility=(
+                                        float(realized_volatility_by_token.get(token_id))
+                                        if isinstance(realized_volatility_by_token, dict)
+                                        and isinstance(realized_volatility_by_token.get(token_id), (int, float))
                                         else None
                                     ),
                                     competitiveness_context=competitiveness_context,
@@ -3768,6 +3775,7 @@ class ExecutionRunner:
                         taker_summary = self._run_sniper_taker(
                             books=books,
                             fair_probability_by_token=fair_probability_by_token,
+                            realized_volatility_by_token=volatility_by_token,
                             secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                             secondary_oracle_base_status=secondary_oracle_base_status,
                             token_ids=[str(token_id) for token_id in near_tokens],
@@ -3879,6 +3887,7 @@ class ExecutionRunner:
                             taker_summary = self._run_sniper_taker(
                                 books=books,
                                 fair_probability_by_token=fair_probability_by_token,
+                                realized_volatility_by_token=volatility_by_token,
                                 secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                                 secondary_oracle_base_status=secondary_oracle_base_status,
                                 token_ids=[str(token_id) for token_id in near_tokens],

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 @dataclasses.dataclass
@@ -115,3 +115,4 @@ class RiskDecision:
     allowed: bool
     reason: str
     detail: Optional[str] = None
+    basis: Optional[Dict[str, Any]] = None

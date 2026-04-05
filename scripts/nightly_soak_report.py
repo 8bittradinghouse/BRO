@@ -1469,6 +1469,55 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     }
 
 
+def _risk_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    decision_count_by_lane = Counter()
+    reject_count_by_lane = Counter()
+    reject_reason_distribution = Counter()
+    scaling_class_distribution = Counter()
+    exposure_utilization_ratios: List[float] = []
+    near_cap_count = 0.0
+
+    for evt in events:
+        event_type = str(evt.get("event_type") or "").strip()
+        if event_type not in {"order_submit", "risk_reject"}:
+            continue
+        lane = str(evt.get("submission_lane") or "unknown").strip().lower() or "unknown"
+        if event_type == "risk_reject":
+            reason = str(evt.get("reason") or "unknown").strip().lower() or "unknown"
+            reject_reason_distribution[reason] += 1
+            reject_count_by_lane[lane] += 1
+        basis = evt.get("risk_decision_basis")
+        if not isinstance(basis, dict):
+            continue
+        decision_count_by_lane[lane] += 1
+        dynamic_scaling = basis.get("dynamic_scaling")
+        if isinstance(dynamic_scaling, dict):
+            scaling_class = str(dynamic_scaling.get("scaling_class") or "unknown").strip().lower() or "unknown"
+            scaling_class_distribution[scaling_class] += 1
+        global_guard = basis.get("global_exposure_guard")
+        if isinstance(global_guard, dict):
+            ratio = _safe_float(global_guard.get("projected_to_cap_ratio"), default=-1.0)
+            if ratio >= 0.0:
+                exposure_utilization_ratios.append(float(ratio))
+            if bool(global_guard.get("near_cap", False)):
+                near_cap_count += 1.0
+
+    return {
+        "decision_count_by_lane": dict(sorted(decision_count_by_lane.items(), key=lambda item: item[0])),
+        "reject_count_by_lane": dict(sorted(reject_count_by_lane.items(), key=lambda item: item[0])),
+        "reject_reason_distribution": dict(sorted(reject_reason_distribution.items(), key=lambda item: item[0])),
+        "scaling_class_distribution": dict(sorted(scaling_class_distribution.items(), key=lambda item: item[0])),
+        "global_exposure_utilization_sample_count": float(len(exposure_utilization_ratios)),
+        "global_exposure_utilization_ratio_p50": _percentile(exposure_utilization_ratios, 0.50),
+        "global_exposure_utilization_ratio_p90": _percentile(exposure_utilization_ratios, 0.90),
+        "global_exposure_utilization_ratio_max": (
+            max(exposure_utilization_ratios) if exposure_utilization_ratios else 0.0
+        ),
+        "global_exposure_near_cap_count": float(near_cap_count),
+        "global_exposure_cap_reject_count": float(reject_reason_distribution.get("global_exposure_cap", 0)),
+    }
+
+
 def _maker_sizing_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     maker_submit_rows = 0
     maker_size_resolution_rows = 0
@@ -1615,6 +1664,7 @@ def build_report(
     edge_quality = _edge_quality_by_regime(events)
     maker_competitiveness = _maker_competitiveness_stats(events)
     taker_competitiveness = _taker_competitiveness_stats(events)
+    risk_competitiveness = _risk_competitiveness_stats(events)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
@@ -1697,6 +1747,7 @@ def build_report(
         "edge_truth": edge_truth,
         "maker_competitiveness": maker_competitiveness,
         "taker_competitiveness": taker_competitiveness,
+        "risk_competitiveness": risk_competitiveness,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
         "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
@@ -1757,6 +1808,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
     taker_comp = report.get("taker_competitiveness", {}) if isinstance(report.get("taker_competitiveness"), dict) else {}
+    risk_comp = report.get("risk_competitiveness", {}) if isinstance(report.get("risk_competitiveness"), dict) else {}
     maker_size_comp = (
         report.get("maker_sizing_competitiveness", {})
         if isinstance(report.get("maker_sizing_competitiveness"), dict)
@@ -1827,6 +1879,13 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"hard_min_unachievable={int(_safe_float(taker_comp.get('hard_min_unachievable_count_decision')))},"
             + f"dynamic_capped={int(_safe_float(taker_comp.get('dynamic_size_capped_by_risk_count_decision')))},"
             + f"aggressiveness={json.dumps(taker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
+        ),
+        (
+            "risk_competitiveness="
+            + f"decisions={json.dumps(risk_comp.get('decision_count_by_lane', {}), sort_keys=True)},"
+            + f"rejects={json.dumps(risk_comp.get('reject_count_by_lane', {}), sort_keys=True)},"
+            + f"scaling_classes={json.dumps(risk_comp.get('scaling_class_distribution', {}), sort_keys=True)},"
+            + f"global_exposure_rejects={int(_safe_float(risk_comp.get('global_exposure_cap_reject_count')))}"
         ),
         (
             "maker_sizing_competitiveness="

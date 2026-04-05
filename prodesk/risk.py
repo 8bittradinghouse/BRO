@@ -4,7 +4,7 @@ import collections
 import datetime as dt
 import math
 import time
-from typing import Callable, Deque, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from .common import parse_ts, utc_now
 from .models import BookTop, FillEvent, OrderIntent, Position, RiskDecision
@@ -84,6 +84,212 @@ class RiskEngine:
             pending_shares += remaining
             pending_notional += remaining * self._order_price(order, fallback=fallback_price)
         return pending_shares, pending_notional
+
+    @staticmethod
+    def _safe_float(value: Any) -> Optional[float]:
+        try:
+            out = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(out):
+            return None
+        return float(out)
+
+    @staticmethod
+    def _hour_in_window(hour: int, start_hour: int, end_hour: int) -> bool:
+        if start_hour == end_hour:
+            return True
+        if start_hour < end_hour:
+            return start_hour <= hour < end_hour
+        return hour >= start_hour or hour < end_hour
+
+    def _resolve_dynamic_scaling(
+        self,
+        *,
+        risk_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[float, Dict[str, Any]]:
+        cfg = self.cfg.get("dynamic_scaling", {})
+        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
+            return 1.0, {
+                "enabled": False,
+                "effective_multiplier": 1.0,
+                "scaling_class": "neutral",
+                "unknown_inputs": [],
+            }
+        ctx = risk_context if isinstance(risk_context, dict) else {}
+        unknown_inputs: List[str] = []
+
+        vol_mult = 1.0
+        vol_component = "disabled"
+        if bool(cfg.get("volatility_enabled", True)):
+            vol = self._safe_float(ctx.get("realized_volatility"))
+            if vol is None:
+                vol_component = "unknown_input"
+                unknown_inputs.append("realized_volatility")
+            else:
+                low = max(0.0, float(cfg.get("volatility_low_threshold", 0.0015)))
+                high = max(low, float(cfg.get("volatility_high_threshold", 0.008)))
+                low_mult = max(1e-6, float(cfg.get("volatility_low_mult", 1.05)))
+                high_mult = max(1e-6, float(cfg.get("volatility_high_mult", 0.85)))
+                if vol <= low:
+                    vol_mult = low_mult
+                    vol_component = "low_vol_aggressive"
+                elif vol >= high:
+                    vol_mult = high_mult
+                    vol_component = "high_vol_conservative"
+                else:
+                    vol_component = "neutral_band"
+
+        tod_mult = 1.0
+        tod_component = "disabled"
+        used_hour_utc = int(self._utc_now().hour)
+        if bool(cfg.get("tod_enabled", True)):
+            hour = self._safe_float(ctx.get("tod_hour_utc"))
+            if hour is None:
+                hour = float(self._utc_now().hour)
+            used_hour_utc = int(hour) % 24
+            start = int(float(cfg.get("tod_start_hour_utc", 2)))
+            end = int(float(cfg.get("tod_end_hour_utc", 6)))
+            in_window = self._hour_in_window(used_hour_utc, start, end)
+            if in_window:
+                tod_mult = max(1e-6, float(cfg.get("tod_thin_liquidity_mult", 0.9)))
+                tod_component = "thin_liquidity_window"
+            else:
+                tod_component = "regular_liquidity_window"
+
+        edge_mult = 1.0
+        edge_component = "disabled"
+        if bool(cfg.get("edge_enabled", True)):
+            edge_abs = self._safe_float(ctx.get("edge_abs"))
+            if edge_abs is None:
+                edge_component = "unknown_input"
+                unknown_inputs.append("edge_abs")
+            else:
+                start = max(0.0, float(cfg.get("edge_start_abs", 0.10)))
+                full = max(start, float(cfg.get("edge_full_abs", 0.30)))
+                edge_mult_max = max(1.0, float(cfg.get("edge_mult_max", 1.15)))
+                if edge_abs <= start:
+                    edge_component = "below_start"
+                elif edge_abs >= full:
+                    edge_mult = edge_mult_max
+                    edge_component = "at_or_above_full"
+                else:
+                    span = max(1e-9, full - start)
+                    frac = max(0.0, min(1.0, (edge_abs - start) / span))
+                    edge_mult = 1.0 + ((edge_mult_max - 1.0) * frac)
+                    edge_component = "between_start_full"
+
+        raw_multiplier = float(vol_mult) * float(tod_mult) * float(edge_mult)
+        min_mult = max(1e-6, float(cfg.get("min_effective_mult", 0.75)))
+        max_mult = max(min_mult, float(cfg.get("max_effective_mult", 1.25)))
+        effective_multiplier = max(min_mult, min(max_mult, raw_multiplier))
+
+        unknown_policy = str(cfg.get("unknown_input_policy", "no_aggressive_uplift")).strip().lower()
+        if unknown_inputs and unknown_policy == "no_aggressive_uplift" and effective_multiplier > 1.0:
+            effective_multiplier = 1.0
+
+        scaling_class = "neutral"
+        if unknown_inputs and abs(effective_multiplier - 1.0) <= 1e-9:
+            scaling_class = "unknown_input"
+        elif effective_multiplier < 1.0 - 1e-9:
+            scaling_class = "conservative"
+        elif effective_multiplier > 1.0 + 1e-9:
+            scaling_class = "aggressive"
+
+        return float(effective_multiplier), {
+            "enabled": True,
+            "effective_multiplier": float(effective_multiplier),
+            "raw_multiplier": float(raw_multiplier),
+            "min_effective_mult": float(min_mult),
+            "max_effective_mult": float(max_mult),
+            "scaling_class": scaling_class,
+            "unknown_inputs": sorted(set(unknown_inputs)),
+            "unknown_input_policy": unknown_policy,
+            "components": {
+                "volatility": {
+                    "component_class": vol_component,
+                    "multiplier": float(vol_mult),
+                    "realized_volatility": self._safe_float(ctx.get("realized_volatility")),
+                },
+                "tod": {
+                    "component_class": tod_component,
+                    "multiplier": float(tod_mult),
+                    "hour_utc": int(used_hour_utc),
+                },
+                "edge": {
+                    "component_class": edge_component,
+                    "multiplier": float(edge_mult),
+                    "edge_abs": self._safe_float(ctx.get("edge_abs")),
+                },
+            },
+        }
+
+    def _global_exposure_snapshot(
+        self,
+        *,
+        intent: OrderIntent,
+        open_orders_all: List[object],
+        reference_mid_by_token: Dict[str, Optional[float]],
+        effective_multiplier: float,
+    ) -> Dict[str, Any]:
+        cfg = self.cfg.get("global_exposure_guard", {})
+        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
+            return {
+                "enabled": False,
+                "projected_total_notional": 0.0,
+                "projected_to_cap_ratio": 0.0,
+                "within_cap": True,
+            }
+
+        base_cap = max(0.0, float(cfg.get("max_global_notional_usd", 0.0)))
+        effective_cap = float(base_cap * max(0.0, float(effective_multiplier)))
+        near_cap_ratio = max(0.0, float(cfg.get("near_cap_ratio", 0.85)))
+
+        position_notional = 0.0
+        unknown_position_tokens: List[str] = []
+        for token_id, pos in self.positions.items():
+            px = self._safe_float(reference_mid_by_token.get(token_id))
+            if px is None or px <= 0.0:
+                if pos.net_shares > 0 and isinstance(pos.avg_buy_price, (int, float)):
+                    px = float(pos.avg_buy_price)
+                elif pos.net_shares < 0 and isinstance(pos.avg_sell_price, (int, float)):
+                    px = float(pos.avg_sell_price)
+                elif token_id == intent.token_id:
+                    px = float(intent.price)
+            if px is None or px <= 0.0:
+                unknown_position_tokens.append(str(token_id))
+                continue
+            position_notional += abs(float(pos.net_shares)) * float(px)
+
+        resting_notional = 0.0
+        for order in open_orders_all:
+            remaining = self._order_remaining_size(order)
+            if remaining <= 0.0:
+                continue
+            order_token = str(getattr(order, "token_id", "") or "")
+            fallback_price = self._safe_float(reference_mid_by_token.get(order_token))
+            if fallback_price is None or fallback_price <= 0.0:
+                fallback_price = float(intent.price if order_token == intent.token_id else 0.0)
+            resting_notional += remaining * self._order_price(order, fallback=float(fallback_price))
+
+        incoming_notional = abs(float(intent.size) * float(intent.price))
+        projected_total = float(position_notional + resting_notional + incoming_notional)
+        ratio = (projected_total / effective_cap) if effective_cap > 0.0 else math.inf
+        within_cap = bool(effective_cap > 0.0 and projected_total <= effective_cap + 1e-9)
+        return {
+            "enabled": True,
+            "base_cap_usd": float(base_cap),
+            "effective_cap_usd": float(effective_cap),
+            "near_cap_ratio": float(near_cap_ratio),
+            "projected_total_notional": float(projected_total),
+            "projected_to_cap_ratio": float(ratio if math.isfinite(ratio) else 0.0),
+            "position_notional": float(position_notional),
+            "resting_open_order_notional": float(resting_notional),
+            "incoming_intent_notional": float(incoming_notional),
+            "unknown_position_tokens": sorted(set(unknown_position_tokens)),
+            "within_cap": within_cap,
+            "near_cap": bool(effective_cap > 0.0 and ratio >= near_cap_ratio),
+        }
 
     def _prune(self, window_sec: float = 60.0) -> None:
         now = self._monotonic()
@@ -190,42 +396,78 @@ class RiskEngine:
         top: BookTop,
         open_orders_for_token: List[object],
         open_orders_total: int,
+        open_orders_all: Optional[List[object]] = None,
+        reference_mid_by_token: Optional[Dict[str, Optional[float]]] = None,
+        risk_context: Optional[Dict[str, Any]] = None,
     ) -> RiskDecision:
         if self.kill_switch:
-            return RiskDecision(False, "kill_switch", self.kill_reason)
+            return RiskDecision(False, "kill_switch", self.kill_reason, basis={"risk_authority": "kill_switch"})
 
         self._prune()
         if len(self.order_timestamps) >= int(self.cfg["max_orders_per_min"]):
-            return RiskDecision(False, "order_rate_limit", "max orders/min reached")
+            return RiskDecision(False, "order_rate_limit", "max orders/min reached", basis={"risk_authority": "order_rate"})
 
         is_aggressive = bool(intent.post_only is False) or intent.tif.upper() in {"IOC", "FOK"}
         if not is_aggressive:
             if len(open_orders_for_token) >= int(self.cfg["max_open_orders_per_token"]):
-                return RiskDecision(False, "open_orders_token_cap", "too many open orders for token")
+                return RiskDecision(
+                    False,
+                    "open_orders_token_cap",
+                    "too many open orders for token",
+                    basis={"risk_authority": "open_orders_token_cap"},
+                )
             if open_orders_total >= int(self.cfg["max_total_open_orders"]):
-                return RiskDecision(False, "open_orders_global_cap", "too many global open orders")
+                return RiskDecision(
+                    False,
+                    "open_orders_global_cap",
+                    "too many global open orders",
+                    basis={"risk_authority": "open_orders_global_cap"},
+                )
 
         if intent.size < float(self.cfg["min_order_size"]):
-            return RiskDecision(False, "size_too_small", f"size={intent.size}")
+            return RiskDecision(False, "size_too_small", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
         if intent.size > float(self.cfg["max_order_size"]):
-            return RiskDecision(False, "size_too_large", f"size={intent.size}")
+            return RiskDecision(False, "size_too_large", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
 
         if not (0.0 < intent.price < 1.0):
-            return RiskDecision(False, "invalid_price", f"price={intent.price}")
+            return RiskDecision(False, "invalid_price", f"price={intent.price}", basis={"risk_authority": "price_bounds"})
 
         ts = parse_ts(top.ts_utc)
         if ts is None:
-            return RiskDecision(False, "bad_book_timestamp", top.ts_utc)
+            return RiskDecision(False, "bad_book_timestamp", top.ts_utc, basis={"risk_authority": "book_freshness"})
         age = (self._utc_now() - ts).total_seconds()
         max_future_skew = float(self.cfg.get("max_book_future_skew_sec", 2.0))
         if age < -max_future_skew:
-            return RiskDecision(False, "future_book_timestamp", f"age_sec={age:.3f}")
+            return RiskDecision(False, "future_book_timestamp", f"age_sec={age:.3f}", basis={"risk_authority": "book_freshness"})
         if age > float(self.cfg["max_book_age_sec"]):
-            return RiskDecision(False, "stale_book", f"age_sec={age:.3f}")
+            return RiskDecision(False, "stale_book", f"age_sec={age:.3f}", basis={"risk_authority": "book_freshness"})
 
         if top.best_bid_price is not None and top.best_ask_price is not None:
             if top.best_bid_price > top.best_ask_price and not bool(self.cfg.get("allow_crossed_quotes", False)):
-                return RiskDecision(False, "crossed_market", "bid > ask")
+                return RiskDecision(False, "crossed_market", "bid > ask", basis={"risk_authority": "market_sanity"})
+
+        context = risk_context if isinstance(risk_context, dict) else {}
+        effective_multiplier, dynamic_scaling_basis = self._resolve_dynamic_scaling(risk_context=context)
+        max_abs_position_base = float(self.cfg["max_abs_position_shares"])
+        max_notional_base = float(self.cfg["max_notional_per_token"])
+        max_abs_position_effective = max(1e-9, max_abs_position_base * float(effective_multiplier))
+        max_notional_effective = max(1e-9, max_notional_base * float(effective_multiplier))
+        basis_base: Dict[str, Any] = {
+            "risk_authority": "risk_engine_v2",
+            "submission_lane": str(context.get("submission_lane") or "unknown"),
+            "stage": str(context.get("stage") or "unknown"),
+            "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
+            "edge_abs": self._safe_float(context.get("edge_abs")),
+            "realized_volatility": self._safe_float(context.get("realized_volatility")),
+            "dynamic_scaling": dynamic_scaling_basis,
+            "effective_caps": {
+                "max_abs_position_shares_base": float(max_abs_position_base),
+                "max_abs_position_shares_effective": float(max_abs_position_effective),
+                "max_notional_per_token_base": float(max_notional_base),
+                "max_notional_per_token_effective": float(max_notional_effective),
+                "effective_multiplier": float(effective_multiplier),
+            },
+        }
 
         pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
         pending_same_side_shares, pending_same_side_notional = self._pending_same_side_exposure(
@@ -235,39 +477,79 @@ class RiskEngine:
         )
         pending_signed = pending_same_side_shares if intent.side == "BUY" else -pending_same_side_shares
         projected = pos.net_shares + pending_signed + (intent.size if intent.side == "BUY" else -intent.size)
-        if abs(projected) > float(self.cfg["max_abs_position_shares"]):
+        if abs(projected) > float(max_abs_position_effective):
             return RiskDecision(
                 False,
                 "position_cap",
                 f"projected={projected:.2f},pending_same_side={pending_same_side_shares:.2f}",
+                basis={
+                    **basis_base,
+                    "projected_position_shares": float(projected),
+                    "pending_same_side_shares": float(pending_same_side_shares),
+                },
             )
 
-        max_notional = float(self.cfg["max_notional_per_token"])
         exposure_cap_mode = str(self.cfg.get("exposure_cap_mode", "per_market_total")).strip().lower()
         projected_notional = abs(projected * intent.price)
         if exposure_cap_mode == "per_side":
             projected_long = max(0.0, projected) * intent.price
             projected_short = max(0.0, -projected) * intent.price
-            if intent.side == "BUY" and projected_long > max_notional:
+            if intent.side == "BUY" and projected_long > max_notional_effective:
                 return RiskDecision(
                     False,
                     "notional_cap_long",
                     f"projected_long_notional={projected_long:.2f},pending_same_side_notional={pending_same_side_notional:.2f}",
+                    basis={
+                        **basis_base,
+                        "projected_long_notional": float(projected_long),
+                        "pending_same_side_notional": float(pending_same_side_notional),
+                    },
                 )
-            if intent.side == "SELL" and projected_short > max_notional:
+            if intent.side == "SELL" and projected_short > max_notional_effective:
                 return RiskDecision(
                     False,
                     "notional_cap_short",
                     f"projected_short_notional={projected_short:.2f},pending_same_side_notional={pending_same_side_notional:.2f}",
+                    basis={
+                        **basis_base,
+                        "projected_short_notional": float(projected_short),
+                        "pending_same_side_notional": float(pending_same_side_notional),
+                    },
                 )
-        elif projected_notional > max_notional:
+        elif projected_notional > max_notional_effective:
             return RiskDecision(
                 False,
                 "notional_cap",
                 f"projected_notional={projected_notional:.2f},pending_same_side_notional={pending_same_side_notional:.2f}",
+                basis={
+                    **basis_base,
+                    "projected_notional": float(projected_notional),
+                    "pending_same_side_notional": float(pending_same_side_notional),
+                },
             )
 
-        return RiskDecision(True, "ok")
+        global_snapshot = self._global_exposure_snapshot(
+            intent=intent,
+            open_orders_all=list(open_orders_all or open_orders_for_token),
+            reference_mid_by_token=(
+                dict(reference_mid_by_token) if isinstance(reference_mid_by_token, dict) else {intent.token_id: intent.price}
+            ),
+            effective_multiplier=float(effective_multiplier),
+        )
+        if bool(global_snapshot.get("enabled", False)) and not bool(global_snapshot.get("within_cap", True)):
+            return RiskDecision(
+                False,
+                "global_exposure_cap",
+                (
+                    "projected_global_notional="
+                    + f"{float(global_snapshot.get('projected_total_notional', 0.0)):.2f},"
+                    + "effective_global_cap="
+                    + f"{float(global_snapshot.get('effective_cap_usd', 0.0)):.2f}"
+                ),
+                basis={**basis_base, "global_exposure_guard": global_snapshot},
+            )
+
+        return RiskDecision(True, "ok", basis={**basis_base, "global_exposure_guard": global_snapshot})
 
     def mark_to_market(self, mid_by_token: Dict[str, Optional[float]]) -> Tuple[float, Dict[str, float]]:
         pnl_by_token: Dict[str, float] = {}

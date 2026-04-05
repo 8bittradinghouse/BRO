@@ -40,6 +40,13 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_invalid_risk_dynamic_scaling_bounds(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["risk"]["dynamic_scaling"]["min_effective_mult"] = 0.9
+        cfg["risk"]["dynamic_scaling"]["max_effective_mult"] = 0.8
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_config_rejects_invalid_token_side_metadata(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -940,6 +947,89 @@ class ExecutionStackTests(unittest.TestCase):
                 FillEvent(trade_id="x3", token_id="t1", side="BUY", price=0.4, size=1.0, ts_utc=utc_iso())
             )
             self.assertEqual(manager.snapshot_seen_trade_ids(), ["x2", "x3"])
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_risk_decision_basis_emitted_on_reject_and_accept(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_notional_per_token"] = 5.0
+            risk_cfg["dynamic_scaling"]["enabled"] = True
+            risk_cfg["dynamic_scaling"]["edge_enabled"] = True
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+
+            rejected_intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=20.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+            )
+            placed, reject_reason = manager._place_order(rejected_intent, top, open_orders_for_token=[], open_orders_total=0)
+            self.assertIsNone(placed)
+            self.assertEqual(reject_reason, "risk_reject")
+
+            accepted_intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+            )
+            placed_ok, accept_reason = manager._place_order(accepted_intent, top, open_orders_for_token=[], open_orders_total=0)
+            self.assertIsNotNone(placed_ok)
+            self.assertIsNone(accept_reason)
+
+            events.close()
+            events = None
+            risk_reject_rows: list[dict] = []
+            order_submit_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "risk_reject":
+                        risk_reject_rows.append(payload)
+                    if str(payload.get("event_type") or "") == "order_submit":
+                        order_submit_rows.append(payload)
+            self.assertTrue(risk_reject_rows)
+            self.assertTrue(order_submit_rows)
+            reject_basis = risk_reject_rows[-1].get("risk_decision_basis")
+            submit_basis = order_submit_rows[-1].get("risk_decision_basis")
+            self.assertIsInstance(reject_basis, dict)
+            self.assertIsInstance(submit_basis, dict)
+            self.assertTrue(isinstance((reject_basis or {}).get("dynamic_scaling"), dict))
+            self.assertTrue(isinstance((submit_basis or {}).get("dynamic_scaling"), dict))
         finally:
             if events is not None:
                 events.close()

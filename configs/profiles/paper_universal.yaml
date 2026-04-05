@@ -32,7 +32,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: e4e83f89531fe47dba1feabd70023a98c9a8709b4a605817ad46234bb3d4d55c
+  paper_expected_config_fingerprint_sha256: 396386830c91ad725daef65e15c5b50a43d560fa7c6567e9d98a78ed059cd32b
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -82,6 +82,30 @@ sizing:
   maker_liquidity_tod_start_hour_utc: 2
   maker_liquidity_tod_end_hour_utc: 6
   maker_liquidity_tod_depth_multiplier: 0.6
+
+risk:
+  dynamic_scaling:
+    enabled: true
+    volatility_enabled: true
+    volatility_low_threshold: 0.0015
+    volatility_high_threshold: 0.008
+    volatility_low_mult: 1.05
+    volatility_high_mult: 0.85
+    tod_enabled: true
+    tod_start_hour_utc: 2
+    tod_end_hour_utc: 6
+    tod_thin_liquidity_mult: 0.9
+    edge_enabled: true
+    edge_start_abs: 0.10
+    edge_full_abs: 0.30
+    edge_mult_max: 1.15
+    min_effective_mult: 0.75
+    max_effective_mult: 1.25
+    unknown_input_policy: no_aggressive_uplift
+  global_exposure_guard:
+    enabled: true
+    max_global_notional_usd: 800.0
+    near_cap_ratio: 0.85
 
 # Grok-informed bounded lag accommodation:
 # keep fail-closed behavior but avoid overreacting to short-lived oracle jitter.

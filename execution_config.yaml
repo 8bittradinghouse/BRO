@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "61a0395fd544d845da63c2eecef902d8ef109c6adeee87cda392363544774dc4"
+  paper_expected_config_fingerprint_sha256: "e412d12cccb00135d3b6038f7e10c0bf46006382024edb1c97339a5fa447c6ed"
 
 storage:
   log_dir: "./logs_exec"
@@ -303,6 +303,28 @@ risk:
   allow_crossed_quotes: false
   max_total_loss: null
   max_loss_per_token: null
+  dynamic_scaling:
+    enabled: false
+    volatility_enabled: true
+    volatility_low_threshold: 0.0015
+    volatility_high_threshold: 0.008
+    volatility_low_mult: 1.05
+    volatility_high_mult: 0.85
+    tod_enabled: true
+    tod_start_hour_utc: 2
+    tod_end_hour_utc: 6
+    tod_thin_liquidity_mult: 0.9
+    edge_enabled: true
+    edge_start_abs: 0.10
+    edge_full_abs: 0.30
+    edge_mult_max: 1.15
+    min_effective_mult: 0.75
+    max_effective_mult: 1.25
+    unknown_input_policy: no_aggressive_uplift
+  global_exposure_guard:
+    enabled: false
+    max_global_notional_usd: 800.0
+    near_cap_ratio: 0.85
 
 alerts:
   enabled: false

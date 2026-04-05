@@ -100,6 +100,48 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertAlmostEqual(float(row.get("adverse_selection", 0.0)), 0.0, places=6)
             self.assertAlmostEqual(float(row.get("net", 0.0)), 0.2, places=6)
 
+    def test_build_report_includes_risk_competitiveness_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "risk_reject",
+                    "submission_lane": "maker",
+                    "reason": "global_exposure_cap",
+                    "risk_decision_basis": {
+                        "dynamic_scaling": {"scaling_class": "conservative"},
+                        "global_exposure_guard": {"projected_to_cap_ratio": 1.05, "near_cap": True},
+                    },
+                },
+                {
+                    "event_type": "order_submit",
+                    "submission_lane": "taker",
+                    "order_id": "o1",
+                    "reason": "sniper_taker_chainlink",
+                    "risk_decision_basis": {
+                        "dynamic_scaling": {"scaling_class": "aggressive"},
+                        "global_exposure_guard": {"projected_to_cap_ratio": 0.60, "near_cap": False},
+                    },
+                },
+            ]
+            status = [{"gauge.open_orders": 0}]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            risk_comp = report.get("risk_competitiveness", {})
+            self.assertIsInstance(risk_comp, dict)
+            self.assertEqual(float((risk_comp.get("decision_count_by_lane") or {}).get("maker", 0.0)), 1.0)
+            self.assertEqual(float((risk_comp.get("decision_count_by_lane") or {}).get("taker", 0.0)), 1.0)
+            self.assertEqual(float((risk_comp.get("reject_count_by_lane") or {}).get("maker", 0.0)), 1.0)
+            self.assertEqual(float(risk_comp.get("global_exposure_cap_reject_count", 0.0)), 1.0)
+            self.assertEqual(float((risk_comp.get("scaling_class_distribution") or {}).get("conservative", 0.0)), 1.0)
+            self.assertEqual(float((risk_comp.get("scaling_class_distribution") or {}).get("aggressive", 0.0)), 1.0)
+
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

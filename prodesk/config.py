@@ -332,6 +332,30 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "allow_crossed_quotes": False,
         "max_total_loss": None,
         "max_loss_per_token": None,
+        "dynamic_scaling": {
+            "enabled": False,
+            "volatility_enabled": True,
+            "volatility_low_threshold": 0.0015,
+            "volatility_high_threshold": 0.0080,
+            "volatility_low_mult": 1.05,
+            "volatility_high_mult": 0.85,
+            "tod_enabled": True,
+            "tod_start_hour_utc": 2,
+            "tod_end_hour_utc": 6,
+            "tod_thin_liquidity_mult": 0.90,
+            "edge_enabled": True,
+            "edge_start_abs": 0.10,
+            "edge_full_abs": 0.30,
+            "edge_mult_max": 1.15,
+            "min_effective_mult": 0.75,
+            "max_effective_mult": 1.25,
+            "unknown_input_policy": "no_aggressive_uplift",
+        },
+        "global_exposure_guard": {
+            "enabled": False,
+            "max_global_notional_usd": 800.0,
+            "near_cap_ratio": 0.85,
+        },
     },
     "alerts": {
         "enabled": False,
@@ -1120,6 +1144,66 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.max_cancels_per_min", cfg["risk"]["max_cancels_per_min"])
     _require_positive("risk.max_book_age_sec", cfg["risk"]["max_book_age_sec"])
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
+    risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
+    if not isinstance(risk_dynamic_cfg, dict):
+        raise ValueError("risk.dynamic_scaling must be a mapping")
+    _require_positive(
+        "risk.dynamic_scaling.volatility_low_threshold",
+        risk_dynamic_cfg.get("volatility_low_threshold"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.dynamic_scaling.volatility_high_threshold",
+        risk_dynamic_cfg.get("volatility_high_threshold"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.dynamic_scaling.volatility_low_mult",
+        risk_dynamic_cfg.get("volatility_low_mult"),
+    )
+    _require_positive(
+        "risk.dynamic_scaling.volatility_high_mult",
+        risk_dynamic_cfg.get("volatility_high_mult"),
+    )
+    _require_positive(
+        "risk.dynamic_scaling.tod_start_hour_utc",
+        risk_dynamic_cfg.get("tod_start_hour_utc"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.dynamic_scaling.tod_end_hour_utc",
+        risk_dynamic_cfg.get("tod_end_hour_utc"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.dynamic_scaling.tod_thin_liquidity_mult",
+        risk_dynamic_cfg.get("tod_thin_liquidity_mult"),
+    )
+    _require_fraction(
+        "risk.dynamic_scaling.edge_start_abs",
+        risk_dynamic_cfg.get("edge_start_abs"),
+        allow_zero=True,
+    )
+    _require_fraction(
+        "risk.dynamic_scaling.edge_full_abs",
+        risk_dynamic_cfg.get("edge_full_abs"),
+        allow_zero=True,
+    )
+    _require_positive("risk.dynamic_scaling.edge_mult_max", risk_dynamic_cfg.get("edge_mult_max"))
+    _require_positive("risk.dynamic_scaling.min_effective_mult", risk_dynamic_cfg.get("min_effective_mult"))
+    _require_positive("risk.dynamic_scaling.max_effective_mult", risk_dynamic_cfg.get("max_effective_mult"))
+    risk_global_guard_cfg = cfg["risk"].get("global_exposure_guard", {})
+    if not isinstance(risk_global_guard_cfg, dict):
+        raise ValueError("risk.global_exposure_guard must be a mapping")
+    _require_positive(
+        "risk.global_exposure_guard.max_global_notional_usd",
+        risk_global_guard_cfg.get("max_global_notional_usd"),
+    )
+    _require_fraction(
+        "risk.global_exposure_guard.near_cap_ratio",
+        risk_global_guard_cfg.get("near_cap_ratio"),
+        allow_zero=True,
+    )
     _require_positive("alerts.timeout_sec", cfg["alerts"]["timeout_sec"])
     _require_positive("alerts.min_interval_sec", cfg["alerts"]["min_interval_sec"])
     _require_positive("metrics.port", cfg["metrics"]["port"])
@@ -1255,6 +1339,42 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
             )
         normalized_stages.append(stage_name)
     cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = sorted(set(normalized_stages))
+
+    risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
+    if not isinstance(risk_dynamic_cfg, dict):
+        raise ValueError("risk.dynamic_scaling must be a mapping")
+    vol_low = float(risk_dynamic_cfg.get("volatility_low_threshold", 0.0015) or 0.0)
+    vol_high = float(risk_dynamic_cfg.get("volatility_high_threshold", 0.0080) or 0.0)
+    if vol_high < vol_low:
+        raise ValueError("risk.dynamic_scaling.volatility_high_threshold must be >= volatility_low_threshold")
+    tod_start = int(float(risk_dynamic_cfg.get("tod_start_hour_utc", 2.0) or 0.0))
+    tod_end = int(float(risk_dynamic_cfg.get("tod_end_hour_utc", 6.0) or 0.0))
+    if tod_start < 0 or tod_start > 23:
+        raise ValueError("risk.dynamic_scaling.tod_start_hour_utc must be in [0, 23]")
+    if tod_end < 0 or tod_end > 23:
+        raise ValueError("risk.dynamic_scaling.tod_end_hour_utc must be in [0, 23]")
+    edge_start = float(risk_dynamic_cfg.get("edge_start_abs", 0.10) or 0.0)
+    edge_full = float(risk_dynamic_cfg.get("edge_full_abs", 0.30) or 0.0)
+    if edge_full < edge_start:
+        raise ValueError("risk.dynamic_scaling.edge_full_abs must be >= edge_start_abs")
+    edge_mult_max = float(risk_dynamic_cfg.get("edge_mult_max", 1.15) or 0.0)
+    if edge_mult_max < 1.0:
+        raise ValueError("risk.dynamic_scaling.edge_mult_max must be >= 1.0")
+    min_effective_mult = float(risk_dynamic_cfg.get("min_effective_mult", 0.75) or 0.0)
+    max_effective_mult = float(risk_dynamic_cfg.get("max_effective_mult", 1.25) or 0.0)
+    if max_effective_mult < min_effective_mult:
+        raise ValueError("risk.dynamic_scaling.max_effective_mult must be >= min_effective_mult")
+    unknown_input_policy = str(risk_dynamic_cfg.get("unknown_input_policy", "no_aggressive_uplift")).strip().lower()
+    if unknown_input_policy not in {"no_aggressive_uplift"}:
+        raise ValueError("risk.dynamic_scaling.unknown_input_policy must be no_aggressive_uplift")
+    cfg["risk"]["dynamic_scaling"]["unknown_input_policy"] = unknown_input_policy
+
+    risk_global_guard_cfg = cfg["risk"].get("global_exposure_guard", {})
+    if not isinstance(risk_global_guard_cfg, dict):
+        raise ValueError("risk.global_exposure_guard must be a mapping")
+    near_cap_ratio = float(risk_global_guard_cfg.get("near_cap_ratio", 0.85) or 0.0)
+    if near_cap_ratio > 1.0:
+        raise ValueError("risk.global_exposure_guard.near_cap_ratio must be <= 1.0")
 
     if not isinstance(cfg["targets"]["token_ids"], list):
         raise ValueError("targets.token_ids must be a list")
@@ -1525,6 +1645,18 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("strategy.maker_competitiveness.edge_scale_enabled must be boolean")
     if not isinstance(cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"], bool):
         raise ValueError("strategy.maker_competitiveness.one_sided_enabled must be boolean")
+    risk_dynamic_cfg = cfg["risk"]["dynamic_scaling"]
+    if not isinstance(risk_dynamic_cfg.get("enabled"), bool):
+        raise ValueError("risk.dynamic_scaling.enabled must be boolean")
+    if not isinstance(risk_dynamic_cfg.get("volatility_enabled"), bool):
+        raise ValueError("risk.dynamic_scaling.volatility_enabled must be boolean")
+    if not isinstance(risk_dynamic_cfg.get("tod_enabled"), bool):
+        raise ValueError("risk.dynamic_scaling.tod_enabled must be boolean")
+    if not isinstance(risk_dynamic_cfg.get("edge_enabled"), bool):
+        raise ValueError("risk.dynamic_scaling.edge_enabled must be boolean")
+    risk_global_guard_cfg = cfg["risk"]["global_exposure_guard"]
+    if not isinstance(risk_global_guard_cfg.get("enabled"), bool):
+        raise ValueError("risk.global_exposure_guard.enabled must be boolean")
     if not isinstance(cfg["security"]["enabled"], bool):
         raise ValueError("security.enabled must be boolean")
     if not isinstance(cfg["security"]["enforce_host_allowlist"], bool):

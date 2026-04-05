@@ -249,6 +249,89 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "position_cap")
 
+    def test_dynamic_risk_scaling_unknown_input_does_not_allow_aggressive_uplift(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["dynamic_scaling"]["enabled"] = True
+        cfg["dynamic_scaling"]["edge_enabled"] = True
+        cfg["dynamic_scaling"]["edge_mult_max"] = 1.25
+        cfg["dynamic_scaling"]["volatility_enabled"] = True
+        cfg["dynamic_scaling"]["volatility_low_mult"] = 1.05
+        cfg["dynamic_scaling"]["unknown_input_policy"] = "no_aggressive_uplift"
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.50, size=5.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "realized_volatility": 0.001},
+        )
+        self.assertTrue(decision.allowed)
+        self.assertIsInstance(decision.basis, dict)
+        dynamic_scaling = decision.basis.get("dynamic_scaling") if isinstance(decision.basis, dict) else {}
+        unknown_inputs = dynamic_scaling.get("unknown_inputs")
+        self.assertIsInstance(unknown_inputs, list)
+        self.assertIn("edge_abs", unknown_inputs)
+        self.assertLessEqual(float(dynamic_scaling.get("effective_multiplier", 0.0)), 1.0)
+        self.assertNotEqual(dynamic_scaling.get("scaling_class"), "aggressive")
+
+    def test_global_exposure_guard_rejects_combined_projected_exposure(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["global_exposure_guard"]["enabled"] = True
+        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+        positions = {
+            "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
+            "t2": Position(token_id="t2"),
+        }
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        resting = LiveOrder(
+            order_id="o-1",
+            token_id="t2",
+            side="BUY",
+            price=0.5,
+            size=30.0,
+            remaining_size=30.0,
+            status="OPEN",
+        )
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=20.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=1,
+            open_orders_all=[resting],
+            reference_mid_by_token={"t1": 0.5, "t2": 0.5},
+            risk_context={"submission_lane": "maker", "edge_abs": 0.2},
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "global_exposure_cap")
+        self.assertIsInstance(decision.basis, dict)
+        guard = decision.basis.get("global_exposure_guard") if isinstance(decision.basis, dict) else {}
+        self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
+
     def test_preflight_clock_sync_finding_when_skew_exceeded(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["mode"] = "paper"

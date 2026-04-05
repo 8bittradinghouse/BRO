@@ -168,6 +168,31 @@ authorized = strategy_ok AND wallet_ok AND market_ok
 
 No order may be created, submitted, or capital-locked unless all three gates pass.
 
+3.5 Risk Competitiveness and Global Exposure Doctrine
+
+Risk controls must be fail-closed, bounded, and auditable. They must protect capital without silently choking valid high-conviction opportunities.
+
+Required semantics:
+
+- dynamic risk scaling is additive and bounded:
+  - uses realized volatility, time-of-day liquidity window, and edge strength
+  - adjusts effective risk caps, not kill-switch, readiness, or stage authority
+- unknown inputs are fail-closed for aggression:
+  - unknown context may never increase aggressiveness beyond baseline
+  - conservative or neutral behavior is allowed; inferred uplift is forbidden
+- global exposure guard is explicit and authoritative:
+  - combines active position exposure, resting open-order exposure, and incoming intent exposure
+  - rejects when projected combined exposure exceeds effective global cap
+
+Required truth surfaces:
+
+- risk decisions must emit machine-readable `risk_decision_basis` on both reject and accept paths
+- nightly reporting must include `risk_competitiveness` with:
+  - decision/reject counts by lane
+  - scaling class distribution
+  - reject reason distribution including `global_exposure_cap`
+  - exposure utilization distribution and near-cap counts
+
 4. Single-Wallet Doctrine
 
 BRO uses a single Polygon trading wallet. Because only one wallet exists, the wallet doctrine must logically partition the wallet into protected subdomains even though the address is physically one address.

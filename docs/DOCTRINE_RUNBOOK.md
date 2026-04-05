@@ -52,6 +52,23 @@ Required observability surfaces:
   - `taker_competitiveness.*` bucket distributions/counters
   - `taker_stage_net_breakout`
 
+## Risk Competitiveness Semantics (Canonical)
+- dynamic scaling (`risk.dynamic_scaling`):
+  - bounded cap scaling from volatility + TOD + edge
+  - applies to exposure caps only (position/notional/global), never kill-switch/readiness authority
+  - `unknown_input_policy=no_aggressive_uplift` prevents inferred aggressive uplift on missing inputs
+- global exposure guard (`risk.global_exposure_guard`):
+  - projected exposure combines active positions + resting orders + incoming intent
+  - reject reason is explicit: `global_exposure_cap`
+
+Required observability surfaces:
+- `risk_reject.risk_decision_basis` and `order_submit.risk_decision_basis`
+- nightly report `risk_competitiveness`:
+  - `decision_count_by_lane`, `reject_count_by_lane`
+  - `scaling_class_distribution`
+  - `reject_reason_distribution` (including `global_exposure_cap`)
+  - global exposure utilization ratios + near-cap counters
+
 ## New-Market Observe-First
 - Market identity is propagated via `market_key`.
 - On market key change, runtime emits `market_epoch_transition` and enforces
