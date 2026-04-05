@@ -32,7 +32,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: e0f0617adffa90158aba129609bb91b6a44e9faa671ae3fba5a571b57a2d1ec5
+  paper_expected_config_fingerprint_sha256: e4e83f89531fe47dba1feabd70023a98c9a8709b4a605817ad46234bb3d4d55c
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -88,6 +88,15 @@ sizing:
 doctrine:
   oracle_max_tick_age_sec: 5.0
 
+secondary_oracle:
+  pyth:
+    enabled: true
+    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D"
+    symbol: "BTC/USD"
+    request_timeout_sec: 1.5
+    poll_interval_sec: 0.5
+    max_tick_age_sec: 15.0
+
 # P1 taker tightening:
 # keep high-conviction stages unchanged and only raise the selective-stage floor.
 sniper:
@@ -95,6 +104,36 @@ sniper:
     min_edge_by_stage:
       MAKER_TAKER_SELECTIVE: 0.12
       SNIPER_PRIMARY: 0.10
+    competitiveness:
+      enabled: true
+      hard_min_target_usd: 100.0
+      hard_min_enforcement: skip_if_unachievable
+      dynamic_size_enabled: true
+      dynamic_size_edge_start_abs: 0.12
+      dynamic_size_edge_full_abs: 0.22
+      dynamic_size_target_usd_cap: 250.0
+      conviction_model: edge_plus_latency_score
+      edge_weight: 0.65
+      latency_score_weight: 0.35
+      final_window_enabled: true
+      final_window_sec: 15.0
+      aggressive_window_enabled: false
+      aggressive_window_sec: 10.0
+      stage_aggressiveness:
+        MAKER_TAKER_SELECTIVE:
+          size_mult: 1.0
+          price_aggress_bps: 0.0
+        SNIPER_PRIMARY:
+          size_mult: 1.15
+          price_aggress_bps: 2.0
+        EXTREME_ONLY:
+          size_mult: 1.35
+          price_aggress_bps: 5.0
+      price_aggress_bps_max: 8.0
+      multi_oracle_boost_enabled: true
+      multi_oracle_edge_threshold_abs: 0.20
+      multi_oracle_target_usd_cap: 350.0
+      multi_oracle_capital_pct_cap: 0.18
 
 storage:
   log_dir: /logs/paper_universal

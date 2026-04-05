@@ -67,6 +67,7 @@ from prodesk.operating_mode import (
     OperatingModeController,
 )
 from prodesk.order_manager import OrderManager
+from prodesk.pyth_feed import PythFeed
 from prodesk.preflight import run_preflight_checks
 from prodesk.prometheus_exporter import PrometheusExporter, PrometheusExporterError
 from prodesk.repo import current_git_commit, current_git_dirty, resolve_repo_root
@@ -75,6 +76,7 @@ from prodesk.risk import RiskEngine
 from prodesk.runtime_semantics import cycle_semantics, runtime_state_to_gauge
 from prodesk.state_store import load_state, save_state
 from prodesk.strategy import MarketMakingStrategy
+from prodesk.sniper_tool import SniperCandidate, SniperDecision, SniperTool, SniperToolConfig
 from prodesk.telemetry import Telemetry
 from prodesk.tx_manager import TransactionManager
 from prodesk.volatility import RealizedVolTracker
@@ -176,6 +178,14 @@ class ExecutionRunner:
         self._state_save_error_log_interval_sec = 30.0
         self._state_save_last_error_log_mono = 0.0
         self.chainlink = ChainlinkFeed(self.cfg.get("chainlink", {}))
+        secondary_oracle_cfg = self.cfg.get("secondary_oracle", {})
+        if not isinstance(secondary_oracle_cfg, dict):
+            secondary_oracle_cfg = {}
+        pyth_cfg = secondary_oracle_cfg.get("pyth", {})
+        if not isinstance(pyth_cfg, dict):
+            pyth_cfg = {}
+        self.pyth = PythFeed(pyth_cfg)
+        self.pyth_symbol_for_targets = str(pyth_cfg.get("symbol", "BTC/USD")).strip() or "BTC/USD"
         self.book_feed = MarketBookFeed(self.cfg.get("market_data", {}).get("ws", {}))
         self.last_midpoint_by_token: Dict[str, Optional[float]] = {}
         self.last_volatility_by_token: Dict[str, float] = {}
@@ -348,6 +358,31 @@ class ExecutionRunner:
         self._cached_reconcile_mismatch_ratio = 0.0
         self.sniper_taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
         self.sniper_taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
+        taker_competitiveness_cfg = (
+            taker_cfg.get("competitiveness", {}) if isinstance(taker_cfg.get("competitiveness", {}), dict) else {}
+        )
+        self.sniper_taker_competitiveness_cfg = SniperToolConfig.from_mapping(taker_competitiveness_cfg)
+        self.sniper_tool = SniperTool(self.sniper_taker_competitiveness_cfg)
+        risk_max_order_size = self.cfg.get("risk", {}).get("max_order_size")
+        self.sniper_taker_max_order_size_shares = float(risk_max_order_size or 0.0)
+        self.sniper_taker_sizing_max_usd = float(self.cfg.get("sizing", {}).get("max_usd", self.sniper_taker_target_usd))
+        self.sniper_taker_wallet_max_notional_per_order_usdc = float(
+            self.cfg.get("wallet", {}).get("max_notional_per_order_usdc", 0.0)
+        )
+        multi_oracle_capital_pct_cap = float(self.sniper_taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
+        wallet_cfg_for_sniper = self.cfg.get("wallet", {})
+        if not isinstance(wallet_cfg_for_sniper, dict):
+            wallet_cfg_for_sniper = {}
+        paper_starting_usdc = parse_float(wallet_cfg_for_sniper.get("paper_starting_usdc"))
+        protected_usdc_reserve = parse_float(wallet_cfg_for_sniper.get("protected_usdc_reserve"))
+        capital_base_usd = None
+        if paper_starting_usdc is not None:
+            capital_base_usd = max(0.0, float(paper_starting_usdc))
+            if protected_usdc_reserve is not None:
+                capital_base_usd = max(0.0, capital_base_usd - max(0.0, float(protected_usdc_reserve)))
+        self.sniper_taker_multi_oracle_cap_usd: Optional[float] = None
+        if multi_oracle_capital_pct_cap > 0.0 and isinstance(capital_base_usd, float) and capital_base_usd > 0.0:
+            self.sniper_taker_multi_oracle_cap_usd = float(multi_oracle_capital_pct_cap * capital_base_usd)
         maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
         if not isinstance(maker_comp_cfg, dict):
             maker_comp_cfg = {}
@@ -1055,6 +1090,29 @@ class ExecutionRunner:
             out[token_id] = fair
         return out
 
+    def _build_secondary_fair_probability_map(self, token_ids: List[str]) -> Tuple[Dict[str, float], str]:
+        if not bool(getattr(self.pyth, "enabled", False)):
+            return {}, "disabled"
+        latest_pyth = self.pyth.get_latest(self.pyth_symbol_for_targets)
+        if latest_pyth is None:
+            return {}, "unknown"
+        now = utc_now()
+        out: Dict[str, float] = {}
+        for token_id in token_ids:
+            strike = self.token_strike_by_token.get(token_id)
+            expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+            side = self.token_side_by_token.get(token_id)
+            if strike is None or expiry_dt is None or side not in {"YES", "NO"}:
+                continue
+            sec_to_expiry = max(0.0, (expiry_dt - now).total_seconds())
+            p_up = self._fair_probability_up(spot=latest_pyth.price, strike=strike, sec_to_expiry=sec_to_expiry)
+            fair = p_up if side == "YES" else (1.0 - p_up)
+            fair = max(0.001, min(0.999, float(fair)))
+            out[token_id] = fair
+        if not out:
+            return {}, "unknown"
+        return out, "available"
+
     def _record_lag_sample(
         self,
         token_id: str,
@@ -1187,6 +1245,43 @@ class ExecutionRunner:
                 1.0, float(self.sniper_taker_extreme_edge_mult)
             )
         return required_min_edge
+
+    @staticmethod
+    def _taker_edge_bucket(edge_abs: Optional[float]) -> str:
+        if not isinstance(edge_abs, (int, float)):
+            return "unknown"
+        edge = float(edge_abs)
+        if edge <= 0.10:
+            return "le_0p10"
+        if edge <= 0.30:
+            return "0p10_0p30"
+        if edge <= 0.60:
+            return "0p30_0p60"
+        return "gt_0p60"
+
+    def _taker_effective_max_target_usd(
+        self,
+        *,
+        price: Optional[float],
+    ) -> Optional[float]:
+        if not isinstance(price, (int, float)) or float(price) <= 0.0:
+            return None
+        px = float(price)
+        caps: List[float] = []
+        if self.sniper_taker_sizing_max_usd > 0.0:
+            caps.append(float(self.sniper_taker_sizing_max_usd))
+        if self.sniper_taker_wallet_max_notional_per_order_usdc > 0.0:
+            caps.append(float(self.sniper_taker_wallet_max_notional_per_order_usdc))
+        strategy_share_cap = float(getattr(self.manager, "strategy_max_order_size", 0.0) or 0.0)
+        if strategy_share_cap > 0.0:
+            caps.append(strategy_share_cap * px)
+        risk_share_cap = float(self.sniper_taker_max_order_size_shares or 0.0)
+        if risk_share_cap > 0.0:
+            caps.append(risk_share_cap * px)
+        if not caps:
+            return None
+        value = min(caps)
+        return float(value) if value > 0.0 else None
 
     def _maker_timing_gate_open(self, sec_to_expiry: Optional[float]) -> bool:
         if not self.maker_comp_timing_gate_enabled:
@@ -1994,6 +2089,8 @@ class ExecutionRunner:
         *,
         books: Dict[str, Any],
         fair_probability_by_token: Dict[str, float],
+        secondary_fair_probability_by_token: Optional[Dict[str, float]] = None,
+        secondary_oracle_base_status: str = "disabled",
         token_ids: list[str],
         stage_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         oracle_tick_age_sec: Optional[float] = None,
@@ -2026,7 +2123,10 @@ class ExecutionRunner:
             if isinstance(latency_snapshot, LatencySnapshot)
             else str(self._last_latency_state or "").strip().lower()
         )
+        competitiveness_enabled = bool(self.sniper_taker_competitiveness_cfg.enabled)
         stable_cycle_index = int(self._doctrine_cycle_index if cycle_index is None else cycle_index)
+        secondary_fair_probability_by_token = dict(secondary_fair_probability_by_token or {})
+        secondary_oracle_base_status = str(secondary_oracle_base_status or "unknown").strip().lower() or "unknown"
 
         # Use limited taker budget on strongest edge opportunities first.
         token_order = sorted({str(token_id) for token_id in token_ids})
@@ -2128,8 +2228,8 @@ class ExecutionRunner:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
                         side = "BUY" if float(edge) > 0.0 else "SELL"
-                        price = top.best_ask_price if side == "BUY" else top.best_bid_price
-                        if price is None:
+                        touch_price = top.best_ask_price if side == "BUY" else top.best_bid_price
+                        if touch_price is None:
                             block_reason = "taker_price_unavailable"
                         else:
                             token_stats = self.latency_verifier.token_stats(token_id)
@@ -2139,68 +2239,210 @@ class ExecutionRunner:
                                 and isinstance(getattr(token_stats, "median_lag_ms", None), (int, float))
                                 else None
                             )
-                            attempts += 1
-                            outcome = self.manager.place_taker_order_with_outcome(
-                                token_id=token_id,
-                                side=side,
-                                price=float(price),
-                                size=(float(self.sniper_taker_order_size) if self.sizing_mode == "shares" else None),
-                                target_usd=float(self.sniper_taker_target_usd),
-                                top=top,
-                                reason="sniper_taker_chainlink",
-                                target_ref=decision_target_ref,
-                                decision_reference_midpoint=(
-                                    float(midpoint) if isinstance(midpoint, (int, float)) else None
-                                ),
-                                decision_reference_source="edge_decision_market_midpoint",
-                                decision_reference_lookup_key=(
-                                    f"target_ref:{decision_target_ref}" if decision_target_ref else None
-                                ),
-                                decision_reference_ts_utc=utc_iso(),
-                                token_median_lag_ms=token_median_lag_ms,
-                                oracle_tick_age_sec=(
-                                    float(oracle_tick_age_sec)
-                                    if isinstance(oracle_tick_age_sec, (int, float))
-                                    else None
-                                ),
-                            )
-                            if bool(outcome.get("submitted", False)):
-                                submitted += 1
-                                submitted_token_ids.add(token_id)
-                                self._last_taker_submit_mono_by_token[token_id] = now_mono
-                                action_taken = EDGE_ACTION_TAKER
-                                was_submitted = True
-                                fills_accepted = int(outcome.get("fills_accepted", 0) or 0)
-                                if fills_accepted > 0:
-                                    was_filled = True
-                                    filled_token_ids.add(token_id)
-                                fills_accepted_total += max(0, fills_accepted)
-                                emitted_order_id = str(outcome.get("order_id") or "").strip() or None
+                            confidence_score = self.latency_verifier.token_score(token_id)
+                            multi_oracle_status = secondary_oracle_base_status
+                            multi_oracle_confirmation = False
+                            if competitiveness_enabled and bool(
+                                self.sniper_taker_competitiveness_cfg.multi_oracle_boost_enabled
+                            ):
+                                secondary_fair = secondary_fair_probability_by_token.get(token_id)
+                                if secondary_oracle_base_status == "disabled":
+                                    multi_oracle_status = "disabled"
+                                elif not (
+                                    isinstance(secondary_fair, (int, float))
+                                    and isinstance(midpoint, (int, float))
+                                    and isinstance(fair, (int, float))
+                                    and isinstance(edge, (int, float))
+                                ):
+                                    multi_oracle_status = "unknown"
+                                else:
+                                    secondary_edge = compute_edge_value(
+                                        fair_probability=float(secondary_fair),
+                                        market_probability=float(midpoint),
+                                    )
+                                    if (
+                                        secondary_edge is None
+                                        or abs(float(secondary_edge)) <= 1e-12
+                                        or abs(float(edge)) <= 1e-12
+                                    ):
+                                        multi_oracle_status = "unknown"
+                                    else:
+                                        same_direction = (float(secondary_edge) > 0.0) == (float(edge) > 0.0)
+                                        multi_oracle_confirmation = bool(same_direction)
+                                        multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
+                            decision: Optional[SniperDecision] = None
+                            if competitiveness_enabled:
+                                decision = self.sniper_tool.evaluate_batch(
+                                    candidates=[
+                                        SniperCandidate(
+                                            token_id=token_id,
+                                            stage=str(stage or STAGE_UNKNOWN),
+                                            sec_to_expiry=(
+                                                float(time_remaining_sec)
+                                                if isinstance(time_remaining_sec, (int, float))
+                                                else None
+                                            ),
+                                            edge_value=float(edge),
+                                            required_min_edge=float(required_min_edge),
+                                            base_target_usd=float(self.sniper_taker_target_usd),
+                                            top_best_bid_price=(
+                                                float(top.best_bid_price)
+                                                if isinstance(top.best_bid_price, (int, float))
+                                                else None
+                                            ),
+                                            top_best_ask_price=(
+                                                float(top.best_ask_price)
+                                                if isinstance(top.best_ask_price, (int, float))
+                                                else None
+                                            ),
+                                            token_score=float(confidence_score),
+                                            max_feasible_target_usd=self._taker_effective_max_target_usd(
+                                                price=float(touch_price)
+                                            ),
+                                            multi_oracle_confirmation=bool(multi_oracle_confirmation),
+                                            multi_oracle_status=str(multi_oracle_status),
+                                            multi_oracle_cap_usd=(
+                                                float(self.sniper_taker_multi_oracle_cap_usd)
+                                                if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))
+                                                and self.sniper_taker_multi_oracle_cap_usd > 0.0
+                                                else None
+                                            ),
+                                        )
+                                    ],
+                                    max_orders_per_cycle=max(0, int(max_orders - submitted)),
+                                ).decisions[0]
                                 self.events.log_event(
-                                    "sniper_taker_submit",
+                                    "sniper_taker_decision",
                                     {
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
                                         "token_id": token_id,
+                                        "midpoint": midpoint,
+                                        "fair_probability": fair,
+                                        "edge": edge,
+                                        "confidence_score": float(confidence_score),
+                                        **decision.as_event_payload(),
+                                    },
+                                )
+                                if decision.dynamic_size_capped_by_risk:
+                                    self.telemetry.incr("taker_dynamic_size_capped_by_risk")
+                                if str(decision.multi_oracle_status).strip().lower() == "unknown":
+                                    self.telemetry.incr("taker_multi_oracle_unknown")
+                                if bool(decision.multi_oracle_confirmation):
+                                    self.telemetry.incr("taker_multi_oracle_confirmation")
+                                if bool(decision.multi_oracle_boost_applied):
+                                    self.telemetry.incr("taker_multi_oracle_boost_applied")
+                                if not decision.should_submit:
+                                    block_reason = str(decision.block_reason or "taker_submit_rejected")
+                            if block_reason is None:
+                                submit_side = (
+                                    str(decision.side or side).strip().upper()
+                                    if competitiveness_enabled and decision is not None
+                                    else side
+                                )
+                                submit_price = (
+                                    float(decision.price)
+                                    if competitiveness_enabled and decision is not None and isinstance(decision.price, (int, float))
+                                    else float(touch_price)
+                                )
+                                submit_target_usd = (
+                                    float(decision.target_usd_resolved)
+                                    if competitiveness_enabled and decision is not None
+                                    else float(self.sniper_taker_target_usd)
+                                )
+                                competitiveness_context = (
+                                    decision.as_competitiveness_payload()
+                                    if competitiveness_enabled and decision is not None
+                                    else None
+                                )
+                                attempts += 1
+                                outcome = self.manager.place_taker_order_with_outcome(
+                                    token_id=token_id,
+                                    side=submit_side,
+                                    price=submit_price,
+                                    size=(float(self.sniper_taker_order_size) if self.sizing_mode == "shares" else None),
+                                    target_usd=submit_target_usd,
+                                    top=top,
+                                    reason="sniper_taker_chainlink",
+                                    target_ref=decision_target_ref,
+                                    decision_reference_midpoint=(
+                                        float(midpoint) if isinstance(midpoint, (int, float)) else None
+                                    ),
+                                    decision_reference_source="edge_decision_market_midpoint",
+                                    decision_reference_lookup_key=(
+                                        f"target_ref:{decision_target_ref}" if decision_target_ref else None
+                                    ),
+                                    decision_reference_ts_utc=utc_iso(),
+                                    token_median_lag_ms=token_median_lag_ms,
+                                    oracle_tick_age_sec=(
+                                        float(oracle_tick_age_sec)
+                                        if isinstance(oracle_tick_age_sec, (int, float))
+                                        else None
+                                    ),
+                                    competitiveness_context=competitiveness_context,
+                                )
+                                if bool(outcome.get("submitted", False)):
+                                    submitted += 1
+                                    submitted_token_ids.add(token_id)
+                                    self._last_taker_submit_mono_by_token[token_id] = now_mono
+                                    action_taken = EDGE_ACTION_TAKER
+                                    was_submitted = True
+                                    fills_accepted = int(outcome.get("fills_accepted", 0) or 0)
+                                    if fills_accepted > 0:
+                                        was_filled = True
+                                        filled_token_ids.add(token_id)
+                                    fills_accepted_total += max(0, fills_accepted)
+                                    emitted_order_id = str(outcome.get("order_id") or "").strip() or None
+                                    submit_payload: Dict[str, Any] = {
+                                        "ts_utc": utc_iso(),
+                                        "run_id": self.run_id,
+                                        "token_id": token_id,
                                         "order_id": emitted_order_id,
-                                        "side": side,
-                                        "price": float(price),
+                                        "side": submit_side,
+                                        "price": float(submit_price),
                                         "size": (
                                             float(self.sniper_taker_order_size)
                                             if self.sizing_mode == "shares"
                                             else None
                                         ),
-                                        "target_usd": float(self.sniper_taker_target_usd),
+                                        "target_usd": float(submit_target_usd),
                                         "midpoint": midpoint,
                                         "fair_probability": fair,
                                         "edge": edge,
                                         "required_min_edge": float(required_min_edge),
                                         "stage": stage,
-                                        "confidence_score": self.latency_verifier.token_score(token_id),
-                                    },
-                                )
-                            else:
-                                block_reason = "taker_submit_rejected"
+                                        "confidence_score": float(confidence_score),
+                                    }
+                                    if competitiveness_enabled and decision is not None:
+                                        submit_payload.update(
+                                            {
+                                                "conviction_score": float(decision.conviction_score),
+                                                "timing_window_class": decision.timing_window_class,
+                                                "aggressiveness_level": decision.aggressiveness_level,
+                                                "price_aggress_bps_applied": float(
+                                                    decision.price_aggress_bps_applied
+                                                ),
+                                                "target_usd_requested": float(decision.target_usd_requested),
+                                                "target_usd_resolved": float(decision.target_usd_resolved),
+                                                "hard_min_floor_applied": bool(decision.hard_min_floor_applied),
+                                                "hard_min_unachievable": bool(decision.hard_min_unachievable),
+                                                "dynamic_size_capped_by_risk": bool(
+                                                    decision.dynamic_size_capped_by_risk
+                                                ),
+                                                "multi_oracle_confirmation": bool(
+                                                    decision.multi_oracle_confirmation
+                                                ),
+                                                "multi_oracle_boost_applied": bool(
+                                                    decision.multi_oracle_boost_applied
+                                                ),
+                                                "multi_oracle_status": str(
+                                                    decision.multi_oracle_status or "unknown"
+                                                ),
+                                            }
+                                        )
+                                    self.events.log_event("sniper_taker_submit", submit_payload)
+                                else:
+                                    block_reason = "taker_submit_rejected"
 
             self._emit_edge_evaluation(
                 token_id=token_id,
@@ -2797,6 +3039,7 @@ class ExecutionRunner:
             self._apply_external_guard_stop()
             self._refresh_targets(force=True)
             self.chainlink.start()
+            self.pyth.start()
             self.book_feed.start(self.token_ids)
             self.prometheus.start()
             while not self.stop_requested:
@@ -2867,6 +3110,16 @@ class ExecutionRunner:
                                 },
                             )
                 chainlink_status_live = self.chainlink.status()
+                self.pyth.refresh()
+                pyth_status_live = self.pyth.status()
+                if pyth_status_live.get("enabled", False):
+                    self.telemetry.set_gauge(
+                        "secondary_oracle_pyth_connected",
+                        1.0 if bool(pyth_status_live.get("connected", False)) else 0.0,
+                    )
+                    pyth_age = pyth_status_live.get("last_tick_age_sec")
+                    if isinstance(pyth_age, (int, float)):
+                        self.telemetry.set_gauge("secondary_oracle_pyth_last_tick_age_sec", float(pyth_age))
                 stale_oracle_cycle = False
                 if chainlink_status_live.get("enabled", False):
                     if chainlink_status_live.get("connected", False):
@@ -3282,7 +3535,14 @@ class ExecutionRunner:
                     candidate_sniper_tokens = []
                 sniper_active = bool(candidate_sniper_tokens) and self.sniper_enabled
                 fair_probability_by_token = self._build_fair_probability_map(books, latency_snapshot=latency_snapshot)
+                secondary_fair_probability_by_token, secondary_oracle_base_status = (
+                    self._build_secondary_fair_probability_map(self.token_ids)
+                )
                 self.telemetry.set_gauge("fair_probability_token_count", float(len(fair_probability_by_token)))
+                self.telemetry.set_gauge(
+                    "secondary_fair_probability_token_count",
+                    float(len(secondary_fair_probability_by_token)),
+                )
                 oracle_fresh, oracle_tick_age_sec, oracle_freshness_reason = self._oracle_freshness()
                 if oracle_tick_age_sec is not None:
                     self.telemetry.set_gauge("doctrine_oracle_tick_age_sec", float(oracle_tick_age_sec))
@@ -3508,6 +3768,8 @@ class ExecutionRunner:
                         taker_summary = self._run_sniper_taker(
                             books=books,
                             fair_probability_by_token=fair_probability_by_token,
+                            secondary_fair_probability_by_token=secondary_fair_probability_by_token,
+                            secondary_oracle_base_status=secondary_oracle_base_status,
                             token_ids=[str(token_id) for token_id in near_tokens],
                             stage_info_by_token=stage_info_by_token,
                             oracle_tick_age_sec=oracle_tick_age_sec,
@@ -3617,6 +3879,8 @@ class ExecutionRunner:
                             taker_summary = self._run_sniper_taker(
                                 books=books,
                                 fair_probability_by_token=fair_probability_by_token,
+                                secondary_fair_probability_by_token=secondary_fair_probability_by_token,
+                                secondary_oracle_base_status=secondary_oracle_base_status,
                                 token_ids=[str(token_id) for token_id in near_tokens],
                                 stage_info_by_token=stage_info_by_token,
                                 oracle_tick_age_sec=oracle_tick_age_sec,
@@ -3993,6 +4257,7 @@ class ExecutionRunner:
                         },
                         "positions": positions,
                         "chainlink": chainlink_status,
+                        "secondary_oracle": {"pyth": pyth_status_live},
                         "book_feed": book_feed_status,
                         "external_guard_active": bool(guard_active),
                         "external_guard": {
@@ -4099,6 +4364,8 @@ class ExecutionRunner:
                 self.book_feed.stop()
             with contextlib.suppress(Exception):
                 self.chainlink.stop()
+            with contextlib.suppress(Exception):
+                self.pyth.stop()
             with contextlib.suppress(Exception):
                 self.prometheus.stop()
             with contextlib.suppress(Exception):

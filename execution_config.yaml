@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "2f1c67d28430aa18acb3cf48605ff057ba1e369c033e5e2407d3420d096a7e98"
+  paper_expected_config_fingerprint_sha256: "61a0395fd544d845da63c2eecef902d8ef109c6adeee87cda392363544774dc4"
 
 storage:
   log_dir: "./logs_exec"
@@ -96,6 +96,15 @@ chainlink:
   reconnect_backoff_max_sec: 30
   mid_move_min_delta: 0.001
   max_queue_size: 10000
+
+secondary_oracle:
+  pyth:
+    enabled: false
+    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D"
+    symbol: "BTC/USD"
+    request_timeout_sec: 1.5
+    poll_interval_sec: 0.5
+    max_tick_age_sec: 15.0
 
 doctrine:
   mode: canonical
@@ -185,6 +194,36 @@ sniper:
     target_usd: 5
     max_orders_per_cycle: 2
     per_token_cooldown_sec: 0.25
+    competitiveness:
+      enabled: false
+      hard_min_target_usd: 100.0
+      hard_min_enforcement: skip_if_unachievable
+      dynamic_size_enabled: true
+      dynamic_size_edge_start_abs: 0.12
+      dynamic_size_edge_full_abs: 0.22
+      dynamic_size_target_usd_cap: 250.0
+      conviction_model: edge_plus_latency_score
+      edge_weight: 0.65
+      latency_score_weight: 0.35
+      final_window_enabled: true
+      final_window_sec: 15.0
+      aggressive_window_enabled: false
+      aggressive_window_sec: 10.0
+      stage_aggressiveness:
+        MAKER_TAKER_SELECTIVE:
+          size_mult: 1.0
+          price_aggress_bps: 0.0
+        SNIPER_PRIMARY:
+          size_mult: 1.15
+          price_aggress_bps: 2.0
+        EXTREME_ONLY:
+          size_mult: 1.35
+          price_aggress_bps: 5.0
+      price_aggress_bps_max: 8.0
+      multi_oracle_boost_enabled: false
+      multi_oracle_edge_threshold_abs: 0.20
+      multi_oracle_target_usd_cap: 350.0
+      multi_oracle_capital_pct_cap: 0.18
 
 strategy:
   base_order_size: 25.0

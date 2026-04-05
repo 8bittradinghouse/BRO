@@ -25,6 +25,33 @@
 - `SNIPER_PRIMARY`: taker only
 - `EXTREME_ONLY`: taker only, stricter edge threshold
 
+## Taker Competitiveness Semantics (Canonical)
+- hard floor:
+  - configured by `sniper.taker.competitiveness.hard_min_target_usd`
+  - enforced with `hard_min_enforcement=skip_if_unachievable`
+  - infeasible floor emits `taker_hard_min_notional_unachievable` (no under-floor submit)
+- timing windows:
+  - `final_window_enabled/final_window_sec` controls final-15 gate
+  - optional `aggressive_window_enabled/aggressive_window_sec` controls final-10 path
+  - outside-window decision emits `taker_outside_final_window`
+- multi-oracle:
+  - optional Pyth secondary oracle (`secondary_oracle.pyth`)
+  - confirmation/boost only when enabled + directional agreement + threshold + timing-window pass
+  - unknown secondary-oracle state is fail-closed for boost (no inferred confirmation)
+
+Required observability surfaces:
+- `sniper_taker_decision` event:
+  - `conviction_score`, `edge_abs`, `required_min_edge`
+  - `timing_window_class`, `aggressiveness_level`, `price_aggress_bps_applied`
+  - `target_usd_requested`, `target_usd_resolved`
+  - `hard_min_floor_applied`, `hard_min_unachievable`
+  - `dynamic_size_capped_by_risk`
+  - `multi_oracle_status`, `multi_oracle_confirmation`, `multi_oracle_boost_applied`
+- `order_submit.taker_competitiveness` payload for accepted taker submits.
+- report surfaces:
+  - `taker_competitiveness.*` bucket distributions/counters
+  - `taker_stage_net_breakout`
+
 ## New-Market Observe-First
 - Market identity is propagated via `market_key`.
 - On market key change, runtime emits `market_epoch_transition` and enforces

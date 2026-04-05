@@ -65,6 +65,9 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "taker_token_cooldown",
     "token_score_below_taker_min",
     "taker_order_budget_exhausted",
+    "taker_outside_final_window",
+    "taker_hard_min_notional_unachievable",
+    "taker_dynamic_size_capped_by_risk",
     "taker_price_unavailable",
     "taker_submit_rejected",
 )

@@ -101,6 +101,16 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "mid_move_min_delta": 0.001,
         "max_queue_size": 10000,
     },
+    "secondary_oracle": {
+        "pyth": {
+            "enabled": False,
+            "rest_url": "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D",
+            "symbol": "BTC/USD",
+            "request_timeout_sec": 1.5,
+            "poll_interval_sec": 0.5,
+            "max_tick_age_sec": 15.0,
+        }
+    },
     "doctrine": {
         "mode": "canonical",
         # Shared oracle freshness rule used by both maker and taker doctrine gates.
@@ -196,6 +206,32 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "target_usd": 5.0,
             "max_orders_per_cycle": 2,
             "per_token_cooldown_sec": 0.25,
+            "competitiveness": {
+                "enabled": False,
+                "hard_min_target_usd": 100.0,
+                "hard_min_enforcement": "skip_if_unachievable",
+                "dynamic_size_enabled": True,
+                "dynamic_size_edge_start_abs": 0.12,
+                "dynamic_size_edge_full_abs": 0.22,
+                "dynamic_size_target_usd_cap": 250.0,
+                "conviction_model": "edge_plus_latency_score",
+                "edge_weight": 0.65,
+                "latency_score_weight": 0.35,
+                "final_window_enabled": True,
+                "final_window_sec": 15.0,
+                "aggressive_window_enabled": False,
+                "aggressive_window_sec": 10.0,
+                "stage_aggressiveness": {
+                    "MAKER_TAKER_SELECTIVE": {"size_mult": 1.00, "price_aggress_bps": 0.0},
+                    "SNIPER_PRIMARY": {"size_mult": 1.15, "price_aggress_bps": 2.0},
+                    "EXTREME_ONLY": {"size_mult": 1.35, "price_aggress_bps": 5.0},
+                },
+                "price_aggress_bps_max": 8.0,
+                "multi_oracle_boost_enabled": False,
+                "multi_oracle_edge_threshold_abs": 0.20,
+                "multi_oracle_target_usd_cap": 350.0,
+                "multi_oracle_capital_pct_cap": 0.18,
+            },
         },
     },
     "strategy": {
@@ -774,6 +810,158 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("sniper.taker.target_usd", cfg["sniper"]["taker"]["target_usd"])
     _require_positive("sniper.taker.max_orders_per_cycle", cfg["sniper"]["taker"]["max_orders_per_cycle"])
     _require_positive("sniper.taker.per_token_cooldown_sec", cfg["sniper"]["taker"]["per_token_cooldown_sec"], allow_zero=True)
+    taker_comp_cfg = cfg["sniper"]["taker"].get("competitiveness", {})
+    if not isinstance(taker_comp_cfg, dict):
+        raise ValueError("sniper.taker.competitiveness must be a mapping")
+    _require_positive(
+        "sniper.taker.competitiveness.hard_min_target_usd",
+        taker_comp_cfg.get("hard_min_target_usd"),
+    )
+    _require_positive(
+        "sniper.taker.competitiveness.dynamic_size_edge_start_abs",
+        taker_comp_cfg.get("dynamic_size_edge_start_abs"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "sniper.taker.competitiveness.dynamic_size_edge_full_abs",
+        taker_comp_cfg.get("dynamic_size_edge_full_abs"),
+        allow_zero=True,
+    )
+    dynamic_edge_start = float(taker_comp_cfg.get("dynamic_size_edge_start_abs", 0.12) or 0.0)
+    dynamic_edge_full = float(taker_comp_cfg.get("dynamic_size_edge_full_abs", 0.22) or 0.0)
+    if dynamic_edge_full < dynamic_edge_start:
+        raise ValueError(
+            "sniper.taker.competitiveness.dynamic_size_edge_full_abs must be >= dynamic_size_edge_start_abs"
+        )
+    _require_positive(
+        "sniper.taker.competitiveness.dynamic_size_target_usd_cap",
+        taker_comp_cfg.get("dynamic_size_target_usd_cap"),
+    )
+    hard_min_target_usd = float(taker_comp_cfg.get("hard_min_target_usd", 100.0) or 0.0)
+    dynamic_size_target_usd_cap = float(taker_comp_cfg.get("dynamic_size_target_usd_cap", 250.0) or 0.0)
+    if dynamic_size_target_usd_cap + 1e-9 < hard_min_target_usd:
+        raise ValueError(
+            "sniper.taker.competitiveness.dynamic_size_target_usd_cap must be >= hard_min_target_usd"
+        )
+    _require_fraction(
+        "sniper.taker.competitiveness.edge_weight",
+        taker_comp_cfg.get("edge_weight"),
+        allow_zero=True,
+    )
+    _require_fraction(
+        "sniper.taker.competitiveness.latency_score_weight",
+        taker_comp_cfg.get("latency_score_weight"),
+        allow_zero=True,
+    )
+    edge_weight = float(taker_comp_cfg.get("edge_weight", 0.65) or 0.0)
+    latency_score_weight = float(taker_comp_cfg.get("latency_score_weight", 0.35) or 0.0)
+    if (edge_weight + latency_score_weight) <= 0.0:
+        raise ValueError(
+            "sniper.taker.competitiveness.edge_weight + latency_score_weight must be > 0"
+        )
+    _require_positive(
+        "sniper.taker.competitiveness.final_window_sec",
+        taker_comp_cfg.get("final_window_sec"),
+    )
+    _require_positive(
+        "sniper.taker.competitiveness.aggressive_window_sec",
+        taker_comp_cfg.get("aggressive_window_sec"),
+        allow_zero=True,
+    )
+    final_window_sec = float(taker_comp_cfg.get("final_window_sec", 15.0) or 0.0)
+    aggressive_window_sec = float(taker_comp_cfg.get("aggressive_window_sec", 10.0) or 0.0)
+    if aggressive_window_sec > final_window_sec:
+        raise ValueError(
+            "sniper.taker.competitiveness.aggressive_window_sec must be <= final_window_sec"
+        )
+    _require_positive(
+        "sniper.taker.competitiveness.price_aggress_bps_max",
+        taker_comp_cfg.get("price_aggress_bps_max"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "sniper.taker.competitiveness.multi_oracle_edge_threshold_abs",
+        taker_comp_cfg.get("multi_oracle_edge_threshold_abs"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "sniper.taker.competitiveness.multi_oracle_target_usd_cap",
+        taker_comp_cfg.get("multi_oracle_target_usd_cap"),
+    )
+    _require_fraction(
+        "sniper.taker.competitiveness.multi_oracle_capital_pct_cap",
+        taker_comp_cfg.get("multi_oracle_capital_pct_cap"),
+        allow_zero=True,
+    )
+    multi_oracle_target_usd_cap = float(taker_comp_cfg.get("multi_oracle_target_usd_cap", 350.0) or 0.0)
+    if multi_oracle_target_usd_cap + 1e-9 < dynamic_size_target_usd_cap:
+        raise ValueError(
+            "sniper.taker.competitiveness.multi_oracle_target_usd_cap must be >= dynamic_size_target_usd_cap"
+        )
+    hard_min_enforcement = str(taker_comp_cfg.get("hard_min_enforcement", "skip_if_unachievable")).strip().lower()
+    if hard_min_enforcement not in {"skip_if_unachievable"}:
+        raise ValueError(
+            "sniper.taker.competitiveness.hard_min_enforcement must be skip_if_unachievable"
+        )
+    conviction_model = str(taker_comp_cfg.get("conviction_model", "edge_plus_latency_score")).strip().lower()
+    if conviction_model not in {"edge_plus_latency_score"}:
+        raise ValueError(
+            "sniper.taker.competitiveness.conviction_model must be edge_plus_latency_score"
+        )
+    cfg["sniper"]["taker"]["competitiveness"]["hard_min_enforcement"] = hard_min_enforcement
+    cfg["sniper"]["taker"]["competitiveness"]["conviction_model"] = conviction_model
+    stage_aggr_cfg = taker_comp_cfg.get("stage_aggressiveness", {})
+    if not isinstance(stage_aggr_cfg, dict):
+        raise ValueError("sniper.taker.competitiveness.stage_aggressiveness must be a mapping")
+    canonical_taker_stage_names = {
+        "MAKER_TAKER_SELECTIVE",
+        "SNIPER_PRIMARY",
+        "EXTREME_ONLY",
+    }
+    normalized_stage_aggr: Dict[str, Dict[str, float]] = {}
+    for stage_name_raw, row in stage_aggr_cfg.items():
+        stage_name = str(stage_name_raw or "").strip().upper()
+        if not stage_name:
+            raise ValueError("sniper.taker.competitiveness.stage_aggressiveness keys must be non-empty stage names")
+        if stage_name not in canonical_taker_stage_names:
+            raise ValueError(
+                "sniper.taker.competitiveness.stage_aggressiveness keys must be taker-allowed stages"
+            )
+        if not isinstance(row, dict):
+            raise ValueError(
+                f"sniper.taker.competitiveness.stage_aggressiveness[{stage_name}] must be a mapping"
+            )
+        _require_positive(
+            f"sniper.taker.competitiveness.stage_aggressiveness[{stage_name}].size_mult",
+            row.get("size_mult"),
+        )
+        if float(row.get("size_mult", 1.0) or 0.0) < 1.0:
+            raise ValueError(
+                f"sniper.taker.competitiveness.stage_aggressiveness[{stage_name}].size_mult must be >= 1.0"
+            )
+        _require_positive(
+            f"sniper.taker.competitiveness.stage_aggressiveness[{stage_name}].price_aggress_bps",
+            row.get("price_aggress_bps"),
+            allow_zero=True,
+        )
+        normalized_stage_aggr[stage_name] = {
+            "size_mult": float(row.get("size_mult", 1.0)),
+            "price_aggress_bps": float(row.get("price_aggress_bps", 0.0)),
+        }
+    cfg["sniper"]["taker"]["competitiveness"]["stage_aggressiveness"] = normalized_stage_aggr
+    secondary_oracle_cfg = cfg.get("secondary_oracle", {})
+    if not isinstance(secondary_oracle_cfg, dict):
+        raise ValueError("secondary_oracle must be a mapping")
+    pyth_cfg = secondary_oracle_cfg.get("pyth", {})
+    if not isinstance(pyth_cfg, dict):
+        raise ValueError("secondary_oracle.pyth must be a mapping")
+    if not isinstance(pyth_cfg.get("rest_url"), str) or not str(pyth_cfg.get("rest_url", "")).strip():
+        raise ValueError("secondary_oracle.pyth.rest_url must be a non-empty string")
+    if not isinstance(pyth_cfg.get("symbol"), str) or not str(pyth_cfg.get("symbol", "")).strip():
+        raise ValueError("secondary_oracle.pyth.symbol must be a non-empty string")
+    _require_positive("secondary_oracle.pyth.request_timeout_sec", pyth_cfg.get("request_timeout_sec"))
+    _require_positive("secondary_oracle.pyth.poll_interval_sec", pyth_cfg.get("poll_interval_sec"))
+    _require_positive("secondary_oracle.pyth.max_tick_age_sec", pyth_cfg.get("max_tick_age_sec"))
     _require_positive("market_data.timeout_sec", cfg["market_data"]["timeout_sec"])
     _require_positive("market_data.max_retries", cfg["market_data"]["max_retries"], allow_zero=True)
     md_ws = cfg["market_data"]["ws"]
@@ -1433,6 +1621,17 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sniper.require_lag_verification must be boolean")
     if not isinstance(cfg["sniper"]["taker"]["enabled"], bool):
         raise ValueError("sniper.taker.enabled must be boolean")
+    taker_comp_cfg = cfg["sniper"]["taker"]["competitiveness"]
+    if not isinstance(taker_comp_cfg.get("enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("dynamic_size_enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.dynamic_size_enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("final_window_enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.final_window_enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("aggressive_window_enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.aggressive_window_enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("multi_oracle_boost_enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.multi_oracle_boost_enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["enabled"], bool):
         raise ValueError("latency_verifier.enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["require_armed_for_maker"], bool):
@@ -1447,6 +1646,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("chainlink.enabled must be boolean")
     if not isinstance(cfg["chainlink"]["log_ticks"], bool):
         raise ValueError("chainlink.log_ticks must be boolean")
+    pyth_cfg = cfg.get("secondary_oracle", {}).get("pyth", {})
+    if not isinstance(pyth_cfg.get("enabled"), bool):
+        raise ValueError("secondary_oracle.pyth.enabled must be boolean")
     if not isinstance(cfg["market_data"]["ws"]["enabled"], bool):
         raise ValueError("market_data.ws.enabled must be boolean")
     if not isinstance(cfg["strategy"]["volatility"]["enabled"], bool):

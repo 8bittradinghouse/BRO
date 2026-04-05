@@ -107,6 +107,9 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("fair_probability_missing"))
         self.assertTrue(is_canonical_block_reason("maker_requires_ws_book_source"))
         self.assertTrue(is_canonical_block_reason("taker_requires_ws_book_source"))
+        self.assertTrue(is_canonical_block_reason("taker_outside_final_window"))
+        self.assertTrue(is_canonical_block_reason("taker_hard_min_notional_unachievable"))
+        self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
         self.assertFalse(is_canonical_block_reason("unspecified_no_action"))
         self.assertFalse(is_canonical_block_reason("some_random_reason"))
 

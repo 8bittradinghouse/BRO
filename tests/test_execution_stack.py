@@ -188,6 +188,13 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_taker_stage_aggressiveness_size_mult_below_one(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sniper"]["taker"]["competitiveness"]["stage_aggressiveness"]["SNIPER_PRIMARY"]["size_mult"] = 0.9
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_strategy_emits_two_sided_quotes(self):
         strategy = MarketMakingStrategy(DEFAULT_EXECUTION_CONFIG["strategy"])
         top = BookTop(

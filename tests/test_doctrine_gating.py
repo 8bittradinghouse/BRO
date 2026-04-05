@@ -22,6 +22,7 @@ from executor import (
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
 from prodesk.edge_truth_contract import is_canonical_block_reason, stage_policy as edge_stage_policy
 from prodesk.models import BookTop
+from prodesk.sniper_tool import SniperTool, SniperToolConfig
 from prodesk.common import utc_iso
 
 
@@ -713,6 +714,62 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertEqual(str(taker_row.get("action_taken") or ""), "none")
         self.assertEqual(str(taker_row.get("block_reason") or ""), "oracle_unavailable_or_stale")
         self.assertEqual(str(taker_row.get("book_source") or ""), "ws")
+
+    def test_taker_competitiveness_window_gate_emits_decision_and_blocks(self):
+        runner = self._runner()
+        runner.sniper_taker_enabled = True
+        runner.sniper_enabled = True
+        runner.sniper_taker_max_orders_per_cycle = 1
+        runner.sniper_taker_min_edge = 0.01
+        comp_cfg = SniperToolConfig.from_mapping(
+            {
+                "enabled": True,
+                "final_window_enabled": True,
+                "final_window_sec": 15.0,
+                "hard_min_target_usd": 100.0,
+            }
+        )
+        runner.sniper_taker_competitiveness_cfg = comp_cfg
+        runner.sniper_tool = SniperTool(comp_cfg)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="ws",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.51,
+            best_ask_size=100.0,
+        )
+        with mock.patch.object(runner.manager, "place_taker_order_with_outcome") as placed:
+            out = runner._run_sniper_taker(
+                books={"t1": top},
+                fair_probability_by_token={"t1": 0.70},
+                token_ids=["t1"],
+                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0}},
+                oracle_tick_age_sec=0.0,
+                lag_verified_token_ids=["t1"],
+                cycle_index=6,
+            )
+        self.assertEqual(out["submitted"], 0)
+        placed.assert_not_called()
+        runner.events.close()
+        decision_rows: list[dict] = []
+        edge_rows: list[dict] = []
+        for path in sorted(Path(runner.log_dir).glob("events_*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                event_type = str(payload.get("event_type") or "")
+                if event_type == "sniper_taker_decision":
+                    decision_rows.append(payload)
+                elif event_type == "edge_evaluation":
+                    edge_rows.append(payload)
+        self.assertTrue(bool(decision_rows))
+        self.assertEqual(str(decision_rows[-1].get("block_reason") or ""), "taker_outside_final_window")
+        taker_rows = [row for row in edge_rows if str(row.get("evaluation_scope") or "") == "taker"]
+        self.assertTrue(bool(taker_rows))
+        self.assertEqual(str(taker_rows[-1].get("block_reason") or ""), "taker_outside_final_window")
 
 
 if __name__ == "__main__":

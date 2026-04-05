@@ -730,7 +730,10 @@ class OrderManager:
         )
         size_resolution_payload = dict(size_resolution)
         if competitiveness_payload:
-            size_resolution_payload["maker_competitiveness"] = competitiveness_payload
+            if lane == "maker":
+                size_resolution_payload["maker_competitiveness"] = competitiveness_payload
+            elif lane == "taker":
+                size_resolution_payload["taker_competitiveness"] = competitiveness_payload
 
         self.events.log_event(
             "order_submit",
@@ -796,7 +799,12 @@ class OrderManager:
                 "sizing_target_usd": float(notional_target_usd) if notional_target_usd is not None else None,
                 "size_selection_authority": "order_manager_notional_sizing_v2",
                 "size_resolution": size_resolution_payload,
-                "maker_competitiveness": (competitiveness_payload or None),
+                "maker_competitiveness": (
+                    competitiveness_payload if lane == "maker" and competitiveness_payload else None
+                ),
+                "taker_competitiveness": (
+                    competitiveness_payload if lane == "taker" and competitiveness_payload else None
+                ),
                 **quality_fields,
             },
         )
@@ -1186,6 +1194,7 @@ class OrderManager:
         decision_reference_ts_utc: Optional[str] = None,
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
+        competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         outcome = self.place_taker_order_with_outcome(
             token_id=token_id,
@@ -1202,6 +1211,7 @@ class OrderManager:
             decision_reference_ts_utc=decision_reference_ts_utc,
             token_median_lag_ms=token_median_lag_ms,
             oracle_tick_age_sec=oracle_tick_age_sec,
+            competitiveness_context=competitiveness_context,
         )
         return bool(outcome.get("submitted", False))
 
@@ -1222,6 +1232,7 @@ class OrderManager:
         decision_reference_ts_utc: Optional[str] = None,
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
+        competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         base_size = float(size) if size is not None else float(self.base_order_size)
         intent = OrderIntent(
@@ -1272,6 +1283,7 @@ class OrderManager:
             open_orders_for_token=token_orders,
             open_orders_total=len(open_orders),
             notional_target_usd=target_usd,
+            competitiveness_context=competitiveness_context,
         )
         if placed is None:
             return {

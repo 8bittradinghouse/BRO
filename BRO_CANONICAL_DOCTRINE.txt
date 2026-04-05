@@ -482,6 +482,35 @@ Taker flow:
 
 SNIPER_PRIMARY must be taker-only. No passive maker logic is allowed in that stage.
 
+7.3.1 Taker Competitiveness Gate (Deterministic, Bounded)
+
+Taker competitiveness overlays are additive and must not bypass risk/control gates.
+
+Required semantics:
+
+- hard minimum taker notional floor is explicit and non-negotiable when enabled:
+  - if floor is infeasible under current caps/price, skip with explicit reason (`taker_hard_min_notional_unachievable`)
+  - no under-floor submit path is permitted
+- final execution window is explicit and deterministic:
+  - final-15s window may be enabled
+  - optional final-10s aggressive sub-window may be enabled
+  - outside-window attempts are blocked with explicit reason (`taker_outside_final_window`)
+- dynamic sizing is bounded and conviction-based:
+  - edge/latency-weighted conviction scales target size within configured caps
+  - risk/cap clipping remains authoritative and must be surfaced (`dynamic_size_capped_by_risk`)
+- stage-aware aggressiveness is bounded:
+  - stage profile may increase size multiplier and taker price aggressiveness within configured max bps
+  - aggressiveness must never disable existing safety or risk gates
+- multi-oracle boost is optional and explicit:
+  - boost may apply only when enabled, edge threshold passes, direction confirms, and timing-window gate is open
+  - unknown/missing secondary-oracle state must never infer confirmation or boost
+
+Truth and audit surfaces must include:
+
+- `sniper_taker_decision` with conviction, edge, timing window class, aggressiveness level, and block reason
+- submit-level competitiveness payload (`taker_competitiveness`) on accepted taker orders
+- report-level distributions: edge buckets, conviction buckets, timing windows, lag classes, aggressiveness counters, multi-oracle status/confirmation/boost counts, and stage-level net breakout
+
 7.4 Workflow: Selective Maker/Taker Decision
 
 In stages where either maker or taker may be valid, BRO must explicitly choose based on doctrine and not blur the two.
