@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "e412d12cccb00135d3b6038f7e10c0bf46006382024edb1c97339a5fa447c6ed"
+  paper_expected_config_fingerprint_sha256: "a1b615734448a68cb35658bae1f9f374eb8ae5a676028f85f622e51cc48e93c4"
 
 storage:
   log_dir: "./logs_exec"
@@ -100,8 +100,10 @@ chainlink:
 secondary_oracle:
   pyth:
     enabled: false
-    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D"
+    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids[]={feed_id}&parsed=true"
+    feed_id: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
     symbol: "BTC/USD"
+    user_agent: "BRO/1.0"
     request_timeout_sec: 1.5
     poll_interval_sec: 0.5
     max_tick_age_sec: 15.0

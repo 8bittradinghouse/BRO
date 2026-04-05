@@ -104,8 +104,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
     "secondary_oracle": {
         "pyth": {
             "enabled": False,
-            "rest_url": "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D",
+            "rest_url": "https://hermes.pyth.network/v2/updates/price/latest?ids[]={feed_id}&parsed=true",
+            "feed_id": "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
             "symbol": "BTC/USD",
+            "user_agent": "BRO/1.0",
             "request_timeout_sec": 1.5,
             "poll_interval_sec": 0.5,
             "max_tick_age_sec": 15.0,
@@ -981,8 +983,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("secondary_oracle.pyth must be a mapping")
     if not isinstance(pyth_cfg.get("rest_url"), str) or not str(pyth_cfg.get("rest_url", "")).strip():
         raise ValueError("secondary_oracle.pyth.rest_url must be a non-empty string")
+    if not isinstance(pyth_cfg.get("feed_id"), str) or not str(pyth_cfg.get("feed_id", "")).strip():
+        raise ValueError("secondary_oracle.pyth.feed_id must be a non-empty string")
     if not isinstance(pyth_cfg.get("symbol"), str) or not str(pyth_cfg.get("symbol", "")).strip():
         raise ValueError("secondary_oracle.pyth.symbol must be a non-empty string")
+    if not isinstance(pyth_cfg.get("user_agent"), str) or not str(pyth_cfg.get("user_agent", "")).strip():
+        raise ValueError("secondary_oracle.pyth.user_agent must be a non-empty string")
     _require_positive("secondary_oracle.pyth.request_timeout_sec", pyth_cfg.get("request_timeout_sec"))
     _require_positive("secondary_oracle.pyth.poll_interval_sec", pyth_cfg.get("poll_interval_sec"))
     _require_positive("secondary_oracle.pyth.max_tick_age_sec", pyth_cfg.get("max_tick_age_sec"))

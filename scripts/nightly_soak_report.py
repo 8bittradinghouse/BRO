@@ -519,7 +519,12 @@ def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[st
             order_id = str(evt.get("order_id") or "").strip()
             if not order_id:
                 continue
-            stage = str(evt.get("stage") or "UNKNOWN").strip().upper() or "UNKNOWN"
+            stage = str(evt.get("stage") or "").strip().upper()
+            comp = evt.get("taker_competitiveness")
+            if not stage and isinstance(comp, dict):
+                stage = str(comp.get("stage") or "").strip().upper()
+            if not stage:
+                stage = "UNKNOWN"
             taker_stage_by_order_id[order_id] = stage
             continue
         if event_type != "fill":
@@ -1328,26 +1333,38 @@ def _conviction_bucket(conviction_score: Any) -> str:
 
 
 def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    decision_count = 0.0
+    submit_capable_decision_count = 0.0
+    blocked_decision_count = 0.0
+    actual_submit_count = 0.0
+    fill_count = 0.0
     decision_timing_window = Counter()
     decision_edge_bucket = Counter()
     decision_conviction_bucket = Counter()
     decision_block_reason = Counter()
     decision_aggressiveness = Counter()
     decision_multi_oracle_status = Counter()
+    edge_eval_submit_reject_reason = Counter()
     submit_edge_bucket = Counter()
     submit_conviction_bucket = Counter()
     submit_timing_window = Counter()
     submit_multi_oracle_status = Counter()
     fill_edge_bucket = Counter()
+    fill_stage_distribution = Counter()
     lag_class_distribution = Counter()
     aggressiveness_application_counts = Counter()
     order_edge_bucket_by_id: Dict[str, str] = {}
     order_is_taker_by_id: Dict[str, bool] = {}
+    order_stage_by_id: Dict[str, str] = {}
+    submit_stage_distribution = Counter()
     hard_min_unachievable_count = 0.0
     dynamic_size_capped_by_risk_count = 0.0
     multi_oracle_confirmation_count = 0.0
     multi_oracle_boost_applied_count = 0.0
     outside_window_blocked_count_edge_eval = 0.0
+    submit_without_competitiveness_payload_count = 0.0
+    submit_unknown_stage_count = 0.0
+    fill_without_submit_stage_count = 0.0
 
     for evt in events:
         event_type = str(evt.get("event_type") or "").strip()
@@ -1359,15 +1376,29 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 and str(evt.get("block_reason") or "").strip().lower() == "taker_outside_final_window"
             ):
                 outside_window_blocked_count_edge_eval += 1.0
+            if (
+                str(evt.get("evaluation_scope") or "").strip().lower() == "taker"
+                and str(evt.get("action_taken") or "").strip().lower() == "none"
+                and str(evt.get("block_reason") or "").strip().lower() == "taker_submit_rejected"
+            ):
+                edge_eval_submit_reject_reason[
+                    str(evt.get("taker_submit_reject_reason") or "unknown").strip().lower() or "unknown"
+                ] += 1
             continue
 
         if event_type == "sniper_taker_decision":
+            decision_count += 1.0
             timing_window = str(evt.get("timing_window_class") or "unknown").strip().lower() or "unknown"
             decision_timing_window[timing_window] += 1
             edge_bucket = _taker_edge_bucket(evt.get("edge_abs"))
             conviction_bucket = _conviction_bucket(evt.get("conviction_score"))
             decision_edge_bucket[edge_bucket] += 1
             decision_conviction_bucket[conviction_bucket] += 1
+            should_submit = bool(evt.get("should_submit", False))
+            if should_submit:
+                submit_capable_decision_count += 1.0
+            else:
+                blocked_decision_count += 1.0
             block_reason = str(evt.get("block_reason") or "").strip().lower()
             if block_reason:
                 decision_block_reason[block_reason] += 1
@@ -1394,8 +1425,19 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 order_is_taker_by_id[order_id] = is_taker_sniper
             if not is_taker_sniper:
                 continue
+            actual_submit_count += 1.0
             comp = evt.get("taker_competitiveness")
             if not isinstance(comp, dict):
+                submit_without_competitiveness_payload_count += 1.0
+                if order_id:
+                    order_edge_bucket_by_id[order_id] = "unknown"
+                stage = str(evt.get("stage") or "").strip().upper()
+                if not stage:
+                    stage = "UNKNOWN"
+                    submit_unknown_stage_count += 1.0
+                submit_stage_distribution[stage] += 1
+                if order_id:
+                    order_stage_by_id[order_id] = stage
                 continue
             edge_bucket = _taker_edge_bucket(comp.get("edge_abs"))
             conviction_bucket = _conviction_bucket(comp.get("conviction_score"))
@@ -1403,6 +1445,13 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             submit_edge_bucket[edge_bucket] += 1
             submit_conviction_bucket[conviction_bucket] += 1
             submit_timing_window[timing_window] += 1
+            stage = str(comp.get("stage") or evt.get("stage") or "").strip().upper()
+            if not stage:
+                stage = "UNKNOWN"
+                submit_unknown_stage_count += 1.0
+            submit_stage_distribution[stage] += 1
+            if order_id:
+                order_stage_by_id[order_id] = stage
             submit_multi_oracle_status[
                 str(comp.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
             ] += 1
@@ -1426,12 +1475,35 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         order_id = str(evt.get("order_id") or "").strip()
         if not order_id or not bool(order_is_taker_by_id.get(order_id)):
             continue
+        fill_count += 1.0
         edge_bucket = order_edge_bucket_by_id.get(order_id, "unknown")
         fill_edge_bucket[edge_bucket] += 1
+        stage = str(order_stage_by_id.get(order_id) or "").strip().upper()
+        if not stage:
+            fill_without_submit_stage_count += 1.0
+            stage = "UNKNOWN"
+        fill_stage_distribution[stage] += 1
         lag_class = str(evt.get("paper_chainlink_lag_class") or "unknown").strip().lower() or "unknown"
         lag_class_distribution[lag_class] += 1
 
+    decision_to_submit_rate = (actual_submit_count / decision_count) if decision_count > 0.0 else 0.0
+    submit_capable_to_submit_rate = (
+        actual_submit_count / submit_capable_decision_count
+        if submit_capable_decision_count > 0.0
+        else 0.0
+    )
+    fill_rate_from_submits = (fill_count / actual_submit_count) if actual_submit_count > 0.0 else 0.0
+
     return {
+        "decision_count": float(decision_count),
+        "submit_capable_decision_count": float(submit_capable_decision_count),
+        "blocked_decision_count": float(blocked_decision_count),
+        "actual_submit_count": float(actual_submit_count),
+        "fill_count": float(fill_count),
+        "decision_to_submit_rate": float(decision_to_submit_rate),
+        "submit_capable_to_submit_rate": float(submit_capable_to_submit_rate),
+        "fill_rate_from_submits": float(fill_rate_from_submits),
+        "submit_without_competitiveness_payload_count": float(submit_without_competitiveness_payload_count),
         "outside_window_blocked_count_edge_eval": float(outside_window_blocked_count_edge_eval),
         "decision_timing_window_distribution": dict(sorted(decision_timing_window.items(), key=lambda item: item[0])),
         "decision_edge_bucket_distribution": dict(sorted(decision_edge_bucket.items(), key=lambda item: item[0])),
@@ -1447,6 +1519,9 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "decision_multi_oracle_status_distribution": dict(
             sorted(decision_multi_oracle_status.items(), key=lambda item: item[0])
         ),
+        "edge_eval_submit_reject_reason_distribution": dict(
+            sorted(edge_eval_submit_reject_reason.items(), key=lambda item: item[0])
+        ),
         "submit_edge_bucket_distribution": dict(sorted(submit_edge_bucket.items(), key=lambda item: item[0])),
         "submit_conviction_bucket_distribution": dict(
             sorted(submit_conviction_bucket.items(), key=lambda item: item[0])
@@ -1457,7 +1532,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "submit_multi_oracle_status_distribution": dict(
             sorted(submit_multi_oracle_status.items(), key=lambda item: item[0])
         ),
+        "submit_stage_distribution": dict(sorted(submit_stage_distribution.items(), key=lambda item: item[0])),
         "fill_edge_bucket_distribution": dict(sorted(fill_edge_bucket.items(), key=lambda item: item[0])),
+        "fill_stage_distribution": dict(sorted(fill_stage_distribution.items(), key=lambda item: item[0])),
+        "submit_unknown_stage_count": float(submit_unknown_stage_count),
+        "fill_without_submit_stage_count": float(fill_without_submit_stage_count),
         "lag_class_distribution": dict(sorted(lag_class_distribution.items(), key=lambda item: item[0])),
         "aggressiveness_application_counts": dict(
             sorted(aggressiveness_application_counts.items(), key=lambda item: item[0])
@@ -1466,6 +1545,69 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "dynamic_size_capped_by_risk_count_decision": float(dynamic_size_capped_by_risk_count),
         "multi_oracle_confirmation_count_decision": float(multi_oracle_confirmation_count),
         "multi_oracle_boost_applied_count_decision": float(multi_oracle_boost_applied_count),
+    }
+
+
+def _secondary_oracle_pyth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    states = Counter()
+    sample_count = 0.0
+    enabled_sample_count = 0.0
+    connected_sample_count = 0.0
+    unavailable_sample_count = 0.0
+    latest: Dict[str, Any] = {}
+
+    for row in status_rows:
+        secondary = row.get("secondary_oracle")
+        if not isinstance(secondary, dict):
+            continue
+        pyth = secondary.get("pyth")
+        if not isinstance(pyth, dict):
+            continue
+        sample_count += 1.0
+        enabled = bool(pyth.get("enabled", False))
+        connected = bool(pyth.get("connected", False))
+        if enabled:
+            enabled_sample_count += 1.0
+            if connected:
+                connected_sample_count += 1.0
+            else:
+                unavailable_sample_count += 1.0
+        state = str(pyth.get("operational_state") or "").strip().lower() or "unknown"
+        states[state] += 1
+        latest = pyth
+
+    connected_ratio = (connected_sample_count / enabled_sample_count) if enabled_sample_count > 0.0 else 0.0
+    latest_error = str(latest.get("last_error") or "") if isinstance(latest, dict) else ""
+    latest_http_status = latest.get("last_http_status") if isinstance(latest, dict) else None
+    latest_http_status_num = int(latest_http_status) if isinstance(latest_http_status, int) else None
+
+    return {
+        "sample_count": float(sample_count),
+        "enabled_sample_count": float(enabled_sample_count),
+        "connected_sample_count": float(connected_sample_count),
+        "unavailable_sample_count": float(unavailable_sample_count),
+        "connected_ratio_when_enabled": float(connected_ratio),
+        "operational_state_distribution": dict(sorted(states.items(), key=lambda item: item[0])),
+        "latest": {
+            "enabled": bool(latest.get("enabled", False)) if isinstance(latest, dict) else False,
+            "connected": bool(latest.get("connected", False)) if isinstance(latest, dict) else False,
+            "requests": int(_safe_float(latest.get("requests"), 0.0)) if isinstance(latest, dict) else 0,
+            "errors": int(_safe_float(latest.get("errors"), 0.0)) if isinstance(latest, dict) else 0,
+            "last_error": latest_error,
+            "last_http_status": latest_http_status_num,
+            "operational_state": (
+                str(latest.get("operational_state") or "").strip().lower()
+                if isinstance(latest, dict)
+                else ""
+            ),
+            "feed_id": str(latest.get("feed_id") or "") if isinstance(latest, dict) else "",
+            "symbol": str(latest.get("symbol") or "") if isinstance(latest, dict) else "",
+            "last_tick_age_sec": (
+                float(latest.get("last_tick_age_sec"))
+                if isinstance(latest, dict) and isinstance(latest.get("last_tick_age_sec"), (int, float))
+                else None
+            ),
+        },
     }
 
 
@@ -1665,6 +1807,7 @@ def build_report(
     maker_competitiveness = _maker_competitiveness_stats(events)
     taker_competitiveness = _taker_competitiveness_stats(events)
     risk_competitiveness = _risk_competitiveness_stats(events)
+    secondary_oracle_pyth = _secondary_oracle_pyth_stats(status)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
@@ -1748,6 +1891,7 @@ def build_report(
         "maker_competitiveness": maker_competitiveness,
         "taker_competitiveness": taker_competitiveness,
         "risk_competitiveness": risk_competitiveness,
+        "secondary_oracle_pyth": secondary_oracle_pyth,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
         "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
@@ -1809,6 +1953,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
     taker_comp = report.get("taker_competitiveness", {}) if isinstance(report.get("taker_competitiveness"), dict) else {}
     risk_comp = report.get("risk_competitiveness", {}) if isinstance(report.get("risk_competitiveness"), dict) else {}
+    pyth_comp = report.get("secondary_oracle_pyth", {}) if isinstance(report.get("secondary_oracle_pyth"), dict) else {}
     maker_size_comp = (
         report.get("maker_sizing_competitiveness", {})
         if isinstance(report.get("maker_sizing_competitiveness"), dict)
@@ -1875,10 +2020,26 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         ),
         (
             "taker_competitiveness="
+            + f"decisions={int(_safe_float(taker_comp.get('decision_count')))},"
+            + f"submit_capable_decisions={int(_safe_float(taker_comp.get('submit_capable_decision_count')))},"
+            + f"actual_submits={int(_safe_float(taker_comp.get('actual_submit_count')))},"
+            + f"fills={int(_safe_float(taker_comp.get('fill_count')))},"
+            + f"decision_to_submit_rate={_safe_float(taker_comp.get('decision_to_submit_rate')):.4f},"
+            + f"submit_capable_to_submit_rate={_safe_float(taker_comp.get('submit_capable_to_submit_rate')):.4f},"
+            + f"fill_rate_from_submits={_safe_float(taker_comp.get('fill_rate_from_submits')):.4f},"
             + f"outside_window_blocked={int(_safe_float(taker_comp.get('outside_window_blocked_count_edge_eval')))},"
             + f"hard_min_unachievable={int(_safe_float(taker_comp.get('hard_min_unachievable_count_decision')))},"
             + f"dynamic_capped={int(_safe_float(taker_comp.get('dynamic_size_capped_by_risk_count_decision')))},"
             + f"aggressiveness={json.dumps(taker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
+        ),
+        (
+            "secondary_oracle_pyth="
+            + f"samples={int(_safe_float(pyth_comp.get('sample_count')))},"
+            + f"enabled_samples={int(_safe_float(pyth_comp.get('enabled_sample_count')))},"
+            + f"connected_samples={int(_safe_float(pyth_comp.get('connected_sample_count')))},"
+            + f"connected_ratio_when_enabled={_safe_float(pyth_comp.get('connected_ratio_when_enabled')):.4f},"
+            + f"states={json.dumps(pyth_comp.get('operational_state_distribution', {}), sort_keys=True)},"
+            + f"latest={json.dumps(pyth_comp.get('latest', {}), sort_keys=True)}"
         ),
         (
             "risk_competitiveness="

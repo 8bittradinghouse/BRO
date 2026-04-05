@@ -32,13 +32,14 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: 396386830c91ad725daef65e15c5b50a43d560fa7c6567e9d98a78ed059cd32b
+  paper_expected_config_fingerprint_sha256: "ee0da7637e4919fd3be1c156a55d0c6bae25294e8d9fc0120c267c4d4cf2f089"
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
 latency_verifier:
   min_samples: 15
-  armed_min_median_ms: 50
+  hit_threshold_ms: 40
+  armed_min_median_ms: 40
   armed_min_hit_rate: 0.30
   probation_min_median_ms: 30
   probation_min_hit_rate: 0.15
@@ -49,6 +50,7 @@ latency_verifier:
 # - slightly relax expected-fill floor
 # preserving explicit skip semantics and fail-closed behavior.
 strategy:
+  max_order_size: 8000.0
   execution_quality:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
@@ -84,13 +86,16 @@ sizing:
   maker_liquidity_tod_depth_multiplier: 0.6
 
 risk:
+  max_abs_position_shares: 4000.0
+  max_notional_per_token: 1300.0
+  max_order_size: 8000.0
   dynamic_scaling:
     enabled: true
     volatility_enabled: true
     volatility_low_threshold: 0.0015
     volatility_high_threshold: 0.008
     volatility_low_mult: 1.05
-    volatility_high_mult: 0.85
+    volatility_high_mult: 0.9
     tod_enabled: true
     tod_start_hour_utc: 2
     tod_end_hour_utc: 6
@@ -99,12 +104,12 @@ risk:
     edge_start_abs: 0.10
     edge_full_abs: 0.30
     edge_mult_max: 1.15
-    min_effective_mult: 0.75
+    min_effective_mult: 0.85
     max_effective_mult: 1.25
     unknown_input_policy: no_aggressive_uplift
   global_exposure_guard:
     enabled: true
-    max_global_notional_usd: 800.0
+    max_global_notional_usd: 2500.0
     near_cap_ratio: 0.85
 
 # Grok-informed bounded lag accommodation:
@@ -115,8 +120,10 @@ doctrine:
 secondary_oracle:
   pyth:
     enabled: true
-    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids=%5B%22Crypto.BTC%2FUSD%22%5D"
+    rest_url: "https://hermes.pyth.network/v2/updates/price/latest?ids[]={feed_id}&parsed=true"
+    feed_id: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
     symbol: "BTC/USD"
+    user_agent: "BRO/1.0"
     request_timeout_sec: 1.5
     poll_interval_sec: 0.5
     max_tick_age_sec: 15.0
@@ -124,23 +131,25 @@ secondary_oracle:
 # P1 taker tightening:
 # keep high-conviction stages unchanged and only raise the selective-stage floor.
 sniper:
+  require_lag_verification: false
   taker:
     min_edge_by_stage:
       MAKER_TAKER_SELECTIVE: 0.12
-      SNIPER_PRIMARY: 0.10
+      SNIPER_PRIMARY: 0.20
+      EXTREME_ONLY: 0.25
     competitiveness:
       enabled: true
       hard_min_target_usd: 100.0
       hard_min_enforcement: skip_if_unachievable
       dynamic_size_enabled: true
-      dynamic_size_edge_start_abs: 0.12
-      dynamic_size_edge_full_abs: 0.22
-      dynamic_size_target_usd_cap: 250.0
+      dynamic_size_edge_start_abs: 0.16
+      dynamic_size_edge_full_abs: 0.35
+      dynamic_size_target_usd_cap: 220.0
       conviction_model: edge_plus_latency_score
       edge_weight: 0.65
       latency_score_weight: 0.35
       final_window_enabled: true
-      final_window_sec: 15.0
+      final_window_sec: 60.0
       aggressive_window_enabled: false
       aggressive_window_sec: 10.0
       stage_aggressiveness:
@@ -148,10 +157,10 @@ sniper:
           size_mult: 1.0
           price_aggress_bps: 0.0
         SNIPER_PRIMARY:
-          size_mult: 1.15
+          size_mult: 1.05
           price_aggress_bps: 2.0
         EXTREME_ONLY:
-          size_mult: 1.35
+          size_mult: 1.15
           price_aggress_bps: 5.0
       price_aggress_bps_max: 8.0
       multi_oracle_boost_enabled: true

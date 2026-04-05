@@ -1735,6 +1735,7 @@ class ExecutionRunner:
         market_reference_class: Optional[str] = None,
         decision_input_type_override: Optional[str] = None,
         decision_input_data_class_override: Optional[str] = None,
+        taker_submit_reject_reason: Optional[str] = None,
     ) -> None:
         normalized_action = str(action_taken or EDGE_ACTION_NONE).strip().lower() or EDGE_ACTION_NONE
         normalized_scope = str(evaluation_scope or "").strip().lower()
@@ -1806,10 +1807,15 @@ class ExecutionRunner:
             "maker_no_submission_category": (
                 str(maker_no_submission_category or "").strip().lower() or None
             ),
+            "taker_submit_reject_reason": (
+                str(taker_submit_reject_reason or "").strip().lower() or None
+            ),
         }
         if payload["block_reason"] != "maker_no_submission":
             payload["maker_no_submission_cause"] = None
             payload["maker_no_submission_category"] = None
+        if payload["block_reason"] != "taker_submit_rejected":
+            payload["taker_submit_reject_reason"] = None
         normalized_market_reference_mode = str(market_reference_mode or "").strip().lower()
         if not normalized_market_reference_mode:
             normalized_market_reference_mode = "direct_midpoint" if payload["market_probability"] is not None else "missing"
@@ -2179,6 +2185,7 @@ class ExecutionRunner:
             was_submitted = False
             was_filled = False
             emitted_order_id: Optional[str] = None
+            taker_submit_reject_reason: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
             required_min_edge = self._resolve_taker_required_min_edge(stage)
 
@@ -2365,6 +2372,7 @@ class ExecutionRunner:
                                     target_usd=submit_target_usd,
                                     top=top,
                                     reason="sniper_taker_chainlink",
+                                    stage=str(stage or STAGE_UNKNOWN),
                                     target_ref=decision_target_ref,
                                     decision_reference_midpoint=(
                                         float(midpoint) if isinstance(midpoint, (int, float)) else None
@@ -2450,6 +2458,9 @@ class ExecutionRunner:
                                     self.events.log_event("sniper_taker_submit", submit_payload)
                                 else:
                                     block_reason = "taker_submit_rejected"
+                                    taker_submit_reject_reason = (
+                                        str(outcome.get("submit_reject_reason") or "").strip().lower() or None
+                                    )
 
             self._emit_edge_evaluation(
                 token_id=token_id,
@@ -2478,6 +2489,7 @@ class ExecutionRunner:
                 market_reference_fallback_used=False,
                 market_reference_source_side="none",
                 market_reference_class=("authoritative" if isinstance(midpoint, (int, float)) else "not_available"),
+                taker_submit_reject_reason=taker_submit_reject_reason,
             )
 
         return {

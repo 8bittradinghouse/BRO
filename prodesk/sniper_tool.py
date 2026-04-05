@@ -135,6 +135,7 @@ class SniperDecision:
     multi_oracle_confirmation: bool
     multi_oracle_boost_applied: bool
     multi_oracle_status: str
+    sec_to_expiry: Optional[float] = None
 
     def as_event_payload(self) -> Dict[str, Any]:
         return {
@@ -144,6 +145,9 @@ class SniperDecision:
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
             "timing_window_class": self.timing_window_class,
+            "sec_to_expiry": (
+                float(self.sec_to_expiry) if isinstance(self.sec_to_expiry, (int, float)) else None
+            ),
             "aggressiveness_level": self.aggressiveness_level,
             "price_aggress_bps_applied": float(self.price_aggress_bps_applied),
             "target_usd_requested": float(self.target_usd_requested),
@@ -166,6 +170,9 @@ class SniperDecision:
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
             "timing_window_class": self.timing_window_class,
+            "sec_to_expiry": (
+                float(self.sec_to_expiry) if isinstance(self.sec_to_expiry, (int, float)) else None
+            ),
             "aggressiveness_level": self.aggressiveness_level,
             "price_aggress_bps_applied": float(self.price_aggress_bps_applied),
             "target_usd_requested": float(self.target_usd_requested),
@@ -220,7 +227,9 @@ class SniperTool:
             return "outside_window"
         if self.cfg.aggressive_window_enabled and sec <= float(self.cfg.aggressive_window_sec):
             return "final10"
-        return "final15"
+        if abs(float(self.cfg.final_window_sec) - 15.0) <= 1e-9:
+            return "final15"
+        return "final_window"
 
     def _stage_aggressiveness(self, stage: str) -> StageAggressiveness:
         normalized = str(stage or "").strip().upper()
@@ -289,6 +298,9 @@ class SniperTool:
         for candidate in candidates:
             token_id = str(candidate.token_id)
             stage = str(candidate.stage or "").strip().upper() or "UNKNOWN"
+            sec_to_expiry_value = (
+                float(candidate.sec_to_expiry) if isinstance(candidate.sec_to_expiry, (int, float)) else None
+            )
             edge_signed = float(candidate.edge_value)
             edge_abs = abs(edge_signed)
             required_min_edge = max(0.0, float(candidate.required_min_edge))
@@ -320,6 +332,7 @@ class SniperTool:
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
                     )
                 )
                 continue
@@ -347,6 +360,7 @@ class SniperTool:
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
                     )
                 )
                 continue
@@ -356,7 +370,7 @@ class SniperTool:
             if timing_window_class == "final10" and self.cfg.aggressive_window_enabled:
                 aggress_bps = max(aggress_bps, aggress_bps * 1.25)
             aggress_bps = _clamp(aggress_bps, 0.0, float(self.cfg.price_aggress_bps_max))
-            aggressiveness_level = "final10" if timing_window_class == "final10" else "final15"
+            aggressiveness_level = "final10" if timing_window_class == "final10" else timing_window_class
 
             boost_allowed = (
                 bool(self.cfg.multi_oracle_boost_enabled)
@@ -415,6 +429,7 @@ class SniperTool:
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_applied=boost_allowed,
                         multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
                     )
                 )
                 continue
@@ -450,6 +465,7 @@ class SniperTool:
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_applied=boost_allowed,
                         multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
                     )
                 )
                 continue
@@ -481,6 +497,7 @@ class SniperTool:
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_applied=boost_allowed,
                         multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
                     )
                 )
                 continue
@@ -507,6 +524,7 @@ class SniperTool:
                     multi_oracle_confirmation=multi_oracle_confirmation,
                     multi_oracle_boost_applied=boost_allowed,
                     multi_oracle_status=multi_oracle_status,
+                    sec_to_expiry=sec_to_expiry_value,
                 )
             )
 

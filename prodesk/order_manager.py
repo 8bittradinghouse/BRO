@@ -237,6 +237,8 @@ class OrderManager:
             return "unknown"
         if normalized.startswith("submit_rejected_"):
             normalized = normalized.removeprefix("submit_rejected_")
+        if normalized.startswith("risk_reject"):
+            return "risk_reject"
         mapping = {
             "pre_submit_cross_guarded": "pre_submit_cross_guarded",
             "post_only_reject": "post_only_reject",
@@ -504,7 +506,7 @@ class OrderManager:
                 },
             )
             return _local_reject(
-                "risk_reject",
+                f"risk_reject_{decision.reason}",
                 detail=f"{decision.reason}:{decision.detail}",
                 extra={"risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None)},
             )
@@ -1215,6 +1217,7 @@ class OrderManager:
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
         realized_volatility: Optional[float] = None,
+        stage: Optional[str] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         outcome = self.place_taker_order_with_outcome(
@@ -1233,6 +1236,7 @@ class OrderManager:
             token_median_lag_ms=token_median_lag_ms,
             oracle_tick_age_sec=oracle_tick_age_sec,
             realized_volatility=realized_volatility,
+            stage=stage,
             competitiveness_context=competitiveness_context,
         )
         return bool(outcome.get("submitted", False))
@@ -1255,9 +1259,16 @@ class OrderManager:
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
         realized_volatility: Optional[float] = None,
+        stage: Optional[str] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         base_size = float(size) if size is not None else float(self.base_order_size)
+        competitiveness_stage = None
+        if isinstance(competitiveness_context, dict):
+            raw_stage = str(competitiveness_context.get("stage") or "").strip()
+            competitiveness_stage = raw_stage.upper() if raw_stage else None
+        explicit_stage = str(stage or "").strip()
+        resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
         intent = OrderIntent(
             token_id=token_id,
             side=side,
@@ -1266,6 +1277,7 @@ class OrderManager:
             tif="IOC",
             post_only=False,
             reason=reason,
+            stage=resolved_stage,
             target_ref=(str(target_ref).strip() if str(target_ref or "").strip() else None),
             decision_reference_midpoint=(
                 float(decision_reference_midpoint)
@@ -1323,6 +1335,7 @@ class OrderManager:
                 "submitted": False,
                 "fills_accepted": 0,
                 "order_id": None,
+                "submit_reject_reason": (str(_submit_reject_reason).strip() if str(_submit_reject_reason or "").strip() else None),
             }
         self.telemetry.incr("taker_orders_submitted")
         # Pull immediate IOC fills into state now rather than waiting for next cycle.

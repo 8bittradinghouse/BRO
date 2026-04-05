@@ -541,9 +541,19 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "taker_outside_final_window",
                 },
                 {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-taker-competitiveness",
+                    "evaluation_scope": "taker",
+                    "action_taken": "none",
+                    "block_reason": "taker_submit_rejected",
+                    "taker_submit_reject_reason": "risk_reject_notional_cap",
+                },
+                {
                     "event_type": "sniper_taker_decision",
                     "run_id": "rid-taker-competitiveness",
                     "token_id": "t1",
+                    "stage": "SNIPER_PRIMARY",
+                    "should_submit": False,
                     "timing_window_class": "outside_window",
                     "edge_abs": 0.08,
                     "conviction_score": 0.10,
@@ -559,6 +569,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "sniper_taker_decision",
                     "run_id": "rid-taker-competitiveness",
                     "token_id": "t2",
+                    "stage": "SNIPER_PRIMARY",
+                    "should_submit": True,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
                     "conviction_score": 0.82,
@@ -575,7 +587,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-competitiveness",
                     "order_id": "taker-1",
                     "reason": "sniper_taker_chainlink",
+                    "stage": "SNIPER_PRIMARY",
                     "taker_competitiveness": {
+                        "stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.24,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -600,14 +614,43 @@ class NightlySoakReportTests(unittest.TestCase):
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
             status_path.write_text(
-                json.dumps({"run_id": "rid-taker-competitiveness", "gauge.open_orders": 0}) + "\n",
+                json.dumps(
+                    {
+                        "run_id": "rid-taker-competitiveness",
+                        "gauge.open_orders": 0,
+                        "secondary_oracle": {
+                            "pyth": {
+                                "enabled": True,
+                                "connected": False,
+                                "requests": 2,
+                                "errors": 2,
+                                "last_error": "HTTP Error 403",
+                                "last_http_status": 403,
+                                "operational_state": "unavailable_http_403",
+                                "feed_id": "feed",
+                                "symbol": "BTC/USD",
+                            }
+                        },
+                    }
+                )
+                + "\n",
                 encoding="utf-8",
             )
             errors_path.write_text("", encoding="utf-8")
 
             report = build_report(root, run_id="rid-taker-competitiveness")
             taker_comp = report.get("taker_competitiveness", {})
+            self.assertEqual(float(taker_comp.get("decision_count") or 0.0), 2.0)
+            self.assertEqual(float(taker_comp.get("submit_capable_decision_count") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("blocked_decision_count") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("actual_submit_count") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("fill_count") or 0.0), 1.0)
+            self.assertAlmostEqual(float(taker_comp.get("decision_to_submit_rate") or 0.0), 0.5, places=9)
+            self.assertAlmostEqual(float(taker_comp.get("submit_capable_to_submit_rate") or 0.0), 1.0, places=9)
+            self.assertAlmostEqual(float(taker_comp.get("fill_rate_from_submits") or 0.0), 1.0, places=9)
             self.assertEqual(float(taker_comp.get("outside_window_blocked_count_edge_eval") or 0.0), 1.0)
+            edge_eval_submit_reject = taker_comp.get("edge_eval_submit_reject_reason_distribution", {})
+            self.assertEqual(int(edge_eval_submit_reject.get("risk_reject_notional_cap", 0)), 1)
             decision_blocks = taker_comp.get("decision_block_reason_distribution", {})
             self.assertEqual(int(decision_blocks.get("taker_outside_final_window", 0)), 1)
             decision_windows = taker_comp.get("decision_timing_window_distribution", {})
@@ -630,6 +673,22 @@ class NightlySoakReportTests(unittest.TestCase):
             aggressiveness = taker_comp.get("aggressiveness_application_counts", {})
             self.assertEqual(int(aggressiveness.get("price_aggressed", 0)), 1)
             self.assertEqual(int(aggressiveness.get("hard_min_floor_applied", 0)), 1)
+            submit_stage = taker_comp.get("submit_stage_distribution", {})
+            self.assertEqual(int(submit_stage.get("SNIPER_PRIMARY", 0)), 1)
+            fill_stage = taker_comp.get("fill_stage_distribution", {})
+            self.assertEqual(int(fill_stage.get("SNIPER_PRIMARY", 0)), 1)
+            self.assertEqual(float(taker_comp.get("submit_unknown_stage_count") or 0.0), 0.0)
+            self.assertEqual(float(taker_comp.get("fill_without_submit_stage_count") or 0.0), 0.0)
+
+            pyth_stats = report.get("secondary_oracle_pyth", {})
+            self.assertEqual(float(pyth_stats.get("sample_count") or 0.0), 1.0)
+            self.assertEqual(float(pyth_stats.get("enabled_sample_count") or 0.0), 1.0)
+            self.assertEqual(float(pyth_stats.get("connected_sample_count") or 0.0), 0.0)
+            self.assertEqual(
+                int((pyth_stats.get("operational_state_distribution") or {}).get("unavailable_http_403", 0)),
+                1,
+            )
+            self.assertEqual(int(((pyth_stats.get("latest") or {}).get("last_http_status") or 0)), 403)
 
     def test_build_report_emits_maker_regression_sentinel_triggered_for_near_zero_pattern(self):
         with tempfile.TemporaryDirectory() as td:

@@ -994,7 +994,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             placed, reject_reason = manager._place_order(rejected_intent, top, open_orders_for_token=[], open_orders_total=0)
             self.assertIsNone(placed)
-            self.assertEqual(reject_reason, "risk_reject")
+            self.assertTrue(str(reject_reason or "").startswith("risk_reject"))
 
             accepted_intent = OrderIntent(
                 token_id="t1",
@@ -1404,6 +1404,65 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(telemetry.counters.get("taker_orders_submitted"), 1)
             self.assertEqual(telemetry.counters.get("taker_orders_filled"), 1)
             self.assertGreater(positions["t1"].buy_shares, 0.0)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_taker_order_submit_carries_stage(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            outcome = manager.place_taker_order_with_outcome(
+                token_id="t1",
+                side="BUY",
+                price=0.51,
+                size=10.0,
+                target_usd=None,
+                top=top,
+                reason="sniper_taker_chainlink",
+                stage="SNIPER_PRIMARY",
+                competitiveness_context={"stage": "SNIPER_PRIMARY"},
+            )
+            self.assertTrue(bool(outcome.get("submitted", False)))
+            events.close()
+            events = None
+
+            stage_values: list[str] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    if str(row.get("event_type") or "") != "order_submit":
+                        continue
+                    if str(row.get("reason") or "").strip().lower() != "sniper_taker_chainlink":
+                        continue
+                    stage_values.append(str(row.get("stage") or ""))
+
+            self.assertEqual(stage_values, ["SNIPER_PRIMARY"])
         finally:
             if events is not None:
                 events.close()

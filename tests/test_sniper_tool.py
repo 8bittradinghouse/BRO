@@ -67,6 +67,38 @@ class SniperToolTests(unittest.TestCase):
         self.assertEqual(str(decision.block_reason or ""), "taker_hard_min_notional_unachievable")
         self.assertTrue(bool(decision.hard_min_unachievable))
 
+    def test_non_15s_final_window_uses_generic_window_label(self) -> None:
+        tool = SniperTool(
+            SniperToolConfig(
+                enabled=True,
+                final_window_enabled=True,
+                final_window_sec=30.0,
+                hard_min_target_usd=1.0,
+                dynamic_size_target_usd_cap=1.0,
+            )
+        )
+        result = tool.evaluate_batch(
+            candidates=[
+                SniperCandidate(
+                    token_id="tok-final-window",
+                    stage="SNIPER_PRIMARY",
+                    sec_to_expiry=20.0,
+                    edge_value=0.22,
+                    required_min_edge=0.10,
+                    base_target_usd=1.0,
+                    top_best_bid_price=0.49,
+                    top_best_ask_price=0.50,
+                    token_score=0.8,
+                    max_feasible_target_usd=500.0,
+                )
+            ],
+            max_orders_per_cycle=1,
+        )
+        decision = result.decisions[0]
+        self.assertTrue(bool(decision.should_submit))
+        self.assertEqual(str(decision.timing_window_class or ""), "final_window")
+        self.assertEqual(str(decision.aggressiveness_level or ""), "final_window")
+
     def test_submits_with_dynamic_size_and_stage_aggressiveness(self) -> None:
         cfg = SniperToolConfig.from_mapping(
             {
