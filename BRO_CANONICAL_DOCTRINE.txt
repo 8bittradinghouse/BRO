@@ -101,11 +101,13 @@ The architecture must preserve the following separation rules:
 
 - Strategy produces only intents.
 - Execution Controller coordinates but does not own capital truth.
-- Wallet Doctrine is sole authority for capital authorization.
+- Wallet Doctrine is sole authority for capital truth and capital authorization.
 - Transaction Manager is sole authority for signing/submission mechanics.
 - Reconciliation determines post-trade state truth.
 - No module may bypass wallet doctrine.
 - No module may bypass reconciliation.
+- Wallet veto and risk veto are independent and non-overridable.
+- Final order permission requires both wallet and risk to allow.
 
 3. Three-Gate Execution Model
 
@@ -259,6 +261,9 @@ Wallet Doctrine may respond with:
 - halt system
 
 Strategy must not override wallet response.
+Risk must not override wallet veto.
+Wallet must not override risk veto.
+No downstream path may convert either veto into a reduction-success.
 
 5. Trade Intent Contract
 
@@ -517,9 +522,14 @@ Required semantics:
   - if floor is infeasible under current caps/price, skip with explicit reason (`taker_hard_min_notional_unachievable`)
   - no under-floor submit path is permitted
 - final execution window is explicit and deterministic:
-  - final-15s window may be enabled
+  - final window may be enabled globally and overridden per stage
+  - SNIPER_PRIMARY may use a stricter stage-local final window than other taker stages
   - optional final-10s aggressive sub-window may be enabled
   - outside-window attempts are blocked with explicit reason (`taker_outside_final_window`)
+- dynamic feasibility preview is advisory-only when enabled:
+  - preview computes read-only predicted dynamic feasibility/headroom
+  - preview must not reserve size, mutate exposure, or replace final `RiskEngine.validate_order` authority
+  - preview output is for truth/prioritization surfaces only (`predicted_dynamic_feasible*`)
 - dynamic sizing is bounded and conviction-based:
   - edge/latency-weighted conviction scales target size within configured caps
   - risk/cap clipping remains authoritative and must be surfaced (`dynamic_size_capped_by_risk`)
@@ -527,14 +537,20 @@ Required semantics:
   - stage profile may increase size multiplier and taker price aggressiveness within configured max bps
   - aggressiveness must never disable existing safety or risk gates
 - multi-oracle boost is optional and explicit:
-  - boost may apply only when enabled, edge threshold passes, direction confirms, and timing-window gate is open
+  - boost may apply only when enabled, edge threshold passes, direction confirms, and numeric boost window is open (`sec_to_expiry <= multi_oracle_boost_window_sec`)
   - unknown/missing secondary-oracle state must never infer confirmation or boost
 
 Truth and audit surfaces must include:
 
 - `sniper_taker_decision` with conviction, edge, timing window class, aggressiveness level, and block reason
+- explicit static vs dynamic predicted executability fields (`submit_capable_static`, `submit_capable_dynamic_predicted`)
 - submit-level competitiveness payload (`taker_competitiveness`) on accepted taker orders
 - report-level distributions: edge buckets, conviction buckets, timing windows, lag classes, aggressiveness counters, multi-oracle status/confirmation/boost counts, and stage-level net breakout
+- stage-separated anti-suppression funnel counters with explicit reduction-cause attribution:
+  - `reduction_due_to_dynamic_preview`
+  - `reduction_due_to_timing_gate`
+  - `reduction_due_to_cooldown`
+  - `reduction_due_to_final_risk_reject`
 
 7.4 Workflow: Selective Maker/Taker Decision
 
@@ -936,3 +952,44 @@ Control-authoritative safety behavior must remain explicit.
   - `trigger_chain_interpretation`
 
 If primary suppression cause cannot be uniquely determined, the system must emit explicit ambiguity and must not invent a synthetic primary cause.
+
+22. Wallet Execution Module Surfaces
+
+Wallet authority must be explicit, machine-readable, and operator-auditable.
+
+- Truth-domain naming must be explicit:
+  - `canonical_live_wallet_truth`
+  - `local_tx_lifecycle_state`
+  - `open_order_state`
+  - `integrity_tripwire_reconcile_state`
+- Bootstrap status is non-authoritative and must be labeled `bootstrap_non_authoritative`.
+- Bootstrap surfaces may not be consumed as final readiness truth.
+- Reconcile scope must be explicitly represented as integrity tripwire unless a full ledger model is implemented.
+
+- Wallet status contract must expose:
+  - gas balance and minimum reserve verdict
+  - stable balance total
+  - protected reserve
+  - open reserved capital
+  - deployable capital
+  - approval health
+  - nonce health
+  - reconciliation health
+  - wallet health verdict + reasons
+- Wallet events must be first-class:
+  - `wallet_state_refresh`
+  - `wallet_health_gate`
+  - `wallet_reservation_created`
+  - `wallet_reservation_released`
+  - `wallet_reservation_settled`
+  - `wallet_approval_check`
+  - `wallet_approval_submitted`
+  - `wallet_nonce_state`
+  - `wallet_reconcile_result`
+  - `wallet_integrity_warning`
+  - `wallet_integrity_fail_closed`
+  - `wallet_startup_authority_refresh`
+  - `wallet_health_gate_veto`
+  - `wallet_local_tx_lifecycle_state`
+  - `wallet_open_order_state`
+- Unknown wallet identity, approval target identity, nonce state, or reconciliation truth must fail closed for live authorization.

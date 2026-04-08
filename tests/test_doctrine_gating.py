@@ -303,6 +303,10 @@ class DoctrineGatingTests(unittest.TestCase):
                     submit_rows.append(payload)
         self.assertTrue(bool(submit_rows))
         self.assertEqual(str(submit_rows[-1].get("order_id") or ""), "ord-42")
+        self.assertTrue(isinstance(submit_rows[-1].get("edge_abs"), (int, float)))
+        self.assertEqual(str(submit_rows[-1].get("edge_bucket") or ""), "le_0p10")
+        self.assertEqual(str(submit_rows[-1].get("stage") or ""), STAGE_MAKER_TAKER_SELECTIVE)
+        self.assertIsNone(submit_rows[-1].get("stage_unknown_reason"))
 
     def test_maker_edge_evaluation_emits_block_reason_when_not_submitted(self):
         runner = self._runner()
@@ -840,6 +844,45 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertEqual(
             str(taker_rows[-1].get("taker_submit_reject_reason") or ""),
             "risk_reject_notional_cap",
+        )
+
+    def test_taker_stage_specific_cooldown_resolution_is_sniper_local(self):
+        runner = self._runner()
+        runner.sniper_taker_per_token_cooldown_sec = 0.25
+        runner.sniper_taker_per_token_cooldown_sec_by_stage = {"SNIPER_PRIMARY": 0.75}
+        self.assertAlmostEqual(float(runner._resolve_taker_cooldown_sec("SNIPER_PRIMARY")), 0.75, places=9)
+        self.assertAlmostEqual(float(runner._resolve_taker_cooldown_sec("MAKER_TAKER_SELECTIVE")), 0.25, places=9)
+        self.assertAlmostEqual(float(runner._resolve_taker_cooldown_sec("EXTREME_ONLY")), 0.25, places=9)
+
+    def test_sniper_stage_window_semantic_check_emits_warn_on_non_overlap(self):
+        runner = self._runner()
+        runner.sniper_taker_competitiveness_cfg = SniperToolConfig.from_mapping(
+            {
+                "enabled": True,
+                "final_window_enabled": True,
+                "final_window_sec": 60.0,
+                "stage_final_window_sec_by_stage": {"SNIPER_PRIMARY": 20.0},
+            }
+        )
+        runner._emit_sniper_stage_window_semantic_check()
+        runner.events.close()
+        semantic_rows: list[dict] = []
+        for path in sorted(Path(runner.log_dir).glob("events_*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if str(payload.get("event_type") or "") == "sniper_stage_window_semantic_check":
+                    semantic_rows.append(payload)
+        self.assertTrue(bool(semantic_rows))
+        row = semantic_rows[-1]
+        self.assertEqual(str(row.get("semantic_status") or ""), "warn")
+        stage_rows = row.get("stage_rows") or {}
+        sniper_row = stage_rows.get("SNIPER_PRIMARY") or {}
+        self.assertFalse(bool(sniper_row.get("semantically_live", True)))
+        self.assertEqual(
+            str(sniper_row.get("semantic_dead_reason") or ""),
+            "stage_window_non_overlapping_with_stage_interval",
         )
 
 

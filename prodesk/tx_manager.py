@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from .common import utc_iso
 from .gateway import BaseGateway, GatewayError, PostOnlyRejectError
 from .models import BookTop, FillEvent, LiveOrder, OrderIntent
+from .wallet.wallet_types import AUTHORITY_CLASS_LOCAL, TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE
 from .wallet_doctrine import WalletAuthorization
 
 
@@ -232,7 +233,9 @@ class TransactionManager:
             "pending_nonces": pending_nonces,
             "current_nonce": current_nonce,
             "healthy": True,
-            "source": "tx_manager_lifecycle",
+            "source": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
+            "truth_domain": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
+            "authority_class": AUTHORITY_CLASS_LOCAL,
             "detail": "",
         }
 
@@ -242,7 +245,9 @@ class TransactionManager:
             "current_nonce": pending.get("current_nonce"),
             "pending_nonces": pending.get("pending_nonces", []),
             "healthy": True,
-            "source": "tx_manager_lifecycle",
+            "source": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
+            "truth_domain": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
+            "authority_class": AUTHORITY_CLASS_LOCAL,
             "detail": "",
         }
 

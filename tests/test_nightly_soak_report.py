@@ -100,6 +100,76 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertAlmostEqual(float(row.get("adverse_selection", 0.0)), 0.0, places=6)
             self.assertAlmostEqual(float(row.get("net", 0.0)), 0.2, places=6)
 
+    def test_taker_stage_delta_accounting_primary_causes_match_decision_delta(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "sniper_taker_decision",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "edge_abs": 0.22,
+                    "conviction_score": 0.7,
+                    "timing_window_class": "outside_window",
+                    "submit_capable_static": False,
+                    "submit_capable_dynamic_predicted": None,
+                    "should_submit": False,
+                    "block_reason": "taker_outside_final_window",
+                    "multi_oracle_status": "confirmed",
+                },
+                {
+                    "event_type": "sniper_taker_decision",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "edge_abs": 0.44,
+                    "conviction_score": 0.9,
+                    "timing_window_class": "final_window",
+                    "submit_capable_static": True,
+                    "submit_capable_dynamic_predicted": True,
+                    "should_submit": True,
+                    "block_reason": None,
+                    "multi_oracle_status": "confirmed",
+                },
+                {
+                    "event_type": "order_submit",
+                    "order_id": "o-stage-1",
+                    "reason": "sniper_taker_chainlink",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "taker_competitiveness": {
+                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "edge_abs": 0.44,
+                        "conviction_score": 0.9,
+                        "timing_window_class": "final_window",
+                        "multi_oracle_status": "confirmed",
+                    },
+                },
+                {
+                    "event_type": "fill",
+                    "order_id": "o-stage-1",
+                    "token_id": "tok-1",
+                    "side": "BUY",
+                    "price": 0.50,
+                    "size": 1.0,
+                },
+            ]
+            status = [{"gauge.open_orders": 0}]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            taker = report.get("taker_competitiveness", {})
+            self.assertIsInstance(taker.get("stage_reduction_primary_cause_counters"), dict)
+            self.assertIsInstance(taker.get("stage_reduction_delta_accounting"), dict)
+            self.assertIsInstance(taker.get("stage_first_claim_guard"), dict)
+            self.assertTrue(bool(taker.get("stage_first_claim_guard", {}).get("stage_evidence_required_before_aggregate_claim")))
+
+            mts_delta = (taker.get("stage_reduction_delta_accounting") or {}).get("MAKER_TAKER_SELECTIVE") or {}
+            self.assertEqual(float(mts_delta.get("decision_to_submit_delta", 0.0)), 1.0)
+            self.assertEqual(float(mts_delta.get("primary_reduction_cause_total", 0.0)), 1.0)
+            self.assertTrue(bool(mts_delta.get("primary_reduction_cause_total_matches_delta", False)))
+
     def test_build_report_includes_risk_competitiveness_section(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -141,6 +211,103 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(risk_comp.get("global_exposure_cap_reject_count", 0.0)), 1.0)
             self.assertEqual(float((risk_comp.get("scaling_class_distribution") or {}).get("conservative", 0.0)), 1.0)
             self.assertEqual(float((risk_comp.get("scaling_class_distribution") or {}).get("aggressive", 0.0)), 1.0)
+
+    def test_build_report_includes_wallet_authority_surface(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {"event_type": "wallet_state_refresh"},
+                {"event_type": "wallet_health_gate"},
+                {"event_type": "wallet_reservation_created"},
+                {"event_type": "book_top", "token_id": "t1", "midpoint": 0.5},
+            ]
+            status = [
+                {
+                    "wallet_contract": {
+                        "gas_balance": 2.0,
+                        "gas_reserve_min": 0.1,
+                        "gas_ok": True,
+                        "stable_balance_total": 1000.0,
+                        "protected_reserve": 50.0,
+                        "open_reserved": 10.0,
+                        "deployable_capital": 940.0,
+                        "approval_ok": True,
+                        "nonce_ok": True,
+                        "reconcile_ok": True,
+                        "wallet_health_ok": True,
+                        "wallet_health_reasons": [],
+                        "authority_status_class": "bootstrap_non_authoritative",
+                        "order_capable_live": False,
+                        "order_submit_eligible": False,
+                        "canonical_live_nonce_available": False,
+                        "canonical_live_pending_wallet_tx_available": False,
+                        "live_truth_gap_reasons": ["canonical_live_nonce_unavailable:missing"],
+                    }
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            wallet = report.get("wallet_authority", {})
+            self.assertIsInstance(wallet, dict)
+            self.assertEqual(float(((wallet.get("latest_contract") or {}).get("deployable_capital") or 0.0)), 940.0)
+            self.assertEqual(float(((wallet.get("event_counts") or {}).get("wallet_state_refresh") or 0.0)), 1.0)
+            self.assertEqual(float(((wallet.get("event_counts") or {}).get("wallet_health_gate") or 0.0)), 1.0)
+            self.assertEqual(float(((wallet.get("event_counts") or {}).get("wallet_reservation_created") or 0.0)), 1.0)
+            self.assertEqual(str(wallet.get("authority_status_class") or ""), "bootstrap_non_authoritative")
+            self.assertFalse(bool(wallet.get("order_capable_live")))
+            self.assertFalse(bool(wallet.get("order_submit_eligible")))
+            self.assertFalse(bool(wallet.get("canonical_live_nonce_available")))
+            self.assertFalse(bool(wallet.get("canonical_live_pending_wallet_tx_available")))
+            self.assertTrue(isinstance(wallet.get("live_truth_gap_reasons"), list))
+
+    def test_wallet_authority_legacy_fallback_is_non_authoritative(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [{"event_type": "wallet_state_refresh"}]
+            status = [
+                {
+                    "wallet_gas_balance": 2.0,
+                    "wallet_gas_reserve_min": 0.1,
+                    "wallet_gas_ok": True,
+                    "wallet_stable_balance_total": 1000.0,
+                    "wallet_protected_reserve": 50.0,
+                    "wallet_open_reserved": 10.0,
+                    "wallet_deployable_capital": 940.0,
+                    "wallet_approval_ok": True,
+                    "wallet_nonce_ok": True,
+                    "wallet_reconcile_ok": True,
+                    "wallet_health_ok": True,
+                    "wallet_health_reasons": [],
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            wallet = report.get("wallet_authority", {})
+            self.assertTrue(bool(wallet.get("legacy_fallback_used")))
+            self.assertFalse(bool(wallet.get("authoritative_wallet_contract_present")))
+            self.assertEqual(
+                str(wallet.get("wallet_contract_surface_source") or ""),
+                "legacy_reconstructed_wallet_surface",
+            )
+            self.assertEqual(str(wallet.get("authority_status_class") or ""), "legacy_fallback_non_authoritative")
+            self.assertFalse(bool(wallet.get("order_capable_live")))
+            self.assertFalse(bool(wallet.get("order_submit_eligible")))
+            self.assertFalse(bool(wallet.get("canonical_live_nonce_available")))
+            self.assertFalse(bool(wallet.get("canonical_live_pending_wallet_tx_available")))
+            gaps = wallet.get("live_truth_gap_reasons") or []
+            self.assertTrue(any("legacy_wallet_contract_fallback_reconstructed_surface" in str(x) for x in gaps))
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:
@@ -539,6 +706,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "taker_outside_final_window",
+                    "stage": "SNIPER_PRIMARY",
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -547,6 +715,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "risk_reject_notional_cap",
+                    "stage": "SNIPER_PRIMARY",
                 },
                 {
                     "event_type": "sniper_taker_decision",
@@ -641,14 +810,19 @@ class NightlySoakReportTests(unittest.TestCase):
             report = build_report(root, run_id="rid-taker-competitiveness")
             taker_comp = report.get("taker_competitiveness", {})
             self.assertEqual(float(taker_comp.get("decision_count") or 0.0), 2.0)
+            self.assertEqual(float(taker_comp.get("submit_capable_static_decision_count") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("submit_capable_dynamic_predicted_count") or 0.0), 0.0)
+            self.assertEqual(float(taker_comp.get("submit_capable_dynamic_predicted_unknown_count") or 0.0), 2.0)
             self.assertEqual(float(taker_comp.get("submit_capable_decision_count") or 0.0), 1.0)
             self.assertEqual(float(taker_comp.get("blocked_decision_count") or 0.0), 1.0)
             self.assertEqual(float(taker_comp.get("actual_submit_count") or 0.0), 1.0)
             self.assertEqual(float(taker_comp.get("fill_count") or 0.0), 1.0)
             self.assertAlmostEqual(float(taker_comp.get("decision_to_submit_rate") or 0.0), 0.5, places=9)
             self.assertAlmostEqual(float(taker_comp.get("submit_capable_to_submit_rate") or 0.0), 1.0, places=9)
+            self.assertAlmostEqual(float(taker_comp.get("submit_capable_dynamic_to_submit_rate") or 0.0), 0.0, places=9)
             self.assertAlmostEqual(float(taker_comp.get("fill_rate_from_submits") or 0.0), 1.0, places=9)
             self.assertEqual(float(taker_comp.get("outside_window_blocked_count_edge_eval") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("risk_reject_after_capable_count_edge_eval") or 0.0), 1.0)
             edge_eval_submit_reject = taker_comp.get("edge_eval_submit_reject_reason_distribution", {})
             self.assertEqual(int(edge_eval_submit_reject.get("risk_reject_notional_cap", 0)), 1)
             decision_blocks = taker_comp.get("decision_block_reason_distribution", {})
@@ -668,7 +842,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(decision_oracle_status.get("confirmed", 0)), 1)
             submit_oracle_status = taker_comp.get("submit_multi_oracle_status_distribution", {})
             self.assertEqual(int(submit_oracle_status.get("confirmed", 0)), 1)
+            self.assertEqual(float(taker_comp.get("multi_oracle_available_count_decision") or 0.0), 1.0)
             self.assertEqual(float(taker_comp.get("multi_oracle_confirmation_count_decision") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("multi_oracle_boost_eligible_count_decision") or 0.0), 0.0)
             self.assertEqual(float(taker_comp.get("multi_oracle_boost_applied_count_decision") or 0.0), 1.0)
             aggressiveness = taker_comp.get("aggressiveness_application_counts", {})
             self.assertEqual(int(aggressiveness.get("price_aggressed", 0)), 1)
@@ -679,6 +855,29 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(fill_stage.get("SNIPER_PRIMARY", 0)), 1)
             self.assertEqual(float(taker_comp.get("submit_unknown_stage_count") or 0.0), 0.0)
             self.assertEqual(float(taker_comp.get("fill_without_submit_stage_count") or 0.0), 0.0)
+            stage_funnel = taker_comp.get("stage_funnel_metrics", {})
+            sniper_stage = stage_funnel.get("SNIPER_PRIMARY", {})
+            self.assertEqual(float(sniper_stage.get("decision_count") or 0.0), 2.0)
+            self.assertEqual(float(sniper_stage.get("submit_capable_static_count") or 0.0), 1.0)
+            self.assertEqual(float(sniper_stage.get("submit_capable_dynamic_predicted_count") or 0.0), 0.0)
+            self.assertEqual(float(sniper_stage.get("actual_submit_count") or 0.0), 1.0)
+            self.assertEqual(float(sniper_stage.get("fill_count") or 0.0), 1.0)
+            stage_reduction = taker_comp.get("stage_reduction_cause_counters", {})
+            sniper_reduction = stage_reduction.get("SNIPER_PRIMARY", {})
+            self.assertEqual(int(sniper_reduction.get("reduction_due_to_timing_gate", 0)), 1)
+            self.assertEqual(int(sniper_reduction.get("reduction_due_to_final_risk_reject", 0)), 1)
+            hidden = taker_comp.get("stage_hidden_blockage_detector", {})
+            sniper_hidden = hidden.get("SNIPER_PRIMARY", {})
+            self.assertEqual(float(sniper_hidden.get("decision_to_dynamic_predicted_delta") or 0.0), 2.0)
+            self.assertEqual(float(sniper_hidden.get("dynamic_predicted_to_submit_delta") or 0.0), 0.0)
+            self.assertEqual(float(sniper_hidden.get("submit_to_fill_delta") or 0.0), 0.0)
+            overall_hidden = taker_comp.get("hidden_blockage_detector", {})
+            self.assertEqual(float(overall_hidden.get("decision_to_dynamic_predicted_delta") or 0.0), 2.0)
+            stage_rejects = taker_comp.get("stage_final_risk_reject_reason_distribution", {})
+            self.assertEqual(
+                int(((stage_rejects.get("SNIPER_PRIMARY") or {}).get("risk_reject_notional_cap") or 0)),
+                1,
+            )
 
             pyth_stats = report.get("secondary_oracle_pyth", {})
             self.assertEqual(float(pyth_stats.get("sample_count") or 0.0), 1.0)

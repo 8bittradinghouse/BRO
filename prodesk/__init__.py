@@ -21,5 +21,7 @@ __all__ = [
     "state_store",
     "strategy",
     "telemetry",
+    "wallet",
+    "wallet_doctrine",
     "volatility",
 ]

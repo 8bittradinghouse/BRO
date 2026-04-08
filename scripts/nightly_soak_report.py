@@ -804,6 +804,70 @@ def _execution_path_stats(events: List[Dict[str, Any]], duration_minutes: float)
     }
 
 
+def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    event_counts: Counter[str] = Counter()
+    for evt in events:
+        event_type = str(evt.get("event_type") or "")
+        if event_type.startswith("wallet_"):
+            event_counts[event_type] += 1
+
+    latest_contract: Dict[str, Any] = {}
+    contract_surface_source = "missing"
+    fallback_used = False
+    for row in reversed(status_rows):
+        contract = row.get("wallet_contract")
+        if isinstance(contract, dict):
+            latest_contract = dict(contract)
+            contract_surface_source = "wallet_contract"
+            break
+        if "wallet_health_ok" in row:
+            # Legacy-only fallback for older status rows that predate wallet_contract.
+            # This reconstructed surface is intentionally non-authoritative and must
+            # never be treated as readiness truth for order permission.
+            latest_contract = {
+                "gas_balance": _safe_float(row.get("wallet_gas_balance")),
+                "gas_reserve_min": _safe_float(row.get("wallet_gas_reserve_min")),
+                "gas_ok": bool(row.get("wallet_gas_ok", False)),
+                "stable_balance_total": _safe_float(row.get("wallet_stable_balance_total")),
+                "protected_reserve": _safe_float(row.get("wallet_protected_reserve")),
+                "open_reserved": _safe_float(row.get("wallet_open_reserved")),
+                "deployable_capital": _safe_float(row.get("wallet_deployable_capital")),
+                "approval_ok": bool(row.get("wallet_approval_ok", False)),
+                "nonce_ok": bool(row.get("wallet_nonce_ok", False)),
+                "reconcile_ok": bool(row.get("wallet_reconcile_ok", False)),
+                "wallet_health_ok": bool(row.get("wallet_health_ok", False)),
+                "wallet_health_reasons": list(row.get("wallet_health_reasons", [])),
+                "authority_status_class": "legacy_fallback_non_authoritative",
+                "order_capable_live": False,
+                "order_submit_eligible": False,
+                "canonical_live_nonce_available": False,
+                "canonical_live_pending_wallet_tx_available": False,
+                "live_truth_gap_reasons": ["legacy_wallet_contract_fallback_reconstructed_surface"],
+            }
+            contract_surface_source = "legacy_reconstructed_wallet_surface"
+            fallback_used = True
+            break
+
+    return {
+        "event_counts": dict(sorted(event_counts.items(), key=lambda kv: kv[0])),
+        "latest_contract": latest_contract,
+        "wallet_contract_surface_source": contract_surface_source,
+        "legacy_fallback_used": bool(fallback_used),
+        "authoritative_wallet_contract_present": bool(contract_surface_source == "wallet_contract"),
+        "authority_status_class": str(latest_contract.get("authority_status_class") or "unknown"),
+        "order_capable_live": bool(latest_contract.get("order_capable_live", False)),
+        "order_submit_eligible": bool(latest_contract.get("order_submit_eligible", False)),
+        "canonical_live_nonce_available": bool(latest_contract.get("canonical_live_nonce_available", False)),
+        "canonical_live_pending_wallet_tx_available": bool(
+            latest_contract.get("canonical_live_pending_wallet_tx_available", False)
+        ),
+        "live_truth_gap_reasons": list(latest_contract.get("live_truth_gap_reasons") or []),
+        "bootstrap_non_authoritative": bool(
+            str(latest_contract.get("authority_status_class") or "").strip().lower() == "bootstrap_non_authoritative"
+        ),
+    }
+
+
 def _maker_regression_sentinel(
     execution_paths: Dict[str, Any],
     edge_truth: Dict[str, Any],
@@ -1334,6 +1398,9 @@ def _conviction_bucket(conviction_score: Any) -> str:
 
 def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     decision_count = 0.0
+    submit_capable_static_decision_count = 0.0
+    submit_capable_dynamic_predicted_count = 0.0
+    submit_capable_dynamic_predicted_unknown_count = 0.0
     submit_capable_decision_count = 0.0
     blocked_decision_count = 0.0
     actual_submit_count = 0.0
@@ -1359,62 +1426,200 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     submit_stage_distribution = Counter()
     hard_min_unachievable_count = 0.0
     dynamic_size_capped_by_risk_count = 0.0
+    multi_oracle_available_count = 0.0
     multi_oracle_confirmation_count = 0.0
+    multi_oracle_boost_eligible_count = 0.0
     multi_oracle_boost_applied_count = 0.0
     outside_window_blocked_count_edge_eval = 0.0
     submit_without_competitiveness_payload_count = 0.0
     submit_unknown_stage_count = 0.0
     fill_without_submit_stage_count = 0.0
+    risk_reject_after_capable_count = 0.0
+    decision_predicted_reject_reason = Counter()
+
+    stage_funnel: Dict[str, Dict[str, float]] = {}
+    stage_reduction_causes: Dict[str, Counter[str]] = {}
+    stage_reduction_primary_causes: Dict[str, Counter[str]] = {}
+    stage_final_risk_reject_reasons: Dict[str, Counter[str]] = {}
+    stage_last_submit_ts: Dict[str, dt.datetime] = {}
+    stage_submit_inter_submit_deltas: Dict[str, List[float]] = {}
+
+    def _normalize_stage(stage_value: Any) -> str:
+        stage = str(stage_value or "").strip().upper()
+        return stage or "UNKNOWN"
+
+    def _stage_row(stage_name: str) -> Dict[str, float]:
+        row = stage_funnel.get(stage_name)
+        if isinstance(row, dict):
+            return row
+        row = {
+            "decision_count": 0.0,
+            "submit_capable_static_count": 0.0,
+            "submit_capable_dynamic_predicted_count": 0.0,
+            "submit_capable_dynamic_predicted_unknown_count": 0.0,
+            "submit_capable_decision_count": 0.0,
+            "blocked_decision_count": 0.0,
+            "actual_submit_count": 0.0,
+            "fill_count": 0.0,
+            "reduction_due_to_dynamic_preview": 0.0,
+            "reduction_due_to_timing_gate": 0.0,
+            "reduction_due_to_cooldown": 0.0,
+            "reduction_due_to_final_risk_reject": 0.0,
+            "risk_reject_after_capable_count": 0.0,
+            "multi_oracle_available_count": 0.0,
+            "multi_oracle_confirmation_count": 0.0,
+            "multi_oracle_boost_eligible_count": 0.0,
+            "multi_oracle_boost_applied_count": 0.0,
+        }
+        stage_funnel[stage_name] = row
+        return row
+
+    def _stage_reduction_counter(stage_name: str) -> Counter[str]:
+        counter = stage_reduction_causes.get(stage_name)
+        if isinstance(counter, Counter):
+            return counter
+        counter = Counter()
+        stage_reduction_causes[stage_name] = counter
+        return counter
+
+    def _stage_reject_counter(stage_name: str) -> Counter[str]:
+        counter = stage_final_risk_reject_reasons.get(stage_name)
+        if isinstance(counter, Counter):
+            return counter
+        counter = Counter()
+        stage_final_risk_reject_reasons[stage_name] = counter
+        return counter
+
+    def _stage_primary_reduction_counter(stage_name: str) -> Counter[str]:
+        counter = stage_reduction_primary_causes.get(stage_name)
+        if isinstance(counter, Counter):
+            return counter
+        counter = Counter()
+        stage_reduction_primary_causes[stage_name] = counter
+        return counter
+
+    def _is_multi_oracle_available(status_value: Any) -> bool:
+        status = str(status_value or "").strip().lower()
+        if not status:
+            return False
+        if status in {"disabled", "unknown", "error", "failed"}:
+            return False
+        if status.startswith("unavailable"):
+            return False
+        return True
 
     for evt in events:
         event_type = str(evt.get("event_type") or "").strip()
 
         if event_type == "edge_evaluation":
+            if str(evt.get("evaluation_scope") or "").strip().lower() != "taker":
+                continue
+            stage = _normalize_stage(evt.get("stage"))
+            stage_row = _stage_row(stage)
+            stage_reductions = _stage_reduction_counter(stage)
+            block_reason = str(evt.get("block_reason") or "").strip().lower()
             if (
-                str(evt.get("evaluation_scope") or "").strip().lower() == "taker"
-                and str(evt.get("action_taken") or "").strip().lower() == "none"
-                and str(evt.get("block_reason") or "").strip().lower() == "taker_outside_final_window"
+                str(evt.get("action_taken") or "").strip().lower() == "none"
+                and block_reason == "taker_outside_final_window"
             ):
                 outside_window_blocked_count_edge_eval += 1.0
             if (
-                str(evt.get("evaluation_scope") or "").strip().lower() == "taker"
-                and str(evt.get("action_taken") or "").strip().lower() == "none"
-                and str(evt.get("block_reason") or "").strip().lower() == "taker_submit_rejected"
+                str(evt.get("action_taken") or "").strip().lower() == "none"
+                and block_reason == "taker_token_cooldown"
             ):
+                stage_row["reduction_due_to_cooldown"] += 1.0
+                stage_reductions["reduction_due_to_cooldown"] += 1
+            if (
+                str(evt.get("action_taken") or "").strip().lower() == "none"
+                and block_reason == "taker_submit_rejected"
+            ):
+                stage_row["reduction_due_to_final_risk_reject"] += 1.0
+                stage_row["risk_reject_after_capable_count"] += 1.0
+                stage_reductions["reduction_due_to_final_risk_reject"] += 1
+                risk_reject_after_capable_count += 1.0
+                reject_reason = str(evt.get("taker_submit_reject_reason") or "unknown").strip().lower() or "unknown"
+                _stage_reject_counter(stage)[reject_reason] += 1
                 edge_eval_submit_reject_reason[
-                    str(evt.get("taker_submit_reject_reason") or "unknown").strip().lower() or "unknown"
+                    reject_reason
                 ] += 1
+                _stage_primary_reduction_counter(stage)["reduction_due_to_final_risk_reject"] += 1
             continue
 
         if event_type == "sniper_taker_decision":
+            stage = _normalize_stage(evt.get("stage"))
+            stage_row = _stage_row(stage)
+            stage_reductions = _stage_reduction_counter(stage)
             decision_count += 1.0
+            stage_row["decision_count"] += 1.0
             timing_window = str(evt.get("timing_window_class") or "unknown").strip().lower() or "unknown"
             decision_timing_window[timing_window] += 1
             edge_bucket = _taker_edge_bucket(evt.get("edge_abs"))
             conviction_bucket = _conviction_bucket(evt.get("conviction_score"))
             decision_edge_bucket[edge_bucket] += 1
             decision_conviction_bucket[conviction_bucket] += 1
+
+            submit_capable_static = bool(evt.get("submit_capable_static", evt.get("should_submit", False)))
+            if submit_capable_static:
+                submit_capable_static_decision_count += 1.0
+                stage_row["submit_capable_static_count"] += 1.0
+
+            submit_capable_dynamic_predicted = _as_bool(evt.get("submit_capable_dynamic_predicted"))
+            if submit_capable_dynamic_predicted is True:
+                submit_capable_dynamic_predicted_count += 1.0
+                stage_row["submit_capable_dynamic_predicted_count"] += 1.0
+            elif submit_capable_dynamic_predicted is None:
+                submit_capable_dynamic_predicted_unknown_count += 1.0
+                stage_row["submit_capable_dynamic_predicted_unknown_count"] += 1.0
+
+            if submit_capable_static and submit_capable_dynamic_predicted is False:
+                stage_row["reduction_due_to_dynamic_preview"] += 1.0
+                stage_reductions["reduction_due_to_dynamic_preview"] += 1
+                predicted_reason = str(evt.get("predicted_reject_reason") or "").strip().lower()
+                if predicted_reason:
+                    decision_predicted_reject_reason[predicted_reason] += 1
+
             should_submit = bool(evt.get("should_submit", False))
             if should_submit:
                 submit_capable_decision_count += 1.0
+                stage_row["submit_capable_decision_count"] += 1.0
             else:
                 blocked_decision_count += 1.0
+                stage_row["blocked_decision_count"] += 1.0
             block_reason = str(evt.get("block_reason") or "").strip().lower()
             if block_reason:
                 decision_block_reason[block_reason] += 1
+            if block_reason == "taker_outside_final_window":
+                stage_row["reduction_due_to_timing_gate"] += 1.0
+                stage_reductions["reduction_due_to_timing_gate"] += 1
+                _stage_primary_reduction_counter(stage)["reduction_due_to_timing_gate"] += 1
+            elif block_reason == "taker_token_cooldown":
+                _stage_primary_reduction_counter(stage)["reduction_due_to_cooldown"] += 1
+            elif block_reason == "taker_hard_min_notional_unachievable":
+                _stage_primary_reduction_counter(stage)["reduction_due_to_hard_min_unachievable"] += 1
+            elif block_reason == "taker_order_budget_exhausted":
+                _stage_primary_reduction_counter(stage)["reduction_due_to_order_budget"] += 1
+            elif (not should_submit) and block_reason:
+                _stage_primary_reduction_counter(stage)["reduction_due_to_other_block"] += 1
             aggressiveness_level = str(evt.get("aggressiveness_level") or "unknown").strip().lower() or "unknown"
             decision_aggressiveness[aggressiveness_level] += 1
-            decision_multi_oracle_status[
-                str(evt.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
-            ] += 1
+            multi_oracle_status = str(evt.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
+            decision_multi_oracle_status[multi_oracle_status] += 1
+            if _is_multi_oracle_available(multi_oracle_status):
+                multi_oracle_available_count += 1.0
+                stage_row["multi_oracle_available_count"] += 1.0
             if bool(evt.get("hard_min_unachievable", False)):
                 hard_min_unachievable_count += 1.0
             if bool(evt.get("dynamic_size_capped_by_risk", False)):
                 dynamic_size_capped_by_risk_count += 1.0
             if bool(evt.get("multi_oracle_confirmation", False)):
                 multi_oracle_confirmation_count += 1.0
+                stage_row["multi_oracle_confirmation_count"] += 1.0
+            if bool(evt.get("multi_oracle_boost_eligible", False)):
+                multi_oracle_boost_eligible_count += 1.0
+                stage_row["multi_oracle_boost_eligible_count"] += 1.0
             if bool(evt.get("multi_oracle_boost_applied", False)):
                 multi_oracle_boost_applied_count += 1.0
+                stage_row["multi_oracle_boost_applied_count"] += 1.0
             continue
 
         if event_type == "order_submit":
@@ -1431,10 +1636,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 submit_without_competitiveness_payload_count += 1.0
                 if order_id:
                     order_edge_bucket_by_id[order_id] = "unknown"
-                stage = str(evt.get("stage") or "").strip().upper()
-                if not stage:
-                    stage = "UNKNOWN"
+                stage = _normalize_stage(evt.get("stage"))
+                if stage == "UNKNOWN":
                     submit_unknown_stage_count += 1.0
+                stage_row = _stage_row(stage)
+                stage_row["actual_submit_count"] += 1.0
                 submit_stage_distribution[stage] += 1
                 if order_id:
                     order_stage_by_id[order_id] = stage
@@ -1445,16 +1651,25 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             submit_edge_bucket[edge_bucket] += 1
             submit_conviction_bucket[conviction_bucket] += 1
             submit_timing_window[timing_window] += 1
-            stage = str(comp.get("stage") or evt.get("stage") or "").strip().upper()
-            if not stage:
-                stage = "UNKNOWN"
+            stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
+            if stage == "UNKNOWN":
                 submit_unknown_stage_count += 1.0
+            stage_row = _stage_row(stage)
+            stage_row["actual_submit_count"] += 1.0
             submit_stage_distribution[stage] += 1
             if order_id:
                 order_stage_by_id[order_id] = stage
             submit_multi_oracle_status[
                 str(comp.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
             ] += 1
+            ts_submit = parse_ts(evt.get("ts_utc") or evt.get("timestamp_utc"))
+            if ts_submit is not None:
+                prev_submit_ts = stage_last_submit_ts.get(stage)
+                if prev_submit_ts is not None:
+                    delta_sec = float((ts_submit - prev_submit_ts).total_seconds())
+                    if delta_sec >= 0.0:
+                        stage_submit_inter_submit_deltas.setdefault(stage, []).append(delta_sec)
+                stage_last_submit_ts[stage] = ts_submit
             if order_id:
                 order_edge_bucket_by_id[order_id] = edge_bucket
 
@@ -1478,10 +1693,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         fill_count += 1.0
         edge_bucket = order_edge_bucket_by_id.get(order_id, "unknown")
         fill_edge_bucket[edge_bucket] += 1
-        stage = str(order_stage_by_id.get(order_id) or "").strip().upper()
-        if not stage:
+        stage = _normalize_stage(order_stage_by_id.get(order_id))
+        if stage == "UNKNOWN":
             fill_without_submit_stage_count += 1.0
-            stage = "UNKNOWN"
+        stage_row = _stage_row(stage)
+        stage_row["fill_count"] += 1.0
         fill_stage_distribution[stage] += 1
         lag_class = str(evt.get("paper_chainlink_lag_class") or "unknown").strip().lower() or "unknown"
         lag_class_distribution[lag_class] += 1
@@ -1492,19 +1708,133 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         if submit_capable_decision_count > 0.0
         else 0.0
     )
+    submit_capable_dynamic_to_submit_rate = (
+        actual_submit_count / submit_capable_dynamic_predicted_count
+        if submit_capable_dynamic_predicted_count > 0.0
+        else 0.0
+    )
     fill_rate_from_submits = (fill_count / actual_submit_count) if actual_submit_count > 0.0 else 0.0
+
+    stage_hidden_blockage_detector: Dict[str, Dict[str, Any]] = {}
+    stage_funnel_sorted: Dict[str, Dict[str, float]] = {}
+    stage_reduction_sorted: Dict[str, Dict[str, int]] = {}
+    stage_primary_reduction_sorted: Dict[str, Dict[str, int]] = {}
+    stage_risk_reject_reasons_sorted: Dict[str, Dict[str, int]] = {}
+    stage_reduction_delta_accounting: Dict[str, Dict[str, Any]] = {}
+    stage_inter_submit_delta_summary: Dict[str, Dict[str, float]] = {}
+    for stage in sorted(stage_funnel.keys()):
+        stage_row = stage_funnel.get(stage, {})
+        static_count = float(stage_row.get("submit_capable_static_count", 0.0))
+        dynamic_count = float(stage_row.get("submit_capable_dynamic_predicted_count", 0.0))
+        submit_count = float(stage_row.get("actual_submit_count", 0.0))
+        fills = float(stage_row.get("fill_count", 0.0))
+        decision_count_stage = float(stage_row.get("decision_count", 0.0))
+        decision_to_submit_delta_stage = float(max(0.0, decision_count_stage - submit_count))
+
+        stage_hidden_blockage_detector[stage] = {
+            "decision_to_dynamic_predicted_delta": float(
+                max(0.0, decision_count_stage - dynamic_count)
+            ),
+            "dynamic_predicted_to_submit_delta": float(max(0.0, dynamic_count - submit_count)),
+            "submit_to_fill_delta": float(max(0.0, submit_count - fills)),
+            "reduction_reason_counters": dict(
+                sorted(_stage_reduction_counter(stage).items(), key=lambda item: item[0])
+            ),
+        }
+        stage_funnel_sorted[stage] = {
+            **{key: float(value) for key, value in stage_row.items()},
+            "submit_capable_static_to_submit_rate": (
+                float(submit_count / static_count) if static_count > 0.0 else 0.0
+            ),
+            "submit_capable_dynamic_to_submit_rate": (
+                float(submit_count / dynamic_count) if dynamic_count > 0.0 else 0.0
+            ),
+            "fill_rate_from_submits": (float(fills / submit_count) if submit_count > 0.0 else 0.0),
+        }
+        stage_reduction_sorted[stage] = dict(sorted(_stage_reduction_counter(stage).items(), key=lambda item: item[0]))
+        stage_primary_reduction_sorted[stage] = dict(
+            sorted(_stage_primary_reduction_counter(stage).items(), key=lambda item: item[0])
+        )
+        stage_risk_reject_reasons_sorted[stage] = dict(
+            sorted(_stage_reject_counter(stage).items(), key=lambda item: item[0])
+        )
+        primary_total = int(sum(stage_primary_reduction_sorted[stage].values()))
+        stage_reduction_delta_accounting[stage] = {
+            "decision_to_submit_delta": float(decision_to_submit_delta_stage),
+            "primary_reduction_cause_total": float(primary_total),
+            "primary_reduction_cause_total_matches_delta": bool(
+                abs(float(primary_total) - decision_to_submit_delta_stage) <= 1e-9
+            ),
+            "primary_reduction_cause_counters": stage_primary_reduction_sorted[stage],
+        }
+
+    def _summarize_deltas(values: List[float]) -> Dict[str, float]:
+        if not values:
+            return {"count": 0.0, "p50_sec": 0.0, "p90_sec": 0.0, "min_sec": 0.0, "max_sec": 0.0}
+        ordered = sorted(float(v) for v in values if isinstance(v, (int, float)))
+        if not ordered:
+            return {"count": 0.0, "p50_sec": 0.0, "p90_sec": 0.0, "min_sec": 0.0, "max_sec": 0.0}
+
+        def _pct(points: List[float], ratio: float) -> float:
+            if not points:
+                return 0.0
+            idx = int(round((len(points) - 1) * ratio))
+            idx = max(0, min(len(points) - 1, idx))
+            return float(points[idx])
+
+        return {
+            "count": float(len(ordered)),
+            "p50_sec": float(_pct(ordered, 0.50)),
+            "p90_sec": float(_pct(ordered, 0.90)),
+            "min_sec": float(ordered[0]),
+            "max_sec": float(ordered[-1]),
+        }
+
+    for stage, deltas in sorted(stage_submit_inter_submit_deltas.items(), key=lambda item: item[0]):
+        stage_inter_submit_delta_summary[stage] = _summarize_deltas(deltas)
+
+    hidden_blockage_detector = {
+        "decision_to_dynamic_predicted_delta": float(max(0.0, decision_count - submit_capable_dynamic_predicted_count)),
+        "dynamic_predicted_to_submit_delta": float(
+            max(0.0, submit_capable_dynamic_predicted_count - actual_submit_count)
+        ),
+        "submit_to_fill_delta": float(max(0.0, actual_submit_count - fill_count)),
+        "reduction_reason_counters": {
+            "reduction_due_to_dynamic_preview": int(
+                sum(counter.get("reduction_due_to_dynamic_preview", 0) for counter in stage_reduction_causes.values())
+            ),
+            "reduction_due_to_timing_gate": int(
+                sum(counter.get("reduction_due_to_timing_gate", 0) for counter in stage_reduction_causes.values())
+            ),
+            "reduction_due_to_cooldown": int(
+                sum(counter.get("reduction_due_to_cooldown", 0) for counter in stage_reduction_causes.values())
+            ),
+            "reduction_due_to_final_risk_reject": int(
+                sum(counter.get("reduction_due_to_final_risk_reject", 0) for counter in stage_reduction_causes.values())
+            ),
+        },
+    }
+    stage_first_claim_guard = {
+        "stage_evidence_required_before_aggregate_claim": True,
+        "stage_reduction_delta_accounting": stage_reduction_delta_accounting,
+    }
 
     return {
         "decision_count": float(decision_count),
+        "submit_capable_static_decision_count": float(submit_capable_static_decision_count),
+        "submit_capable_dynamic_predicted_count": float(submit_capable_dynamic_predicted_count),
+        "submit_capable_dynamic_predicted_unknown_count": float(submit_capable_dynamic_predicted_unknown_count),
         "submit_capable_decision_count": float(submit_capable_decision_count),
         "blocked_decision_count": float(blocked_decision_count),
         "actual_submit_count": float(actual_submit_count),
         "fill_count": float(fill_count),
         "decision_to_submit_rate": float(decision_to_submit_rate),
         "submit_capable_to_submit_rate": float(submit_capable_to_submit_rate),
+        "submit_capable_dynamic_to_submit_rate": float(submit_capable_dynamic_to_submit_rate),
         "fill_rate_from_submits": float(fill_rate_from_submits),
         "submit_without_competitiveness_payload_count": float(submit_without_competitiveness_payload_count),
         "outside_window_blocked_count_edge_eval": float(outside_window_blocked_count_edge_eval),
+        "risk_reject_after_capable_count_edge_eval": float(risk_reject_after_capable_count),
         "decision_timing_window_distribution": dict(sorted(decision_timing_window.items(), key=lambda item: item[0])),
         "decision_edge_bucket_distribution": dict(sorted(decision_edge_bucket.items(), key=lambda item: item[0])),
         "decision_conviction_bucket_distribution": dict(
@@ -1541,10 +1871,24 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "aggressiveness_application_counts": dict(
             sorted(aggressiveness_application_counts.items(), key=lambda item: item[0])
         ),
+        "decision_predicted_reject_reason_distribution": dict(
+            sorted(decision_predicted_reject_reason.items(), key=lambda item: item[0])
+        ),
         "hard_min_unachievable_count_decision": float(hard_min_unachievable_count),
         "dynamic_size_capped_by_risk_count_decision": float(dynamic_size_capped_by_risk_count),
+        "multi_oracle_available_count_decision": float(multi_oracle_available_count),
         "multi_oracle_confirmation_count_decision": float(multi_oracle_confirmation_count),
+        "multi_oracle_boost_eligible_count_decision": float(multi_oracle_boost_eligible_count),
         "multi_oracle_boost_applied_count_decision": float(multi_oracle_boost_applied_count),
+        "stage_funnel_metrics": stage_funnel_sorted,
+        "stage_reduction_cause_counters": stage_reduction_sorted,
+        "stage_reduction_primary_cause_counters": stage_primary_reduction_sorted,
+        "stage_reduction_delta_accounting": stage_reduction_delta_accounting,
+        "stage_final_risk_reject_reason_distribution": stage_risk_reject_reasons_sorted,
+        "stage_hidden_blockage_detector": stage_hidden_blockage_detector,
+        "hidden_blockage_detector": hidden_blockage_detector,
+        "stage_submit_inter_submit_delta_sec": stage_inter_submit_delta_summary,
+        "stage_first_claim_guard": stage_first_claim_guard,
     }
 
 
@@ -1807,6 +2151,7 @@ def build_report(
     maker_competitiveness = _maker_competitiveness_stats(events)
     taker_competitiveness = _taker_competitiveness_stats(events)
     risk_competitiveness = _risk_competitiveness_stats(events)
+    wallet_authority = _wallet_authority_stats(status, events)
     secondary_oracle_pyth = _secondary_oracle_pyth_stats(status)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
@@ -1891,6 +2236,7 @@ def build_report(
         "maker_competitiveness": maker_competitiveness,
         "taker_competitiveness": taker_competitiveness,
         "risk_competitiveness": risk_competitiveness,
+        "wallet_authority": wallet_authority,
         "secondary_oracle_pyth": secondary_oracle_pyth,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
@@ -1952,7 +2298,18 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
     taker_comp = report.get("taker_competitiveness", {}) if isinstance(report.get("taker_competitiveness"), dict) else {}
+    taker_stage_funnel = (
+        taker_comp.get("stage_funnel_metrics", {})
+        if isinstance(taker_comp.get("stage_funnel_metrics"), dict)
+        else {}
+    )
+    taker_stage_delta_accounting = (
+        taker_comp.get("stage_reduction_delta_accounting", {})
+        if isinstance(taker_comp.get("stage_reduction_delta_accounting"), dict)
+        else {}
+    )
     risk_comp = report.get("risk_competitiveness", {}) if isinstance(report.get("risk_competitiveness"), dict) else {}
+    wallet_comp = report.get("wallet_authority", {}) if isinstance(report.get("wallet_authority"), dict) else {}
     pyth_comp = report.get("secondary_oracle_pyth", {}) if isinstance(report.get("secondary_oracle_pyth"), dict) else {}
     maker_size_comp = (
         report.get("maker_sizing_competitiveness", {})
@@ -2019,15 +2376,24 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"aggressiveness={json.dumps(maker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
         ),
         (
+            "taker_stage_first_evidence="
+            + f"funnel={json.dumps(taker_stage_funnel, sort_keys=True)},"
+            + f"delta_accounting={json.dumps(taker_stage_delta_accounting, sort_keys=True)}"
+        ),
+        (
             "taker_competitiveness="
             + f"decisions={int(_safe_float(taker_comp.get('decision_count')))},"
+            + f"submit_capable_static={int(_safe_float(taker_comp.get('submit_capable_static_decision_count')))},"
+            + f"submit_capable_dynamic={int(_safe_float(taker_comp.get('submit_capable_dynamic_predicted_count')))},"
             + f"submit_capable_decisions={int(_safe_float(taker_comp.get('submit_capable_decision_count')))},"
             + f"actual_submits={int(_safe_float(taker_comp.get('actual_submit_count')))},"
             + f"fills={int(_safe_float(taker_comp.get('fill_count')))},"
             + f"decision_to_submit_rate={_safe_float(taker_comp.get('decision_to_submit_rate')):.4f},"
             + f"submit_capable_to_submit_rate={_safe_float(taker_comp.get('submit_capable_to_submit_rate')):.4f},"
+            + f"submit_capable_dynamic_to_submit_rate={_safe_float(taker_comp.get('submit_capable_dynamic_to_submit_rate')):.4f},"
             + f"fill_rate_from_submits={_safe_float(taker_comp.get('fill_rate_from_submits')):.4f},"
             + f"outside_window_blocked={int(_safe_float(taker_comp.get('outside_window_blocked_count_edge_eval')))},"
+            + f"risk_reject_after_capable={int(_safe_float(taker_comp.get('risk_reject_after_capable_count_edge_eval')))},"
             + f"hard_min_unachievable={int(_safe_float(taker_comp.get('hard_min_unachievable_count_decision')))},"
             + f"dynamic_capped={int(_safe_float(taker_comp.get('dynamic_size_capped_by_risk_count_decision')))},"
             + f"aggressiveness={json.dumps(taker_comp.get('aggressiveness_application_counts', {}), sort_keys=True)}"
@@ -2047,6 +2413,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"rejects={json.dumps(risk_comp.get('reject_count_by_lane', {}), sort_keys=True)},"
             + f"scaling_classes={json.dumps(risk_comp.get('scaling_class_distribution', {}), sort_keys=True)},"
             + f"global_exposure_rejects={int(_safe_float(risk_comp.get('global_exposure_cap_reject_count')))}"
+        ),
+        (
+            "wallet_authority="
+            + f"latest_contract={json.dumps(wallet_comp.get('latest_contract', {}), sort_keys=True)},"
+            + f"event_counts={json.dumps(wallet_comp.get('event_counts', {}), sort_keys=True)}"
         ),
         (
             "maker_sizing_competitiveness="

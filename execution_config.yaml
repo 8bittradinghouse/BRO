@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "a1b615734448a68cb35658bae1f9f374eb8ae5a676028f85f622e51cc48e93c4"
+  paper_expected_config_fingerprint_sha256: "377f894381002f58bca42f5a6ecd249af455f9b60ad0537caf1422659daa5335"
 
 storage:
   log_dir: "./logs_exec"
@@ -196,6 +196,7 @@ sniper:
     target_usd: 5
     max_orders_per_cycle: 2
     per_token_cooldown_sec: 0.25
+    per_token_cooldown_sec_by_stage: {}
     competitiveness:
       enabled: false
       hard_min_target_usd: 100.0
@@ -209,6 +210,7 @@ sniper:
       latency_score_weight: 0.35
       final_window_enabled: true
       final_window_sec: 15.0
+      stage_final_window_sec_by_stage: {}
       aggressive_window_enabled: false
       aggressive_window_sec: 10.0
       stage_aggressiveness:
@@ -222,10 +224,13 @@ sniper:
           size_mult: 1.35
           price_aggress_bps: 5.0
       price_aggress_bps_max: 8.0
+      dynamic_preview_enabled: false
       multi_oracle_boost_enabled: false
+      multi_oracle_boost_window_sec: 15.0
       multi_oracle_edge_threshold_abs: 0.20
       multi_oracle_target_usd_cap: 350.0
       multi_oracle_capital_pct_cap: 0.18
+      stage_priority_enabled: false
 
 strategy:
   base_order_size: 25.0
@@ -326,7 +331,36 @@ risk:
   global_exposure_guard:
     enabled: false
     max_global_notional_usd: 800.0
+    sniper_reserved_notional_usd: 0.0
     near_cap_ratio: 0.85
+
+wallet:
+  paper_starting_usdc: 1000.0
+  chain: polygon
+  gas_asset_symbol: POL
+  stable_asset_symbol: USDC.e
+  active_wallet_address_source: auth.funder
+  approval_spender_targets: []
+  protected_usdc_reserve: 0.0
+  max_notional_per_order_usdc: 250.0
+  min_pol_gas_reserve: 0.1
+  gas_reserve_target_pol: 0.2
+  paper_pol_balance: 10.0
+  require_allowance: true
+  paper_allowance_usdc: 1000000.0
+  nonce_authority: tx_manager
+  expected_chain_id: 137
+  expected_wallet_address: ""
+  halt_on_reconcile_mismatch: true
+  reconcile_tolerance_usdc: 0.000001
+  require_live_pol_balance_snapshot: false
+  require_live_nonce_snapshot: false
+  require_live_nonce_value: false
+  require_live_pending_tx_snapshot: false
+  treasury_mode: logical
+  treasury_wallet_address: ""
+  live_pol_balance_fallback: 1.0
+  max_live_reconcile_mismatch_count: 2
 
 alerts:
   enabled: false

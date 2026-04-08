@@ -332,6 +332,95 @@ class PreflightAndRiskTests(unittest.TestCase):
         guard = decision.basis.get("global_exposure_guard") if isinstance(decision.basis, dict) else {}
         self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
 
+    def test_global_exposure_sniper_reserve_applies_only_to_non_sniper_taker(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["global_exposure_guard"]["enabled"] = True
+        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+        cfg["global_exposure_guard"]["sniper_reserved_notional_usd"] = 5.0
+        positions = {
+            "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
+        }
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        intent = OrderIntent(token_id="t1", side="BUY", price=0.5, size=16.0)
+
+        non_sniper_decision = risk.validate_order(
+            intent,
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            open_orders_all=[],
+            reference_mid_by_token={"t1": 0.5},
+            risk_context={"submission_lane": "taker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertFalse(non_sniper_decision.allowed)
+        self.assertEqual(non_sniper_decision.reason, "global_exposure_cap")
+        self.assertIsInstance(non_sniper_decision.basis, dict)
+        non_sniper_guard = non_sniper_decision.basis.get("global_exposure_guard") or {}
+        self.assertTrue(bool(non_sniper_guard.get("sniper_reserve_applied")))
+
+        sniper_decision = risk.validate_order(
+            intent,
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            open_orders_all=[],
+            reference_mid_by_token={"t1": 0.5},
+            risk_context={"submission_lane": "taker", "stage": "SNIPER_PRIMARY"},
+        )
+        self.assertTrue(sniper_decision.allowed)
+        self.assertIsInstance(sniper_decision.basis, dict)
+        sniper_guard = sniper_decision.basis.get("global_exposure_guard") or {}
+        self.assertFalse(bool(sniper_guard.get("sniper_reserve_applied")))
+
+    def test_preview_order_feasibility_is_read_only_and_non_authoritative(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        positions = {"t1": Position(token_id="t1", net_shares=0.0)}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        intent = OrderIntent(token_id="t1", side="BUY", price=0.5, size=10.0)
+        preview = risk.preview_order_feasibility(
+            intent,
+            top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        final = risk.validate_order(
+            intent,
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertEqual(bool(preview.allowed), bool(final.allowed))
+        self.assertEqual(str(preview.reason or ""), str(final.reason or ""))
+        self.assertIsInstance(preview.basis, dict)
+        self.assertEqual(str((preview.basis or {}).get("preview_authority") or ""), "advisory_read_only")
+        self.assertTrue(bool((preview.basis or {}).get("preview_non_authoritative")))
+        self.assertIsInstance(final.basis, dict)
+        self.assertIsNone((final.basis or {}).get("preview_authority"))
+
     def test_preflight_clock_sync_finding_when_skew_exceeded(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["mode"] = "paper"

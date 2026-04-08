@@ -6,7 +6,9 @@ profile:
 mode: paper
 
 runtime:
-  duration_min: 45
+  # Keep runtime cap above longest planned active window so canonical session
+  # active-minute requests (8/20/45/60/120) are not clipped by runtime cap.
+  duration_min: 130
   guard_stop_file: /logs/paper_universal/guard_stop.txt
   # Keep paper conservative: no synthetic passive fills that are easier than live.
   paper_passive_touch_fill_enabled: false
@@ -32,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "ee0da7637e4919fd3be1c156a55d0c6bae25294e8d9fc0120c267c4d4cf2f089"
+  paper_expected_config_fingerprint_sha256: "e0895dec237371fb2fb9cb9785c802aff2f0b32242cc27cb1d9ba6dd361a4dd4"
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -85,6 +87,16 @@ sizing:
   maker_liquidity_tod_end_hour_utc: 6
   maker_liquidity_tod_depth_multiplier: 0.6
 
+wallet:
+  chain: polygon
+  gas_asset_symbol: POL
+  stable_asset_symbol: USDC.e
+  active_wallet_address_source: auth.funder
+  approval_spender_targets: []
+  gas_reserve_target_pol: 0.2
+  treasury_mode: logical
+  treasury_wallet_address: ""
+
 risk:
   max_abs_position_shares: 4000.0
   max_notional_per_token: 1300.0
@@ -110,6 +122,7 @@ risk:
   global_exposure_guard:
     enabled: true
     max_global_notional_usd: 2500.0
+    sniper_reserved_notional_usd: 300.0
     near_cap_ratio: 0.85
 
 # Grok-informed bounded lag accommodation:
@@ -133,9 +146,11 @@ secondary_oracle:
 sniper:
   require_lag_verification: false
   taker:
+    per_token_cooldown_sec_by_stage:
+      SNIPER_PRIMARY: 0.75
     min_edge_by_stage:
-      MAKER_TAKER_SELECTIVE: 0.12
-      SNIPER_PRIMARY: 0.20
+      MAKER_TAKER_SELECTIVE: 0.20
+      SNIPER_PRIMARY: 0.30
       EXTREME_ONLY: 0.25
     competitiveness:
       enabled: true
@@ -148,8 +163,12 @@ sniper:
       conviction_model: edge_plus_latency_score
       edge_weight: 0.65
       latency_score_weight: 0.35
+      dynamic_preview_enabled: true
       final_window_enabled: true
       final_window_sec: 60.0
+      stage_final_window_sec_by_stage:
+        MAKER_TAKER_SELECTIVE: 60.0
+        SNIPER_PRIMARY: 30.0
       aggressive_window_enabled: false
       aggressive_window_sec: 10.0
       stage_aggressiveness:
@@ -157,16 +176,18 @@ sniper:
           size_mult: 1.0
           price_aggress_bps: 0.0
         SNIPER_PRIMARY:
-          size_mult: 1.05
-          price_aggress_bps: 2.0
+          size_mult: 1.0
+          price_aggress_bps: 0.0
         EXTREME_ONLY:
           size_mult: 1.15
           price_aggress_bps: 5.0
       price_aggress_bps_max: 8.0
       multi_oracle_boost_enabled: true
+      multi_oracle_boost_window_sec: 30.0
       multi_oracle_edge_threshold_abs: 0.20
       multi_oracle_target_usd_cap: 350.0
       multi_oracle_capital_pct_cap: 0.18
+      stage_priority_enabled: true
 
 storage:
   log_dir: /logs/paper_universal

@@ -69,6 +69,59 @@ Required observability surfaces:
   - `reject_reason_distribution` (including `global_exposure_cap`)
   - global exposure utilization ratios + near-cap counters
 
+## Wallet Authority Semantics (Canonical)
+- Wallet controller is canonical authority for capital buckets, approvals, nonce truth, reservations, and reconciliation.
+- Executor/strategy may request authorization; they may not infer deployable capital independently for final authorization.
+- Dual-veto semantics are mandatory:
+  - wallet authority = canonical capital truth + non-overridable capital veto
+  - risk engine = final admissibility authority + non-overridable risk veto
+  - final permission requires both allow
+  - no path may convert either veto into reduce-success
+- Wallet preview/health signals are advisory for orchestration and vetoing unsafe states; they must not replace final risk admissibility authority.
+- Live unknowns are fail-closed:
+  - wallet identity ambiguity
+  - approval target ambiguity
+  - nonce ambiguity
+  - reconciliation mismatch beyond thresholds
+- Startup authority barrier is fail-closed:
+  - before post-registration authoritative refresh succeeds, authority class is `bootstrap_non_authoritative`
+  - bootstrap surfaces are non-authoritative and may not be consumed as final readiness truth
+- Reconciliation scope is explicitly `integrity_tripwire`, not full accounting ledger truth.
+
+Truth-domain naming is explicit and non-interchangeable:
+- `canonical_live_wallet_truth`
+- `local_tx_lifecycle_state`
+- `open_order_state`
+- `integrity_tripwire_reconcile_state`
+- `bootstrap_non_authoritative` (status class only)
+
+Required wallet status contract fields:
+- `gas_balance`, `gas_reserve_min`, `gas_ok`
+- `stable_balance_total`, `protected_reserve`, `open_reserved`, `deployable_capital`
+- `approval_ok`, `nonce_ok`, `reconcile_ok`, `wallet_health_ok`, `wallet_health_reasons`
+- `authority_status_class`, `order_capable_live`, `order_submit_eligible`
+- `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`
+- `canonical_live_nonce_source`, `canonical_live_nonce_detail`
+- `canonical_live_pending_wallet_tx_source`, `canonical_live_pending_wallet_tx_detail`
+- `live_truth_gap_reasons`
+
+Required wallet events:
+- `wallet_state_refresh`
+- `wallet_health_gate`
+- `wallet_reservation_created`
+- `wallet_reservation_released`
+- `wallet_reservation_settled`
+- `wallet_approval_check`
+- `wallet_approval_submitted`
+- `wallet_nonce_state`
+- `wallet_reconcile_result`
+- `wallet_integrity_warning`
+- `wallet_integrity_fail_closed`
+- `wallet_startup_authority_refresh`
+- `wallet_health_gate_veto`
+- `wallet_local_tx_lifecycle_state`
+- `wallet_open_order_state`
+
 ## New-Market Observe-First
 - Market identity is propagated via `market_key`.
 - On market key change, runtime emits `market_epoch_transition` and enforces

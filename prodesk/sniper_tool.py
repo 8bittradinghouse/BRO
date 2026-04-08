@@ -48,14 +48,18 @@ class SniperToolConfig:
     latency_score_weight: float = 0.35
     final_window_enabled: bool = True
     final_window_sec: float = 15.0
+    stage_final_window_sec_by_stage: Dict[str, float] = dataclasses.field(default_factory=dict)
     aggressive_window_enabled: bool = False
     aggressive_window_sec: float = 10.0
     stage_aggressiveness: Dict[str, StageAggressiveness] = dataclasses.field(default_factory=dict)
     price_aggress_bps_max: float = 8.0
+    dynamic_preview_enabled: bool = False
     multi_oracle_boost_enabled: bool = False
+    multi_oracle_boost_window_sec: float = 15.0
     multi_oracle_edge_threshold_abs: float = 0.20
     multi_oracle_target_usd_cap: float = 350.0
     multi_oracle_capital_pct_cap: float = 0.18
+    stage_priority_enabled: bool = False
 
     @classmethod
     def from_mapping(cls, row: Optional[Mapping[str, Any]]) -> "SniperToolConfig":
@@ -69,6 +73,17 @@ class SniperToolConfig:
                 if not stage_name:
                     continue
                 parsed_stage_rows[stage_name] = StageAggressiveness.from_mapping(payload)
+        stage_window_rows = row.get("stage_final_window_sec_by_stage")
+        parsed_stage_window_rows: Dict[str, float] = {}
+        if isinstance(stage_window_rows, Mapping):
+            for stage, payload in stage_window_rows.items():
+                stage_name = str(stage or "").strip().upper()
+                if not stage_name:
+                    continue
+                stage_window_sec = max(0.0, _safe_float(payload, 0.0))
+                if stage_window_sec <= 0.0:
+                    continue
+                parsed_stage_window_rows[stage_name] = float(stage_window_sec)
         return cls(
             enabled=bool(row.get("enabled", False)),
             hard_min_target_usd=max(0.0, _safe_float(row.get("hard_min_target_usd"), 100.0)),
@@ -84,14 +99,18 @@ class SniperToolConfig:
             latency_score_weight=max(0.0, _safe_float(row.get("latency_score_weight"), 0.35)),
             final_window_enabled=bool(row.get("final_window_enabled", True)),
             final_window_sec=max(0.0, _safe_float(row.get("final_window_sec"), 15.0)),
+            stage_final_window_sec_by_stage=parsed_stage_window_rows,
             aggressive_window_enabled=bool(row.get("aggressive_window_enabled", False)),
             aggressive_window_sec=max(0.0, _safe_float(row.get("aggressive_window_sec"), 10.0)),
             stage_aggressiveness=parsed_stage_rows,
             price_aggress_bps_max=max(0.0, _safe_float(row.get("price_aggress_bps_max"), 8.0)),
+            dynamic_preview_enabled=bool(row.get("dynamic_preview_enabled", False)),
             multi_oracle_boost_enabled=bool(row.get("multi_oracle_boost_enabled", False)),
+            multi_oracle_boost_window_sec=max(0.0, _safe_float(row.get("multi_oracle_boost_window_sec"), 15.0)),
             multi_oracle_edge_threshold_abs=max(0.0, _safe_float(row.get("multi_oracle_edge_threshold_abs"), 0.20)),
             multi_oracle_target_usd_cap=max(0.0, _safe_float(row.get("multi_oracle_target_usd_cap"), 350.0)),
             multi_oracle_capital_pct_cap=max(0.0, _safe_float(row.get("multi_oracle_capital_pct_cap"), 0.18)),
+            stage_priority_enabled=bool(row.get("stage_priority_enabled", False)),
         )
 
 
@@ -107,6 +126,8 @@ class SniperCandidate:
     top_best_ask_price: Optional[float]
     token_score: Optional[float] = None
     max_feasible_target_usd: Optional[float] = None
+    predicted_dynamic_feasible_target_usd: Optional[float] = None
+    predicted_dynamic_reject_reason: Optional[str] = None
     multi_oracle_confirmation: bool = False
     multi_oracle_boost_applied: bool = False
     multi_oracle_status: str = "disabled"
@@ -131,8 +152,15 @@ class SniperDecision:
     target_usd_resolved: float
     hard_min_floor_applied: bool
     hard_min_unachievable: bool
+    submit_capable_static: bool
+    submit_capable_dynamic_predicted: Optional[bool]
+    predicted_dynamic_feasible: Optional[bool]
+    predicted_feasible_target_usd: Optional[float]
+    predicted_reject_reason: Optional[str]
+    preview_authority: str
     dynamic_size_capped_by_risk: bool
     multi_oracle_confirmation: bool
+    multi_oracle_boost_eligible: bool
     multi_oracle_boost_applied: bool
     multi_oracle_status: str
     sec_to_expiry: Optional[float] = None
@@ -154,8 +182,31 @@ class SniperDecision:
             "target_usd_resolved": float(self.target_usd_resolved),
             "hard_min_floor_applied": bool(self.hard_min_floor_applied),
             "hard_min_unachievable": bool(self.hard_min_unachievable),
+            "submit_capable_static": bool(self.submit_capable_static),
+            "submit_capable_dynamic_predicted": (
+                bool(self.submit_capable_dynamic_predicted)
+                if isinstance(self.submit_capable_dynamic_predicted, bool)
+                else None
+            ),
+            "predicted_dynamic_feasible": (
+                bool(self.predicted_dynamic_feasible)
+                if isinstance(self.predicted_dynamic_feasible, bool)
+                else None
+            ),
+            "predicted_feasible_target_usd": (
+                float(self.predicted_feasible_target_usd)
+                if isinstance(self.predicted_feasible_target_usd, (int, float))
+                else None
+            ),
+            "predicted_reject_reason": (
+                str(self.predicted_reject_reason).strip().lower()
+                if str(self.predicted_reject_reason or "").strip()
+                else None
+            ),
+            "preview_authority": str(self.preview_authority or "none").strip().lower() or "none",
             "dynamic_size_capped_by_risk": bool(self.dynamic_size_capped_by_risk),
             "multi_oracle_confirmation": bool(self.multi_oracle_confirmation),
+            "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
             "multi_oracle_status": str(self.multi_oracle_status or "unknown"),
             "block_reason": self.block_reason,
@@ -179,8 +230,31 @@ class SniperDecision:
             "target_usd_resolved": float(self.target_usd_resolved),
             "hard_min_floor_applied": bool(self.hard_min_floor_applied),
             "hard_min_unachievable": bool(self.hard_min_unachievable),
+            "submit_capable_static": bool(self.submit_capable_static),
+            "submit_capable_dynamic_predicted": (
+                bool(self.submit_capable_dynamic_predicted)
+                if isinstance(self.submit_capable_dynamic_predicted, bool)
+                else None
+            ),
+            "predicted_dynamic_feasible": (
+                bool(self.predicted_dynamic_feasible)
+                if isinstance(self.predicted_dynamic_feasible, bool)
+                else None
+            ),
+            "predicted_feasible_target_usd": (
+                float(self.predicted_feasible_target_usd)
+                if isinstance(self.predicted_feasible_target_usd, (int, float))
+                else None
+            ),
+            "predicted_reject_reason": (
+                str(self.predicted_reject_reason).strip().lower()
+                if str(self.predicted_reject_reason or "").strip()
+                else None
+            ),
+            "preview_authority": str(self.preview_authority or "none").strip().lower() or "none",
             "dynamic_size_capped_by_risk": bool(self.dynamic_size_capped_by_risk),
             "multi_oracle_confirmation": bool(self.multi_oracle_confirmation),
+            "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
             "multi_oracle_status": str(self.multi_oracle_status or "unknown"),
         }
@@ -217,17 +291,25 @@ class SniperTool:
             return edge_norm
         return _clamp(((edge_weight * edge_norm) + (score_weight * score_norm)) / total, 0.0, 1.0)
 
-    def _timing_window_class(self, sec_to_expiry: Optional[float]) -> str:
+    def _effective_final_window_sec(self, stage: str) -> float:
+        normalized_stage = str(stage or "").strip().upper()
+        stage_window = self.cfg.stage_final_window_sec_by_stage.get(normalized_stage)
+        if isinstance(stage_window, (int, float)) and float(stage_window) > 0.0:
+            return float(stage_window)
+        return float(self.cfg.final_window_sec)
+
+    def _timing_window_class(self, stage: str, sec_to_expiry: Optional[float]) -> str:
         if not self.cfg.final_window_enabled:
             return "window_disabled"
         if not isinstance(sec_to_expiry, (int, float)):
             return "outside_window"
         sec = float(sec_to_expiry)
-        if sec < 0.0 or sec > float(self.cfg.final_window_sec):
+        final_window_sec = self._effective_final_window_sec(stage)
+        if sec < 0.0 or sec > final_window_sec:
             return "outside_window"
         if self.cfg.aggressive_window_enabled and sec <= float(self.cfg.aggressive_window_sec):
             return "final10"
-        if abs(float(self.cfg.final_window_sec) - 15.0) <= 1e-9:
+        if abs(float(final_window_sec) - 15.0) <= 1e-9:
             return "final15"
         return "final_window"
 
@@ -286,8 +368,15 @@ class SniperTool:
                         target_usd_resolved=0.0,
                         hard_min_floor_applied=False,
                         hard_min_unachievable=False,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=None,
+                        predicted_dynamic_feasible=None,
+                        predicted_feasible_target_usd=None,
+                        predicted_reject_reason=None,
+                        preview_authority="none",
                         dynamic_size_capped_by_risk=False,
                         multi_oracle_confirmation=False,
+                        multi_oracle_boost_eligible=False,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status="disabled",
                     )
@@ -305,9 +394,11 @@ class SniperTool:
             edge_abs = abs(edge_signed)
             required_min_edge = max(0.0, float(candidate.required_min_edge))
             conviction_score = self._conviction(edge_abs=edge_abs, token_score=candidate.token_score)
-            timing_window_class = self._timing_window_class(candidate.sec_to_expiry)
+            timing_window_class = self._timing_window_class(stage, candidate.sec_to_expiry)
             multi_oracle_status = str(candidate.multi_oracle_status or "unknown").strip().lower() or "unknown"
             multi_oracle_confirmation = bool(candidate.multi_oracle_confirmation)
+            if multi_oracle_status == "unknown":
+                multi_oracle_confirmation = False
 
             if edge_abs < required_min_edge:
                 provisional.append(
@@ -328,8 +419,15 @@ class SniperTool:
                         target_usd_resolved=0.0,
                         hard_min_floor_applied=False,
                         hard_min_unachievable=False,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=None,
+                        predicted_dynamic_feasible=None,
+                        predicted_feasible_target_usd=None,
+                        predicted_reject_reason=None,
+                        preview_authority="none",
                         dynamic_size_capped_by_risk=False,
                         multi_oracle_confirmation=multi_oracle_confirmation,
+                        multi_oracle_boost_eligible=False,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
@@ -356,8 +454,15 @@ class SniperTool:
                         target_usd_resolved=0.0,
                         hard_min_floor_applied=False,
                         hard_min_unachievable=False,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=None,
+                        predicted_dynamic_feasible=None,
+                        predicted_feasible_target_usd=None,
+                        predicted_reject_reason=None,
+                        preview_authority="none",
                         dynamic_size_capped_by_risk=False,
                         multi_oracle_confirmation=multi_oracle_confirmation,
+                        multi_oracle_boost_eligible=False,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
@@ -372,14 +477,17 @@ class SniperTool:
             aggress_bps = _clamp(aggress_bps, 0.0, float(self.cfg.price_aggress_bps_max))
             aggressiveness_level = "final10" if timing_window_class == "final10" else timing_window_class
 
-            boost_allowed = (
+            boost_window_sec = float(self.cfg.multi_oracle_boost_window_sec)
+            boost_eligible = (
                 bool(self.cfg.multi_oracle_boost_enabled)
                 and multi_oracle_confirmation
                 and edge_abs >= float(self.cfg.multi_oracle_edge_threshold_abs)
-                and timing_window_class in {"final15", "final10"}
+                and isinstance(sec_to_expiry_value, (int, float))
+                and sec_to_expiry_value >= 0.0
+                and sec_to_expiry_value <= boost_window_sec
             )
             boost_cap_override = None
-            if boost_allowed:
+            if boost_eligible:
                 boost_cap_override = max(
                     float(self.cfg.dynamic_size_target_usd_cap),
                     float(self.cfg.multi_oracle_target_usd_cap),
@@ -405,6 +513,27 @@ class SniperTool:
             dynamic_size_capped_by_risk = (
                 max_feasible_target is not None and max_feasible_target + 1e-9 < target_usd_requested
             )
+            predicted_feasible_target_usd = (
+                float(candidate.predicted_dynamic_feasible_target_usd)
+                if isinstance(candidate.predicted_dynamic_feasible_target_usd, (int, float))
+                else None
+            )
+            predicted_dynamic_reject_reason = (
+                str(candidate.predicted_dynamic_reject_reason).strip().lower()
+                if str(candidate.predicted_dynamic_reject_reason or "").strip()
+                else None
+            )
+            predicted_dynamic_feasible: Optional[bool] = None
+            submit_capable_dynamic_predicted: Optional[bool] = None
+            if self.cfg.dynamic_preview_enabled:
+                if isinstance(predicted_feasible_target_usd, (int, float)):
+                    predicted_dynamic_feasible = (
+                        float(predicted_feasible_target_usd) + 1e-9 >= float(target_usd_requested)
+                    )
+                    submit_capable_dynamic_predicted = bool(predicted_dynamic_feasible)
+                else:
+                    predicted_dynamic_feasible = None
+                    submit_capable_dynamic_predicted = None
             hard_min_unachievable = target_usd_resolved + 1e-9 < floor_usd
             if hard_min_unachievable and self.cfg.hard_min_enforcement == "skip_if_unachievable":
                 provisional.append(
@@ -425,9 +554,16 @@ class SniperTool:
                         target_usd_resolved=target_usd_resolved,
                         hard_min_floor_applied=hard_min_floor_applied,
                         hard_min_unachievable=True,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
+                        predicted_dynamic_feasible=predicted_dynamic_feasible,
+                        predicted_feasible_target_usd=predicted_feasible_target_usd,
+                        predicted_reject_reason=predicted_dynamic_reject_reason,
+                        preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
                         multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_applied=boost_allowed,
+                        multi_oracle_boost_eligible=boost_eligible,
+                        multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
                     )
@@ -461,9 +597,16 @@ class SniperTool:
                         target_usd_resolved=target_usd_resolved,
                         hard_min_floor_applied=hard_min_floor_applied,
                         hard_min_unachievable=hard_min_unachievable,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
+                        predicted_dynamic_feasible=predicted_dynamic_feasible,
+                        predicted_feasible_target_usd=predicted_feasible_target_usd,
+                        predicted_reject_reason=predicted_dynamic_reject_reason,
+                        preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
                         multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_applied=boost_allowed,
+                        multi_oracle_boost_eligible=boost_eligible,
+                        multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
                     )
@@ -493,9 +636,16 @@ class SniperTool:
                         target_usd_resolved=target_usd_resolved,
                         hard_min_floor_applied=hard_min_floor_applied,
                         hard_min_unachievable=hard_min_unachievable,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
+                        predicted_dynamic_feasible=predicted_dynamic_feasible,
+                        predicted_feasible_target_usd=predicted_feasible_target_usd,
+                        predicted_reject_reason=predicted_dynamic_reject_reason,
+                        preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
                         multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_applied=boost_allowed,
+                        multi_oracle_boost_eligible=boost_eligible,
+                        multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
                     )
@@ -520,9 +670,16 @@ class SniperTool:
                     target_usd_resolved=target_usd_resolved,
                     hard_min_floor_applied=hard_min_floor_applied,
                     hard_min_unachievable=hard_min_unachievable,
+                    submit_capable_static=True,
+                    submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
+                    predicted_dynamic_feasible=predicted_dynamic_feasible,
+                    predicted_feasible_target_usd=predicted_feasible_target_usd,
+                    predicted_reject_reason=predicted_dynamic_reject_reason,
+                    preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                     dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
                     multi_oracle_confirmation=multi_oracle_confirmation,
-                    multi_oracle_boost_applied=boost_allowed,
+                    multi_oracle_boost_eligible=boost_eligible,
+                    multi_oracle_boost_applied=boost_eligible,
                     multi_oracle_status=multi_oracle_status,
                     sec_to_expiry=sec_to_expiry_value,
                 )
@@ -531,7 +688,17 @@ class SniperTool:
         submit_candidates = [row for row in provisional if row.should_submit]
         submit_candidates_sorted = sorted(
             submit_candidates,
-            key=lambda row: (-float(row.conviction_score), -float(row.edge_abs), str(row.token_id)),
+            key=lambda row: (
+                -int(
+                    bool(row.submit_capable_dynamic_predicted)
+                    if isinstance(row.submit_capable_dynamic_predicted, bool)
+                    else True
+                ),
+                -float(row.conviction_score),
+                -float(row.edge_abs),
+                -float(row.predicted_feasible_target_usd or 0.0),
+                str(row.token_id),
+            ),
         )
         allowed_count = max(0, int(max_orders_per_cycle))
         allowed_ids = {row.token_id for row in submit_candidates_sorted[:allowed_count]}

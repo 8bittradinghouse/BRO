@@ -19,6 +19,7 @@ from prodesk.order_manager import OrderManager
 from prodesk.risk import RiskEngine
 from prodesk.strategy import MarketMakingStrategy
 from prodesk.telemetry import Telemetry
+from prodesk.wallet_doctrine import WalletAuthorization
 
 
 class ExecutionStackTests(unittest.TestCase):
@@ -179,6 +180,97 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_invalid_sniper_stage_window_boost_alignment(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        taker_comp = cfg["sniper"]["taker"]["competitiveness"]
+        taker_comp["stage_final_window_sec_by_stage"] = {"SNIPER_PRIMARY": 12.0}
+        taker_comp["multi_oracle_boost_window_sec"] = 15.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_invalid_sniper_stage_cooldown_key(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["sniper"]["taker"]["per_token_cooldown_sec_by_stage"] = {"INVALID_STAGE": 0.75}
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_chain_outside_polygon(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["chain"] = "ethereum"
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_gas_target_below_min(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["min_pol_gas_reserve"] = 0.2
+        cfg["wallet"]["gas_reserve_target_pol"] = 0.1
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_provider_ambiguity_abs_tolerance_non_positive(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["provider_ambiguity_abs_tolerance"] = 0.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_provider_ambiguity_rel_tolerance_negative(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["provider_ambiguity_rel_tolerance"] = -1e-6
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_physical_treasury_without_address(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["treasury_mode"] = "physical"
+        cfg["wallet"]["treasury_wallet_address"] = ""
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_live_wallet_allowance_without_spender_targets(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["mode"] = "live"
+        cfg["wallet"]["require_allowance"] = True
+        cfg["wallet"]["approval_spender_targets"] = []
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_non_boolean_live_order_submission_enabled(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["auth"]["live_order_submission_enabled"] = "yes"
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_order_capable_live_without_strict_wallet_truth_flags(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["mode"] = "live"
+        cfg["auth"]["live_order_submission_enabled"] = True
+        cfg["wallet"]["require_live_nonce_snapshot"] = False
+        cfg["wallet"]["require_live_nonce_value"] = True
+        cfg["wallet"]["require_live_pending_tx_snapshot"] = True
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_allows_live_diagnostic_mode_without_strict_wallet_truth_flags(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["mode"] = "live"
+        cfg["auth"]["live_order_submission_enabled"] = False
+        cfg["wallet"]["require_allowance"] = False
+        cfg["wallet"]["require_live_nonce_snapshot"] = False
+        cfg["wallet"]["require_live_nonce_value"] = False
+        cfg["wallet"]["require_live_pending_tx_snapshot"] = False
+        validate_execution_config(cfg)
+
     def test_config_rejects_unachievable_maker_notional_floor(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -276,6 +368,103 @@ class ExecutionStackTests(unittest.TestCase):
                     strategy_cfg,
                     mode="live",
                 )
+
+    def test_risk_veto_blocks_before_wallet_authorization_path(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_notional_per_token"] = 1.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            with mock.patch.object(manager.wallet, "authorize_intent", side_effect=AssertionError("wallet should not be called")):
+                placed, reason = manager._place_order(
+                    OrderIntent(token_id="t1", side="BUY", price=0.55, size=100.0, tif="GTC", post_only=True, reason="test"),
+                    top,
+                    open_orders_for_token=[],
+                    open_orders_total=0,
+                )
+            self.assertIsNone(placed)
+            self.assertTrue(str(reason or "").startswith("risk_reject"))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_wallet_veto_blocks_even_when_risk_allows(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_notional_per_token"] = 1000.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            with mock.patch.object(
+                manager.wallet,
+                "authorize_intent",
+                return_value=WalletAuthorization(
+                    allowed=False,
+                    action="reject",
+                    approved_size=0.0,
+                    reason="wallet_test_veto",
+                    detail="test",
+                    halt=False,
+                ),
+            ):
+                placed, reason = manager._place_order(
+                    OrderIntent(token_id="t1", side="BUY", price=0.45, size=2.0, tif="GTC", post_only=True, reason="test"),
+                    top,
+                    open_orders_for_token=[],
+                    open_orders_total=0,
+                )
+            self.assertIsNone(placed)
+            self.assertEqual(reason, "wallet_reject")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
 
     def test_order_manager_places_orders_and_processes_fills(self):
         tmp = tempfile.TemporaryDirectory()
@@ -834,6 +1023,147 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_submit_no_ack_missing_order_id_rolls_back_lock_and_is_idempotent(self):
+        class _NoAckGateway(PaperGateway):
+            def place_order(self, intent: OrderIntent, client_order_id: str):  # type: ignore[override]
+                order = super().place_order(intent, client_order_id)
+                order.order_id = ""
+                order.status = "SUBMITTED"
+                return order
+
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            runtime_cfg["order_rate_soft_limit_pct"] = 1.0
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_orders_per_min"] = 2
+
+            gateway = _NoAckGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.45,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+            )
+            order, reason = manager._place_order(intent, top, open_orders_for_token=[], open_orders_total=0)
+            self.assertIsNone(order)
+            self.assertEqual(reason, "order_submit_no_ack")
+
+            wallet_status = manager.wallet.status()
+            self.assertEqual(float(wallet_status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertEqual(float(wallet_status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status.get("locked_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(telemetry.counters.get("order_submit_no_ack", 0)), 1.0)
+
+            events.close()
+            events = None
+            cleanup_lock_id = ""
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "wallet_reservation_cleanup":
+                        cleanup_lock_id = str(payload.get("lock_id") or "").strip()
+            self.assertTrue(cleanup_lock_id)
+
+            manager._cleanup_failed_submission(
+                wallet_lock_id=cleanup_lock_id,
+                submission_lane="maker",
+                cleanup_reason="timeout_cleanup_retry",
+                release_submission_reservation=True,
+            )
+            wallet_status_after_retry = manager.wallet.status()
+            self.assertEqual(float(wallet_status_after_retry.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertEqual(float(wallet_status_after_retry.get("order_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status_after_retry.get("locked_usdc", 0.0) or 0.0), 0.0)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_closed_immediately_ack_releases_pending_lock_without_order_lock(self):
+        class _ClosedImmediatelyGateway(PaperGateway):
+            def place_order(self, intent: OrderIntent, client_order_id: str):  # type: ignore[override]
+                order = super().place_order(intent, client_order_id)
+                order.status = "CLOSED"
+                order.remaining_size = 0.0
+                return order
+
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            runtime_cfg["order_rate_soft_limit_pct"] = 1.0
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_orders_per_min"] = 2
+
+            gateway = _ClosedImmediatelyGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.45,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+            )
+            order, reason = manager._place_order(intent, top, open_orders_for_token=[], open_orders_total=0)
+            self.assertIsNotNone(order)
+            self.assertIsNone(reason)
+            wallet_status = manager.wallet.status()
+            self.assertEqual(float(wallet_status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertEqual(float(wallet_status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status.get("locked_usdc", 0.0) or 0.0), 0.0)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_order_soft_throttle_emits_causal_decision_basis(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
@@ -1030,6 +1360,9 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertIsInstance(submit_basis, dict)
             self.assertTrue(isinstance((reject_basis or {}).get("dynamic_scaling"), dict))
             self.assertTrue(isinstance((submit_basis or {}).get("dynamic_scaling"), dict))
+            self.assertEqual(str(risk_reject_rows[-1].get("stage") or ""), "UNKNOWN")
+            self.assertEqual(str(risk_reject_rows[-1].get("stage_source") or ""), "risk_decision_basis")
+            self.assertIsNone(risk_reject_rows[-1].get("stage_unknown_reason"))
         finally:
             if events is not None:
                 events.close()

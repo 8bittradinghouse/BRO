@@ -358,6 +358,20 @@ class ExecutionRunner:
         self._cached_reconcile_mismatch_ratio = 0.0
         self.sniper_taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
         self.sniper_taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
+        raw_taker_stage_cooldown = taker_cfg.get("per_token_cooldown_sec_by_stage", {})
+        self.sniper_taker_per_token_cooldown_sec_by_stage: Dict[str, float] = {}
+        if isinstance(raw_taker_stage_cooldown, dict):
+            for stage_name, value in raw_taker_stage_cooldown.items():
+                normalized_stage = str(stage_name or "").strip().upper()
+                if not normalized_stage:
+                    continue
+                try:
+                    cooldown_sec = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if cooldown_sec < 0.0:
+                    continue
+                self.sniper_taker_per_token_cooldown_sec_by_stage[normalized_stage] = cooldown_sec
         taker_competitiveness_cfg = (
             taker_cfg.get("competitiveness", {}) if isinstance(taker_cfg.get("competitiveness", {}), dict) else {}
         )
@@ -381,8 +395,12 @@ class ExecutionRunner:
             if protected_usdc_reserve is not None:
                 capital_base_usd = max(0.0, capital_base_usd - max(0.0, float(protected_usdc_reserve)))
         self.sniper_taker_multi_oracle_cap_usd: Optional[float] = None
+        self.sniper_taker_multi_oracle_cap_source = "disabled"
+        self.sniper_taker_multi_oracle_cap_authority_class = "none"
         if multi_oracle_capital_pct_cap > 0.0 and isinstance(capital_base_usd, float) and capital_base_usd > 0.0:
             self.sniper_taker_multi_oracle_cap_usd = float(multi_oracle_capital_pct_cap * capital_base_usd)
+            self.sniper_taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
+            self.sniper_taker_multi_oracle_cap_authority_class = "derived"
         maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
         if not isinstance(maker_comp_cfg, dict):
             maker_comp_cfg = {}
@@ -523,9 +541,16 @@ class ExecutionRunner:
         wallet_cfg = self.cfg.get("wallet", {})
         if not isinstance(wallet_cfg, dict):
             wallet_cfg = {}
-        self.wallet = create_wallet_doctrine(wallet_cfg, mode=mode, gateway=self.gateway)
+        self.wallet = create_wallet_doctrine(
+            wallet_cfg,
+            mode=mode,
+            gateway=self.gateway,
+            event_logger=self.events.log_event,
+            auth_cfg=(self.cfg.get("auth", {}) if isinstance(self.cfg.get("auth", {}), dict) else {}),
+        )
         self.wallet.register_nonce_authority(self.tx_manager.nonce_authority())
         self.wallet.register_pending_tx_provider(self.tx_manager.pending_tx_snapshot)
+        self._refresh_sniper_multi_oracle_cap_from_wallet()
 
         md = self.cfg["market_data"]
         self.book_client = RestBookClient(
@@ -1246,6 +1271,62 @@ class ExecutionRunner:
             )
         return required_min_edge
 
+    def _resolve_taker_cooldown_sec(self, stage: str) -> float:
+        normalized_stage = str(stage or "").strip().upper()
+        explicit_stage_cooldown = self.sniper_taker_per_token_cooldown_sec_by_stage.get(normalized_stage)
+        if isinstance(explicit_stage_cooldown, (int, float)):
+            return max(0.0, float(explicit_stage_cooldown))
+        return max(0.0, float(self.sniper_taker_per_token_cooldown_sec))
+
+    def _emit_sniper_stage_window_semantic_check(self) -> None:
+        if not bool(self.sniper_taker_competitiveness_cfg.enabled):
+            return
+
+        def _effective_window(stage_name: str) -> float:
+            stage_windows = self.sniper_taker_competitiveness_cfg.stage_final_window_sec_by_stage
+            candidate = stage_windows.get(stage_name)
+            if isinstance(candidate, (int, float)) and float(candidate) > 0.0:
+                return float(candidate)
+            return float(self.sniper_taker_competitiveness_cfg.final_window_sec)
+
+        # Stage bands are authoritative from _stage_name_for_sec_to_expiry.
+        stage_bands: Dict[str, Tuple[float, float]] = {
+            STAGE_MAKER_TAKER_SELECTIVE: (30.0, 60.0),
+            STAGE_SNIPER_PRIMARY: (20.0, 30.0),
+            STAGE_EXTREME_ONLY: (0.0, 20.0),
+        }
+        rows: Dict[str, Dict[str, Any]] = {}
+        dead_count = 0
+        for stage_name, (lower_exclusive, upper_inclusive) in stage_bands.items():
+            effective_window_sec = _effective_window(stage_name)
+            semantically_live = bool(effective_window_sec > lower_exclusive)
+            if not semantically_live:
+                dead_count += 1
+            overlap_high = min(upper_inclusive, effective_window_sec)
+            rows[stage_name] = {
+                "interval_lower_exclusive_sec": float(lower_exclusive),
+                "interval_upper_inclusive_sec": float(upper_inclusive),
+                "effective_final_window_sec": float(effective_window_sec),
+                "semantically_live": semantically_live,
+                "overlap_high_sec": (float(overlap_high) if semantically_live else None),
+                "semantic_dead_reason": (
+                    None if semantically_live else "stage_window_non_overlapping_with_stage_interval"
+                ),
+            }
+
+        self.events.log_event(
+            "sniper_stage_window_semantic_check",
+            {
+                "ts_utc": utc_iso(),
+                "run_id": self.run_id,
+                "final_window_enabled": bool(self.sniper_taker_competitiveness_cfg.final_window_enabled),
+                "default_final_window_sec": float(self.sniper_taker_competitiveness_cfg.final_window_sec),
+                "stage_rows": rows,
+                "semantic_dead_by_construction_count": int(dead_count),
+                "semantic_status": ("ok" if dead_count == 0 else "warn"),
+            },
+        )
+
     @staticmethod
     def _taker_edge_bucket(edge_abs: Optional[float]) -> str:
         if not isinstance(edge_abs, (int, float)):
@@ -1282,6 +1363,29 @@ class ExecutionRunner:
             return None
         value = min(caps)
         return float(value) if value > 0.0 else None
+
+    def _refresh_sniper_multi_oracle_cap_from_wallet(self) -> None:
+        pct_cap = float(self.sniper_taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
+        if pct_cap <= 0.0:
+            self.sniper_taker_multi_oracle_cap_usd = None
+            self.sniper_taker_multi_oracle_cap_source = "disabled"
+            self.sniper_taker_multi_oracle_cap_authority_class = "none"
+            return
+        wallet_contract = self.wallet.status_contract()
+        authority_class = str(wallet_contract.get("authority_status_class") or "").strip().lower()
+        deployable_capital = parse_float(wallet_contract.get("deployable_capital"))
+        if authority_class == "authoritative" and isinstance(deployable_capital, (int, float)) and deployable_capital > 0.0:
+            self.sniper_taker_multi_oracle_cap_usd = float(pct_cap * float(deployable_capital))
+            self.sniper_taker_multi_oracle_cap_source = "wallet_deployable_capital_authoritative"
+            self.sniper_taker_multi_oracle_cap_authority_class = "live"
+            return
+        if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float)) and self.sniper_taker_multi_oracle_cap_usd > 0.0:
+            self.sniper_taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
+            self.sniper_taker_multi_oracle_cap_authority_class = "derived"
+            return
+        self.sniper_taker_multi_oracle_cap_usd = None
+        self.sniper_taker_multi_oracle_cap_source = "wallet_contract_unavailable"
+        self.sniper_taker_multi_oracle_cap_authority_class = "bootstrap"
 
     def _maker_timing_gate_open(self, sec_to_expiry: Optional[float]) -> bool:
         if not self.maker_comp_timing_gate_enabled:
@@ -2137,8 +2241,23 @@ class ExecutionRunner:
 
         # Use limited taker budget on strongest edge opportunities first.
         token_order = sorted({str(token_id) for token_id in token_ids})
+        stage_priority_rank = {
+            STAGE_SNIPER_PRIMARY: 0,
+            STAGE_MAKER_TAKER_SELECTIVE: 1,
+            STAGE_EXTREME_ONLY: 2,
+        }
         token_order.sort(
             key=lambda token_id: (
+                (
+                    int(
+                        stage_priority_rank.get(
+                            str((stage_info_by_token.get(token_id) or {}).get("stage") or STAGE_UNKNOWN).strip().upper(),
+                            99,
+                        )
+                    )
+                    if bool(self.sniper_taker_competitiveness_cfg.stage_priority_enabled)
+                    else 0
+                ),
                 -abs(
                     float(
                         compute_edge_value(
@@ -2222,9 +2341,10 @@ class ExecutionRunner:
             else:
                 now_mono = time.monotonic()
                 last_submit = self._last_taker_submit_mono_by_token.get(token_id)
+                cooldown_sec = self._resolve_taker_cooldown_sec(stage)
                 if (
                     last_submit is not None
-                    and (now_mono - last_submit) < self.sniper_taker_per_token_cooldown_sec
+                    and (now_mono - last_submit) < cooldown_sec
                 ):
                     block_reason = "taker_token_cooldown"
                 else:
@@ -2280,6 +2400,40 @@ class ExecutionRunner:
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
                             decision: Optional[SniperDecision] = None
                             if competitiveness_enabled:
+                                self._refresh_sniper_multi_oracle_cap_from_wallet()
+                                static_max_feasible_target_usd = self._taker_effective_max_target_usd(
+                                    price=float(touch_price)
+                                )
+                                dynamic_preview: Dict[str, Any] = {
+                                    "predicted_dynamic_feasible": False,
+                                    "predicted_feasible_target_usd": None,
+                                    "predicted_reject_reason": None,
+                                    "preview_authority": "none",
+                                }
+                                if bool(self.sniper_taker_competitiveness_cfg.dynamic_preview_enabled):
+                                    dynamic_preview = self.manager.preview_taker_dynamic_feasible_target(
+                                        token_id=token_id,
+                                        side=side,
+                                        price=float(touch_price),
+                                        target_usd_cap=static_max_feasible_target_usd,
+                                        top=top,
+                                        reason="sniper_taker_chainlink",
+                                        stage=stage,
+                                        realized_volatility=(
+                                            realized_volatility_by_token.get(token_id)
+                                            if isinstance(realized_volatility_by_token, dict)
+                                            else None
+                                        ),
+                                        competitiveness_context={
+                                            "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                                            "sec_to_expiry": (
+                                                float(time_remaining_sec)
+                                                if isinstance(time_remaining_sec, (int, float))
+                                                else None
+                                            ),
+                                            "edge_abs": abs(float(edge)),
+                                        },
+                                    )
                                 decision = self.sniper_tool.evaluate_batch(
                                     candidates=[
                                         SniperCandidate(
@@ -2304,8 +2458,19 @@ class ExecutionRunner:
                                                 else None
                                             ),
                                             token_score=float(confidence_score),
-                                            max_feasible_target_usd=self._taker_effective_max_target_usd(
-                                                price=float(touch_price)
+                                            max_feasible_target_usd=static_max_feasible_target_usd,
+                                            predicted_dynamic_feasible_target_usd=(
+                                                float(dynamic_preview.get("predicted_feasible_target_usd"))
+                                                if isinstance(
+                                                    dynamic_preview.get("predicted_feasible_target_usd"),
+                                                    (int, float),
+                                                )
+                                                else None
+                                            ),
+                                            predicted_dynamic_reject_reason=(
+                                                str(dynamic_preview.get("predicted_reject_reason"))
+                                                if str(dynamic_preview.get("predicted_reject_reason") or "").strip()
+                                                else None
                                             ),
                                             multi_oracle_confirmation=bool(multi_oracle_confirmation),
                                             multi_oracle_status=str(multi_oracle_status),
@@ -2329,6 +2494,7 @@ class ExecutionRunner:
                                         "fair_probability": fair,
                                         "edge": edge,
                                         "confidence_score": float(confidence_score),
+                                        "cooldown_sec_applied": float(cooldown_sec),
                                         **decision.as_event_payload(),
                                     },
                                 )
@@ -2424,13 +2590,26 @@ class ExecutionRunner:
                                         "midpoint": midpoint,
                                         "fair_probability": fair,
                                         "edge": edge,
+                                        "edge_abs": (abs(float(edge)) if isinstance(edge, (int, float)) else None),
+                                        "edge_bucket": self._taker_edge_bucket(
+                                            abs(float(edge)) if isinstance(edge, (int, float)) else None
+                                        ),
+                                        "edge_unknown_reason": (
+                                            None if isinstance(edge, (int, float)) else "missing_edge_value"
+                                        ),
                                         "required_min_edge": float(required_min_edge),
-                                        "stage": stage,
+                                        "stage": (str(stage or "").strip().upper() or "UNKNOWN"),
+                                        "stage_unknown_reason": (
+                                            None if str(stage or "").strip() else "missing_stage_info"
+                                        ),
                                         "confidence_score": float(confidence_score),
                                     }
                                     if competitiveness_enabled and decision is not None:
                                         submit_payload.update(
                                             {
+                                                "edge_abs": float(decision.edge_abs),
+                                                "edge_bucket": self._taker_edge_bucket(decision.edge_abs),
+                                                "edge_unknown_reason": None,
                                                 "conviction_score": float(decision.conviction_score),
                                                 "timing_window_class": decision.timing_window_class,
                                                 "aggressiveness_level": decision.aggressiveness_level,
@@ -3032,6 +3211,7 @@ class ExecutionRunner:
                 "run_id": self.run_id,
             },
         )
+        self._emit_sniper_stage_window_semantic_check()
         cfg_meta = self.cfg.get("_meta", {}) if isinstance(self.cfg.get("_meta"), dict) else {}
         LOG.info(
             "Active profile: %s | Config fingerprint: %s | Config sources: %s",
@@ -4240,6 +4420,7 @@ class ExecutionRunner:
                     positions = {token: pos.net_shares for token, pos in self.risk.positions.items()}
                     chainlink_status = self.chainlink.status()
                     book_feed_status = self.book_feed.status()
+                    wallet_contract = self.wallet.status_contract()
                     guard_active, guard_reason = self._read_external_guard_stop()
                     status_ts_utc = utc_iso()
                     status_row = {
@@ -4280,6 +4461,40 @@ class ExecutionRunner:
                         "chainlink": chainlink_status,
                         "secondary_oracle": {"pyth": pyth_status_live},
                         "book_feed": book_feed_status,
+                        "wallet_contract": wallet_contract,
+                        "wallet_health_ok": bool(wallet_contract.get("wallet_health_ok", False)),
+                        "wallet_health_reasons": list(wallet_contract.get("wallet_health_reasons", [])),
+                        "wallet_authority_status_class": str(
+                            wallet_contract.get("authority_status_class", "bootstrap_non_authoritative")
+                        ),
+                        "wallet_order_capable_live": bool(wallet_contract.get("order_capable_live", False)),
+                        "wallet_order_submit_eligible": bool(wallet_contract.get("order_submit_eligible", False)),
+                        "wallet_canonical_live_nonce_available": bool(
+                            wallet_contract.get("canonical_live_nonce_available", False)
+                        ),
+                        "wallet_canonical_live_pending_wallet_tx_available": bool(
+                            wallet_contract.get("canonical_live_pending_wallet_tx_available", False)
+                        ),
+                        "wallet_live_truth_gap_reasons": list(wallet_contract.get("live_truth_gap_reasons", [])),
+                        "wallet_gas_balance": float(wallet_contract.get("gas_balance", 0.0)),
+                        "wallet_gas_reserve_min": float(wallet_contract.get("gas_reserve_min", 0.0)),
+                        "wallet_gas_ok": bool(wallet_contract.get("gas_ok", False)),
+                        "wallet_stable_balance_total": float(wallet_contract.get("stable_balance_total", 0.0)),
+                        "wallet_protected_reserve": float(wallet_contract.get("protected_reserve", 0.0)),
+                        "wallet_open_reserved": float(wallet_contract.get("open_reserved", 0.0)),
+                        "wallet_deployable_capital": float(wallet_contract.get("deployable_capital", 0.0)),
+                        "wallet_approval_ok": bool(wallet_contract.get("approval_ok", False)),
+                        "wallet_nonce_ok": bool(wallet_contract.get("nonce_ok", False)),
+                        "wallet_reconcile_ok": bool(wallet_contract.get("reconcile_ok", False)),
+                        "sniper_multi_oracle_cap_usd": (
+                            float(self.sniper_taker_multi_oracle_cap_usd)
+                            if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))
+                            else None
+                        ),
+                        "sniper_multi_oracle_cap_source": str(self.sniper_taker_multi_oracle_cap_source),
+                        "sniper_multi_oracle_cap_authority_class": str(
+                            self.sniper_taker_multi_oracle_cap_authority_class
+                        ),
                         "external_guard_active": bool(guard_active),
                         "external_guard": {
                             "configured": self.guard_stop_file is not None,

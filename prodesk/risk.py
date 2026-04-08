@@ -231,6 +231,7 @@ class RiskEngine:
         open_orders_all: List[object],
         reference_mid_by_token: Dict[str, Optional[float]],
         effective_multiplier: float,
+        risk_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         cfg = self.cfg.get("global_exposure_guard", {})
         if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
@@ -243,6 +244,16 @@ class RiskEngine:
 
         base_cap = max(0.0, float(cfg.get("max_global_notional_usd", 0.0)))
         effective_cap = float(base_cap * max(0.0, float(effective_multiplier)))
+        context = risk_context if isinstance(risk_context, dict) else {}
+        submission_lane = str(context.get("submission_lane") or "unknown").strip().lower()
+        stage = str(context.get("stage") or "unknown").strip().upper()
+        sniper_reserved_notional_usd = max(0.0, float(cfg.get("sniper_reserved_notional_usd", 0.0) or 0.0))
+        reserve_applied = False
+        if sniper_reserved_notional_usd > 0.0:
+            is_taker_non_sniper = (submission_lane == "taker") and (stage != "SNIPER_PRIMARY")
+            if is_taker_non_sniper:
+                effective_cap = max(0.0, float(effective_cap - sniper_reserved_notional_usd))
+                reserve_applied = True
         near_cap_ratio = max(0.0, float(cfg.get("near_cap_ratio", 0.85)))
 
         position_notional = 0.0
@@ -280,6 +291,9 @@ class RiskEngine:
             "enabled": True,
             "base_cap_usd": float(base_cap),
             "effective_cap_usd": float(effective_cap),
+            "sniper_reserved_notional_usd": float(sniper_reserved_notional_usd),
+            "sniper_reserve_applied": bool(reserve_applied),
+            "sniper_reserve_scope": "taker_non_sniper_only",
             "near_cap_ratio": float(near_cap_ratio),
             "projected_total_notional": float(projected_total),
             "projected_to_cap_ratio": float(ratio if math.isfinite(ratio) else 0.0),
@@ -535,6 +549,7 @@ class RiskEngine:
                 dict(reference_mid_by_token) if isinstance(reference_mid_by_token, dict) else {intent.token_id: intent.price}
             ),
             effective_multiplier=float(effective_multiplier),
+            risk_context=context,
         )
         if bool(global_snapshot.get("enabled", False)) and not bool(global_snapshot.get("within_cap", True)):
             return RiskDecision(
@@ -550,6 +565,42 @@ class RiskEngine:
             )
 
         return RiskDecision(True, "ok", basis={**basis_base, "global_exposure_guard": global_snapshot})
+
+    def preview_order_feasibility(
+        self,
+        intent: OrderIntent,
+        top: BookTop,
+        open_orders_for_token: List[object],
+        open_orders_total: int,
+        open_orders_all: Optional[List[object]] = None,
+        reference_mid_by_token: Optional[Dict[str, Optional[float]]] = None,
+        risk_context: Optional[Dict[str, Any]] = None,
+    ) -> RiskDecision:
+        """Advisory-only preview for order feasibility.
+
+        This method is explicitly non-authoritative and non-reserving:
+        - does not reserve submission capacity
+        - does not mutate position/exposure state
+        - does not replace validate_order authority on final submit path
+        """
+        decision = self.validate_order(
+            intent,
+            top,
+            open_orders_for_token,
+            open_orders_total,
+            open_orders_all=open_orders_all,
+            reference_mid_by_token=reference_mid_by_token,
+            risk_context=risk_context,
+        )
+        basis = dict(decision.basis) if isinstance(decision.basis, dict) else {}
+        basis["preview_authority"] = "advisory_read_only"
+        basis["preview_non_authoritative"] = True
+        return RiskDecision(
+            allowed=bool(decision.allowed),
+            reason=str(decision.reason or "unknown"),
+            detail=decision.detail,
+            basis=basis,
+        )
 
     def mark_to_market(self, mid_by_token: Dict[str, Optional[float]]) -> Tuple[float, Dict[str, float]]:
         pnl_by_token: Dict[str, float] = {}

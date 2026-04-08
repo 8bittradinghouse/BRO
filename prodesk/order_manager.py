@@ -23,6 +23,25 @@ from .wallet_doctrine import WalletDoctrineBase, create_wallet_doctrine
 
 LOG = logging.getLogger("prodesk.order_manager")
 PAPER_TRADE_ID_RE = re.compile(r"^paper-trade-[0-9a-f]{12}-[1-9][0-9]*$")
+ORDER_RESIDUAL_EXPOSURE_EPSILON = 1e-9
+TERMINAL_ORDER_ACK_STATUSES = {
+    "CANCELED",
+    "CANCELLED",
+    "CLOSED",
+    "ERROR",
+    "EXECUTED",
+    "EXPIRED",
+    "FAILED",
+    "FILLED",
+    "REJECTED",
+}
+OPEN_EQUIVALENT_ORDER_ACK_STATUSES = {
+    "LIVE",
+    "OPEN",
+    "PARTIAL",
+    "PARTIALLY_FILLED",
+    "SUBMITTED",
+}
 
 
 def _normalize_soft_limit_pct(value: object, default: float) -> float:
@@ -63,7 +82,13 @@ class OrderManager:
             wallet_cfg = runtime_cfg.get("wallet", {}) if isinstance(runtime_cfg, dict) else {}
             if not isinstance(wallet_cfg, dict):
                 wallet_cfg = {}
-            self.wallet = create_wallet_doctrine(wallet_cfg, mode="paper", gateway=gateway)
+            self.wallet = create_wallet_doctrine(
+                wallet_cfg,
+                mode="paper",
+                gateway=gateway,
+                event_logger=events.log_event,
+                auth_cfg={"live_order_submission_enabled": False},
+            )
         else:
             self.wallet = wallet
         self.wallet.register_nonce_authority(self.tx_manager.nonce_authority())
@@ -342,6 +367,60 @@ class OrderManager:
             )
         return ok
 
+    @staticmethod
+    def _extract_remaining_size(order: LiveOrder) -> Optional[float]:
+        raw = getattr(order, "remaining_size", None)
+        if raw is None:
+            return None
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, parsed)
+
+    @staticmethod
+    def _order_status_norm(order: LiveOrder) -> str:
+        return str(getattr(order, "status", "") or "").strip().upper()
+
+    def _residual_exposure_exists(self, order: LiveOrder) -> bool:
+        remaining_size = self._extract_remaining_size(order)
+        if remaining_size is not None:
+            return bool(remaining_size > ORDER_RESIDUAL_EXPOSURE_EPSILON)
+        status_norm = self._order_status_norm(order)
+        if status_norm in TERMINAL_ORDER_ACK_STATUSES:
+            return False
+        if status_norm in OPEN_EQUIVALENT_ORDER_ACK_STATUSES:
+            return True
+        # Unknown/non-terminal states are treated as potentially open.
+        return True
+
+    def _cleanup_failed_submission(
+        self,
+        *,
+        wallet_lock_id: str,
+        submission_lane: str,
+        cleanup_reason: str,
+        release_submission_reservation: bool = True,
+    ) -> bool:
+        released_submission_reservation = False
+        if release_submission_reservation:
+            released_submission_reservation = bool(self.risk.release_order_submission_reservation())
+            if released_submission_reservation:
+                self.telemetry.incr("order_submission_released")
+                self.telemetry.incr(f"order_submission_released_{submission_lane}")
+        self.wallet.release_pending_lock(wallet_lock_id)
+        self.events.log_event(
+            "wallet_reservation_cleanup",
+            {
+                "ts_utc": utc_iso(),
+                "cleanup_reason": str(cleanup_reason or "unknown"),
+                "lock_id": str(wallet_lock_id or ""),
+                "submission_lane": str(submission_lane or ""),
+                "submission_reservation_released": bool(released_submission_reservation),
+            },
+        )
+        return released_submission_reservation
+
     def _place_order(
         self,
         intent: OrderIntent,
@@ -489,6 +568,25 @@ class OrderManager:
             risk_context=risk_context_payload,
         )
         if not decision.allowed:
+            risk_basis = decision.basis if isinstance(decision.basis, dict) else None
+            intent_stage = str(intent_sized.stage or "").strip().upper()
+            basis_stage = (
+                str((risk_basis or {}).get("stage") or "").strip().upper()
+                if isinstance(risk_basis, dict)
+                else ""
+            )
+            if intent_stage:
+                event_stage = intent_stage
+                stage_source = "intent"
+                stage_unknown_reason = None
+            elif basis_stage:
+                event_stage = basis_stage
+                stage_source = "risk_decision_basis"
+                stage_unknown_reason = None
+            else:
+                event_stage = "UNKNOWN"
+                stage_source = "unknown"
+                stage_unknown_reason = "missing_intent_and_basis_stage"
             self.telemetry.incr("risk_rejects")
             self.telemetry.incr(f"risk_reject_{decision.reason}")
             self.events.log_event(
@@ -500,15 +598,18 @@ class OrderManager:
                     "price": intent_sized.price,
                     "size": intent_sized.size,
                     "submission_lane": lane,
+                    "stage": event_stage,
+                    "stage_source": stage_source,
+                    "stage_unknown_reason": stage_unknown_reason,
                     "reason": decision.reason,
                     "detail": decision.detail,
-                    "risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None),
+                    "risk_decision_basis": risk_basis,
                 },
             )
             return _local_reject(
                 f"risk_reject_{decision.reason}",
                 detail=f"{decision.reason}:{decision.detail}",
-                extra={"risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None)},
+                extra={"risk_decision_basis": risk_basis},
             )
 
         adjusted_intent, cross_clamp = self._maybe_clamp_post_only_intent(intent_sized, top)
@@ -690,11 +791,12 @@ class OrderManager:
                 wallet_authorization=wallet_auth,
             )
         except PostOnlyRejectError as exc:
-            released = self.risk.release_order_submission_reservation()
-            if released:
-                self.telemetry.incr("order_submission_released")
-                self.telemetry.incr(f"order_submission_released_{lane}")
-            self.wallet.release_pending_lock(wallet_auth.lock_id)
+            released = self._cleanup_failed_submission(
+                wallet_lock_id=wallet_auth.lock_id,
+                submission_lane=lane,
+                cleanup_reason="post_only_reject",
+                release_submission_reservation=True,
+            )
             self.telemetry.incr("post_only_rejects")
             self.events.log_event(
                 "post_only_reject",
@@ -712,11 +814,12 @@ class OrderManager:
             )
             return None, "post_only_reject"
         except Exception as exc:
-            released = self.risk.release_order_submission_reservation()
-            if released:
-                self.telemetry.incr("order_submission_released")
-                self.telemetry.incr(f"order_submission_released_{lane}")
-            self.wallet.release_pending_lock(wallet_auth.lock_id)
+            released = self._cleanup_failed_submission(
+                wallet_lock_id=wallet_auth.lock_id,
+                submission_lane=lane,
+                cleanup_reason="submit_exception",
+                release_submission_reservation=True,
+            )
             self.telemetry.incr("order_submit_failures")
             self.events.log_error(
                 {
@@ -733,10 +836,40 @@ class OrderManager:
             )
             return None, "order_submit_exception"
 
+        status_norm = self._order_status_norm(order)
+        remaining_size = self._extract_remaining_size(order)
+        order_open = self._residual_exposure_exists(order)
+        order_id = str(order.order_id or "").strip()
+        if not order_id:
+            released = self._cleanup_failed_submission(
+                wallet_lock_id=wallet_auth.lock_id,
+                submission_lane=lane,
+                cleanup_reason="submit_no_ack_missing_order_id",
+                release_submission_reservation=True,
+            )
+            self.telemetry.incr("order_submit_no_ack")
+            self.risk.set_kill_switch("order_submit_no_ack_missing_order_id")
+            self.events.log_event(
+                "order_submit_no_ack",
+                {
+                    "ts_utc": utc_iso(),
+                    "token_id": intent_authorized.token_id,
+                    "side": intent_authorized.side,
+                    "price": intent_authorized.price,
+                    "size": intent_authorized.size,
+                    "submission_lane": lane,
+                    "status": status_norm,
+                    "remaining_size": remaining_size,
+                    "order_open": bool(order_open),
+                    "submission_reserved_released": bool(released),
+                    "lock_id": str(wallet_auth.lock_id or ""),
+                },
+            )
+            return None, "order_submit_no_ack"
+
         self.risk.on_order_submitted()
         self.telemetry.incr("order_submission_accepted")
         self.telemetry.incr(f"order_submission_accepted_{lane}")
-        order_open = str(order.status or "").strip().upper() == "OPEN"
         if not self.wallet.confirm_submission(lock_id=wallet_auth.lock_id, order_id=order.order_id, order_open=order_open):
             self.telemetry.incr("wallet_halts")
             self.risk.set_kill_switch(f"wallet_halt:{self.wallet.halt_reason() or 'confirm_submission_failed'}")
@@ -1346,6 +1479,126 @@ class OrderManager:
             "submitted": True,
             "fills_accepted": int(max(0, accepted)),
             "order_id": str(placed.order_id or ""),
+        }
+
+    def preview_taker_dynamic_feasible_target(
+        self,
+        *,
+        token_id: str,
+        side: str,
+        price: float,
+        target_usd_cap: Optional[float],
+        top: BookTop,
+        reason: str,
+        stage: Optional[str] = None,
+        realized_volatility: Optional[float] = None,
+        competitiveness_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Read-only advisory preview for dynamic taker feasibility.
+
+        This helper is intentionally non-authoritative:
+        - no submission reservation
+        - no order placement
+        - no exposure mutation
+        Final authority remains RiskEngine.validate_order on real submit.
+        """
+        cap = float(target_usd_cap) if isinstance(target_usd_cap, (int, float)) else 0.0
+        if cap <= 0.0:
+            return {
+                "predicted_dynamic_feasible": False,
+                "predicted_feasible_target_usd": 0.0,
+                "predicted_reject_reason": "target_cap_unavailable",
+                "preview_authority": "advisory_read_only",
+            }
+
+        explicit_stage = str(stage or "").strip()
+        competitiveness_stage = None
+        if isinstance(competitiveness_context, dict):
+            raw_stage = str(competitiveness_context.get("stage") or "").strip()
+            competitiveness_stage = raw_stage.upper() if raw_stage else None
+        resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
+        base_intent = OrderIntent(
+            token_id=token_id,
+            side=side,
+            price=float(price),
+            size=float(self.base_order_size),
+            tif="IOC",
+            post_only=False,
+            reason=reason,
+            stage=resolved_stage,
+        )
+        open_orders = self.tx_manager.get_open_orders()
+        token_orders = [o for o in open_orders if o.token_id == token_id]
+        risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        risk_context_payload.setdefault("submission_lane", "taker")
+        risk_context_payload.setdefault("stage", str(base_intent.stage or "").strip().upper() or "UNKNOWN")
+        if isinstance(realized_volatility, (int, float)):
+            risk_context_payload["realized_volatility"] = float(realized_volatility)
+        reference_mid = float(top.midpoint) if isinstance(top.midpoint, (int, float)) else None
+        reference_mid_by_token = {token_id: reference_mid}
+
+        def _probe_allowed(target_usd: float) -> Tuple[bool, str]:
+            if target_usd <= 0.0:
+                return False, "target_nonpositive"
+            sized, _details = self._resolve_order_size_shares_with_details(
+                base_intent,
+                top,
+                notional_target_usd=float(target_usd),
+            )
+            if sized is None or float(sized) <= 0.0:
+                return False, "size_notional_bounds"
+            probe_intent = OrderIntent(
+                token_id=base_intent.token_id,
+                side=base_intent.side,
+                price=base_intent.price,
+                size=float(sized),
+                tif=base_intent.tif,
+                post_only=base_intent.post_only,
+                reason=base_intent.reason,
+                stage=base_intent.stage,
+            )
+            decision = self.risk.preview_order_feasibility(
+                probe_intent,
+                top,
+                open_orders_for_token=token_orders,
+                open_orders_total=len(open_orders),
+                open_orders_all=open_orders,
+                reference_mid_by_token=reference_mid_by_token,
+                risk_context=risk_context_payload,
+            )
+            return bool(decision.allowed), str(decision.reason or "unknown")
+
+        allowed_at_cap, reject_reason_at_cap = _probe_allowed(cap)
+        if allowed_at_cap:
+            return {
+                "predicted_dynamic_feasible": True,
+                "predicted_feasible_target_usd": float(cap),
+                "predicted_reject_reason": None,
+                "preview_authority": "advisory_read_only",
+            }
+
+        lower = 0.0
+        upper = float(cap)
+        best = 0.0
+        best_fail_reason = str(reject_reason_at_cap or "unknown")
+        for _ in range(14):
+            mid = (lower + upper) / 2.0
+            if mid <= 0.0:
+                break
+            allowed, reject_reason = _probe_allowed(mid)
+            if allowed:
+                best = mid
+                lower = mid
+            else:
+                upper = mid
+                if reject_reason:
+                    best_fail_reason = str(reject_reason)
+
+        return {
+            "predicted_dynamic_feasible": bool(best > 0.0),
+            "predicted_feasible_target_usd": float(max(0.0, best)),
+            "predicted_reject_reason": (best_fail_reason if best <= 0.0 else None),
+            "preview_authority": "advisory_read_only",
         }
 
     def cancel_non_target_orders(self, tracked_tokens: Set[str], action_budget: Optional[int] = None) -> int:

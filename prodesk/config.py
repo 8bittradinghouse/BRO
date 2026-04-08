@@ -208,6 +208,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "target_usd": 5.0,
             "max_orders_per_cycle": 2,
             "per_token_cooldown_sec": 0.25,
+            "per_token_cooldown_sec_by_stage": {},
             "competitiveness": {
                 "enabled": False,
                 "hard_min_target_usd": 100.0,
@@ -221,6 +222,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "latency_score_weight": 0.35,
                 "final_window_enabled": True,
                 "final_window_sec": 15.0,
+                "stage_final_window_sec_by_stage": {},
                 "aggressive_window_enabled": False,
                 "aggressive_window_sec": 10.0,
                 "stage_aggressiveness": {
@@ -229,7 +231,9 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                     "EXTREME_ONLY": {"size_mult": 1.35, "price_aggress_bps": 5.0},
                 },
                 "price_aggress_bps_max": 8.0,
+                "dynamic_preview_enabled": False,
                 "multi_oracle_boost_enabled": False,
+                "multi_oracle_boost_window_sec": 15.0,
                 "multi_oracle_edge_threshold_abs": 0.20,
                 "multi_oracle_target_usd_cap": 350.0,
                 "multi_oracle_capital_pct_cap": 0.18,
@@ -302,9 +306,15 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
     },
     "wallet": {
         "paper_starting_usdc": 1000.0,
+        "chain": "polygon",
+        "gas_asset_symbol": "POL",
+        "stable_asset_symbol": "USDC.e",
+        "active_wallet_address_source": "auth.funder",
+        "approval_spender_targets": [],
         "protected_usdc_reserve": 0.0,
         "max_notional_per_order_usdc": 250.0,
         "min_pol_gas_reserve": 0.1,
+        "gas_reserve_target_pol": 0.2,
         "paper_pol_balance": 10.0,
         "require_allowance": True,
         "paper_allowance_usdc": 1000000.0,
@@ -317,7 +327,11 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "require_live_nonce_snapshot": False,
         "require_live_nonce_value": False,
         "require_live_pending_tx_snapshot": False,
+        "treasury_mode": "logical",
+        "treasury_wallet_address": "",
         "live_pol_balance_fallback": 1.0,
+        "provider_ambiguity_abs_tolerance": 1e-6,
+        "provider_ambiguity_rel_tolerance": 1e-6,
         "max_live_reconcile_mismatch_count": 2,
     },
     "risk": {
@@ -496,6 +510,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "enforce_post_only": True,
         "allow_taker": False,
         "open_orders_cache_ttl_sec": 0.25,
+        "live_order_submission_enabled": False,
     },
     "profile": {
         "name": "default",
@@ -836,6 +851,30 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("sniper.taker.target_usd", cfg["sniper"]["taker"]["target_usd"])
     _require_positive("sniper.taker.max_orders_per_cycle", cfg["sniper"]["taker"]["max_orders_per_cycle"])
     _require_positive("sniper.taker.per_token_cooldown_sec", cfg["sniper"]["taker"]["per_token_cooldown_sec"], allow_zero=True)
+    canonical_taker_stage_names = {
+        "MAKER_TAKER_SELECTIVE",
+        "SNIPER_PRIMARY",
+        "EXTREME_ONLY",
+    }
+    cooldown_by_stage_cfg = cfg["sniper"]["taker"].get("per_token_cooldown_sec_by_stage", {})
+    if not isinstance(cooldown_by_stage_cfg, dict):
+        raise ValueError("sniper.taker.per_token_cooldown_sec_by_stage must be a mapping")
+    normalized_stage_cooldowns: Dict[str, float] = {}
+    for stage_name_raw, value in cooldown_by_stage_cfg.items():
+        stage_name = str(stage_name_raw or "").strip().upper()
+        if not stage_name:
+            raise ValueError("sniper.taker.per_token_cooldown_sec_by_stage keys must be non-empty stage names")
+        if stage_name not in canonical_taker_stage_names:
+            raise ValueError(
+                "sniper.taker.per_token_cooldown_sec_by_stage keys must be taker-allowed stages"
+            )
+        _require_positive(
+            f"sniper.taker.per_token_cooldown_sec_by_stage[{stage_name}]",
+            value,
+            allow_zero=True,
+        )
+        normalized_stage_cooldowns[stage_name] = float(value)
+    cfg["sniper"]["taker"]["per_token_cooldown_sec_by_stage"] = normalized_stage_cooldowns
     taker_comp_cfg = cfg["sniper"]["taker"].get("competitiveness", {})
     if not isinstance(taker_comp_cfg, dict):
         raise ValueError("sniper.taker.competitiveness must be a mapping")
@@ -889,6 +928,26 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "sniper.taker.competitiveness.final_window_sec",
         taker_comp_cfg.get("final_window_sec"),
     )
+    stage_window_cfg = taker_comp_cfg.get("stage_final_window_sec_by_stage", {})
+    if not isinstance(stage_window_cfg, dict):
+        raise ValueError("sniper.taker.competitiveness.stage_final_window_sec_by_stage must be a mapping")
+    normalized_stage_windows: Dict[str, float] = {}
+    for stage_name_raw, value in stage_window_cfg.items():
+        stage_name = str(stage_name_raw or "").strip().upper()
+        if not stage_name:
+            raise ValueError(
+                "sniper.taker.competitiveness.stage_final_window_sec_by_stage keys must be non-empty stage names"
+            )
+        if stage_name not in canonical_taker_stage_names:
+            raise ValueError(
+                "sniper.taker.competitiveness.stage_final_window_sec_by_stage keys must be taker-allowed stages"
+            )
+        _require_positive(
+            f"sniper.taker.competitiveness.stage_final_window_sec_by_stage[{stage_name}]",
+            value,
+        )
+        normalized_stage_windows[stage_name] = float(value)
+    cfg["sniper"]["taker"]["competitiveness"]["stage_final_window_sec_by_stage"] = normalized_stage_windows
     _require_positive(
         "sniper.taker.competitiveness.aggressive_window_sec",
         taker_comp_cfg.get("aggressive_window_sec"),
@@ -900,11 +959,32 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError(
             "sniper.taker.competitiveness.aggressive_window_sec must be <= final_window_sec"
         )
+    for stage_name, stage_window_sec in normalized_stage_windows.items():
+        if aggressive_window_sec > float(stage_window_sec):
+            raise ValueError(
+                "sniper.taker.competitiveness.aggressive_window_sec must be <= "
+                + f"stage_final_window_sec_by_stage[{stage_name}]"
+            )
     _require_positive(
         "sniper.taker.competitiveness.price_aggress_bps_max",
         taker_comp_cfg.get("price_aggress_bps_max"),
         allow_zero=True,
     )
+    _require_positive(
+        "sniper.taker.competitiveness.multi_oracle_boost_window_sec",
+        taker_comp_cfg.get("multi_oracle_boost_window_sec"),
+    )
+    multi_oracle_boost_window_sec = float(taker_comp_cfg.get("multi_oracle_boost_window_sec", 15.0) or 0.0)
+    if multi_oracle_boost_window_sec > final_window_sec:
+        raise ValueError(
+            "sniper.taker.competitiveness.multi_oracle_boost_window_sec must be <= final_window_sec"
+        )
+    for stage_name, stage_window_sec in normalized_stage_windows.items():
+        if multi_oracle_boost_window_sec > float(stage_window_sec):
+            raise ValueError(
+                "sniper.taker.competitiveness.multi_oracle_boost_window_sec must be <= "
+                + f"stage_final_window_sec_by_stage[{stage_name}]"
+            )
     _require_positive(
         "sniper.taker.competitiveness.multi_oracle_edge_threshold_abs",
         taker_comp_cfg.get("multi_oracle_edge_threshold_abs"),
@@ -939,11 +1019,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     stage_aggr_cfg = taker_comp_cfg.get("stage_aggressiveness", {})
     if not isinstance(stage_aggr_cfg, dict):
         raise ValueError("sniper.taker.competitiveness.stage_aggressiveness must be a mapping")
-    canonical_taker_stage_names = {
-        "MAKER_TAKER_SELECTIVE",
-        "SNIPER_PRIMARY",
-        "EXTREME_ONLY",
-    }
     normalized_stage_aggr: Dict[str, Dict[str, float]] = {}
     for stage_name_raw, row in stage_aggr_cfg.items():
         stage_name = str(stage_name_raw or "").strip().upper()
@@ -1205,6 +1280,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "risk.global_exposure_guard.max_global_notional_usd",
         risk_global_guard_cfg.get("max_global_notional_usd"),
     )
+    _require_positive(
+        "risk.global_exposure_guard.sniper_reserved_notional_usd",
+        risk_global_guard_cfg.get("sniper_reserved_notional_usd", 0.0),
+        allow_zero=True,
+    )
     _require_fraction(
         "risk.global_exposure_guard.near_cap_ratio",
         risk_global_guard_cfg.get("near_cap_ratio"),
@@ -1378,6 +1458,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     risk_global_guard_cfg = cfg["risk"].get("global_exposure_guard", {})
     if not isinstance(risk_global_guard_cfg, dict):
         raise ValueError("risk.global_exposure_guard must be a mapping")
+    max_global_notional_usd = float(risk_global_guard_cfg.get("max_global_notional_usd", 0.0) or 0.0)
+    sniper_reserved_notional_usd = float(risk_global_guard_cfg.get("sniper_reserved_notional_usd", 0.0) or 0.0)
+    if sniper_reserved_notional_usd > max_global_notional_usd:
+        raise ValueError(
+            "risk.global_exposure_guard.sniper_reserved_notional_usd must be <= max_global_notional_usd"
+        )
     near_cap_ratio = float(risk_global_guard_cfg.get("near_cap_ratio", 0.85) or 0.0)
     if near_cap_ratio > 1.0:
         raise ValueError("risk.global_exposure_guard.near_cap_ratio must be <= 1.0")
@@ -1563,10 +1649,20 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         allow_zero=True,
     )
     _require_positive("wallet.min_pol_gas_reserve", wallet_cfg.get("min_pol_gas_reserve"), allow_zero=True)
+    _require_positive("wallet.gas_reserve_target_pol", wallet_cfg.get("gas_reserve_target_pol"), allow_zero=True)
     _require_positive("wallet.paper_pol_balance", wallet_cfg.get("paper_pol_balance"), allow_zero=True)
     _require_positive("wallet.paper_allowance_usdc", wallet_cfg.get("paper_allowance_usdc"), allow_zero=True)
     _require_positive("wallet.reconcile_tolerance_usdc", wallet_cfg.get("reconcile_tolerance_usdc"))
     _require_positive("wallet.live_pol_balance_fallback", wallet_cfg.get("live_pol_balance_fallback"), allow_zero=True)
+    _require_positive(
+        "wallet.provider_ambiguity_abs_tolerance",
+        wallet_cfg.get("provider_ambiguity_abs_tolerance"),
+    )
+    _require_positive(
+        "wallet.provider_ambiguity_rel_tolerance",
+        wallet_cfg.get("provider_ambiguity_rel_tolerance"),
+        allow_zero=True,
+    )
     _require_positive(
         "wallet.max_live_reconcile_mismatch_count",
         wallet_cfg.get("max_live_reconcile_mismatch_count"),
@@ -1579,6 +1675,37 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("wallet.require_live_nonce_snapshot must be boolean")
     if not isinstance(wallet_cfg.get("require_live_pending_tx_snapshot"), bool):
         raise ValueError("wallet.require_live_pending_tx_snapshot must be boolean")
+    wallet_chain = str(wallet_cfg.get("chain", "polygon")).strip().lower()
+    if wallet_chain != "polygon":
+        raise ValueError("wallet.chain must be polygon")
+    gas_asset_symbol = str(wallet_cfg.get("gas_asset_symbol", "")).strip()
+    if not gas_asset_symbol:
+        raise ValueError("wallet.gas_asset_symbol must be a non-empty string")
+    stable_asset_symbol = str(wallet_cfg.get("stable_asset_symbol", "")).strip()
+    if not stable_asset_symbol:
+        raise ValueError("wallet.stable_asset_symbol must be a non-empty string")
+    active_wallet_address_source = str(wallet_cfg.get("active_wallet_address_source", "")).strip()
+    if not active_wallet_address_source:
+        raise ValueError("wallet.active_wallet_address_source must be a non-empty string")
+    approval_targets = wallet_cfg.get("approval_spender_targets", [])
+    if not isinstance(approval_targets, list):
+        raise ValueError("wallet.approval_spender_targets must be a list")
+    for idx, target in enumerate(approval_targets):
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError(f"wallet.approval_spender_targets[{idx}] must be a non-empty string")
+    treasury_mode = str(wallet_cfg.get("treasury_mode", "logical")).strip().lower()
+    if treasury_mode not in {"logical", "physical"}:
+        raise ValueError("wallet.treasury_mode must be one of logical|physical")
+    treasury_wallet_address = str(wallet_cfg.get("treasury_wallet_address", "")).strip()
+    if treasury_mode == "physical":
+        if not treasury_wallet_address.startswith("0x") or len(treasury_wallet_address) != 42:
+            raise ValueError(
+                "wallet.treasury_wallet_address must be a 0x-prefixed 20-byte address when treasury_mode=physical"
+            )
+    min_pol_gas_reserve = float(wallet_cfg.get("min_pol_gas_reserve", 0.0) or 0.0)
+    gas_reserve_target_pol = float(wallet_cfg.get("gas_reserve_target_pol", 0.0) or 0.0)
+    if gas_reserve_target_pol + 1e-9 < min_pol_gas_reserve:
+        raise ValueError("wallet.gas_reserve_target_pol must be >= wallet.min_pol_gas_reserve")
     nonce_authority = str(wallet_cfg.get("nonce_authority", "")).strip().lower()
     if not nonce_authority:
         raise ValueError("wallet.nonce_authority must be a non-empty string")
@@ -1590,9 +1717,28 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     expected_wallet_address = str(wallet_cfg.get("expected_wallet_address", "")).strip()
     if expected_wallet_address and (not expected_wallet_address.startswith("0x") or len(expected_wallet_address) != 42):
         raise ValueError("wallet.expected_wallet_address must be empty or a 0x-prefixed 20-byte address")
+    auth_cfg = cfg.get("auth")
+    if not isinstance(auth_cfg, dict):
+        raise ValueError("auth must be a mapping")
+    live_order_submission_enabled = bool(auth_cfg.get("live_order_submission_enabled", False))
     if mode == "live":
         if expected_chain_id != int(cfg["auth"]["chain_id"]):
             raise ValueError("wallet.expected_chain_id must match auth.chain_id in live mode")
+        if bool(wallet_cfg.get("require_allowance", True)) and not approval_targets:
+            raise ValueError("wallet.approval_spender_targets must be configured in live mode when allowance is required")
+        if live_order_submission_enabled:
+            if not bool(wallet_cfg.get("require_live_nonce_snapshot", False)):
+                raise ValueError(
+                    "wallet.require_live_nonce_snapshot must be true when auth.live_order_submission_enabled=true"
+                )
+            if not bool(wallet_cfg.get("require_live_nonce_value", False)):
+                raise ValueError(
+                    "wallet.require_live_nonce_value must be true when auth.live_order_submission_enabled=true"
+                )
+            if not bool(wallet_cfg.get("require_live_pending_tx_snapshot", False)):
+                raise ValueError(
+                    "wallet.require_live_pending_tx_snapshot must be true when auth.live_order_submission_enabled=true"
+                )
 
     ramp_start = _require_positive("ramp.start_usd", cfg["ramp"]["start_usd"])
     ramp_max = _require_positive("ramp.max_usd", cfg["ramp"]["max_usd"])
@@ -1768,8 +1914,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sniper.taker.competitiveness.final_window_enabled must be boolean")
     if not isinstance(taker_comp_cfg.get("aggressive_window_enabled"), bool):
         raise ValueError("sniper.taker.competitiveness.aggressive_window_enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("dynamic_preview_enabled"), bool):
+        raise ValueError("sniper.taker.competitiveness.dynamic_preview_enabled must be boolean")
     if not isinstance(taker_comp_cfg.get("multi_oracle_boost_enabled"), bool):
         raise ValueError("sniper.taker.competitiveness.multi_oracle_boost_enabled must be boolean")
+    if not isinstance(taker_comp_cfg.get("stage_priority_enabled", False), bool):
+        raise ValueError("sniper.taker.competitiveness.stage_priority_enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["enabled"], bool):
         raise ValueError("latency_verifier.enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["require_armed_for_maker"], bool):
@@ -1880,6 +2030,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("auth.enforce_post_only must be boolean")
     if not isinstance(cfg["auth"]["allow_taker"], bool):
         raise ValueError("auth.allow_taker must be boolean")
+    if not isinstance(cfg["auth"].get("live_order_submission_enabled"), bool):
+        raise ValueError("auth.live_order_submission_enabled must be boolean")
     _require_positive("auth.open_orders_cache_ttl_sec", cfg["auth"]["open_orders_cache_ttl_sec"], allow_zero=True)
     for key in ("private_key_source", "funder_source"):
         src = cfg["auth"].get(key)

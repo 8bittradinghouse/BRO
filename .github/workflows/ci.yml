@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Fresh Clone Portability Smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP_ROOT="$(mktemp -d)"
+          PORTABLE_REPO="${TMP_ROOT}/bro-portable-checkout"
+          cp -R . "${PORTABLE_REPO}"
+          cd "${PORTABLE_REPO}"
+          python -m venv .venv_ci
+          source .venv_ci/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+          python -m pytest -q tests/test_dependency_repro_audit.py tests/test_script_entrypoint_imports.py tests/test_reconcile_daily.py
+
+      - name: Optional pip-audit install
+        run: pip install pip-audit
+        continue-on-error: true
+
+      - name: Collect Changed Files
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD" > .ci/changed_files.txt
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "${BEFORE}" || "${BEFORE}" == "0000000000000000000000000000000000000000" ]]; then
+              git diff --name-only "HEAD~1..HEAD" > .ci/changed_files.txt || true
+            else
+              git diff --name-only "${BEFORE}..${{ github.sha }}" > .ci/changed_files.txt
+            fi
+          fi
+          cat .ci/changed_files.txt
+
+      - name: Score Change Risk
+        id: risk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/change_risk_score.py --changed-files-file .ci/changed_files.txt --out .ci/risk.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path(".ci/risk.json").read_text(encoding="utf-8"))
+          print(f"risk_level={payload.get('risk_level')}")
+          print(f"requires_extra_gates={str(bool(payload.get('requires_extra_gates'))).lower()}")
+          with Path(__import__("os").environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"risk_level={payload.get('risk_level','low')}\n")
+              fh.write(f"requires_extra_gates={str(bool(payload.get('requires_extra_gates'))).lower()}\n")
+          PY
+
+      - name: Run CI gate
+        run: python scripts/ci_gate.py
+
+      - name: Run Critical Path Gate
+        if: steps.risk.outputs.requires_extra_gates == 'true'
+        run: python scripts/critical_path_gate.py

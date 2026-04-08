@@ -1,21 +1,21 @@
-"""Compatibility facade for BRO wallet doctrine.
-
-Canonical wallet implementation now lives under ``prodesk.wallet``.
-This module remains as a stable import surface for existing integrations.
-"""
-
-from .wallet import (
+from .wallet_controller import (
+    LiveWalletDoctrine,
+    PaperWalletDoctrine,
+    WalletDoctrine,
+    WalletDoctrineBase,
+    create_wallet_controller,
+    create_wallet_doctrine,
+)
+from .wallet_types import (
     AUTHORITY_CLASS_BOOTSTRAP,
     AUTHORITY_CLASS_DEPRECATED,
     AUTHORITY_CLASS_DERIVED,
     AUTHORITY_CLASS_LIVE,
     AUTHORITY_CLASS_LOCAL,
     AllowanceSnapshot,
-    LiveWalletDoctrine,
     LiveWalletTruthSource,
     NonceSnapshot,
     OpenOrderStateSnapshot,
-    PaperWalletDoctrine,
     PendingTxSnapshot,
     ReconciliationResult,
     TRUTH_DOMAIN_BOOTSTRAP_NON_AUTHORITATIVE,
@@ -25,11 +25,7 @@ from .wallet import (
     TRUTH_DOMAIN_OPEN_ORDER_STATE,
     TRUTH_DOMAIN_PAPER_WALLET,
     WalletAuthorization,
-    WalletDoctrine,
-    WalletDoctrineBase,
     WalletSnapshot,
-    create_wallet_controller,
-    create_wallet_doctrine,
 )
 
 __all__ = [
