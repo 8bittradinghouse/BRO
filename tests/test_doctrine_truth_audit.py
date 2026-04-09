@@ -3,6 +3,7 @@ from pathlib import Path
 
 from scripts.doctrine_truth_audit import (
     CANONICAL_ALLOWLIST,
+    CURRENT_BASELINE_PATH,
     CANONICAL_PHRASE_REQUIRED_DOCS,
     CANONICAL_PHRASE_SOURCE,
     TARGETED_DEPRECATED_SURFACE_GUARDS,
@@ -20,6 +21,7 @@ class DoctrineTruthAuditTests(unittest.TestCase):
 
     def test_phrase_source_and_required_docs_are_in_allowlist(self) -> None:
         allowlist = {str(path) for path in CANONICAL_ALLOWLIST}
+        self.assertIn(str(CURRENT_BASELINE_PATH), allowlist)
         for required_doc in CANONICAL_PHRASE_REQUIRED_DOCS:
             self.assertIn(str(required_doc), allowlist)
         self.assertTrue((REPO_ROOT / CANONICAL_PHRASE_SOURCE).exists())

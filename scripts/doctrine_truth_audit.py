@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
@@ -23,6 +25,7 @@ CANONICAL_PHRASE_SOURCE = Path("docs/DOCTRINE_LIMITATION_PHRASES.json")
 
 # Explicitly bounded canonical audit scope (no handoffs/archive scanning).
 CANONICAL_ALLOWLIST: Sequence[Path] = (
+    Path("docs/CURRENT_BASELINE.md"),
     Path("docs/DOCTRINE_RUNBOOK.md"),
     Path("docs/BASELINE_LOCK_20260408.md"),
     Path("docs/WALLET_SEMANTIC_BOUNDARY_CHANGES.md"),
@@ -45,6 +48,15 @@ REPORT_REQUIRED_FIELDS: Sequence[str] = (
     "canonical_live_pending_wallet_tx_available",
     "live_truth_gap_reasons",
 )
+
+CURRENT_BASELINE_PATH = Path("docs/CURRENT_BASELINE.md")
+CURRENT_BASELINE_FORBIDDEN_PHRASES: Sequence[str] = (
+    "docs streamlining in progress",
+    "tag policy: new tag is deferred",
+    "points to prior locked baseline commit",
+)
+CURRENT_BASELINE_COMMIT_RE = re.compile(r"Current commit:\s*`([0-9a-f]{40})`")
+CURRENT_BASELINE_TAG_RE = re.compile(r"Current baseline tag:\s*`([^`]+)`")
 
 
 @dataclass(frozen=True)
@@ -148,6 +160,48 @@ def run_audit(*, repo_root: Path = REPO_ROOT) -> Dict[str, object]:
             errors.append(f"phrase_missing_allowlist:{key}:{phrase_map[key]}")
         else:
             findings.append(f"phrase_allowlist_match:{key}:{','.join(matches)}")
+
+    current_baseline_path = repo_root / CURRENT_BASELINE_PATH
+    if not current_baseline_path.exists():
+        errors.append(f"current_baseline_missing:{CURRENT_BASELINE_PATH}")
+    else:
+        current_baseline_text = _read_text(current_baseline_path)
+        for phrase in CURRENT_BASELINE_FORBIDDEN_PHRASES:
+            if phrase in current_baseline_text.lower():
+                errors.append(f"current_baseline_forbidden_phrase_present:{phrase}")
+        for key, phrase in phrase_map.items():
+            if phrase not in current_baseline_text:
+                errors.append(f"current_baseline_phrase_missing:{key}")
+
+        commit_match = CURRENT_BASELINE_COMMIT_RE.search(current_baseline_text)
+        tag_match = CURRENT_BASELINE_TAG_RE.search(current_baseline_text)
+        if not commit_match:
+            errors.append("current_baseline_commit_field_missing_or_invalid")
+        if not tag_match:
+            errors.append("current_baseline_tag_field_missing_or_invalid")
+        if commit_match and tag_match:
+            declared_commit = commit_match.group(1).strip()
+            declared_tag = tag_match.group(1).strip()
+            try:
+                tag_commit = (
+                    subprocess.check_output(
+                        ["git", "rev-list", "-n1", declared_tag],
+                        cwd=repo_root,
+                        text=True,
+                    )
+                    .strip()
+                )
+            except Exception:
+                errors.append(f"current_baseline_declared_tag_not_resolvable:{declared_tag}")
+            else:
+                if tag_commit != declared_commit:
+                    errors.append(
+                        f"current_baseline_tag_commit_mismatch:{declared_tag}:{tag_commit}:{declared_commit}"
+                    )
+                else:
+                    findings.append(
+                        f"current_baseline_tag_commit_match:{declared_tag}:{declared_commit}"
+                    )
 
     for rel_path in CANONICAL_PHRASE_REQUIRED_DOCS:
         path = repo_root / rel_path
