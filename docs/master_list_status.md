@@ -1,5 +1,9 @@
 # Bro Master List Status (1-27)
 
+> Doc Class: `Archive`
+> Authority: historical status snapshot only (non-authoritative for current operations).
+> Current truth entrypoint: `docs/CURRENT_BASELINE.md`.
+
 > Legacy status snapshot retained for historical reference.
 > For current canonical truth, use:
 > `docs/CANONICAL_VALIDATION_PATH.md`, `docs/ENTRYPOINT_CLASSIFICATION.md`,

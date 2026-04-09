@@ -1,5 +1,8 @@
 # BRO Wallet / Execution Packet Gap Map
 
+> Doc Class: `Reference`
+> Authority: supporting packet context only; canonical operational truth is maintained in `docs/CURRENT_BASELINE.md` and `docs/DOCTRINE_RUNBOOK.md`.
+
 ## Authority Scope
 - Packet scope is wallet/capital/tx discipline only.
 - Strategy lanes (maker/taker/sniper) are unchanged by intent.

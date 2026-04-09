@@ -1,5 +1,9 @@
 # R2 Latest-Run / Manifest Classification (2026-03-19 UTC)
 
+> Doc Class: `Archive`
+> Authority: historical snapshot only (non-authoritative for current operations).
+> Current truth entrypoint: `docs/CURRENT_BASELINE.md`.
+
 Scope: repo-wide classification of latest-run and manifest convenience behavior.
 
 Goal: ensure authoritative paths are explicit `run_id` + run-contract anchored, while convenience behavior (if retained) is clearly non-authoritative.
@@ -41,4 +45,3 @@ The only retained latest-run convenience is guardian manifest auto-resolution, a
 - non-authoritative only
 - default disabled
 - never sufficient to arm/clear guard without verified canonical authority context
-

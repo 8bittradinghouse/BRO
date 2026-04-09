@@ -1,5 +1,9 @@
 # WORK PACKET C — CANONICAL COMPLIANCE MAP (2026-03-18 UTC)
 
+> Doc Class: `Archive`
+> Authority: historical compliance snapshot (non-authoritative for current operations).
+> Current truth entrypoint: `docs/CURRENT_BASELINE.md`.
+
 ## Canonical Truth Lock
 - Canonical paper profile: `configs/profiles/paper_universal.yaml`
 - Canonical runtime lifecycle entrypoint: `scripts/canonical_paper_session.sh`

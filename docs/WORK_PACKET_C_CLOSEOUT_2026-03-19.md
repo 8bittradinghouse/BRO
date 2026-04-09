@@ -1,5 +1,9 @@
 # WORK PACKET C Closeout (2026-03-19 UTC)
 
+> Doc Class: `Archive`
+> Authority: historical closeout record (non-authoritative for current operations).
+> Current truth entrypoint: `docs/CURRENT_BASELINE.md`.
+
 ## Closeout-Focused Compliance Map
 
 ### A. Direct executor / low-level bypass surfaces
