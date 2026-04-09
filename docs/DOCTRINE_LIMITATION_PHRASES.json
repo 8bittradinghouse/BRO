@@ -1,0 +1,6 @@
+{
+  "canonical_live_nonce_truth_unavailable": "canonical live nonce truth unavailable",
+  "canonical_live_pending_wallet_tx_truth_unavailable": "canonical live pending-wallet-tx truth unavailable",
+  "strict_order_capable_live_fail_closed": "strict order-capable live remains fail-closed",
+  "reconcile_scope_tripwire_not_ledger": "reconcile is integrity tripwire, not full ledger accounting"
+}

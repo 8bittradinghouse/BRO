@@ -19,6 +19,7 @@ from prodesk.order_manager import OrderManager
 from prodesk.risk import RiskEngine
 from prodesk.strategy import MarketMakingStrategy
 from prodesk.telemetry import Telemetry
+from prodesk.wallet.wallet_truth_policy import PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT
 from prodesk.wallet_doctrine import WalletAuthorization
 
 
@@ -221,7 +222,7 @@ class ExecutionStackTests(unittest.TestCase):
     def test_config_rejects_wallet_provider_ambiguity_rel_tolerance_negative(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["wallet"]["provider_ambiguity_rel_tolerance"] = -1e-6
+        cfg["wallet"]["provider_ambiguity_rel_tolerance"] = -PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 

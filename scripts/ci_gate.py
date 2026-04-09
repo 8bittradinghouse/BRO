@@ -70,6 +70,7 @@ def main() -> None:
     run_step("websocket_hardening_audit", [py, "scripts/websocket_hardening_audit.py", "--config", args.config])
     run_step("alert_profile_audit", [py, "scripts/alert_profile_audit.py", "--config", args.config])
     run_step("profile_matrix_audit", [py, "scripts/profile_matrix_audit.py"])
+    run_step("doctrine_truth_audit", [py, "scripts/doctrine_truth_audit.py"])
     run_step("guardian_profile_audit", [py, "scripts/guardian_profile_audit.py", "--compose", "docker-compose.yml"])
     run_step("sim_harness_audit", [py, "scripts/sim_harness_audit.py", "--config", args.config])
     run_step("pytest", [py, "-m", "pytest", "-q"])

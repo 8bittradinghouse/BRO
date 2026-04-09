@@ -15,6 +15,10 @@
 - Canonical live nonce truth source is currently unavailable.
 - Canonical live pending-wallet-tx truth source is currently unavailable.
 - Strict order-capable live mode therefore remains fail-closed on these truth gaps.
+- canonical live nonce truth unavailable
+- canonical live pending-wallet-tx truth unavailable
+- strict order-capable live remains fail-closed
+- reconcile is integrity tripwire, not full ledger accounting
 
 ## This Lock Pass
 - Repository hygiene + baseline freeze only.

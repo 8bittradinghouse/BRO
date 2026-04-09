@@ -4,6 +4,16 @@ from typing import Any, Mapping, Optional, Sequence
 
 from ..common import parse_float, utc_iso
 from ..gateway import GatewayError, LiveClobGateway
+from .wallet_truth_policy import (
+    ALLOWANCE_FIELD_POLICY,
+    POL_BALANCE_FIELD_POLICY,
+    PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT,
+    PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT,
+    WALLET_BALANCE_FIELD_POLICY,
+    ProviderFieldPolicy,
+    provider_allowed_disagreement_span,
+    provider_has_material_disagreement,
+)
 from .wallet_types import (
     AUTHORITY_CLASS_DERIVED,
     AUTHORITY_CLASS_LIVE,
@@ -26,8 +36,24 @@ class GatewayLiveWalletTruthSource:
         self._cfg = dict(cfg or {})
         self._pol_balance_fallback = max(0.0, float(self._cfg.get("live_pol_balance_fallback", 1.0)))
         self._require_live_pol_balance_snapshot = bool(self._cfg.get("require_live_pol_balance_snapshot", False))
-        self._ambiguity_abs_tolerance = max(1e-9, float(self._cfg.get("provider_ambiguity_abs_tolerance", 1e-6)))
-        self._ambiguity_rel_tolerance = max(0.0, float(self._cfg.get("provider_ambiguity_rel_tolerance", 1e-6)))
+        self._ambiguity_abs_tolerance = max(
+            1e-9,
+            float(
+                self._cfg.get(
+                    "provider_ambiguity_abs_tolerance",
+                    PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT,
+                )
+            ),
+        )
+        self._ambiguity_rel_tolerance = max(
+            0.0,
+            float(
+                self._cfg.get(
+                    "provider_ambiguity_rel_tolerance",
+                    PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT,
+                )
+            ),
+        )
 
     @staticmethod
     def _extract_float(payload: Mapping[str, Any], paths: Sequence[Sequence[str]]) -> Optional[float]:
@@ -72,42 +98,63 @@ class GatewayLiveWalletTruthSource:
         self,
         *,
         payload: Mapping[str, Any],
-        label: str,
+        policy: ProviderFieldPolicy,
         paths: Sequence[Sequence[str]],
     ) -> float:
         candidates = self._extract_float_candidates(payload, paths)
         if not candidates:
-            raise GatewayError(f"{label}_missing")
+            raise GatewayError(f"{policy.label}_missing:{policy.missing_behavior}")
         values = [value for _, value in candidates]
-        low = min(values)
-        high = max(values)
-        span = high - low
-        scale = max(1.0, abs(low), abs(high))
-        allowed_span = max(self._ambiguity_abs_tolerance, self._ambiguity_rel_tolerance * scale)
-        if span > allowed_span:
+        if provider_has_material_disagreement(
+            values,
+            abs_tolerance=self._ambiguity_abs_tolerance,
+            rel_tolerance=self._ambiguity_rel_tolerance,
+        ):
             path_values = ",".join(".".join(path) + f"={value:.12f}" for path, value in candidates)
-            raise GatewayError(f"{label}_ambiguous:{path_values}")
+            low = min(values)
+            high = max(values)
+            allowed_span = provider_allowed_disagreement_span(
+                low=low,
+                high=high,
+                abs_tolerance=self._ambiguity_abs_tolerance,
+                rel_tolerance=self._ambiguity_rel_tolerance,
+            )
+            raise GatewayError(
+                f"{policy.label}_ambiguous:{policy.ambiguity_behavior}:"
+                f"allowed_span={allowed_span:.12f}:span={(high - low):.12f}:{path_values}"
+            )
         return float(candidates[0][1])
 
     def _resolve_optional_field(
         self,
         *,
         payload: Mapping[str, Any],
-        label: str,
+        policy: ProviderFieldPolicy,
         paths: Sequence[Sequence[str]],
     ) -> tuple[Optional[float], Optional[str]]:
         candidates = self._extract_float_candidates(payload, paths)
         if not candidates:
             return None, None
         values = [value for _, value in candidates]
-        low = min(values)
-        high = max(values)
-        span = high - low
-        scale = max(1.0, abs(low), abs(high))
-        allowed_span = max(self._ambiguity_abs_tolerance, self._ambiguity_rel_tolerance * scale)
-        if span > allowed_span:
+        if provider_has_material_disagreement(
+            values,
+            abs_tolerance=self._ambiguity_abs_tolerance,
+            rel_tolerance=self._ambiguity_rel_tolerance,
+        ):
             path_values = ",".join(".".join(path) + f"={value:.12f}" for path, value in candidates)
-            return None, f"{label}_ambiguous:{path_values}"
+            low = min(values)
+            high = max(values)
+            allowed_span = provider_allowed_disagreement_span(
+                low=low,
+                high=high,
+                abs_tolerance=self._ambiguity_abs_tolerance,
+                rel_tolerance=self._ambiguity_rel_tolerance,
+            )
+            return (
+                None,
+                f"{policy.label}_ambiguous:{policy.ambiguity_behavior}:"
+                f"allowed_span={allowed_span:.12f}:span={(high - low):.12f}:{path_values}",
+            )
         return float(candidates[0][1]), None
 
     def _balance_allowance_payload(self) -> Mapping[str, Any]:
@@ -120,7 +167,7 @@ class GatewayLiveWalletTruthSource:
         payload = self._balance_allowance_payload()
         usdc = self._resolve_required_field(
             payload=payload,
-            label="live_wallet_balance",
+            policy=WALLET_BALANCE_FIELD_POLICY,
             paths=[
                 ("balance",),
                 ("balanceDecimal",),
@@ -133,7 +180,7 @@ class GatewayLiveWalletTruthSource:
         )
         pol, pol_ambiguity = self._resolve_optional_field(
             payload=payload,
-            label="live_pol_balance",
+            policy=POL_BALANCE_FIELD_POLICY,
             paths=[
                 ("polBalance",),
                 ("pol_balance",),
@@ -176,7 +223,7 @@ class GatewayLiveWalletTruthSource:
         payload = self._balance_allowance_payload()
         allowance, allowance_ambiguity = self._resolve_optional_field(
             payload=payload,
-            label="live_allowance",
+            policy=ALLOWANCE_FIELD_POLICY,
             paths=[
                 ("allowance",),
                 ("allowanceDecimal",),

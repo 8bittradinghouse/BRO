@@ -10,6 +10,10 @@ import yaml
 
 from .common import parse_float, parse_ts
 from .paths import normalize_execution_paths
+from .wallet.wallet_truth_policy import (
+    PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT,
+    PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT,
+)
 
 
 DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
@@ -330,8 +334,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "treasury_mode": "logical",
         "treasury_wallet_address": "",
         "live_pol_balance_fallback": 1.0,
-        "provider_ambiguity_abs_tolerance": 1e-6,
-        "provider_ambiguity_rel_tolerance": 1e-6,
+        "provider_ambiguity_abs_tolerance": PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT,
+        "provider_ambiguity_rel_tolerance": PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT,
         "max_live_reconcile_mismatch_count": 2,
     },
     "risk": {

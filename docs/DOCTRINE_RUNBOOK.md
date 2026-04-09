@@ -88,6 +88,25 @@ Required observability surfaces:
   - bootstrap surfaces are non-authoritative and may not be consumed as final readiness truth
 - Reconciliation scope is explicitly `integrity_tripwire`, not full accounting ledger truth.
 
+Canonical open-limitation phrase block (source-locked):
+- canonical live nonce truth unavailable
+- canonical live pending-wallet-tx truth unavailable
+- strict order-capable live remains fail-closed
+- reconcile is integrity tripwire, not full ledger accounting
+
+Provider payload field criticality (canonical):
+- required authority fields:
+  - `live_wallet_balance`: missing/ambiguous => fail-closed
+- required authority health fields:
+  - `live_allowance`: missing/ambiguous => unhealthy surface (fail-closed when allowance is required)
+- optional/supporting fields:
+  - `live_pol_balance`: missing allowed by policy; material ambiguity => unhealthy surface
+- material disagreement rule:
+  - disagreement when `span > max(abs_tolerance, rel_tolerance * max(1, |low|, |high|))`
+- tolerance constants are centralized and shared by provider logic + tests:
+  - `PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT`
+  - `PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT`
+
 Truth-domain naming is explicit and non-interchangeable:
 - `canonical_live_wallet_truth`
 - `local_tx_lifecycle_state`
