@@ -14,7 +14,7 @@ from prodesk.config import DEFAULT_EXECUTION_CONFIG, validate_execution_config
 from prodesk.gateway import PaperGateway, PostOnlyRejectError
 from prodesk.latency_verifier import LatencySnapshot
 from prodesk.logging_utils import EventLogger
-from prodesk.models import BookTop, FillEvent, OrderIntent, Position
+from prodesk.models import BookTop, FillEvent, LiveOrder, OrderIntent, Position
 from prodesk.order_manager import OrderManager
 from prodesk.risk import RiskEngine
 from prodesk.strategy import MarketMakingStrategy
@@ -2526,6 +2526,171 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertTrue(str(payload.get("code_fingerprint_sha256", "")))
                 self.assertGreaterEqual(int(payload.get("code_fingerprint_file_count", 0)), 1)
                 self.assertIsInstance(payload.get("runtime_env_hints"), dict)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_uses_freshness_bounded_last_known_mids(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 3.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 3.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=5.0)
+                now = time.monotonic()
+
+                runner.last_midpoint_by_token["t1"] = 0.42
+                runner.last_midpoint_ts_mono_by_token["t1"] = now - 1.0
+                fresh_state = runner._build_valuation_state(books={})
+                self.assertEqual(str((fresh_state.get("source_by_token") or {}).get("t1") or ""), "fresh_last_known_mid")
+                self.assertAlmostEqual(float((fresh_state.get("mid_by_token") or {}).get("t1") or 0.0), 0.42, places=9)
+                self.assertFalse(bool(fresh_state.get("valuation_hard_degraded", False)))
+
+                runner.last_midpoint_ts_mono_by_token["t1"] = now - 10.0
+                stale_state = runner._build_valuation_state(books={})
+                self.assertEqual(
+                    str((stale_state.get("source_by_token") or {}).get("t1") or ""),
+                    "conservative_bound_hard_degraded",
+                )
+                self.assertAlmostEqual(float((stale_state.get("mid_by_token") or {}).get("t1", -1.0)), 0.0, places=9)
+                self.assertTrue(bool(stale_state.get("valuation_hard_degraded", False)))
+                reasons = list(stale_state.get("degraded_reasons") or [])
+                self.assertTrue(any(str(r).startswith("hard_degraded:t1:") for r in reasons))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_uses_one_sided_conservative_quote_for_non_flat_positions(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=3.0)
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.41,
+                    best_bid_size=120.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                state = runner._build_valuation_state(books={"t1": top})
+                self.assertEqual(
+                    str((state.get("source_by_token") or {}).get("t1") or ""),
+                    "fresh_live_side_conservative_quote",
+                )
+                self.assertAlmostEqual(float((state.get("mid_by_token") or {}).get("t1", 0.0)), 0.41, places=9)
+                self.assertFalse(bool(state.get("valuation_hard_degraded", False)))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_rejects_malformed_one_sided_quotes(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=4.0)
+                malformed = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=1.2,
+                    best_bid_size=10.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                state = runner._build_valuation_state(books={"t1": malformed})
+                self.assertEqual(
+                    str((state.get("source_by_token") or {}).get("t1") or ""),
+                    "conservative_bound_hard_degraded",
+                )
+                reasons = list(state.get("degraded_reasons") or [])
+                self.assertTrue(any("quote_sanity:invalid_bid_quote" in str(r) for r in reasons))
+                self.assertTrue(bool(state.get("valuation_hard_degraded", False)))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_watch_tokens_persist_for_non_flat_and_open_orders(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held = "held-token"
+                runner.risk.positions[held] = Position(token_id=held, net_shares=2.0)
+                watched = set(runner._valuation_watch_token_ids())
+                self.assertIn(held, watched)
+
+                runner.risk.positions[held] = Position(token_id=held, net_shares=0.0)
+                runner.gateway._open_orders["o1"] = LiveOrder(  # pylint: disable=protected-access
+                    order_id="o1",
+                    token_id=held,
+                    side="BUY",
+                    price=0.5,
+                    size=10.0,
+                    remaining_size=10.0,
+                    status="OPEN",
+                )
+                watched_with_open_order = set(runner._valuation_watch_token_ids())
+                self.assertIn(held, watched_with_open_order)
+
+                runner.gateway._open_orders.pop("o1", None)  # pylint: disable=protected-access
+                watched_after_cleanup = set(runner._valuation_watch_token_ids())
+                self.assertNotIn(held, watched_after_cleanup)
             finally:
                 runner.events.close()
                 runner.book_client.close()

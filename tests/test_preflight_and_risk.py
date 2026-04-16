@@ -135,6 +135,67 @@ class PreflightAndRiskTests(unittest.TestCase):
         decision = risk.evaluate_loss_limits({"t1": 0.2})
         self.assertFalse(decision.allowed)
 
+    def test_mark_to_market_keeps_realized_pnl_for_flat_position_without_mid(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        risk.on_fill(FillEvent(trade_id="x1", token_id="t1", side="BUY", price=0.4, size=10, ts_utc="2026-01-01T00:00:00Z"))
+        risk.on_fill(FillEvent(trade_id="x2", token_id="t1", side="SELL", price=0.6, size=10, ts_utc="2026-01-01T00:00:01Z"))
+        total_pnl, pnl_by_token = risk.mark_to_market({})
+        self.assertAlmostEqual(total_pnl, 2.0, places=9)
+        self.assertAlmostEqual(float(pnl_by_token.get("t1", 0.0)), 2.0, places=9)
+
+    def test_validate_order_hard_degraded_blocks_risk_increase_allows_pure_reduce(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        positions = {"t1": Position(token_id="t1", net_shares=5.0)}
+        risk = RiskEngine(cfg, positions)
+        risk.set_valuation_degraded_state(hard_degraded=True, reasons=["missing_mid:t1"])
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "valuation_hard_degraded_risk_increase_blocked")
+
+        allowed_reduce = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=3.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertTrue(allowed_reduce.allowed)
+
+        allowed_flatten = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=5.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertTrue(allowed_flatten.allowed)
+
+        blocked_cross = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=6.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+        )
+        self.assertFalse(blocked_cross.allowed)
+        self.assertEqual(blocked_cross.reason, "valuation_hard_degraded_risk_increase_blocked")
+
     def test_validate_order_rejects_stale_book(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 0.001

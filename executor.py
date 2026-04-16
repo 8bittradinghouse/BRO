@@ -108,6 +108,10 @@ RUN_MANIFEST_REQUIRED_FIELDS = (
 
 
 class ExecutionRunner:
+    _VALUATION_QUOTE_MIN = 0.0
+    _VALUATION_QUOTE_MAX = 1.0
+    _VALUATION_QUOTE_EPS = 1e-9
+
     def __init__(self, config: Dict[str, Any], *, config_source_path: Optional[pathlib.Path] = None):
         self.cfg = config
         self.config_source_path = config_source_path.resolve() if config_source_path is not None else None
@@ -188,7 +192,33 @@ class ExecutionRunner:
         self.pyth_symbol_for_targets = str(pyth_cfg.get("symbol", "BTC/USD")).strip() or "BTC/USD"
         self.book_feed = MarketBookFeed(self.cfg.get("market_data", {}).get("ws", {}))
         self.last_midpoint_by_token: Dict[str, Optional[float]] = {}
+        self.last_midpoint_ts_mono_by_token: Dict[str, float] = {}
         self.last_volatility_by_token: Dict[str, float] = {}
+        risk_cfg = self.cfg.get("risk", {})
+        if not isinstance(risk_cfg, dict):
+            risk_cfg = {}
+        self.live_mid_max_age_sec = max(0.0, float(risk_cfg.get("max_book_age_sec", 0.0)))
+        configured_one_sided_mid_age = parse_float(risk_cfg.get("one_sided_quote_max_age_sec"))
+        self.one_sided_quote_max_age_sec = (
+            max(0.0, float(configured_one_sided_mid_age))
+            if configured_one_sided_mid_age is not None
+            else 6.0
+        )
+        configured_last_known_mid_age = parse_float(risk_cfg.get("last_known_mid_max_age_sec"))
+        self.last_known_mid_max_age_sec = (
+            max(0.0, float(configured_last_known_mid_age))
+            if configured_last_known_mid_age is not None
+            else 6.0
+        )
+        self._valuation_degraded = False
+        self._valuation_hard_degraded = False
+        self._pnl_degraded = False
+        self._loss_guard_degraded = False
+        self._valuation_degraded_reasons: List[str] = []
+        self._valuation_mid_source_counts: Dict[str, int] = {}
+        self._valuation_mid_source_counts_raw: Dict[str, int] = {}
+        self._valuation_mid_source_by_token: Dict[str, str] = {}
+        self._last_valuation_event_signature: Optional[Tuple[Any, ...]] = None
         vol_cfg = self.cfg.get("strategy", {}).get("volatility", {})
         self.vol_tracker = RealizedVolTracker(float(vol_cfg.get("window_sec", 30.0)))
         self.prometheus = PrometheusExporter(self.cfg.get("metrics", {}))
@@ -866,6 +896,226 @@ class ExecutionRunner:
             and stale_reject_count >= max(1, int(min_stale_rejects))
             and risk_reject_count >= max(1, int(min_risk_rejects))
         )
+
+    @staticmethod
+    def _conservative_mid_for_position(position: Position) -> float:
+        net = float(position.net_shares)
+        if net > 0.0:
+            return 0.0
+        if net < 0.0:
+            return 1.0
+        return 0.5
+
+    @classmethod
+    def _sanitize_probability_quote(cls, value: Any) -> Optional[float]:
+        numeric = parse_float(value)
+        if numeric is None:
+            return None
+        if not math.isfinite(float(numeric)):
+            return None
+        if numeric < (cls._VALUATION_QUOTE_MIN - cls._VALUATION_QUOTE_EPS):
+            return None
+        if numeric > (cls._VALUATION_QUOTE_MAX + cls._VALUATION_QUOTE_EPS):
+            return None
+        return min(cls._VALUATION_QUOTE_MAX, max(cls._VALUATION_QUOTE_MIN, float(numeric)))
+
+    @staticmethod
+    def _book_top_age_sec(top: Any) -> Optional[float]:
+        ts_utc = str(getattr(top, "ts_utc", "") or "").strip()
+        ts_dt = parse_ts(ts_utc)
+        if ts_dt is None:
+            return None
+        now_dt = utc_now()
+        return max(0.0, float((now_dt - ts_dt).total_seconds()))
+
+    def _book_quote_snapshot(self, *, top: Any) -> Dict[str, Any]:
+        bid_raw = getattr(top, "best_bid_price", None)
+        ask_raw = getattr(top, "best_ask_price", None)
+        mid_raw = getattr(top, "midpoint", None)
+        bid = self._sanitize_probability_quote(bid_raw)
+        ask = self._sanitize_probability_quote(ask_raw)
+        mid = self._sanitize_probability_quote(mid_raw)
+        reasons: List[str] = []
+        if bid_raw is not None and bid is None:
+            reasons.append("invalid_bid_quote")
+        if ask_raw is not None and ask is None:
+            reasons.append("invalid_ask_quote")
+        if mid_raw is not None and mid is None:
+            reasons.append("invalid_mid_quote")
+        if bid is not None and ask is not None and bid > (ask + self._VALUATION_QUOTE_EPS):
+            reasons.append("crossed_book_bid_gt_ask")
+        if mid is not None and bid is not None and ask is not None:
+            if mid < (bid - self._VALUATION_QUOTE_EPS) or mid > (ask + self._VALUATION_QUOTE_EPS):
+                reasons.append("midpoint_outside_bid_ask")
+        return {
+            "bid": bid,
+            "ask": ask,
+            "mid": mid,
+            "age_sec": self._book_top_age_sec(top),
+            "sanity_reasons": reasons,
+            "sane": not bool(reasons),
+        }
+
+    def _build_valuation_state(self, *, books: Dict[str, Any]) -> Dict[str, Any]:
+        now_mono = time.monotonic()
+        mids_by_token: Dict[str, float] = {}
+        source_by_token: Dict[str, str] = {}
+        degraded_reasons: List[str] = []
+        hard_degraded_reasons: List[str] = []
+        non_flat_positions: Dict[str, Position] = {
+            str(token_id): pos
+            for token_id, pos in self.risk.positions.items()
+            if abs(float(pos.net_shares)) > 1e-9
+        }
+        for token_id, position in sorted(non_flat_positions.items(), key=lambda item: item[0]):
+            top = books.get(token_id)
+            quote = self._book_quote_snapshot(top=top) if top is not None else None
+            quote_age_sec = quote.get("age_sec") if isinstance(quote, dict) else None
+            sane_quote = bool(quote and quote.get("sane"))
+            if sane_quote and isinstance(quote_age_sec, (int, float)) and quote_age_sec <= (self.live_mid_max_age_sec + 1e-9):
+                live_mid = parse_float(quote.get("mid"))
+                if live_mid is not None:
+                    mids_by_token[token_id] = float(live_mid)
+                    source_by_token[token_id] = "fresh_live_mid"
+                    continue
+
+            one_sided_mid: Optional[float] = None
+            if sane_quote and isinstance(quote_age_sec, (int, float)) and quote_age_sec <= (
+                self.one_sided_quote_max_age_sec + 1e-9
+            ):
+                net = float(position.net_shares)
+                if net > 1e-9:
+                    one_sided_mid = parse_float(quote.get("bid"))
+                elif net < -1e-9:
+                    one_sided_mid = parse_float(quote.get("ask"))
+                if one_sided_mid is not None:
+                    mids_by_token[token_id] = float(one_sided_mid)
+                    source_by_token[token_id] = "fresh_live_side_conservative_quote"
+                    continue
+
+            last_mid = parse_float(self.last_midpoint_by_token.get(token_id))
+            last_ts = self.last_midpoint_ts_mono_by_token.get(token_id)
+            if last_mid is not None and isinstance(last_ts, (int, float)):
+                age_sec = max(0.0, float(now_mono - float(last_ts)))
+                if age_sec <= (float(self.last_known_mid_max_age_sec) + 1e-9):
+                    mids_by_token[token_id] = float(last_mid)
+                    source_by_token[token_id] = "fresh_last_known_mid"
+                    degraded_reasons.append(
+                        f"degraded_using_last_known_mid:{token_id}:age_sec={age_sec:.3f}<=max_age_sec={float(self.last_known_mid_max_age_sec):.3f}"
+                    )
+                    continue
+
+            mids_by_token[token_id] = self._conservative_mid_for_position(position)
+            source_by_token[token_id] = "conservative_bound_hard_degraded"
+            hard_reason_parts: List[str] = []
+            if quote is None:
+                hard_reason_parts.append("book_top_missing")
+            else:
+                if not sane_quote:
+                    hard_reason_parts.extend([f"quote_sanity:{reason}" for reason in quote.get("sanity_reasons", [])])
+                if not isinstance(quote_age_sec, (int, float)):
+                    hard_reason_parts.append("quote_age_unknown")
+                else:
+                    hard_reason_parts.append(
+                        "quote_age_sec="
+                        + f"{float(quote_age_sec):.3f}>"
+                        + "thresholds("
+                        + f"live_mid_max_age_sec={float(self.live_mid_max_age_sec):.3f},"
+                        + f"one_sided_quote_max_age_sec={float(self.one_sided_quote_max_age_sec):.3f})"
+                    )
+            if last_mid is None or not isinstance(last_ts, (int, float)):
+                hard_reason_parts.append("last_known_mid_missing")
+            else:
+                last_age = max(0.0, float(now_mono - float(last_ts)))
+                hard_reason_parts.append(
+                    f"last_known_mid_age_sec={last_age:.3f}>last_known_mid_max_age_sec={float(self.last_known_mid_max_age_sec):.3f}"
+                )
+            hard_reason = "|".join(hard_reason_parts)
+            hard_reason_row = f"hard_degraded:{token_id}:{hard_reason}"
+            degraded_reasons.append(hard_reason_row)
+            hard_degraded_reasons.append(hard_reason_row)
+
+        source_counts = dict(collections.Counter(source_by_token.values()))
+        summary_counts = {
+            "live_mid": int(source_counts.get("fresh_live_mid", 0)),
+            "live_side_conservative_quote": int(source_counts.get("fresh_live_side_conservative_quote", 0)),
+            "last_known_mid": int(source_counts.get("fresh_last_known_mid", 0)),
+            "conservative_bound_hard_degraded": int(source_counts.get("conservative_bound_hard_degraded", 0)),
+            "hard_degraded": int(source_counts.get("conservative_bound_hard_degraded", 0)),
+        }
+        degraded = any(
+            source in {"fresh_last_known_mid", "conservative_bound_hard_degraded"} for source in source_by_token.values()
+        )
+        hard_degraded = any(source == "conservative_bound_hard_degraded" for source in source_by_token.values())
+        return {
+            "mid_by_token": mids_by_token,
+            "source_by_token": source_by_token,
+            "source_counts": summary_counts,
+            "source_counts_raw": source_counts,
+            "degraded_reasons": list(degraded_reasons),
+            "hard_degraded_reasons": list(hard_degraded_reasons),
+            "valuation_degraded": bool(degraded),
+            "valuation_hard_degraded": bool(hard_degraded),
+            "position_tokens": sorted(non_flat_positions.keys()),
+        }
+
+    def _apply_valuation_controls(self, *, books: Dict[str, Any], phase: str) -> Dict[str, Any]:
+        valuation_state = self._build_valuation_state(books=books)
+        degraded = bool(valuation_state.get("valuation_degraded", False))
+        hard_degraded = bool(valuation_state.get("valuation_hard_degraded", False))
+        degraded_reasons = [str(x) for x in list(valuation_state.get("degraded_reasons", [])) if str(x).strip()]
+        source_counts = dict(valuation_state.get("source_counts", {}))
+        source_counts_raw = dict(valuation_state.get("source_counts_raw", {}))
+
+        self._valuation_degraded = degraded
+        self._valuation_hard_degraded = hard_degraded
+        self._pnl_degraded = degraded
+        self._loss_guard_degraded = degraded
+        self._valuation_degraded_reasons = degraded_reasons
+        self._valuation_mid_source_counts = {str(k): int(v) for k, v in source_counts.items()}
+        self._valuation_mid_source_counts_raw = {str(k): int(v) for k, v in source_counts_raw.items()}
+        self._valuation_mid_source_by_token = {
+            str(k): str(v) for k, v in dict(valuation_state.get("source_by_token", {})).items()
+        }
+
+        self.risk.set_valuation_degraded_state(
+            hard_degraded=hard_degraded,
+            reasons=degraded_reasons,
+        )
+
+        self.telemetry.set_gauge("valuation_degraded", 1.0 if degraded else 0.0)
+        self.telemetry.set_gauge("valuation_hard_degraded", 1.0 if hard_degraded else 0.0)
+        self.telemetry.set_gauge("pnl_degraded", 1.0 if degraded else 0.0)
+        self.telemetry.set_gauge("loss_guard_degraded", 1.0 if degraded else 0.0)
+
+        signature = (
+            bool(degraded),
+            bool(hard_degraded),
+            tuple(degraded_reasons),
+            tuple(sorted(self._valuation_mid_source_counts.items(), key=lambda item: item[0])),
+        )
+        if signature != self._last_valuation_event_signature:
+            self._last_valuation_event_signature = signature
+            self.events.log_event(
+                "valuation_degraded",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "valuation_degraded": bool(degraded),
+                    "valuation_hard_degraded": bool(hard_degraded),
+                    "pnl_degraded": bool(degraded),
+                    "loss_guard_degraded": bool(degraded),
+                    "valuation_degraded_reasons": list(degraded_reasons),
+                    "valuation_mid_source_counts": dict(self._valuation_mid_source_counts),
+                    "valuation_mid_source_counts_raw": dict(self._valuation_mid_source_counts_raw),
+                    "valuation_position_token_count": int(len(valuation_state.get("position_tokens") or [])),
+                    "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
+                    "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
+                    "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
+                },
+            )
+        return valuation_state
 
     def _emit_guardian_hook(self, severity: str, message: str, details: Dict[str, Any]) -> None:
         path = self.alert_guardian_hook_file
@@ -2137,6 +2387,7 @@ class ExecutionRunner:
         self._market_entry_mono_by_token[token_id] = now_mono
         self._market_entry_cycle_by_token[token_id] = int(self._doctrine_cycle_index)
         self.last_midpoint_by_token.pop(token_id, None)
+        self.last_midpoint_ts_mono_by_token.pop(token_id, None)
         self.last_volatility_by_token.pop(token_id, None)
         self._last_taker_submit_mono_by_token.pop(token_id, None)
         self._last_doctrine_signature_by_token.pop(token_id, None)
@@ -2679,6 +2930,40 @@ class ExecutionRunner:
             "filled_token_ids": sorted(filled_token_ids),
         }
 
+    def _open_order_token_ids(self) -> set[str]:
+        out: set[str] = set()
+        with contextlib.suppress(Exception):
+            for order in self.tx_manager.get_open_orders():
+                token_id = str(getattr(order, "token_id", "") or "").strip()
+                if token_id:
+                    out.add(token_id)
+        return out
+
+    def _non_flat_position_token_ids(self) -> set[str]:
+        return {
+            str(token_id)
+            for token_id, pos in self.risk.positions.items()
+            if abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9
+        }
+
+    def _valuation_watch_token_ids(self) -> List[str]:
+        watched = set(str(token_id) for token_id in self.token_ids)
+        watched.update(self._non_flat_position_token_ids())
+        watched.update(self._open_order_token_ids())
+        return self._unique_ordered(sorted(watched))
+
+    def _watch_removal_conditions_met(self, token_id: str) -> bool:
+        token = str(token_id or "").strip()
+        if not token:
+            return True
+        pos = self.risk.positions.get(token)
+        position_flat = bool(pos is None or abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) <= 1e-9)
+        has_open_order = token in self._open_order_token_ids()
+        return bool(position_flat and (not has_open_order))
+
+    def _sync_book_feed_watch_tokens(self) -> None:
+        self.book_feed.update_token_ids(self._valuation_watch_token_ids())
+
     def _refresh_targets(self, *, force: bool = False) -> None:
         if not self.discovery.enabled:
             return
@@ -2748,7 +3033,7 @@ class ExecutionRunner:
             if old:
                 old_set = set(old)
                 self.token_ids = []
-                self.book_feed.update_token_ids(self.token_ids)
+                self._sync_book_feed_watch_tokens()
                 self.token_market_key_by_token = {}
                 self.token_expiry_utc_by_token = {}
                 self.token_expiry_dt_by_token = {}
@@ -2844,7 +3129,7 @@ class ExecutionRunner:
                     "market_key_map_count": len(self.token_market_key_by_token),
                 },
             )
-            self.book_feed.update_token_ids(self.token_ids)
+            self._sync_book_feed_watch_tokens()
             self._prune_removed_tokens(old_set=old_set, active_set=active_set)
             for token_id in self.token_ids:
                 self.risk.positions.setdefault(token_id, Position(token_id=token_id))
@@ -2924,14 +3209,17 @@ class ExecutionRunner:
         self.vol_tracker.prune_tokens(active_set)
         self.latency_verifier.prune_tokens(active_set)
         for token_id in old_set - active_set:
-            self.last_midpoint_by_token.pop(token_id, None)
-            self.last_volatility_by_token.pop(token_id, None)
-            self._last_taker_submit_mono_by_token.pop(token_id, None)
-            self._book_not_found_backoff_mono_by_token.pop(token_id, None)
+            remove_watch_state = self._watch_removal_conditions_met(token_id)
+            if remove_watch_state:
+                self.last_midpoint_by_token.pop(token_id, None)
+                self.last_midpoint_ts_mono_by_token.pop(token_id, None)
+                self.last_volatility_by_token.pop(token_id, None)
+                self._book_not_found_backoff_mono_by_token.pop(token_id, None)
             self.token_market_key_by_token.pop(token_id, None)
             self._market_entry_mono_by_token.pop(token_id, None)
             self._market_entry_cycle_by_token.pop(token_id, None)
             self._last_stage_by_token.pop(token_id, None)
+            self._last_taker_submit_mono_by_token.pop(token_id, None)
             self._last_doctrine_signature_by_token.pop(token_id, None)
             self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
             pos = self.risk.positions.get(token_id)
@@ -3239,7 +3527,7 @@ class ExecutionRunner:
             self._refresh_targets(force=True)
             self.chainlink.start()
             self.pyth.start()
-            self.book_feed.start(self.token_ids)
+            self.book_feed.start(self._valuation_watch_token_ids())
             self.prometheus.start()
             while not self.stop_requested:
                 if stop_after_sec is not None and (time.monotonic() - started) >= stop_after_sec:
@@ -3257,11 +3545,10 @@ class ExecutionRunner:
                 stale_action_budget = 2
                 orphan_action_budget: Optional[int] = None
                 self._refresh_targets(force=False)
+                self._sync_book_feed_watch_tokens()
                 self.telemetry.set_gauge("target_count", float(len(self.token_ids)))
                 has_targets = bool(self.token_ids)
                 self._update_runtime_semantics(has_targets=has_targets)
-                if not has_targets:
-                    self.book_feed.update_token_ids([])
                 mode_state = self.operating_mode.state
                 self.telemetry.set_gauge("operating_mode_state", self._operating_mode_to_gauge(mode_state))
                 risk_rejects_start = int(self.telemetry.counters.get("risk_rejects", 0))
@@ -3344,25 +3631,30 @@ class ExecutionRunner:
                         self.telemetry.set_gauge("book_feed_last_msg_age_sec", float(ws_age))
 
                 books: Dict[str, Any] = {}
+                valuation_books: Dict[str, Any] = {}
                 volatility_by_token: Dict[str, float] = {}
                 lag_samples_accepted_cycle = 0
                 ws_updates_cycle = 0
                 rest_updates_cycle = 0
+                ws_updates_target_cycle = 0
+                rest_updates_target_cycle = 0
                 all_targets_missing_ws_books = False
                 rest_fallback_used_cycle = False
+                target_token_ids = self._unique_ordered([str(token_id) for token_id in self.token_ids if str(token_id).strip()])
+                target_token_set = set(target_token_ids)
+                valuation_token_ids = self._valuation_watch_token_ids()
                 if not has_targets:
                     self.telemetry.incr("no_target_cycles")
-                else:
-                    now_mono = time.monotonic()
-                    missing_rest_tokens = [
-                        token_id
-                        for token_id in self.token_ids
-                        if ws_books.get(token_id) is None
-                        and self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) <= now_mono
-                    ]
-                    rest_books, rest_errors = self._fetch_missing_books(missing_rest_tokens)
-                    missing_book_not_found_tokens: list[str] = []
-                    for token_id in self.token_ids:
+                now_mono = time.monotonic()
+                missing_rest_tokens = [
+                    token_id
+                    for token_id in valuation_token_ids
+                    if ws_books.get(token_id) is None
+                    and self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) <= now_mono
+                ]
+                rest_books, rest_errors = self._fetch_missing_books(missing_rest_tokens)
+                missing_book_not_found_tokens: list[str] = []
+                for token_id in valuation_token_ids:
                         raw = None
                         top = ws_books.get(token_id)
                         if top is None:
@@ -3408,12 +3700,18 @@ class ExecutionRunner:
                             )
                             self.telemetry.incr("book_updates_rest")
                             rest_updates_cycle += 1
+                            if token_id in target_token_set:
+                                rest_updates_target_cycle += 1
                         else:
                             self._book_not_found_backoff_mono_by_token.pop(token_id, None)
                             self.telemetry.incr("book_updates_ws")
                             ws_updates_cycle += 1
+                            if token_id in target_token_set:
+                                ws_updates_target_cycle += 1
                         self.telemetry.incr("book_updates")
-                        books[token_id] = top
+                        valuation_books[token_id] = top
+                        if token_id in target_token_set:
+                            books[token_id] = top
                         self.tx_manager.on_book(top)
                         if self.log_book_top:
                             self.events.log_event(
@@ -3434,7 +3732,9 @@ class ExecutionRunner:
                             )
                         midpoint = top.midpoint
                         prev_mid = self.last_midpoint_by_token.get(token_id)
-                        self.last_midpoint_by_token[token_id] = midpoint
+                        if isinstance(midpoint, (int, float)):
+                            self.last_midpoint_by_token[token_id] = float(midpoint)
+                            self.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
                         realized_vol = self.vol_tracker.update(token_id, midpoint)
                         if realized_vol is not None:
                             volatility_by_token[token_id] = realized_vol
@@ -3527,25 +3827,25 @@ class ExecutionRunner:
                                 )
                         elif midpoint is not None and prev_mid is not None and sample_triggered:
                             self.telemetry.incr("latency_samples_skipped_non_ws_source")
-                    rest_fallback_used_cycle = rest_updates_cycle > 0
-                    all_targets_missing_ws_books = (
-                        bool(self.token_ids)
-                        and ws_updates_cycle == 0
-                        and rest_updates_cycle > 0
+                rest_fallback_used_cycle = rest_updates_cycle > 0
+                all_targets_missing_ws_books = (
+                    bool(target_token_ids)
+                    and ws_updates_target_cycle == 0
+                    and rest_updates_target_cycle > 0
+                )
+                if missing_book_not_found_tokens and self.discovery.enabled:
+                    unique_not_found = sorted(set(str(token_id) for token_id in missing_book_not_found_tokens))
+                    self.telemetry.incr("target_refresh_forced_book_not_found")
+                    self.events.log_event(
+                        "target_refresh_forced_book_not_found",
+                        {
+                            "ts_utc": utc_iso(),
+                            "run_id": self.run_id,
+                            "token_count": len(unique_not_found),
+                            "token_ids": unique_not_found,
+                        },
                     )
-                    if missing_book_not_found_tokens and self.discovery.enabled:
-                        unique_not_found = sorted(set(str(token_id) for token_id in missing_book_not_found_tokens))
-                        self.telemetry.incr("target_refresh_forced_book_not_found")
-                        self.events.log_event(
-                            "target_refresh_forced_book_not_found",
-                            {
-                                "ts_utc": utc_iso(),
-                                "run_id": self.run_id,
-                                "token_count": len(unique_not_found),
-                                "token_ids": unique_not_found,
-                            },
-                        )
-                        self._refresh_targets(force=True)
+                    self._refresh_targets(force=True)
 
                 # If no move-triggered samples were accepted this cycle, record a heartbeat lag sample
                 # so the latency verifier has observability in low-volatility windows.
@@ -3934,6 +4234,7 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("taker_fills_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_filled_token_count_last_cycle", 0.0)
                 lag_verified_token_ids = [str(x) for x in list(sniper_ctx.get("lag_verified_token_ids", []))]
+                valuation_state = self._apply_valuation_controls(books=valuation_books, phase="pre_submit")
 
                 if not books:
                     self.telemetry.set_gauge("quote_active", 0.0)
@@ -3977,10 +4278,20 @@ class ExecutionRunner:
                             latency_snapshot=latency_snapshot,
                             mode_state=mode_state,
                             lag_ready_for_sniper=lag_ready_for_sniper,
-                            lag_verified_token_ids=lag_verified_token_ids,
-                            sniper_ramp_allowed=self._sniper_ramp_allowed,
-                            cycle_index=int(self._doctrine_cycle_index),
-                        )
+                                lag_verified_token_ids=lag_verified_token_ids,
+                                sniper_ramp_allowed=self._sniper_ramp_allowed,
+                                cycle_index=int(self._doctrine_cycle_index),
+                            )
+                    valuation_state = self._apply_valuation_controls(books=valuation_books, phase="post_submit")
+                    mids = dict(valuation_state.get("mid_by_token", {}))
+                    total_pnl, pnl_by_token = self.risk.mark_to_market(mids)
+                    self.telemetry.set_gauge("total_pnl", total_pnl)
+                    for token_id, token_pnl in pnl_by_token.items():
+                        self.telemetry.set_gauge(f"token_pnl.{token_id}", token_pnl)
+
+                    loss_check = self.risk.evaluate_loss_limits(mids)
+                    if not loss_check.allowed:
+                        self.risk.set_kill_switch(f"{loss_check.reason}:{loss_check.detail}")
                 else:
                     try:
                         books_for_manager = {
@@ -4145,7 +4456,8 @@ class ExecutionRunner:
                         )
                         self.telemetry.set_gauge("quote_active", quote_active)
 
-                        mids = dict(self.last_midpoint_by_token)
+                        valuation_state = self._apply_valuation_controls(books=valuation_books, phase="post_submit")
+                        mids = dict(valuation_state.get("mid_by_token", {}))
                         total_pnl, pnl_by_token = self.risk.mark_to_market(mids)
                         self.telemetry.set_gauge("total_pnl", total_pnl)
                         for token_id, token_pnl in pnl_by_token.items():
@@ -4486,6 +4798,16 @@ class ExecutionRunner:
                         "wallet_approval_ok": bool(wallet_contract.get("approval_ok", False)),
                         "wallet_nonce_ok": bool(wallet_contract.get("nonce_ok", False)),
                         "wallet_reconcile_ok": bool(wallet_contract.get("reconcile_ok", False)),
+                        "valuation_degraded": bool(self._valuation_degraded),
+                        "valuation_hard_degraded": bool(self._valuation_hard_degraded),
+                        "pnl_degraded": bool(self._pnl_degraded),
+                        "loss_guard_degraded": bool(self._loss_guard_degraded),
+                        "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
+                        "valuation_mid_source_counts": dict(self._valuation_mid_source_counts),
+                        "valuation_mid_source_counts_raw": dict(self._valuation_mid_source_counts_raw),
+                        "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
+                        "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
+                        "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
                         "sniper_multi_oracle_cap_usd": (
                             float(self.sniper_taker_multi_oracle_cap_usd)
                             if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))

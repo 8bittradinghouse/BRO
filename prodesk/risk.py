@@ -11,6 +11,8 @@ from .models import BookTop, FillEvent, OrderIntent, Position, RiskDecision
 
 
 class RiskEngine:
+    _POSITION_EPSILON = 1e-9
+
     def __init__(
         self,
         config: Dict[str, float],
@@ -30,6 +32,8 @@ class RiskEngine:
         self.cancel_timestamps: Deque[float] = collections.deque()
         self.order_submission_transport_attempt_timestamps: Deque[float] = collections.deque()
         self._order_submission_reserved_outstanding: int = 0
+        self._valuation_hard_degraded: bool = False
+        self._valuation_degraded_reasons: List[str] = []
 
     def set_kill_switch(self, reason: str) -> None:
         self.kill_switch = True
@@ -38,6 +42,37 @@ class RiskEngine:
     def clear_kill_switch(self) -> None:
         self.kill_switch = False
         self.kill_reason = ""
+
+    def set_valuation_degraded_state(self, *, hard_degraded: bool, reasons: Optional[List[str]] = None) -> None:
+        self._valuation_hard_degraded = bool(hard_degraded)
+        self._valuation_degraded_reasons = [str(r).strip() for r in list(reasons or []) if str(r).strip()]
+
+    def valuation_degraded_state(self) -> Dict[str, Any]:
+        return {
+            "hard_degraded": bool(self._valuation_hard_degraded),
+            "reasons": list(self._valuation_degraded_reasons),
+        }
+
+    @classmethod
+    def _is_flat_position(cls, net_shares: float) -> bool:
+        return abs(float(net_shares)) <= cls._POSITION_EPSILON
+
+    @classmethod
+    def _is_pure_risk_reducing_intent(cls, *, net_shares: float, side: str, size: float) -> bool:
+        size_abs = abs(float(size))
+        if size_abs <= cls._POSITION_EPSILON:
+            return False
+        net = float(net_shares)
+        normalized_side = str(side or "").strip().upper()
+        if cls._is_flat_position(net):
+            return False
+        if net > 0.0:
+            if normalized_side != "SELL":
+                return False
+            return bool(size_abs <= (net + cls._POSITION_EPSILON))
+        if normalized_side != "BUY":
+            return False
+        return bool(size_abs <= ((-net) + cls._POSITION_EPSILON))
 
     @staticmethod
     def _order_side(order: object) -> str:
@@ -474,6 +509,8 @@ class RiskEngine:
             "edge_abs": self._safe_float(context.get("edge_abs")),
             "realized_volatility": self._safe_float(context.get("realized_volatility")),
             "dynamic_scaling": dynamic_scaling_basis,
+            "valuation_hard_degraded": bool(self._valuation_hard_degraded),
+            "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
             "effective_caps": {
                 "max_abs_position_shares_base": float(max_abs_position_base),
                 "max_abs_position_shares_effective": float(max_abs_position_effective),
@@ -484,6 +521,23 @@ class RiskEngine:
         }
 
         pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
+        if self._valuation_hard_degraded:
+            if not self._is_pure_risk_reducing_intent(
+                net_shares=float(pos.net_shares),
+                side=str(intent.side or ""),
+                size=float(intent.size),
+            ):
+                return RiskDecision(
+                    False,
+                    "valuation_hard_degraded_risk_increase_blocked",
+                    f"net_shares={float(pos.net_shares):.9f}:size={float(intent.size):.9f}:side={str(intent.side or '').upper()}",
+                    basis={
+                        **basis_base,
+                        "valuation_hard_degraded": True,
+                        "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
+                        "risk_reduction_only_mode": True,
+                    },
+                )
         pending_same_side_shares, pending_same_side_notional = self._pending_same_side_exposure(
             side=intent.side,
             open_orders_for_token=open_orders_for_token,
@@ -607,13 +661,19 @@ class RiskEngine:
         total = 0.0
         for token_id, pos in self.positions.items():
             mid = mid_by_token.get(token_id)
+            realized_cashflow = float(pos.sold_notional - pos.bought_notional)
             if mid is None:
+                if not self._is_flat_position(float(pos.net_shares)):
+                    continue
+                pnl = realized_cashflow
+                pnl_by_token[token_id] = pnl
+                total += pnl
                 continue
             # Cash-flow convention:
             # - buys decrease cash (negative)
             # - sells increase cash (positive)
             # PnL = realized cashflow + mark of current inventory.
-            pnl = (pos.sold_notional - pos.bought_notional) + (pos.net_shares * mid)
+            pnl = realized_cashflow + (float(pos.net_shares) * float(mid))
             pnl_by_token[token_id] = pnl
             total += pnl
         return total, pnl_by_token
