@@ -492,6 +492,10 @@ class OrderManager:
         )
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
+            event_stage_raw = str(intent.stage or "").strip().upper()
+            event_stage = event_stage_raw or "UNKNOWN"
+            stage_source = "intent" if event_stage_raw else "unknown"
+            stage_unknown_reason = None if event_stage_raw else "missing_intent_stage"
             self.events.log_event(
                 "risk_reject",
                 {
@@ -500,6 +504,10 @@ class OrderManager:
                     "side": intent.side,
                     "price": intent.price,
                     "size": intent.size,
+                    "submission_lane": lane,
+                    "stage": event_stage,
+                    "stage_source": stage_source,
+                    "stage_unknown_reason": stage_unknown_reason,
                     "reason": "size_notional_bounds",
                     "detail": f"mode={self.sizing_mode}",
                     "size_resolution": size_resolution,

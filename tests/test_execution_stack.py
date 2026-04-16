@@ -1369,6 +1369,77 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_sizing_reject_emits_top_level_lane_stage_without_parser_fallback(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+
+            intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+                stage="SNIPER_PRIMARY",
+            )
+            with mock.patch.object(
+                manager,
+                "_resolve_order_size_shares_with_details",
+                return_value=(None, {"forced": True}),
+            ):
+                placed, reject_reason = manager._place_order(intent, top, open_orders_for_token=[], open_orders_total=0)
+            self.assertIsNone(placed)
+            self.assertEqual(reject_reason, "sizing_reject")
+
+            events.close()
+            events = None
+            risk_reject_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "risk_reject":
+                        risk_reject_rows.append(payload)
+            self.assertTrue(risk_reject_rows)
+            row = next(
+                (x for x in risk_reject_rows if str(x.get("reason") or "") == "size_notional_bounds"),
+                risk_reject_rows[-1],
+            )
+            self.assertEqual(str(row.get("submission_lane") or ""), "maker")
+            self.assertEqual(str(row.get("stage") or ""), "SNIPER_PRIMARY")
+            self.assertEqual(str(row.get("stage_source") or ""), "intent")
+            self.assertIsNone(row.get("stage_unknown_reason"))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_process_fills_counts_unique_only(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
