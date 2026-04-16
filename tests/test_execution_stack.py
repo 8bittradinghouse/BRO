@@ -1440,6 +1440,83 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_sizing_reject_uses_risk_context_stage_when_intent_stage_missing(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+
+            intent = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.50,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+                stage=None,
+            )
+            with mock.patch.object(
+                manager,
+                "_resolve_order_size_shares_with_details",
+                return_value=(None, {"forced": True}),
+            ):
+                placed, reject_reason = manager._place_order(
+                    intent,
+                    top,
+                    open_orders_for_token=[],
+                    open_orders_total=0,
+                    risk_context={"stage": "SNIPER_PRIMARY", "submission_lane": "maker"},
+                )
+            self.assertIsNone(placed)
+            self.assertEqual(reject_reason, "sizing_reject")
+
+            events.close()
+            events = None
+            risk_reject_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "risk_reject":
+                        risk_reject_rows.append(payload)
+            self.assertTrue(risk_reject_rows)
+            row = next(
+                (x for x in risk_reject_rows if str(x.get("reason") or "") == "size_notional_bounds"),
+                risk_reject_rows[-1],
+            )
+            self.assertEqual(str(row.get("submission_lane") or ""), "maker")
+            self.assertEqual(str(row.get("stage") or ""), "SNIPER_PRIMARY")
+            self.assertEqual(str(row.get("stage_source") or ""), "risk_context")
+            self.assertIsNone(row.get("stage_unknown_reason"))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_process_fills_counts_unique_only(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
@@ -1468,6 +1545,95 @@ class ExecutionStackTests(unittest.TestCase):
             gateway._fill_queue.extend([duplicate_fill, duplicate_fill])  # pylint: disable=protected-access
             self.assertEqual(manager.process_fills(), 1)
             self.assertEqual(telemetry.counters.get("fills"), 1)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_process_fills_releases_order_lock_when_filled_order_no_longer_open(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            fill = FillEvent(
+                trade_id="fill-closed",
+                order_id="order-closed",
+                token_id="t1",
+                side="BUY",
+                price=0.4,
+                size=1.0,
+                ts_utc=utc_iso(),
+            )
+            with (
+                mock.patch.object(manager.tx_manager, "poll_fills", return_value=[fill]),
+                mock.patch.object(manager.tx_manager, "get_open_orders", return_value=[]),
+                mock.patch.object(manager, "_handle_fill", return_value=True),
+                mock.patch.object(manager.wallet, "release_order_lock") as release_mock,
+            ):
+                accepted = manager.process_fills()
+            self.assertEqual(accepted, 1)
+            release_mock.assert_called_once_with("order-closed")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_process_fills_keeps_order_lock_when_filled_order_still_open(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            fill = FillEvent(
+                trade_id="fill-open",
+                order_id="order-open",
+                token_id="t1",
+                side="BUY",
+                price=0.4,
+                size=1.0,
+                ts_utc=utc_iso(),
+            )
+            open_order = LiveOrder(
+                order_id="order-open",
+                token_id="t1",
+                side="BUY",
+                price=0.4,
+                size=5.0,
+                remaining_size=4.0,
+                status="OPEN",
+            )
+            with (
+                mock.patch.object(manager.tx_manager, "poll_fills", return_value=[fill]),
+                mock.patch.object(manager.tx_manager, "get_open_orders", return_value=[open_order]),
+                mock.patch.object(manager, "_handle_fill", return_value=True),
+                mock.patch.object(manager.wallet, "release_order_lock") as release_mock,
+            ):
+                accepted = manager.process_fills()
+            self.assertEqual(accepted, 1)
+            release_mock.assert_not_called()
         finally:
             if events is not None:
                 events.close()
@@ -2729,6 +2895,236 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_valuation_reason_marks_missing_required_side_without_stale_age(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=3.0)
+                ask_only_top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=None,
+                    best_bid_size=None,
+                    best_ask_price=0.63,
+                    best_ask_size=10.0,
+                )
+                state = runner._build_valuation_state(books={"t1": ask_only_top})
+                self.assertEqual(
+                    str((state.get("source_by_token") or {}).get("t1") or ""),
+                    "conservative_bound_hard_degraded",
+                )
+                reasons = [str(x) for x in list(state.get("degraded_reasons") or [])]
+                self.assertTrue(any("live_mid_missing" in reason for reason in reasons))
+                self.assertTrue(any("required_conservative_side_missing:bid" in reason for reason in reasons))
+                self.assertFalse(any("quote_age_stale_for_live_mid" in reason for reason in reasons))
+                self.assertFalse(any("quote_age_stale_for_side_conservative" in reason for reason in reasons))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_exposes_and_clears_held_unpriceable_surfaces(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=3.0)
+                hard_state = runner._build_valuation_state(books={})
+                self.assertEqual(
+                    str((hard_state.get("source_by_token") or {}).get("t1") or ""),
+                    "conservative_bound_hard_degraded",
+                )
+                self.assertEqual(list(hard_state.get("held_unpriceable_token_ids") or []), ["t1"])
+                self.assertEqual(int(hard_state.get("held_unpriceable_count") or 0), 1)
+                self.assertGreaterEqual(float(hard_state.get("held_unpriceable_max_age_sec", -1.0)), 0.0)
+                self.assertIn("t1", dict(hard_state.get("held_unpriceable_age_by_token") or {}))
+
+                priceable_top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.44,
+                    best_bid_size=50.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                recovered_state = runner._build_valuation_state(books={"t1": priceable_top})
+                self.assertEqual(
+                    str((recovered_state.get("source_by_token") or {}).get("t1") or ""),
+                    "fresh_live_side_conservative_quote",
+                )
+                self.assertEqual(int(recovered_state.get("held_unpriceable_count") or 0), 0)
+                self.assertEqual(list(recovered_state.get("held_unpriceable_token_ids") or []), [])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_rest_fetch_result_for_token_skips_unrequested_token(self):
+        fetched, err_text, attempted = ExecutionRunner._rest_fetch_result_for_token(
+            token_id="t1",
+            requested_rest_token_ids={"t2"},
+            rest_books={"t1": (None, None, 1.0)},
+            rest_errors={"t1": "boom"},
+        )
+        self.assertFalse(attempted)
+        self.assertIsNone(fetched)
+        self.assertIsNone(err_text)
+
+        fetched2, err_text2, attempted2 = ExecutionRunner._rest_fetch_result_for_token(
+            token_id="t2",
+            requested_rest_token_ids={"t2"},
+            rest_books={},
+            rest_errors={"t2": "upstream_timeout"},
+        )
+        self.assertTrue(attempted2)
+        self.assertIsNone(fetched2)
+        self.assertEqual(err_text2, "upstream_timeout")
+
+    def test_book_not_found_backoff_prefers_held_exposure_tokens(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["runtime"]["book_not_found_backoff_sec"] = 90.0
+            cfg["runtime"]["held_book_not_found_backoff_sec"] = 10.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held = "held-token"
+                runner.risk.positions[held] = Position(token_id=held, net_shares=1.0)
+                held_tokens = runner._held_exposure_token_ids()  # pylint: disable=protected-access
+                held_backoff = runner._book_not_found_backoff_sec_for_token(  # pylint: disable=protected-access
+                    token_id=held,
+                    held_exposure_tokens=held_tokens,
+                )
+                normal_backoff = runner._book_not_found_backoff_sec_for_token(  # pylint: disable=protected-access
+                    token_id="other-token",
+                    held_exposure_tokens=held_tokens,
+                )
+                self.assertAlmostEqual(float(held_backoff), 10.0, places=6)
+                self.assertAlmostEqual(float(normal_backoff), 90.0, places=6)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_held_only_book_not_found_suppresses_forced_target_refresh(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held = "held-token"
+                runner.risk.positions[held] = Position(token_id=held, net_shares=1.0)
+                with mock.patch.object(runner, "_refresh_targets") as refresh_mock:
+                    outcome = runner._handle_missing_book_not_found_tokens(  # pylint: disable=protected-access
+                        missing_book_not_found_tokens=[held],
+                        held_exposure_tokens={held},
+                    )
+                refresh_mock.assert_not_called()
+                self.assertEqual(
+                    outcome,
+                    {
+                        "forced_refresh_tokens": [],
+                        "suppressed_held_tokens": [held],
+                    },
+                )
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_suppressed_held_book_not_found", 0)),
+                    1,
+                )
+                self.assertEqual(int(runner.telemetry.counters.get("target_refresh_forced_book_not_found", 0)), 0)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_mixed_book_not_found_refreshes_only_non_held_tokens(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held = "held-token"
+                other = "discovery-token"
+                runner.risk.positions[held] = Position(token_id=held, net_shares=1.0)
+                with mock.patch.object(runner, "_refresh_targets") as refresh_mock:
+                    outcome = runner._handle_missing_book_not_found_tokens(  # pylint: disable=protected-access
+                        missing_book_not_found_tokens=[held, other],
+                        held_exposure_tokens={held},
+                    )
+                refresh_mock.assert_called_once_with(force=True)
+                self.assertEqual(
+                    outcome,
+                    {
+                        "forced_refresh_tokens": [other],
+                        "suppressed_held_tokens": [held],
+                    },
+                )
+                self.assertEqual(int(runner.telemetry.counters.get("target_refresh_forced_book_not_found", 0)), 1)
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_suppressed_held_book_not_found", 0)),
+                    0,
+                )
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_valuation_watch_tokens_persist_for_non_flat_and_open_orders(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -2762,6 +3158,70 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.gateway._open_orders.pop("o1", None)  # pylint: disable=protected-access
                 watched_after_cleanup = set(runner._valuation_watch_token_ids())
                 self.assertNotIn(held, watched_after_cleanup)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_prune_removed_tokens_preserves_watch_state_for_non_flat_positions(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "held-token"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
+                runner.last_midpoint_by_token[token_id] = 0.44
+                runner.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
+                runner._book_not_found_backoff_mono_by_token[token_id] = time.monotonic() + 30.0  # pylint: disable=protected-access
+
+                runner._prune_removed_tokens(old_set={token_id}, active_set=set())
+
+                self.assertIn(token_id, runner.last_midpoint_by_token)
+                self.assertIn(token_id, runner.last_midpoint_ts_mono_by_token)
+                self.assertIn(token_id, runner._book_not_found_backoff_mono_by_token)  # pylint: disable=protected-access
+                self.assertIn(token_id, runner.risk.positions)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_prune_removed_tokens_clears_watch_state_when_flat_and_no_open_orders(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "flat-token"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=0.0)
+                runner.last_midpoint_by_token[token_id] = 0.51
+                runner.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
+                runner._book_not_found_backoff_mono_by_token[token_id] = time.monotonic() + 30.0  # pylint: disable=protected-access
+
+                runner._prune_removed_tokens(old_set={token_id}, active_set=set())
+
+                self.assertNotIn(token_id, runner.last_midpoint_by_token)
+                self.assertNotIn(token_id, runner.last_midpoint_ts_mono_by_token)
+                self.assertNotIn(token_id, runner._book_not_found_backoff_mono_by_token)  # pylint: disable=protected-access
+                self.assertNotIn(token_id, runner.risk.positions)
             finally:
                 runner.events.close()
                 runner.book_client.close()

@@ -493,9 +493,15 @@ class OrderManager:
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
             event_stage_raw = str(intent.stage or "").strip().upper()
-            event_stage = event_stage_raw or "UNKNOWN"
             stage_source = "intent" if event_stage_raw else "unknown"
-            stage_unknown_reason = None if event_stage_raw else "missing_intent_stage"
+            stage_unknown_reason = None if event_stage_raw else "missing_intent_and_risk_context_stage"
+            if not event_stage_raw and isinstance(risk_context, dict):
+                context_stage_raw = str((risk_context or {}).get("stage") or "").strip().upper()
+                if context_stage_raw:
+                    event_stage_raw = context_stage_raw
+                    stage_source = "risk_context"
+                    stage_unknown_reason = None
+            event_stage = event_stage_raw or "UNKNOWN"
             self.events.log_event(
                 "risk_reject",
                 {
@@ -1301,12 +1307,37 @@ class OrderManager:
         )
         return True
 
+    @staticmethod
+    def _open_order_ids(open_orders: List[LiveOrder]) -> set[str]:
+        return {str(order.order_id or "").strip() for order in open_orders if str(order.order_id or "").strip()}
+
+    def _release_closed_order_locks_for_fills(self, fills: List[FillEvent]) -> None:
+        filled_order_ids = {str(fill.order_id or "").strip() for fill in fills if str(fill.order_id or "").strip()}
+        if not filled_order_ids:
+            return
+        open_order_ids = self._open_order_ids(self.tx_manager.get_open_orders())
+        closed_filled_order_ids = sorted(filled_order_ids - open_order_ids)
+        for order_id in closed_filled_order_ids:
+            self.wallet.release_order_lock(order_id)
+            self.telemetry.incr("wallet_order_lock_released_closed_after_fill")
+            self.events.log_event(
+                "wallet_reservation_cleanup",
+                {
+                    "ts_utc": utc_iso(),
+                    "cleanup_reason": "filled_order_no_longer_open",
+                    "order_id": order_id,
+                    "release_kind": "order",
+                },
+            )
+
     def process_fills(self) -> int:
         fills = self.tx_manager.poll_fills()
         accepted = 0
         for fill in fills:
             if self._handle_fill(fill):
                 accepted += 1
+        if fills:
+            self._release_closed_order_locks_for_fills(fills)
         return accepted
 
     def position_snapshot(self) -> Dict[str, Position]:

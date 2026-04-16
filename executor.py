@@ -218,6 +218,9 @@ class ExecutionRunner:
         self._valuation_mid_source_counts: Dict[str, int] = {}
         self._valuation_mid_source_counts_raw: Dict[str, int] = {}
         self._valuation_mid_source_by_token: Dict[str, str] = {}
+        self._held_unpriceable_token_ids: List[str] = []
+        self._held_unpriceable_max_age_sec: float = 0.0
+        self._held_unpriceable_age_by_token: Dict[str, float] = {}
         self._last_valuation_event_signature: Optional[Tuple[Any, ...]] = None
         vol_cfg = self.cfg.get("strategy", {}).get("volatility", {})
         self.vol_tracker = RealizedVolTracker(float(vol_cfg.get("window_sec", 30.0)))
@@ -246,7 +249,16 @@ class ExecutionRunner:
         self._mode_transition_window_sec = 600.0
         self._first_stale_burst_logged = False
         self.book_not_found_backoff_sec = max(1.0, float(runtime_cfg.get("book_not_found_backoff_sec", 90.0)))
+        configured_held_book_not_found_backoff = parse_float(runtime_cfg.get("held_book_not_found_backoff_sec"))
+        default_held_book_not_found_backoff_sec = min(10.0, self.book_not_found_backoff_sec)
+        self.held_book_not_found_backoff_sec = (
+            max(1.0, float(configured_held_book_not_found_backoff))
+            if configured_held_book_not_found_backoff is not None
+            else default_held_book_not_found_backoff_sec
+        )
+        self.held_book_not_found_backoff_sec = min(self.held_book_not_found_backoff_sec, self.book_not_found_backoff_sec)
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
+        self._held_unpriceable_since_mono_by_token: Dict[str, float] = {}
 
         self.token_expiry_utc_by_token: Dict[str, str] = {}
         self.token_expiry_dt_by_token: Dict[str, dt.datetime] = {}
@@ -849,6 +861,22 @@ class ExecutionRunner:
         text = str(error_text)
         return "404" in text and "Not Found" in text and "/book" in text
 
+    @staticmethod
+    def _rest_fetch_result_for_token(
+        *,
+        token_id: str,
+        requested_rest_token_ids: set[str],
+        rest_books: Dict[str, tuple[Any, Any, float]],
+        rest_errors: Dict[str, str],
+    ) -> Tuple[Optional[tuple[Any, Any, float]], Optional[str], bool]:
+        if token_id not in requested_rest_token_ids:
+            return None, None, False
+        fetched = rest_books.get(token_id)
+        if fetched is not None:
+            return fetched, None, True
+        err_text = str(rest_errors.get(token_id, "") or "").strip()
+        return None, (err_text or None), True
+
     def _recent_mode_transitions(self) -> int:
         now = time.monotonic()
         while self._mode_transition_mono and (now - self._mode_transition_mono[0]) > self._mode_transition_window_sec:
@@ -962,6 +990,7 @@ class ExecutionRunner:
         source_by_token: Dict[str, str] = {}
         degraded_reasons: List[str] = []
         hard_degraded_reasons: List[str] = []
+        held_unpriceable_age_by_token: Dict[str, float] = {}
         non_flat_positions: Dict[str, Position] = {
             str(token_id): pos
             for token_id, pos in self.risk.positions.items()
@@ -972,26 +1001,30 @@ class ExecutionRunner:
             quote = self._book_quote_snapshot(top=top) if top is not None else None
             quote_age_sec = quote.get("age_sec") if isinstance(quote, dict) else None
             sane_quote = bool(quote and quote.get("sane"))
-            if sane_quote and isinstance(quote_age_sec, (int, float)) and quote_age_sec <= (self.live_mid_max_age_sec + 1e-9):
-                live_mid = parse_float(quote.get("mid"))
-                if live_mid is not None:
-                    mids_by_token[token_id] = float(live_mid)
-                    source_by_token[token_id] = "fresh_live_mid"
-                    continue
-
-            one_sided_mid: Optional[float] = None
-            if sane_quote and isinstance(quote_age_sec, (int, float)) and quote_age_sec <= (
-                self.one_sided_quote_max_age_sec + 1e-9
-            ):
-                net = float(position.net_shares)
-                if net > 1e-9:
-                    one_sided_mid = parse_float(quote.get("bid"))
-                elif net < -1e-9:
-                    one_sided_mid = parse_float(quote.get("ask"))
-                if one_sided_mid is not None:
-                    mids_by_token[token_id] = float(one_sided_mid)
-                    source_by_token[token_id] = "fresh_live_side_conservative_quote"
-                    continue
+            quote_mid = parse_float(quote.get("mid")) if isinstance(quote, dict) else None
+            quote_bid = parse_float(quote.get("bid")) if isinstance(quote, dict) else None
+            quote_ask = parse_float(quote.get("ask")) if isinstance(quote, dict) else None
+            live_mid_age_fresh = bool(
+                sane_quote and isinstance(quote_age_sec, (int, float)) and quote_age_sec <= (self.live_mid_max_age_sec + 1e-9)
+            )
+            one_sided_age_fresh = bool(
+                sane_quote
+                and isinstance(quote_age_sec, (int, float))
+                and quote_age_sec <= (self.one_sided_quote_max_age_sec + 1e-9)
+            )
+            net = float(position.net_shares)
+            required_side = "bid" if net > 1e-9 else "ask"
+            required_side_mid = quote_bid if required_side == "bid" else quote_ask
+            if live_mid_age_fresh and quote_mid is not None:
+                mids_by_token[token_id] = float(quote_mid)
+                source_by_token[token_id] = "fresh_live_mid"
+                self._held_unpriceable_since_mono_by_token.pop(token_id, None)
+                continue
+            if one_sided_age_fresh and required_side_mid is not None:
+                mids_by_token[token_id] = float(required_side_mid)
+                source_by_token[token_id] = "fresh_live_side_conservative_quote"
+                self._held_unpriceable_since_mono_by_token.pop(token_id, None)
+                continue
 
             last_mid = parse_float(self.last_midpoint_by_token.get(token_id))
             last_ts = self.last_midpoint_ts_mono_by_token.get(token_id)
@@ -1000,6 +1033,7 @@ class ExecutionRunner:
                 if age_sec <= (float(self.last_known_mid_max_age_sec) + 1e-9):
                     mids_by_token[token_id] = float(last_mid)
                     source_by_token[token_id] = "fresh_last_known_mid"
+                    self._held_unpriceable_since_mono_by_token.pop(token_id, None)
                     degraded_reasons.append(
                         f"degraded_using_last_known_mid:{token_id}:age_sec={age_sec:.3f}<=max_age_sec={float(self.last_known_mid_max_age_sec):.3f}"
                     )
@@ -1007,6 +1041,11 @@ class ExecutionRunner:
 
             mids_by_token[token_id] = self._conservative_mid_for_position(position)
             source_by_token[token_id] = "conservative_bound_hard_degraded"
+            unpriceable_since = self._held_unpriceable_since_mono_by_token.get(token_id)
+            if not isinstance(unpriceable_since, (int, float)):
+                unpriceable_since = now_mono
+                self._held_unpriceable_since_mono_by_token[token_id] = float(now_mono)
+            held_unpriceable_age_by_token[token_id] = max(0.0, float(now_mono - float(unpriceable_since)))
             hard_reason_parts: List[str] = []
             if quote is None:
                 hard_reason_parts.append("book_top_missing")
@@ -1016,13 +1055,31 @@ class ExecutionRunner:
                 if not isinstance(quote_age_sec, (int, float)):
                     hard_reason_parts.append("quote_age_unknown")
                 else:
-                    hard_reason_parts.append(
-                        "quote_age_sec="
-                        + f"{float(quote_age_sec):.3f}>"
-                        + "thresholds("
-                        + f"live_mid_max_age_sec={float(self.live_mid_max_age_sec):.3f},"
-                        + f"one_sided_quote_max_age_sec={float(self.one_sided_quote_max_age_sec):.3f})"
-                    )
+                    live_mid_age_stale = float(quote_age_sec) > (float(self.live_mid_max_age_sec) + 1e-9)
+                    one_sided_age_stale = float(quote_age_sec) > (float(self.one_sided_quote_max_age_sec) + 1e-9)
+                    if live_mid_age_stale and one_sided_age_stale:
+                        hard_reason_parts.append(
+                            "quote_age_stale_for_live_mid_and_side:"
+                            + f"quote_age_sec={float(quote_age_sec):.3f}"
+                            + f":live_mid_max_age_sec={float(self.live_mid_max_age_sec):.3f}"
+                            + f":one_sided_quote_max_age_sec={float(self.one_sided_quote_max_age_sec):.3f}"
+                        )
+                    elif live_mid_age_stale:
+                        hard_reason_parts.append(
+                            "quote_age_stale_for_live_mid:"
+                            + f"quote_age_sec={float(quote_age_sec):.3f}"
+                            + f":live_mid_max_age_sec={float(self.live_mid_max_age_sec):.3f}"
+                        )
+                    elif one_sided_age_stale:
+                        hard_reason_parts.append(
+                            "quote_age_stale_for_side_conservative:"
+                            + f"quote_age_sec={float(quote_age_sec):.3f}"
+                            + f":one_sided_quote_max_age_sec={float(self.one_sided_quote_max_age_sec):.3f}"
+                        )
+                if quote_mid is None:
+                    hard_reason_parts.append("live_mid_missing")
+                if required_side_mid is None:
+                    hard_reason_parts.append(f"required_conservative_side_missing:{required_side}")
             if last_mid is None or not isinstance(last_ts, (int, float)):
                 hard_reason_parts.append("last_known_mid_missing")
             else:
@@ -1034,6 +1091,15 @@ class ExecutionRunner:
             hard_reason_row = f"hard_degraded:{token_id}:{hard_reason}"
             degraded_reasons.append(hard_reason_row)
             hard_degraded_reasons.append(hard_reason_row)
+
+        non_flat_token_set = set(non_flat_positions.keys())
+        for token_id in list(self._held_unpriceable_since_mono_by_token.keys()):
+            if token_id not in non_flat_token_set:
+                self._held_unpriceable_since_mono_by_token.pop(token_id, None)
+        held_unpriceable_token_ids = sorted(held_unpriceable_age_by_token.keys())
+        held_unpriceable_max_age_sec = (
+            max(held_unpriceable_age_by_token.values()) if held_unpriceable_age_by_token else 0.0
+        )
 
         source_counts = dict(collections.Counter(source_by_token.values()))
         summary_counts = {
@@ -1057,6 +1123,12 @@ class ExecutionRunner:
             "valuation_degraded": bool(degraded),
             "valuation_hard_degraded": bool(hard_degraded),
             "position_tokens": sorted(non_flat_positions.keys()),
+            "held_unpriceable_token_ids": held_unpriceable_token_ids,
+            "held_unpriceable_count": int(len(held_unpriceable_token_ids)),
+            "held_unpriceable_max_age_sec": float(held_unpriceable_max_age_sec),
+            "held_unpriceable_age_by_token": {
+                token_id: float(held_unpriceable_age_by_token[token_id]) for token_id in held_unpriceable_token_ids
+            },
         }
 
     def _apply_valuation_controls(self, *, books: Dict[str, Any], phase: str) -> Dict[str, Any]:
@@ -1066,6 +1138,15 @@ class ExecutionRunner:
         degraded_reasons = [str(x) for x in list(valuation_state.get("degraded_reasons", [])) if str(x).strip()]
         source_counts = dict(valuation_state.get("source_counts", {}))
         source_counts_raw = dict(valuation_state.get("source_counts_raw", {}))
+        held_unpriceable_token_ids = [
+            str(token_id) for token_id in list(valuation_state.get("held_unpriceable_token_ids", [])) if str(token_id)
+        ]
+        held_unpriceable_max_age_sec = float(valuation_state.get("held_unpriceable_max_age_sec", 0.0) or 0.0)
+        held_unpriceable_age_by_token = {
+            str(token_id): float(age_sec)
+            for token_id, age_sec in dict(valuation_state.get("held_unpriceable_age_by_token", {})).items()
+            if str(token_id)
+        }
 
         self._valuation_degraded = degraded
         self._valuation_hard_degraded = hard_degraded
@@ -1077,6 +1158,9 @@ class ExecutionRunner:
         self._valuation_mid_source_by_token = {
             str(k): str(v) for k, v in dict(valuation_state.get("source_by_token", {})).items()
         }
+        self._held_unpriceable_token_ids = list(held_unpriceable_token_ids)
+        self._held_unpriceable_max_age_sec = float(held_unpriceable_max_age_sec)
+        self._held_unpriceable_age_by_token = dict(held_unpriceable_age_by_token)
 
         self.risk.set_valuation_degraded_state(
             hard_degraded=hard_degraded,
@@ -1087,12 +1171,15 @@ class ExecutionRunner:
         self.telemetry.set_gauge("valuation_hard_degraded", 1.0 if hard_degraded else 0.0)
         self.telemetry.set_gauge("pnl_degraded", 1.0 if degraded else 0.0)
         self.telemetry.set_gauge("loss_guard_degraded", 1.0 if degraded else 0.0)
+        self.telemetry.set_gauge("valuation_held_unpriceable_count", float(len(held_unpriceable_token_ids)))
+        self.telemetry.set_gauge("valuation_held_unpriceable_max_age_sec", float(held_unpriceable_max_age_sec))
 
         signature = (
             bool(degraded),
             bool(hard_degraded),
             tuple(degraded_reasons),
             tuple(sorted(self._valuation_mid_source_counts.items(), key=lambda item: item[0])),
+            tuple(held_unpriceable_token_ids),
         )
         if signature != self._last_valuation_event_signature:
             self._last_valuation_event_signature = signature
@@ -1110,6 +1197,10 @@ class ExecutionRunner:
                     "valuation_mid_source_counts": dict(self._valuation_mid_source_counts),
                     "valuation_mid_source_counts_raw": dict(self._valuation_mid_source_counts_raw),
                     "valuation_position_token_count": int(len(valuation_state.get("position_tokens") or [])),
+                    "held_unpriceable_token_count": int(len(held_unpriceable_token_ids)),
+                    "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
+                    "held_unpriceable_max_age_sec": float(held_unpriceable_max_age_sec),
+                    "held_unpriceable_age_by_token": dict(held_unpriceable_age_by_token),
                     "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
@@ -2952,6 +3043,25 @@ class ExecutionRunner:
         watched.update(self._open_order_token_ids())
         return self._unique_ordered(sorted(watched))
 
+    def _held_exposure_token_ids(self) -> set[str]:
+        held = set(self._non_flat_position_token_ids())
+        held.update(self._open_order_token_ids())
+        return held
+
+    def _book_not_found_backoff_sec_for_token(
+        self,
+        *,
+        token_id: str,
+        held_exposure_tokens: Optional[set[str]] = None,
+    ) -> float:
+        token = str(token_id or "").strip()
+        if not token:
+            return float(self.book_not_found_backoff_sec)
+        held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
+        if token in held_tokens:
+            return float(self.held_book_not_found_backoff_sec)
+        return float(self.book_not_found_backoff_sec)
+
     def _watch_removal_conditions_met(self, token_id: str) -> bool:
         token = str(token_id or "").strip()
         if not token:
@@ -2960,6 +3070,53 @@ class ExecutionRunner:
         position_flat = bool(pos is None or abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) <= 1e-9)
         has_open_order = token in self._open_order_token_ids()
         return bool(position_flat and (not has_open_order))
+
+    def _handle_missing_book_not_found_tokens(
+        self,
+        *,
+        missing_book_not_found_tokens: List[str],
+        held_exposure_tokens: Optional[set[str]] = None,
+    ) -> Dict[str, List[str]]:
+        if not missing_book_not_found_tokens or not self.discovery.enabled:
+            return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
+        unique_not_found = sorted(
+            set(str(token_id) for token_id in missing_book_not_found_tokens if str(token_id or "").strip())
+        )
+        if not unique_not_found:
+            return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
+        held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
+        forced_refresh_tokens = [token_id for token_id in unique_not_found if token_id not in held_tokens]
+        suppressed_held_tokens = [token_id for token_id in unique_not_found if token_id in held_tokens]
+        if forced_refresh_tokens:
+            self.telemetry.incr("target_refresh_forced_book_not_found")
+            self.events.log_event(
+                "target_refresh_forced_book_not_found",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "token_count": len(forced_refresh_tokens),
+                    "token_ids": list(forced_refresh_tokens),
+                    "suppressed_held_token_count": len(suppressed_held_tokens),
+                    "suppressed_held_token_ids": list(suppressed_held_tokens),
+                },
+            )
+            self._refresh_targets(force=True)
+        elif suppressed_held_tokens:
+            self.telemetry.incr("target_refresh_suppressed_held_book_not_found")
+            self.events.log_event(
+                "target_refresh_suppressed_held_book_not_found",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "token_count": len(suppressed_held_tokens),
+                    "token_ids": list(suppressed_held_tokens),
+                    "reason": "held_exposure_book_not_found_no_discovery_refresh",
+                },
+            )
+        return {
+            "forced_refresh_tokens": list(forced_refresh_tokens),
+            "suppressed_held_tokens": list(suppressed_held_tokens),
+        }
 
     def _sync_book_feed_watch_tokens(self) -> None:
         self.book_feed.update_token_ids(self._valuation_watch_token_ids())
@@ -3643,6 +3800,7 @@ class ExecutionRunner:
                 target_token_ids = self._unique_ordered([str(token_id) for token_id in self.token_ids if str(token_id).strip()])
                 target_token_set = set(target_token_ids)
                 valuation_token_ids = self._valuation_watch_token_ids()
+                held_exposure_tokens = self._held_exposure_token_ids()
                 if not has_targets:
                     self.telemetry.incr("no_target_cycles")
                 now_mono = time.monotonic()
@@ -3652,6 +3810,7 @@ class ExecutionRunner:
                     if ws_books.get(token_id) is None
                     and self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) <= now_mono
                 ]
+                requested_rest_token_ids = set(missing_rest_tokens)
                 rest_books, rest_errors = self._fetch_missing_books(missing_rest_tokens)
                 missing_book_not_found_tokens: list[str] = []
                 for token_id in valuation_token_ids:
@@ -3661,12 +3820,26 @@ class ExecutionRunner:
                             backoff_until = self._book_not_found_backoff_mono_by_token.get(token_id, 0.0)
                             if backoff_until > time.monotonic():
                                 continue
-                            fetched = rest_books.get(token_id)
+                            fetched, err_text, fetch_attempted = self._rest_fetch_result_for_token(
+                                token_id=token_id,
+                                requested_rest_token_ids=requested_rest_token_ids,
+                                rest_books=rest_books,
+                                rest_errors=rest_errors,
+                            )
+                            if not fetch_attempted:
+                                # Backoff can expire after we snapshot rest-fetch candidates for the cycle.
+                                # Defer this token to the next cycle instead of inventing a synthetic fetch error.
+                                continue
                             if fetched is None:
-                                err_text = rest_errors.get(token_id, "unknown_rest_fetch_error")
+                                if not err_text:
+                                    continue
                                 if self.discovery.enabled and self._is_missing_book_not_found_error(err_text):
+                                    backoff_sec = self._book_not_found_backoff_sec_for_token(
+                                        token_id=token_id,
+                                        held_exposure_tokens=held_exposure_tokens,
+                                    )
                                     self._book_not_found_backoff_mono_by_token[token_id] = (
-                                        time.monotonic() + self.book_not_found_backoff_sec
+                                        time.monotonic() + float(backoff_sec)
                                     )
                                     missing_book_not_found_tokens.append(token_id)
                                     self.telemetry.incr("book_not_found")
@@ -3677,7 +3850,8 @@ class ExecutionRunner:
                                             "run_id": self.run_id,
                                             "token_id": token_id,
                                             "error": err_text,
-                                            "backoff_sec": self.book_not_found_backoff_sec,
+                                            "backoff_sec": float(backoff_sec),
+                                            "held_exposure_token": bool(token_id in held_exposure_tokens),
                                         },
                                     )
                                     continue
@@ -3833,19 +4007,10 @@ class ExecutionRunner:
                     and ws_updates_target_cycle == 0
                     and rest_updates_target_cycle > 0
                 )
-                if missing_book_not_found_tokens and self.discovery.enabled:
-                    unique_not_found = sorted(set(str(token_id) for token_id in missing_book_not_found_tokens))
-                    self.telemetry.incr("target_refresh_forced_book_not_found")
-                    self.events.log_event(
-                        "target_refresh_forced_book_not_found",
-                        {
-                            "ts_utc": utc_iso(),
-                            "run_id": self.run_id,
-                            "token_count": len(unique_not_found),
-                            "token_ids": unique_not_found,
-                        },
-                    )
-                    self._refresh_targets(force=True)
+                self._handle_missing_book_not_found_tokens(
+                    missing_book_not_found_tokens=missing_book_not_found_tokens,
+                    held_exposure_tokens=held_exposure_tokens,
+                )
 
                 # If no move-triggered samples were accepted this cycle, record a heartbeat lag sample
                 # so the latency verifier has observability in low-volatility windows.
@@ -4805,6 +4970,10 @@ class ExecutionRunner:
                         "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
                         "valuation_mid_source_counts": dict(self._valuation_mid_source_counts),
                         "valuation_mid_source_counts_raw": dict(self._valuation_mid_source_counts_raw),
+                        "held_unpriceable_token_count": int(len(self._held_unpriceable_token_ids)),
+                        "held_unpriceable_token_ids": list(self._held_unpriceable_token_ids),
+                        "held_unpriceable_max_age_sec": float(self._held_unpriceable_max_age_sec),
+                        "held_unpriceable_age_by_token": dict(self._held_unpriceable_age_by_token),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
