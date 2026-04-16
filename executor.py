@@ -269,7 +269,25 @@ class ExecutionRunner:
             else default_held_book_not_found_backoff_sec
         )
         self.held_book_not_found_backoff_sec = min(self.held_book_not_found_backoff_sec, self.book_not_found_backoff_sec)
+        configured_held_book_not_found_force_refresh_interval = parse_float(
+            runtime_cfg.get("held_book_not_found_force_refresh_interval_sec")
+        )
+        self.held_book_not_found_force_refresh_interval_sec = (
+            max(0.0, float(configured_held_book_not_found_force_refresh_interval))
+            if configured_held_book_not_found_force_refresh_interval is not None
+            else 120.0
+        )
+        configured_held_book_not_found_force_refresh_min_unpriceable_age = parse_float(
+            runtime_cfg.get("held_book_not_found_force_refresh_min_unpriceable_age_sec")
+        )
+        self.held_book_not_found_force_refresh_min_unpriceable_age_sec = (
+            max(0.0, float(configured_held_book_not_found_force_refresh_min_unpriceable_age))
+            if configured_held_book_not_found_force_refresh_min_unpriceable_age is not None
+            else 30.0
+        )
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
+        self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
+        self._held_book_not_found_force_refresh_next_mono_by_token: Dict[str, float] = {}
         self._held_unpriceable_since_mono_by_token: Dict[str, float] = {}
 
         self.token_expiry_utc_by_token: Dict[str, str] = {}
@@ -1061,6 +1079,10 @@ class ExecutionRunner:
             hard_reason_parts: List[str] = []
             if quote is None:
                 hard_reason_parts.append("book_top_missing")
+                last_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token_id)
+                if isinstance(last_not_found_mono, (int, float)):
+                    age_since_not_found_sec = max(0.0, float(now_mono - float(last_not_found_mono)))
+                    hard_reason_parts.append(f"held_book_not_found_404_age_sec={age_since_not_found_sec:.3f}")
             else:
                 if not sane_quote:
                     hard_reason_parts.extend([f"quote_sanity:{reason}" for reason in quote.get("sanity_reasons", [])])
@@ -1108,6 +1130,10 @@ class ExecutionRunner:
         for token_id in list(self._held_unpriceable_since_mono_by_token.keys()):
             if token_id not in non_flat_token_set:
                 self._held_unpriceable_since_mono_by_token.pop(token_id, None)
+        for token_id in list(self._held_book_not_found_last_mono_by_token.keys()):
+            if token_id not in non_flat_token_set:
+                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
+                self._held_book_not_found_force_refresh_next_mono_by_token.pop(token_id, None)
         held_unpriceable_token_ids = sorted(held_unpriceable_age_by_token.keys())
         held_unpriceable_max_age_sec = (
             max(held_unpriceable_age_by_token.values()) if held_unpriceable_age_by_token else 0.0
@@ -3204,7 +3230,49 @@ class ExecutionRunner:
             return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
         held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
         forced_refresh_tokens = [token_id for token_id in unique_not_found if token_id not in held_tokens]
-        suppressed_held_tokens = [token_id for token_id in unique_not_found if token_id in held_tokens]
+        held_not_found_tokens = [token_id for token_id in unique_not_found if token_id in held_tokens]
+        forced_held_recovery_tokens: List[str] = []
+        suppressed_held_tokens: List[str] = []
+        now_mono = time.monotonic()
+        for token_id in held_not_found_tokens:
+            should_force_recovery = False
+            if self.held_book_not_found_force_refresh_interval_sec > 0.0:
+                unpriceable_since = self._held_unpriceable_since_mono_by_token.get(token_id)
+                unpriceable_age_sec = (
+                    max(0.0, float(now_mono - float(unpriceable_since)))
+                    if isinstance(unpriceable_since, (int, float))
+                    else 0.0
+                )
+                next_allowed_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token_id, 0.0)
+                if (
+                    unpriceable_age_sec + 1e-9
+                    >= float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec)
+                    and now_mono >= float(next_allowed_mono)
+                ):
+                    should_force_recovery = True
+                    self._held_book_not_found_force_refresh_next_mono_by_token[token_id] = (
+                        now_mono + float(self.held_book_not_found_force_refresh_interval_sec)
+                    )
+            if should_force_recovery:
+                forced_held_recovery_tokens.append(token_id)
+            else:
+                suppressed_held_tokens.append(token_id)
+        if forced_held_recovery_tokens:
+            forced_refresh_tokens.extend(forced_held_recovery_tokens)
+            forced_refresh_tokens = sorted(set(str(token_id) for token_id in forced_refresh_tokens if str(token_id)))
+            self.telemetry.incr("target_refresh_forced_held_book_not_found_recovery")
+            self.events.log_event(
+                "target_refresh_forced_held_book_not_found_recovery",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "token_count": len(forced_held_recovery_tokens),
+                    "token_ids": list(forced_held_recovery_tokens),
+                    "reason": "persistent_held_exposure_book_not_found_recovery_refresh",
+                    "min_unpriceable_age_sec": float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
+                    "refresh_interval_sec": float(self.held_book_not_found_force_refresh_interval_sec),
+                },
+            )
         if forced_refresh_tokens:
             self.telemetry.incr("target_refresh_forced_book_not_found")
             self.events.log_event(
@@ -3214,6 +3282,8 @@ class ExecutionRunner:
                     "run_id": self.run_id,
                     "token_count": len(forced_refresh_tokens),
                     "token_ids": list(forced_refresh_tokens),
+                    "forced_held_recovery_token_count": len(forced_held_recovery_tokens),
+                    "forced_held_recovery_token_ids": list(forced_held_recovery_tokens),
                     "suppressed_held_token_count": len(suppressed_held_tokens),
                     "suppressed_held_token_ids": list(suppressed_held_tokens),
                 },
@@ -3490,6 +3560,8 @@ class ExecutionRunner:
                 self.last_midpoint_ts_mono_by_token.pop(token_id, None)
                 self.last_volatility_by_token.pop(token_id, None)
                 self._book_not_found_backoff_mono_by_token.pop(token_id, None)
+                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
+                self._held_book_not_found_force_refresh_next_mono_by_token.pop(token_id, None)
             self.token_market_key_by_token.pop(token_id, None)
             self._market_entry_mono_by_token.pop(token_id, None)
             self._market_entry_cycle_by_token.pop(token_id, None)
@@ -3956,9 +4028,11 @@ class ExecutionRunner:
                                         token_id=token_id,
                                         held_exposure_tokens=held_exposure_tokens,
                                     )
+                                    now_mono_error = time.monotonic()
                                     self._book_not_found_backoff_mono_by_token[token_id] = (
-                                        time.monotonic() + float(backoff_sec)
+                                        now_mono_error + float(backoff_sec)
                                     )
+                                    self._held_book_not_found_last_mono_by_token[token_id] = float(now_mono_error)
                                     missing_book_not_found_tokens.append(token_id)
                                     self.telemetry.incr("book_not_found")
                                     self.events.log_event(
@@ -3986,6 +4060,7 @@ class ExecutionRunner:
                                 continue
                             top, raw, latency_ms = fetched
                             self._book_not_found_backoff_mono_by_token.pop(token_id, None)
+                            self._held_book_not_found_last_mono_by_token.pop(token_id, None)
                             self.telemetry.set_gauge(
                                 f"book_fetch_latency_ms.{token_id}",
                                 latency_ms,
@@ -3996,6 +4071,7 @@ class ExecutionRunner:
                                 rest_updates_target_cycle += 1
                         else:
                             self._book_not_found_backoff_mono_by_token.pop(token_id, None)
+                            self._held_book_not_found_last_mono_by_token.pop(token_id, None)
                             self.telemetry.incr("book_updates_ws")
                             ws_updates_cycle += 1
                             if token_id in target_token_set:

@@ -97,6 +97,11 @@ Required observability surfaces:
   - `pnl_degraded`
   - `loss_guard_degraded`
   - `valuation_degraded_reasons`
+- Held-token market-data starvation remains explicitly classified, not hidden:
+  - `valuation_degraded_reasons` may include `held_book_not_found_404_age_sec=...` when a held token repeatedly returns `/book` 404.
+  - held-token 404 recovery refresh is bounded and rate-limited by:
+    - `runtime.held_book_not_found_force_refresh_interval_sec`
+    - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec`
 
 ## Execution-Quality Semantic Split (Canonical Reporting)
 - Immediate midpoint-relative fill quality is reported under:

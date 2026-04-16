@@ -887,6 +887,7 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     loss_guard_degraded_rows = 0.0
     held_unpriceable_escalation_rows = 0.0
     held_unpriceable_defect_candidate_rows = 0.0
+    held_book_not_found_404_rows = 0.0
     source_totals = {
         "live_mid": 0.0,
         "live_side_conservative_quote": 0.0,
@@ -908,6 +909,9 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             held_unpriceable_escalation_rows += 1.0
         if bool(row.get("held_unpriceable_defect_candidate", False)):
             held_unpriceable_defect_candidate_rows += 1.0
+        degraded_reasons = [str(reason) for reason in list(row.get("valuation_degraded_reasons") or [])]
+        if any("held_book_not_found_404" in reason for reason in degraded_reasons):
+            held_book_not_found_404_rows += 1.0
         row_counts_raw = row.get("valuation_mid_source_counts")
         row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
         live_mid = _safe_float(row_counts.get("live_mid", row_counts.get("fresh_live_mid")))
@@ -943,6 +947,7 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "loss_guard_degraded_rows": float(loss_guard_degraded_rows),
         "held_unpriceable_escalation_rows": float(held_unpriceable_escalation_rows),
         "held_unpriceable_defect_candidate_rows": float(held_unpriceable_defect_candidate_rows),
+        "held_book_not_found_404_rows": float(held_book_not_found_404_rows),
         "valuation_degraded_ratio": (degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "valuation_hard_degraded_ratio": (hard_degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "held_unpriceable_escalation_ratio": (
@@ -952,6 +957,11 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         else 0.0,
         "held_unpriceable_defect_candidate_ratio": (
             held_unpriceable_defect_candidate_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
+        "held_book_not_found_404_ratio": (
+            held_book_not_found_404_rows / sample_count
         )
         if sample_count > 0
         else 0.0,
@@ -2588,6 +2598,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             "valuation_truth="
             + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
             + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
+            + f"held_book_not_found_404_ratio={_safe_float(valuation_truth.get('held_book_not_found_404_ratio')):.4f},"
             + f"held_unpriceable_escalation_ratio={_safe_float(valuation_truth.get('held_unpriceable_escalation_ratio')):.4f},"
             + f"held_unpriceable_defect_candidate_ratio={_safe_float(valuation_truth.get('held_unpriceable_defect_candidate_ratio')):.4f},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"

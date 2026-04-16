@@ -344,7 +344,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "valuation_hard_degraded": True,
                     "pnl_degraded": True,
                     "loss_guard_degraded": True,
-                    "valuation_degraded_reasons": ["missing_mid:t1"],
+                    "valuation_degraded_reasons": [
+                        "hard_degraded:t1:book_top_missing|held_book_not_found_404_age_sec=31.250|last_known_mid_missing"
+                    ],
                     "valuation_mid_source_counts": {"hard_degraded": 1, "conservative_bound_hard_degraded": 1},
                     "held_unpriceable_escalation_active": True,
                     "held_unpriceable_escalation_token_ids": ["t1"],
@@ -370,7 +372,12 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_escalation_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_defect_candidate_rows") or 0.0), 1.0)
-            self.assertEqual(list(valuation_truth.get("latest_valuation_degraded_reasons") or []), ["missing_mid:t1"])
+            self.assertEqual(float(valuation_truth.get("held_book_not_found_404_rows") or 0.0), 1.0)
+            self.assertGreater(float(valuation_truth.get("held_book_not_found_404_ratio") or 0.0), 0.0)
+            self.assertIn(
+                "held_book_not_found_404_age_sec",
+                " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
+            )
             self.assertTrue(bool(valuation_truth.get("latest_held_unpriceable_escalation_active")))
             self.assertTrue(bool(valuation_truth.get("latest_held_unpriceable_defect_candidate")))
             self.assertEqual(
@@ -402,6 +409,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("execution_quality_immediate_midpoint=", summary)
             self.assertIn("pickoff=horizon_sec=", summary)
             self.assertIn("valuation_truth=", summary)
+            self.assertIn("held_book_not_found_404_ratio=", summary)
             self.assertIn("held_unpriceable_escalation_ratio=", summary)
             self.assertIn("latest_operator_action=", summary)
 

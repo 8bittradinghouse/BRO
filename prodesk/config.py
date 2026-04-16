@@ -45,6 +45,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "log_flush_every_records": 1,
         "log_flush_interval_sec": 0.25,
         "log_fsync_on_flush": False,
+        "book_not_found_backoff_sec": 90.0,
+        "held_book_not_found_backoff_sec": 10.0,
+        "held_book_not_found_force_refresh_interval_sec": 120.0,
+        "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
         "guard_stop_file": "",
         "clear_guard_stop_on_start": False,
         "paper_passive_touch_fill_enabled": False,
@@ -744,6 +748,18 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("runtime.seen_trade_ids_max", cfg["runtime"]["seen_trade_ids_max"])
     _require_positive("runtime.persist_seen_trade_ids_max", cfg["runtime"]["persist_seen_trade_ids_max"], allow_zero=True)
     _require_positive("runtime.max_quote_age_sec", cfg["runtime"]["max_quote_age_sec"])
+    _require_positive("runtime.book_not_found_backoff_sec", cfg["runtime"]["book_not_found_backoff_sec"])
+    _require_positive("runtime.held_book_not_found_backoff_sec", cfg["runtime"]["held_book_not_found_backoff_sec"])
+    _require_positive(
+        "runtime.held_book_not_found_force_refresh_interval_sec",
+        cfg["runtime"]["held_book_not_found_force_refresh_interval_sec"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec",
+        cfg["runtime"]["held_book_not_found_force_refresh_min_unpriceable_age_sec"],
+        allow_zero=True,
+    )
     _require_fraction("runtime.order_rate_soft_limit_pct", cfg["runtime"]["order_rate_soft_limit_pct"])
     _require_fraction("runtime.cancel_rate_soft_limit_pct", cfg["runtime"]["cancel_rate_soft_limit_pct"])
     _require_positive("runtime.log_flush_every_records", cfg["runtime"]["log_flush_every_records"])

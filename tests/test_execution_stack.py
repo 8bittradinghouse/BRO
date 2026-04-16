@@ -3107,6 +3107,53 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_held_only_book_not_found_can_force_recovery_refresh_when_persistent(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["runtime"]["held_book_not_found_force_refresh_interval_sec"] = 60.0
+            cfg["runtime"]["held_book_not_found_force_refresh_min_unpriceable_age_sec"] = 10.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held = "held-token"
+                runner.risk.positions[held] = Position(token_id=held, net_shares=1.0)
+                runner._held_unpriceable_since_mono_by_token[held] = time.monotonic() - 45.0  # pylint: disable=protected-access
+                with mock.patch.object(runner, "_refresh_targets") as refresh_mock:
+                    outcome = runner._handle_missing_book_not_found_tokens(  # pylint: disable=protected-access
+                        missing_book_not_found_tokens=[held],
+                        held_exposure_tokens={held},
+                    )
+                refresh_mock.assert_called_once_with(force=True)
+                self.assertEqual(
+                    outcome,
+                    {
+                        "forced_refresh_tokens": [held],
+                        "suppressed_held_tokens": [],
+                    },
+                )
+                self.assertEqual(int(runner.telemetry.counters.get("target_refresh_forced_book_not_found", 0)), 1)
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_forced_held_book_not_found_recovery", 0)),
+                    1,
+                )
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_suppressed_held_book_not_found", 0)),
+                    0,
+                )
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_mixed_book_not_found_refreshes_only_non_held_tokens(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -3140,6 +3187,36 @@ class ExecutionStackTests(unittest.TestCase):
                     int(runner.telemetry.counters.get("target_refresh_suppressed_held_book_not_found", 0)),
                     0,
                 )
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_tags_book_not_found_404_on_hard_degraded_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "t1"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=10.0)
+                runner.last_midpoint_ts_mono_by_token[token_id] = time.monotonic() - 60.0
+                runner.last_midpoint_by_token[token_id] = 0.51
+                runner._held_book_not_found_last_mono_by_token[token_id] = time.monotonic() - 8.0  # pylint: disable=protected-access
+
+                state = runner._build_valuation_state(books={})  # pylint: disable=protected-access
+                reasons = [str(x) for x in list(state.get("degraded_reasons") or [])]
+                self.assertTrue(any("hard_degraded:t1:" in reason for reason in reasons))
+                self.assertTrue(any("held_book_not_found_404_age_sec=" in reason for reason in reasons))
             finally:
                 runner.events.close()
                 runner.book_client.close()
