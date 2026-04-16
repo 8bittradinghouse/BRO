@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import threading
 import time
 import contextlib
@@ -12,22 +13,58 @@ from typing import Any, Dict, Optional
 from .common import utc_now
 
 
-_SENSITIVE_KEY_FRAGMENTS = (
+_SENSITIVE_EXACT_KEYS = {
     "secret",
-    "token",
     "password",
     "private_key",
-    "funder",
     "api_key",
+    "token",
+    "token_id",
+    "session_token",
+    "auth_token",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "funder",
+}
+_SENSITIVE_KEY_FAMILIES = (
+    "token_id",
+    "session_token",
+    "auth_token",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "private_key",
+    "api_key",
+    "password",
+    "secret",
+    "funder",
 )
+_KEY_NORMALIZE_RE = re.compile(r"[^a-z0-9_]+")
+
+
+def _normalize_key(key: Any) -> str:
+    text = str(key or "").strip().lower()
+    return _KEY_NORMALIZE_RE.sub("_", text).strip("_")
+
+
+def _is_sensitive_key(key: Any) -> bool:
+    normalized = _normalize_key(key)
+    if not normalized:
+        return False
+    if normalized in _SENSITIVE_EXACT_KEYS:
+        return True
+    for family in _SENSITIVE_KEY_FAMILIES:
+        if normalized.startswith(f"{family}_") or normalized.endswith(f"_{family}"):
+            return True
+    return False
 
 
 def redact_sensitive(value: Any) -> Any:
     if isinstance(value, dict):
         out: Dict[str, Any] = {}
         for key, item in value.items():
-            text_key = str(key).lower()
-            if any(fragment in text_key for fragment in _SENSITIVE_KEY_FRAGMENTS):
+            if _is_sensitive_key(key):
                 out[str(key)] = "[REDACTED]"
             else:
                 out[str(key)] = redact_sensitive(item)

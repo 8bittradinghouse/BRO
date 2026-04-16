@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prodesk.logging_utils import DailyJsonlWriter, EventLogger
+from prodesk.logging_utils import DailyJsonlWriter, EventLogger, redact_sensitive
 
 
 class LoggingUtilsTests(unittest.TestCase):
@@ -51,6 +51,23 @@ class LoggingUtilsTests(unittest.TestCase):
                 self.assertEqual(row["event_type"], "sample")
             finally:
                 logger.close()
+
+    def test_redaction_uses_bounded_sensitive_key_matching(self):
+        payload = {
+            "token_id": "tok-sensitive",
+            "session_token": "secret-session",
+            "api_key": "secret-api",
+            "token_count": 12,
+            "strategy_token_bucket": "visible",
+            "gauge.token_pnl.tok123": 4.2,
+        }
+        redacted = redact_sensitive(payload)
+        self.assertEqual(redacted.get("token_id"), "[REDACTED]")
+        self.assertEqual(redacted.get("session_token"), "[REDACTED]")
+        self.assertEqual(redacted.get("api_key"), "[REDACTED]")
+        self.assertEqual(redacted.get("token_count"), 12)
+        self.assertEqual(redacted.get("strategy_token_bucket"), "visible")
+        self.assertEqual(redacted.get("gauge.token_pnl.tok123"), 4.2)
 
 
 if __name__ == "__main__":
