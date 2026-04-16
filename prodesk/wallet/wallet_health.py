@@ -49,6 +49,9 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     startup_ready = bool(startup_authority_ready and authoritative_refresh_completed and authority_status_class == "authoritative")
     order_submit_eligible = bool(order_capable_live and startup_ready)
     reconcile_scope = str(reconcile.get("scope") or "integrity_tripwire")
+    reservation_mismatch_candidate = bool(status.get("reservation_mismatch_candidate", False))
+    reservation_mismatch_delta_usdc = float(status.get("reservation_mismatch_delta_usdc", 0.0) or 0.0)
+    reservation_mismatch_detail = str(status.get("reservation_mismatch_detail") or "")
 
     canonical_live_nonce_source = str(nonce_snapshot.get("source") or "")
     canonical_live_nonce_detail = str(nonce_snapshot.get("detail") or "")
@@ -132,4 +135,7 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "canonical_live_pending_wallet_tx_detail": canonical_live_pending_wallet_tx_detail,
         "live_truth_gap_reasons": live_truth_gap_reasons,
         "reconcile_scope": reconcile_scope,
+        "reservation_mismatch_candidate": bool(reservation_mismatch_candidate),
+        "reservation_mismatch_delta_usdc": float(reservation_mismatch_delta_usdc),
+        "reservation_mismatch_detail": reservation_mismatch_detail,
     }

@@ -325,6 +325,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "nonce_authority": "tx_manager",
         "halt_on_reconcile_mismatch": True,
         "reconcile_tolerance_usdc": 1e-6,
+        "reservation_mismatch_tolerance_usdc": 1e-6,
         "expected_chain_id": 137,
         "expected_wallet_address": "",
         "require_live_pol_balance_snapshot": False,
@@ -1661,6 +1662,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("wallet.paper_pol_balance", wallet_cfg.get("paper_pol_balance"), allow_zero=True)
     _require_positive("wallet.paper_allowance_usdc", wallet_cfg.get("paper_allowance_usdc"), allow_zero=True)
     _require_positive("wallet.reconcile_tolerance_usdc", wallet_cfg.get("reconcile_tolerance_usdc"))
+    _require_positive(
+        "wallet.reservation_mismatch_tolerance_usdc",
+        wallet_cfg.get("reservation_mismatch_tolerance_usdc"),
+        allow_zero=True,
+    )
     _require_positive("wallet.live_pol_balance_fallback", wallet_cfg.get("live_pol_balance_fallback"), allow_zero=True)
     _require_positive(
         "wallet.provider_ambiguity_abs_tolerance",

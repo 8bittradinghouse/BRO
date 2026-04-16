@@ -63,6 +63,7 @@ class WalletDoctrineBase(ABC):
         self._expected_nonce_authority = str(self._wallet_cfg.nonce_authority)
         self._halt_on_reconcile_mismatch = bool(self._wallet_cfg.halt_on_reconcile_mismatch)
         self._reconcile_tolerance_usdc = float(self._wallet_cfg.reconcile_tolerance_usdc)
+        self._reservation_mismatch_tolerance_usdc = float(self._wallet_cfg.reservation_mismatch_tolerance_usdc)
         self._approval_spender_targets = tuple(self._wallet_cfg.approval_spender_targets)
         self._wallet_chain = str(self._wallet_cfg.chain)
         self._gas_asset_symbol = str(self._wallet_cfg.gas_asset_symbol)
@@ -167,6 +168,10 @@ class WalletDoctrineBase(ABC):
         self._startup_authority_ready = False
         self._authoritative_refresh_completed = False
         self._authority_status_class = "bootstrap_non_authoritative"
+        self._reservation_mismatch_candidate = False
+        self._reservation_mismatch_delta_usdc = 0.0
+        self._reservation_mismatch_detail = ""
+        self._last_emitted_reservation_mismatch_delta_usdc = 0.0
 
     def register_nonce_authority(self, authority_tag: str) -> None:
         self._nonce_authority_registered = str(authority_tag or "").strip().lower()
@@ -225,8 +230,41 @@ class WalletDoctrineBase(ABC):
             # Wallet authority must remain functional even if telemetry emission fails.
             return
 
+    def _evaluate_reservation_mismatch(self, *, context: str) -> None:
+        canonical_locked = float(self._locked_usdc_total())
+        exposed_locked = float(getattr(self._wallet_snapshot, "locked_usdc", 0.0) or 0.0)
+        delta = float(exposed_locked - canonical_locked)
+        mismatch = bool(abs(delta) > self._reservation_mismatch_tolerance_usdc)
+        self._reservation_mismatch_candidate = mismatch
+        self._reservation_mismatch_delta_usdc = delta
+        self._reservation_mismatch_detail = (
+            f"exposed_locked_usdc={exposed_locked:.9f}:canonical_locked_usdc={canonical_locked:.9f}:"
+            f"delta={delta:.9f}:tolerance={self._reservation_mismatch_tolerance_usdc:.9f}"
+        )
+        if not mismatch:
+            return
+        should_emit = (
+            abs(delta - self._last_emitted_reservation_mismatch_delta_usdc) > self._reservation_mismatch_tolerance_usdc
+        )
+        if should_emit:
+            self._last_emitted_reservation_mismatch_delta_usdc = delta
+            self._emit(
+                "wallet_reservation_mismatch_candidate",
+                {
+                    "ts_utc": utc_iso(),
+                    "context": str(context or "unknown"),
+                    "defect_candidate": True,
+                    "exposed_locked_usdc": float(exposed_locked),
+                    "canonical_locked_usdc": float(canonical_locked),
+                    "mismatch_delta_usdc": float(delta),
+                    "mismatch_tolerance_usdc": float(self._reservation_mismatch_tolerance_usdc),
+                    "detail": str(self._reservation_mismatch_detail),
+                },
+            )
+
     def reconcile(self, *, pre_execution: bool = False) -> ReconciliationResult:
         result = self._refresh_truth(pre_execution=pre_execution)
+        self._evaluate_reservation_mismatch(context="pre_execution" if pre_execution else "post_execution")
         self._last_reconcile_ts_mono = time.monotonic()
         self._wallet_snapshot = dataclasses.replace(
             self._wallet_snapshot,
@@ -356,6 +394,9 @@ class WalletDoctrineBase(ABC):
             "pending_lock_usdc": reserve_snapshot["pending_lock_usdc"],
             "order_lock_usdc": reserve_snapshot["order_lock_usdc"],
             "locked_usdc": reserve_snapshot["locked_usdc"],
+            "reservation_mismatch_candidate": bool(self._reservation_mismatch_candidate),
+            "reservation_mismatch_delta_usdc": float(self._reservation_mismatch_delta_usdc),
+            "reservation_mismatch_detail": str(self._reservation_mismatch_detail),
             "net_usdc_outflow": self._net_usdc_outflow,
             "deployable_usdc": self._deployable_usdc(),
             "min_pol_gas_reserve": self._min_pol_gas_reserve,

@@ -265,6 +265,11 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertFalse(bool(wallet.get("canonical_live_nonce_available")))
             self.assertFalse(bool(wallet.get("canonical_live_pending_wallet_tx_available")))
             self.assertTrue(isinstance(wallet.get("live_truth_gap_reasons"), list))
+            self.assertIn("reservation_mismatch_candidate", wallet)
+            self.assertIn("reservation_mismatch_delta_usdc", wallet)
+            self.assertIn("reservation_mismatch_detail", wallet)
+            self.assertFalse(bool(wallet.get("reservation_mismatch_candidate")))
+            self.assertAlmostEqual(float(wallet.get("reservation_mismatch_delta_usdc") or 0.0), 0.0, places=9)
 
     def test_wallet_authority_legacy_fallback_is_non_authoritative(self):
         with tempfile.TemporaryDirectory() as td:

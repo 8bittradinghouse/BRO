@@ -1,3 +1,4 @@
+import dataclasses
 import unittest
 from unittest import mock
 
@@ -606,6 +607,46 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertEqual(float(status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
         self.assertEqual(float(status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
         self.assertEqual(float(status.get("locked_usdc", 0.0) or 0.0), 0.0)
+
+    def test_wallet_reservation_mismatch_invariant_surfaces_defect_candidate(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+                "reservation_mismatch_tolerance_usdc": 1e-6,
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        emitted: list[tuple[str, dict]] = []
+        wallet.register_event_logger(lambda event_type, payload: emitted.append((str(event_type), dict(payload))))
+        real_refresh = wallet._refresh_truth
+
+        def _patched_refresh(*, pre_execution: bool = False) -> ReconciliationResult:
+            result = real_refresh(pre_execution=pre_execution)
+            wallet._wallet_snapshot = dataclasses.replace(  # pylint: disable=protected-access
+                wallet._wallet_snapshot,  # pylint: disable=protected-access
+                locked_usdc=float(wallet._wallet_snapshot.locked_usdc) + 2.5,  # pylint: disable=protected-access
+            )
+            return result
+
+        with mock.patch.object(wallet, "_refresh_truth", side_effect=_patched_refresh):
+            result = wallet.reconcile(pre_execution=True)
+        self.assertTrue(result.healthy)
+        status = wallet.status()
+        self.assertTrue(bool(status.get("reservation_mismatch_candidate", False)))
+        self.assertAlmostEqual(float(status.get("reservation_mismatch_delta_usdc", 0.0) or 0.0), 2.5, places=9)
+        self.assertIn("exposed_locked_usdc=", str(status.get("reservation_mismatch_detail") or ""))
+
+        contract = wallet.status_contract()
+        self.assertTrue(bool(contract.get("reservation_mismatch_candidate", False)))
+        self.assertAlmostEqual(float(contract.get("reservation_mismatch_delta_usdc", 0.0) or 0.0), 2.5, places=9)
+        mismatch_events = [payload for event_type, payload in emitted if event_type == "wallet_reservation_mismatch_candidate"]
+        self.assertTrue(mismatch_events)
+        self.assertTrue(bool(mismatch_events[-1].get("defect_candidate", False)))
 
     def test_wallet_reservations_orphan_lock_invariant_idempotent_and_non_negative(self) -> None:
         reservations = WalletReservations()

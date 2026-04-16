@@ -843,6 +843,9 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
                 "canonical_live_nonce_available": False,
                 "canonical_live_pending_wallet_tx_available": False,
                 "live_truth_gap_reasons": ["legacy_wallet_contract_fallback_reconstructed_surface"],
+                "reservation_mismatch_candidate": False,
+                "reservation_mismatch_delta_usdc": 0.0,
+                "reservation_mismatch_detail": "legacy_wallet_contract_fallback_reconstructed_surface",
             }
             contract_surface_source = "legacy_reconstructed_wallet_surface"
             fallback_used = True
@@ -862,6 +865,9 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
             latest_contract.get("canonical_live_pending_wallet_tx_available", False)
         ),
         "live_truth_gap_reasons": list(latest_contract.get("live_truth_gap_reasons") or []),
+        "reservation_mismatch_candidate": bool(latest_contract.get("reservation_mismatch_candidate", False)),
+        "reservation_mismatch_delta_usdc": _safe_float(latest_contract.get("reservation_mismatch_delta_usdc")),
+        "reservation_mismatch_detail": str(latest_contract.get("reservation_mismatch_detail") or ""),
         "bootstrap_non_authoritative": bool(
             str(latest_contract.get("authority_status_class") or "").strip().lower() == "bootstrap_non_authoritative"
         ),
