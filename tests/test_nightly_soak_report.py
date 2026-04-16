@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.nightly_soak_report import build_report
+from scripts.nightly_soak_report import build_report, render_human_summary
 
 
 class NightlySoakReportTests(unittest.TestCase):
@@ -313,6 +313,68 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertFalse(bool(wallet.get("canonical_live_pending_wallet_tx_available")))
             gaps = wallet.get("live_truth_gap_reasons") or []
             self.assertTrue(any("legacy_wallet_contract_fallback_reconstructed_surface" in str(x) for x in gaps))
+            self.assertFalse(bool(wallet.get("reservation_mismatch_candidate")))
+            self.assertAlmostEqual(float(wallet.get("reservation_mismatch_delta_usdc") or 0.0), 0.0, places=9)
+            self.assertIn("legacy_wallet_contract_fallback_reconstructed_surface", str(wallet.get("reservation_mismatch_detail") or ""))
+
+    def test_build_report_exposes_valuation_truth_and_horizon_split(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {"event_type": "book_top", "token_id": "t1", "midpoint": 0.50, "ts_utc": "2026-01-01T00:00:00Z"},
+                {
+                    "event_type": "fill",
+                    "order_id": "o1",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.49,
+                    "size": 1.0,
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                },
+                {"event_type": "book_top", "token_id": "t1", "midpoint": 0.47, "ts_utc": "2026-01-01T00:00:04Z"},
+            ]
+            status = [
+                {"gauge.open_orders": 1, "valuation_degraded": False, "valuation_hard_degraded": False},
+                {
+                    "gauge.open_orders": 1,
+                    "valuation_degraded": True,
+                    "valuation_hard_degraded": True,
+                    "pnl_degraded": True,
+                    "loss_guard_degraded": True,
+                    "valuation_degraded_reasons": ["missing_mid:t1"],
+                    "valuation_mid_source_counts": {"hard_degraded": 1, "conservative_bound_hard_degraded": 1},
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            valuation_truth = report.get("valuation_truth", {})
+            self.assertEqual(float(valuation_truth.get("status_rows") or 0.0), 2.0)
+            self.assertEqual(float(valuation_truth.get("valuation_degraded_rows") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_rows") or 0.0), 1.0)
+            self.assertEqual(list(valuation_truth.get("latest_valuation_degraded_reasons") or []), ["missing_mid:t1"])
+            run_counts = dict(valuation_truth.get("valuation_source_counts_run") or {})
+            self.assertEqual(float(run_counts.get("hard_degraded") or 0.0), 1.0)
+            self.assertEqual(float(run_counts.get("conservative_bound_hard_degraded") or 0.0), 1.0)
+
+            immediate = report.get("execution_quality_immediate_midpoint", {})
+            horizon = report.get("execution_quality_horizon_outcome", {})
+            self.assertIn("immediate_capture", immediate)
+            self.assertIn("immediate_adverse_selection", immediate)
+            self.assertIn("immediate_capture_minus_adverse", immediate)
+            self.assertIn("horizon_outcome_horizon_sec", horizon)
+            self.assertIn("horizon_outcome_adverse_after_fill_count", horizon)
+            self.assertIn("horizon_outcome_adverse_after_fill_ratio", horizon)
+
+            summary = render_human_summary(report)
+            self.assertIn("execution_quality_immediate_midpoint=", summary)
+            self.assertIn("pickoff=horizon_sec=", summary)
+            self.assertIn("valuation_truth=", summary)
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:

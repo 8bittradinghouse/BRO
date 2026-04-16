@@ -489,11 +489,17 @@ def _fill_capture_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
         else:
             adverse += abs(delta)
         fills += 1
+    immediate_net = capture - adverse
     return {
         "fills_scored": float(fills),
+        "immediate_horizon_sec": 0.0,
+        "immediate_capture": capture,
+        "immediate_adverse_selection": adverse,
+        "immediate_capture_minus_adverse": immediate_net,
+        # Legacy aliases kept for compatibility; prefer immediate_* fields.
         "realized_capture": capture,
         "adverse_selection": adverse,
-        "capture_minus_adverse": capture - adverse,
+        "capture_minus_adverse": immediate_net,
     }
 
 
@@ -871,6 +877,84 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
         "bootstrap_non_authoritative": bool(
             str(latest_contract.get("authority_status_class") or "").strip().lower() == "bootstrap_non_authoritative"
         ),
+    }
+
+
+def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    degraded_rows = 0.0
+    hard_degraded_rows = 0.0
+    pnl_degraded_rows = 0.0
+    loss_guard_degraded_rows = 0.0
+    source_totals = {
+        "live_mid": 0.0,
+        "live_side_conservative_quote": 0.0,
+        "last_known_mid": 0.0,
+        "conservative_bound_hard_degraded": 0.0,
+        "hard_degraded": 0.0,
+    }
+    latest: Dict[str, Any] = {}
+    for row in status_rows:
+        if bool(row.get("valuation_degraded", False)):
+            degraded_rows += 1.0
+        if bool(row.get("valuation_hard_degraded", False)):
+            hard_degraded_rows += 1.0
+        if bool(row.get("pnl_degraded", False)):
+            pnl_degraded_rows += 1.0
+        if bool(row.get("loss_guard_degraded", False)):
+            loss_guard_degraded_rows += 1.0
+        row_counts_raw = row.get("valuation_mid_source_counts")
+        row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
+        live_mid = _safe_float(row_counts.get("live_mid", row_counts.get("fresh_live_mid")))
+        live_side = _safe_float(
+            row_counts.get(
+                "live_side_conservative_quote",
+                row_counts.get("fresh_live_side_conservative_quote"),
+            )
+        )
+        last_known = _safe_float(row_counts.get("last_known_mid", row_counts.get("fresh_last_known_mid")))
+        conservative = _safe_float(
+            row_counts.get(
+                "conservative_bound_hard_degraded",
+                row_counts.get("conservative_bound"),
+            )
+        )
+        hard = _safe_float(row_counts.get("hard_degraded", conservative))
+        source_totals["live_mid"] += live_mid
+        source_totals["live_side_conservative_quote"] += live_side
+        source_totals["last_known_mid"] += last_known
+        source_totals["conservative_bound_hard_degraded"] += conservative
+        source_totals["hard_degraded"] += hard
+    for row in reversed(status_rows):
+        if "valuation_degraded" in row:
+            latest = dict(row)
+            break
+    sample_count = float(len(status_rows))
+    return {
+        "status_rows": sample_count,
+        "valuation_degraded_rows": float(degraded_rows),
+        "valuation_hard_degraded_rows": float(hard_degraded_rows),
+        "pnl_degraded_rows": float(pnl_degraded_rows),
+        "loss_guard_degraded_rows": float(loss_guard_degraded_rows),
+        "valuation_degraded_ratio": (degraded_rows / sample_count) if sample_count > 0 else 0.0,
+        "valuation_hard_degraded_ratio": (hard_degraded_rows / sample_count) if sample_count > 0 else 0.0,
+        "latest_valuation_degraded": bool(latest.get("valuation_degraded", False)),
+        "latest_valuation_hard_degraded": bool(latest.get("valuation_hard_degraded", False)),
+        "latest_pnl_degraded": bool(latest.get("pnl_degraded", False)),
+        "latest_loss_guard_degraded": bool(latest.get("loss_guard_degraded", False)),
+        "latest_valuation_degraded_reasons": list(latest.get("valuation_degraded_reasons") or []),
+        "latest_valuation_mid_source_counts": dict(latest.get("valuation_mid_source_counts") or {}),
+        "valuation_source_counts_run": dict(source_totals),
+        "valuation_source_counts_latest": {
+            "live_mid": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("live_mid")),
+            "live_side_conservative_quote": _safe_float(
+                (latest.get("valuation_mid_source_counts") or {}).get("live_side_conservative_quote")
+            ),
+            "last_known_mid": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("last_known_mid")),
+            "conservative_bound_hard_degraded": _safe_float(
+                (latest.get("valuation_mid_source_counts") or {}).get("conservative_bound_hard_degraded")
+            ),
+            "hard_degraded": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("hard_degraded")),
+        },
     }
 
 
@@ -1282,6 +1366,11 @@ def _pickoff_indicator(events: List[Dict[str, Any]], *, horizon_sec: float = 3.0
 
     return {
         "fills_scored": scored,
+        "horizon_outcome_horizon_sec": float(horizon_sec),
+        "horizon_outcome_adverse_after_fill_count": adverse,
+        "horizon_outcome_adverse_after_fill_ratio": (adverse / scored) if scored > 0 else 0.0,
+        "horizon_outcome_adverse_threshold": float(adverse_threshold),
+        # Legacy aliases kept for compatibility; prefer horizon_outcome_* fields.
         "adverse_after_fill_count": adverse,
         "adverse_after_fill_ratio": (adverse / scored) if scored > 0 else 0.0,
         "horizon_sec": float(horizon_sec),
@@ -2158,6 +2247,7 @@ def build_report(
     taker_competitiveness = _taker_competitiveness_stats(events)
     risk_competitiveness = _risk_competitiveness_stats(events)
     wallet_authority = _wallet_authority_stats(status, events)
+    valuation_truth = _valuation_truth_stats(status)
     secondary_oracle_pyth = _secondary_oracle_pyth_stats(status)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
@@ -2243,6 +2333,7 @@ def build_report(
         "taker_competitiveness": taker_competitiveness,
         "risk_competitiveness": risk_competitiveness,
         "wallet_authority": wallet_authority,
+        "valuation_truth": valuation_truth,
         "secondary_oracle_pyth": secondary_oracle_pyth,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "harness_realism_grade": int(harness_realism_grade),
@@ -2282,6 +2373,8 @@ def build_report(
         "protection_path_trigger_chain": protection_path_trigger_chain,
         "latest_operating_mode_state": latest_operating_mode_state,
         "pickoff_indicator": pickoff,
+        "execution_quality_immediate_midpoint": capture_stats,
+        "execution_quality_horizon_outcome": pickoff,
         "market_data_source": market_data_source,
         "execution_quality": capture_stats,
         "taker_stage_net_breakout": taker_stage_net_breakout,
@@ -2300,6 +2393,9 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     market_data_source = report.get("market_data_source", {})
     mode_transitions = report.get("mode_transitions", [])
     eq = report.get("execution_quality", {})
+    eq_immediate = report.get("execution_quality_immediate_midpoint", eq)
+    eq_horizon = report.get("execution_quality_horizon_outcome", pickoff)
+    valuation_truth = report.get("valuation_truth", {}) if isinstance(report.get("valuation_truth"), dict) else {}
     taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
@@ -2441,9 +2537,10 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         ),
         (
             "pickoff="
-            + f"fills_scored={int(_safe_float(pickoff.get('fills_scored')))},"
-            + f"adverse_count={int(_safe_float(pickoff.get('adverse_after_fill_count')))},"
-            + f"adverse_ratio={_safe_float(pickoff.get('adverse_after_fill_ratio')):.4f}"
+            + f"horizon_sec={_safe_float(eq_horizon.get('horizon_outcome_horizon_sec', pickoff.get('horizon_sec'))):.2f},"
+            + f"fills_scored={int(_safe_float(eq_horizon.get('fills_scored', pickoff.get('fills_scored'))))},"
+            + f"horizon_adverse_count={int(_safe_float(eq_horizon.get('horizon_outcome_adverse_after_fill_count', pickoff.get('adverse_after_fill_count'))))},"
+            + f"horizon_adverse_ratio={_safe_float(eq_horizon.get('horizon_outcome_adverse_after_fill_ratio', pickoff.get('adverse_after_fill_ratio'))):.4f}"
         ),
         (
             "market_data_source="
@@ -2452,11 +2549,18 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"rest_ratio={_safe_float(market_data_source.get('book_updates_rest_ratio')):.4f}"
         ),
         (
-            "execution_quality="
-            + f"fills_scored={int(_safe_float(eq.get('fills_scored')))},"
-            + f"capture={_safe_float(eq.get('realized_capture')):.6f},"
-            + f"adverse={_safe_float(eq.get('adverse_selection')):.6f},"
-            + f"net={_safe_float(eq.get('capture_minus_adverse')):.6f}"
+            "execution_quality_immediate_midpoint="
+            + f"fills_scored={int(_safe_float(eq_immediate.get('fills_scored', eq.get('fills_scored'))))},"
+            + f"immediate_capture={_safe_float(eq_immediate.get('immediate_capture', eq.get('realized_capture'))):.6f},"
+            + f"immediate_adverse={_safe_float(eq_immediate.get('immediate_adverse_selection', eq.get('adverse_selection'))):.6f},"
+            + f"immediate_net={_safe_float(eq_immediate.get('immediate_capture_minus_adverse', eq.get('capture_minus_adverse'))):.6f}"
+        ),
+        (
+            "valuation_truth="
+            + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
+            + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
+            + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
+            + f"source_counts_run={json.dumps(valuation_truth.get('valuation_source_counts_run', {}), sort_keys=True)}"
         ),
         f"taker_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",
         f"runtime_classification={runtime_class_name or 'UNKNOWN'}",
