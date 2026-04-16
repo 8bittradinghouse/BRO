@@ -69,6 +69,43 @@ Required observability surfaces:
   - `reject_reason_distribution` (including `global_exposure_cap`)
   - global exposure utilization ratios + near-cap counters
 
+## PnL / Loss-Guard Degraded Valuation Semantics (Canonical)
+- Last-known midpoint reuse is freshness-bounded by:
+  - `risk.last_known_mid_max_age_sec` (default `6.0`)
+- One-sided conservative quote reuse is freshness-bounded by:
+  - `risk.one_sided_quote_max_age_sec` (default `6.0`)
+- Direct midpoint reuse is freshness-bounded by:
+  - `risk.max_book_age_sec`
+- Valuation source classes:
+  - `fresh_live_mid`
+  - `fresh_live_side_conservative_quote`
+  - `fresh_last_known_mid`
+  - `conservative_bound_hard_degraded`
+- `valuation_degraded=true` when any non-flat position token is valued from:
+  - `fresh_last_known_mid`
+  - `conservative_bound_hard_degraded`
+- `valuation_hard_degraded=true` when any non-flat position token is valued from:
+  - `conservative_bound_hard_degraded`
+- In hard-degraded mode:
+  - risk engine enters risk-reduction-only posture
+  - new risk-increasing submissions are rejected
+  - management/exit submissions are allowed only when they reduce exposure without crossing through flat
+- No implied auto-flatten behavior is introduced by degraded valuation mode.
+- Required truth surfaces:
+  - `valuation_degraded`
+  - `valuation_hard_degraded`
+  - `pnl_degraded`
+  - `loss_guard_degraded`
+  - `valuation_degraded_reasons`
+
+## Execution-Quality Semantic Split (Canonical Reporting)
+- Immediate midpoint-relative fill quality is reported under:
+  - `execution_quality_immediate_midpoint.*`
+- Horizon outcome quality is reported under:
+  - `execution_quality_horizon_outcome.*`
+- Legacy aliases (`execution_quality.*` and `pickoff_indicator.*`) remain compatibility-only.
+- Operators must not conflate immediate capture/adverse metrics with horizon outcome metrics.
+
 ## Wallet Authority Semantics (Canonical)
 - Wallet controller is canonical authority for capital buckets, approvals, nonce truth, reservations, and reconciliation.
 - Executor/strategy may request authorization; they may not infer deployable capital independently for final authorization.
@@ -118,6 +155,7 @@ Required wallet status contract fields:
 - `gas_balance`, `gas_reserve_min`, `gas_ok`
 - `stable_balance_total`, `protected_reserve`, `open_reserved`, `deployable_capital`
 - `approval_ok`, `nonce_ok`, `reconcile_ok`, `wallet_health_ok`, `wallet_health_reasons`
+- `reservation_mismatch_candidate`, `reservation_mismatch_delta_usdc`, `reservation_mismatch_detail`
 - `authority_status_class`, `order_capable_live`, `order_submit_eligible`
 - `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`
 - `canonical_live_nonce_source`, `canonical_live_nonce_detail`
