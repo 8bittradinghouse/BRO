@@ -351,6 +351,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_book_age_sec": 6.0,
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
+        "held_unpriceable_escalation_sec": 120.0,
         "max_book_future_skew_sec": 2.0,
         "allow_crossed_quotes": False,
         "max_total_loss": None,
@@ -1233,6 +1234,7 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.max_book_age_sec", cfg["risk"]["max_book_age_sec"])
     _require_positive("risk.one_sided_quote_max_age_sec", cfg["risk"]["one_sided_quote_max_age_sec"], allow_zero=True)
     _require_positive("risk.last_known_mid_max_age_sec", cfg["risk"]["last_known_mid_max_age_sec"], allow_zero=True)
+    _require_positive("risk.held_unpriceable_escalation_sec", cfg["risk"]["held_unpriceable_escalation_sec"], allow_zero=True)
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):

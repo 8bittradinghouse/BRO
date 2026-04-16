@@ -210,6 +210,12 @@ class ExecutionRunner:
             if configured_last_known_mid_age is not None
             else 6.0
         )
+        configured_held_unpriceable_escalation_sec = parse_float(risk_cfg.get("held_unpriceable_escalation_sec"))
+        self.held_unpriceable_escalation_sec = (
+            max(0.0, float(configured_held_unpriceable_escalation_sec))
+            if configured_held_unpriceable_escalation_sec is not None
+            else 120.0
+        )
         self._valuation_degraded = False
         self._valuation_hard_degraded = False
         self._pnl_degraded = False
@@ -221,7 +227,13 @@ class ExecutionRunner:
         self._held_unpriceable_token_ids: List[str] = []
         self._held_unpriceable_max_age_sec: float = 0.0
         self._held_unpriceable_age_by_token: Dict[str, float] = {}
+        self._held_unpriceable_escalation_active: bool = False
+        self._held_unpriceable_escalation_token_ids: List[str] = []
+        self._held_unpriceable_escalation_reasons: List[str] = []
+        self._held_unpriceable_escalation_max_age_sec: float = 0.0
+        self._held_unpriceable_operator_action: str = "none"
         self._last_valuation_event_signature: Optional[Tuple[Any, ...]] = None
+        self._last_held_unpriceable_escalation_signature: Optional[Tuple[Any, ...]] = None
         vol_cfg = self.cfg.get("strategy", {}).get("volatility", {})
         self.vol_tracker = RealizedVolTracker(float(vol_cfg.get("window_sec", 30.0)))
         self.prometheus = PrometheusExporter(self.cfg.get("metrics", {}))
@@ -1100,6 +1112,31 @@ class ExecutionRunner:
         held_unpriceable_max_age_sec = (
             max(held_unpriceable_age_by_token.values()) if held_unpriceable_age_by_token else 0.0
         )
+        escalation_threshold_sec = float(self.held_unpriceable_escalation_sec)
+        held_unpriceable_escalation_token_ids: List[str] = []
+        held_unpriceable_escalation_reasons: List[str] = []
+        if escalation_threshold_sec > 0.0:
+            held_unpriceable_escalation_token_ids = sorted(
+                token_id
+                for token_id, age_sec in held_unpriceable_age_by_token.items()
+                if float(age_sec) >= (escalation_threshold_sec - 1e-9)
+            )
+            for token_id in held_unpriceable_escalation_token_ids:
+                age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0))
+                held_unpriceable_escalation_reasons.append(
+                    f"persistent_held_unpriceable:{token_id}:age_sec={age_sec:.3f}>=threshold_sec={escalation_threshold_sec:.3f}"
+                )
+        held_unpriceable_escalation_active = bool(held_unpriceable_escalation_token_ids)
+        held_unpriceable_escalation_max_age_sec = (
+            max(float(held_unpriceable_age_by_token.get(token_id, 0.0)) for token_id in held_unpriceable_escalation_token_ids)
+            if held_unpriceable_escalation_token_ids
+            else 0.0
+        )
+        held_unpriceable_operator_action = (
+            "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable"
+            if held_unpriceable_escalation_active
+            else "none"
+        )
 
         source_counts = dict(collections.Counter(source_by_token.values()))
         summary_counts = {
@@ -1129,6 +1166,14 @@ class ExecutionRunner:
             "held_unpriceable_age_by_token": {
                 token_id: float(held_unpriceable_age_by_token[token_id]) for token_id in held_unpriceable_token_ids
             },
+            "held_unpriceable_escalation_active": bool(held_unpriceable_escalation_active),
+            "held_unpriceable_escalation_token_ids": list(held_unpriceable_escalation_token_ids),
+            "held_unpriceable_escalation_count": int(len(held_unpriceable_escalation_token_ids)),
+            "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
+            "held_unpriceable_escalation_max_age_sec": float(held_unpriceable_escalation_max_age_sec),
+            "held_unpriceable_escalation_threshold_sec": float(escalation_threshold_sec),
+            "held_unpriceable_defect_candidate": bool(held_unpriceable_escalation_active),
+            "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
         }
 
     def _apply_valuation_controls(self, *, books: Dict[str, Any], phase: str) -> Dict[str, Any]:
@@ -1147,6 +1192,25 @@ class ExecutionRunner:
             for token_id, age_sec in dict(valuation_state.get("held_unpriceable_age_by_token", {})).items()
             if str(token_id)
         }
+        held_unpriceable_escalation_active = bool(valuation_state.get("held_unpriceable_escalation_active", False))
+        held_unpriceable_escalation_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("held_unpriceable_escalation_token_ids", []))
+            if str(token_id)
+        ]
+        held_unpriceable_escalation_reasons = [
+            str(reason).strip()
+            for reason in list(valuation_state.get("held_unpriceable_escalation_reasons", []))
+            if str(reason).strip()
+        ]
+        held_unpriceable_escalation_max_age_sec = float(
+            valuation_state.get("held_unpriceable_escalation_max_age_sec", 0.0) or 0.0
+        )
+        held_unpriceable_escalation_threshold_sec = float(
+            valuation_state.get("held_unpriceable_escalation_threshold_sec", 0.0) or 0.0
+        )
+        held_unpriceable_defect_candidate = bool(valuation_state.get("held_unpriceable_defect_candidate", False))
+        held_unpriceable_operator_action = str(valuation_state.get("held_unpriceable_operator_action") or "none")
 
         self._valuation_degraded = degraded
         self._valuation_hard_degraded = hard_degraded
@@ -1161,6 +1225,11 @@ class ExecutionRunner:
         self._held_unpriceable_token_ids = list(held_unpriceable_token_ids)
         self._held_unpriceable_max_age_sec = float(held_unpriceable_max_age_sec)
         self._held_unpriceable_age_by_token = dict(held_unpriceable_age_by_token)
+        self._held_unpriceable_escalation_active = bool(held_unpriceable_escalation_active)
+        self._held_unpriceable_escalation_token_ids = list(held_unpriceable_escalation_token_ids)
+        self._held_unpriceable_escalation_reasons = list(held_unpriceable_escalation_reasons)
+        self._held_unpriceable_escalation_max_age_sec = float(held_unpriceable_escalation_max_age_sec)
+        self._held_unpriceable_operator_action = str(held_unpriceable_operator_action)
 
         self.risk.set_valuation_degraded_state(
             hard_degraded=hard_degraded,
@@ -1173,6 +1242,18 @@ class ExecutionRunner:
         self.telemetry.set_gauge("loss_guard_degraded", 1.0 if degraded else 0.0)
         self.telemetry.set_gauge("valuation_held_unpriceable_count", float(len(held_unpriceable_token_ids)))
         self.telemetry.set_gauge("valuation_held_unpriceable_max_age_sec", float(held_unpriceable_max_age_sec))
+        self.telemetry.set_gauge(
+            "valuation_held_unpriceable_escalation_active",
+            1.0 if held_unpriceable_escalation_active else 0.0,
+        )
+        self.telemetry.set_gauge(
+            "valuation_held_unpriceable_escalation_count",
+            float(len(held_unpriceable_escalation_token_ids)),
+        )
+        self.telemetry.set_gauge(
+            "valuation_held_unpriceable_escalation_max_age_sec",
+            float(held_unpriceable_escalation_max_age_sec),
+        )
 
         signature = (
             bool(degraded),
@@ -1180,6 +1261,8 @@ class ExecutionRunner:
             tuple(degraded_reasons),
             tuple(sorted(self._valuation_mid_source_counts.items(), key=lambda item: item[0])),
             tuple(held_unpriceable_token_ids),
+            bool(held_unpriceable_escalation_active),
+            tuple(held_unpriceable_escalation_token_ids),
         )
         if signature != self._last_valuation_event_signature:
             self._last_valuation_event_signature = signature
@@ -1201,9 +1284,44 @@ class ExecutionRunner:
                     "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
                     "held_unpriceable_max_age_sec": float(held_unpriceable_max_age_sec),
                     "held_unpriceable_age_by_token": dict(held_unpriceable_age_by_token),
+                    "held_unpriceable_escalation_active": bool(held_unpriceable_escalation_active),
+                    "held_unpriceable_escalation_token_count": int(len(held_unpriceable_escalation_token_ids)),
+                    "held_unpriceable_escalation_token_ids": list(held_unpriceable_escalation_token_ids),
+                    "held_unpriceable_escalation_max_age_sec": float(held_unpriceable_escalation_max_age_sec),
+                    "held_unpriceable_escalation_threshold_sec": float(held_unpriceable_escalation_threshold_sec),
+                    "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
+                    "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
+                    "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
                     "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
+                },
+            )
+        escalation_signature = (
+            bool(held_unpriceable_escalation_active),
+            tuple(held_unpriceable_escalation_token_ids),
+            tuple(held_unpriceable_escalation_reasons),
+            float(held_unpriceable_escalation_max_age_sec),
+            float(held_unpriceable_escalation_threshold_sec),
+            bool(held_unpriceable_defect_candidate),
+            str(held_unpriceable_operator_action),
+        )
+        if escalation_signature != self._last_held_unpriceable_escalation_signature:
+            self._last_held_unpriceable_escalation_signature = escalation_signature
+            self.events.log_event(
+                "valuation_held_unpriceable_escalation",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "active": bool(held_unpriceable_escalation_active),
+                    "defect_candidate": bool(held_unpriceable_defect_candidate),
+                    "token_count": int(len(held_unpriceable_escalation_token_ids)),
+                    "token_ids": list(held_unpriceable_escalation_token_ids),
+                    "reasons": list(held_unpriceable_escalation_reasons),
+                    "max_age_sec": float(held_unpriceable_escalation_max_age_sec),
+                    "threshold_sec": float(held_unpriceable_escalation_threshold_sec),
+                    "operator_action": str(held_unpriceable_operator_action),
                 },
             )
         return valuation_state
@@ -4974,9 +5092,18 @@ class ExecutionRunner:
                         "held_unpriceable_token_ids": list(self._held_unpriceable_token_ids),
                         "held_unpriceable_max_age_sec": float(self._held_unpriceable_max_age_sec),
                         "held_unpriceable_age_by_token": dict(self._held_unpriceable_age_by_token),
+                        "held_unpriceable_escalation_active": bool(self._held_unpriceable_escalation_active),
+                        "held_unpriceable_escalation_token_count": int(len(self._held_unpriceable_escalation_token_ids)),
+                        "held_unpriceable_escalation_token_ids": list(self._held_unpriceable_escalation_token_ids),
+                        "held_unpriceable_escalation_reasons": list(self._held_unpriceable_escalation_reasons),
+                        "held_unpriceable_escalation_max_age_sec": float(self._held_unpriceable_escalation_max_age_sec),
+                        "held_unpriceable_escalation_threshold_sec": float(self.held_unpriceable_escalation_sec),
+                        "held_unpriceable_operator_action": str(self._held_unpriceable_operator_action),
+                        "held_unpriceable_defect_candidate": bool(self._held_unpriceable_escalation_active),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
+                        "valuation_held_unpriceable_escalation_sec": float(self.held_unpriceable_escalation_sec),
                         "sniper_multi_oracle_cap_usd": (
                             float(self.sniper_taker_multi_oracle_cap_usd)
                             if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))

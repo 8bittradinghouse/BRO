@@ -2948,13 +2948,16 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["risk"]["max_book_age_sec"] = 6.0
             cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
             cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["risk"]["held_unpriceable_escalation_sec"] = 0.5
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
             runner = ExecutionRunner(cfg)
             try:
                 runner.risk.positions["t1"] = Position(token_id="t1", net_shares=3.0)
-                hard_state = runner._build_valuation_state(books={})
+                with mock.patch("executor.time.monotonic", side_effect=[100.0, 100.8, 101.0]):
+                    hard_state = runner._build_valuation_state(books={})
+                    escalated_state = runner._build_valuation_state(books={})
                 self.assertEqual(
                     str((hard_state.get("source_by_token") or {}).get("t1") or ""),
                     "conservative_bound_hard_degraded",
@@ -2963,6 +2966,23 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertEqual(int(hard_state.get("held_unpriceable_count") or 0), 1)
                 self.assertGreaterEqual(float(hard_state.get("held_unpriceable_max_age_sec", -1.0)), 0.0)
                 self.assertIn("t1", dict(hard_state.get("held_unpriceable_age_by_token") or {}))
+                self.assertFalse(bool(hard_state.get("held_unpriceable_escalation_active", False)))
+
+                self.assertTrue(bool(escalated_state.get("held_unpriceable_escalation_active", False)))
+                self.assertEqual(list(escalated_state.get("held_unpriceable_escalation_token_ids") or []), ["t1"])
+                self.assertEqual(int(escalated_state.get("held_unpriceable_escalation_count") or 0), 1)
+                self.assertTrue(bool(escalated_state.get("held_unpriceable_defect_candidate", False)))
+                self.assertAlmostEqual(
+                    float(escalated_state.get("held_unpriceable_escalation_max_age_sec") or 0.0),
+                    0.8,
+                    places=6,
+                )
+                self.assertEqual(
+                    str(escalated_state.get("held_unpriceable_operator_action") or ""),
+                    "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable",
+                )
+                escalation_reasons = [str(x) for x in list(escalated_state.get("held_unpriceable_escalation_reasons") or [])]
+                self.assertTrue(any("persistent_held_unpriceable:t1:" in reason for reason in escalation_reasons))
 
                 priceable_top = BookTop(
                     token_id="t1",
@@ -2980,6 +3000,9 @@ class ExecutionStackTests(unittest.TestCase):
                 )
                 self.assertEqual(int(recovered_state.get("held_unpriceable_count") or 0), 0)
                 self.assertEqual(list(recovered_state.get("held_unpriceable_token_ids") or []), [])
+                self.assertFalse(bool(recovered_state.get("held_unpriceable_escalation_active", False)))
+                self.assertEqual(list(recovered_state.get("held_unpriceable_escalation_token_ids") or []), [])
+                self.assertEqual(str(recovered_state.get("held_unpriceable_operator_action") or ""), "none")
             finally:
                 runner.events.close()
                 runner.book_client.close()

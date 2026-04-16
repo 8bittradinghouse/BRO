@@ -346,6 +346,17 @@ class NightlySoakReportTests(unittest.TestCase):
                     "loss_guard_degraded": True,
                     "valuation_degraded_reasons": ["missing_mid:t1"],
                     "valuation_mid_source_counts": {"hard_degraded": 1, "conservative_bound_hard_degraded": 1},
+                    "held_unpriceable_escalation_active": True,
+                    "held_unpriceable_escalation_token_ids": ["t1"],
+                    "held_unpriceable_escalation_reasons": [
+                        "persistent_held_unpriceable:t1:age_sec=130.000>=threshold_sec=120.000"
+                    ],
+                    "held_unpriceable_escalation_max_age_sec": 130.0,
+                    "held_unpriceable_escalation_threshold_sec": 120.0,
+                    "held_unpriceable_defect_candidate": True,
+                    "held_unpriceable_operator_action": (
+                        "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable"
+                    ),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -357,7 +368,23 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(valuation_truth.get("status_rows") or 0.0), 2.0)
             self.assertEqual(float(valuation_truth.get("valuation_degraded_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_rows") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_escalation_rows") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_defect_candidate_rows") or 0.0), 1.0)
             self.assertEqual(list(valuation_truth.get("latest_valuation_degraded_reasons") or []), ["missing_mid:t1"])
+            self.assertTrue(bool(valuation_truth.get("latest_held_unpriceable_escalation_active")))
+            self.assertTrue(bool(valuation_truth.get("latest_held_unpriceable_defect_candidate")))
+            self.assertEqual(
+                list(valuation_truth.get("latest_held_unpriceable_escalation_token_ids") or []),
+                ["t1"],
+            )
+            self.assertIn(
+                "persistent_held_unpriceable:t1:",
+                " ".join(str(x) for x in list(valuation_truth.get("latest_held_unpriceable_escalation_reasons") or [])),
+            )
+            self.assertIn(
+                "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable",
+                str(valuation_truth.get("latest_held_unpriceable_operator_action") or ""),
+            )
             run_counts = dict(valuation_truth.get("valuation_source_counts_run") or {})
             self.assertEqual(float(run_counts.get("hard_degraded") or 0.0), 1.0)
             self.assertEqual(float(run_counts.get("conservative_bound_hard_degraded") or 0.0), 1.0)
@@ -375,6 +402,8 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("execution_quality_immediate_midpoint=", summary)
             self.assertIn("pickoff=horizon_sec=", summary)
             self.assertIn("valuation_truth=", summary)
+            self.assertIn("held_unpriceable_escalation_ratio=", summary)
+            self.assertIn("latest_operator_action=", summary)
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:

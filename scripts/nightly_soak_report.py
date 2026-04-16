@@ -885,6 +885,8 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     hard_degraded_rows = 0.0
     pnl_degraded_rows = 0.0
     loss_guard_degraded_rows = 0.0
+    held_unpriceable_escalation_rows = 0.0
+    held_unpriceable_defect_candidate_rows = 0.0
     source_totals = {
         "live_mid": 0.0,
         "live_side_conservative_quote": 0.0,
@@ -902,6 +904,10 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             pnl_degraded_rows += 1.0
         if bool(row.get("loss_guard_degraded", False)):
             loss_guard_degraded_rows += 1.0
+        if bool(row.get("held_unpriceable_escalation_active", False)):
+            held_unpriceable_escalation_rows += 1.0
+        if bool(row.get("held_unpriceable_defect_candidate", False)):
+            held_unpriceable_defect_candidate_rows += 1.0
         row_counts_raw = row.get("valuation_mid_source_counts")
         row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
         live_mid = _safe_float(row_counts.get("live_mid", row_counts.get("fresh_live_mid")))
@@ -935,14 +941,37 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "valuation_hard_degraded_rows": float(hard_degraded_rows),
         "pnl_degraded_rows": float(pnl_degraded_rows),
         "loss_guard_degraded_rows": float(loss_guard_degraded_rows),
+        "held_unpriceable_escalation_rows": float(held_unpriceable_escalation_rows),
+        "held_unpriceable_defect_candidate_rows": float(held_unpriceable_defect_candidate_rows),
         "valuation_degraded_ratio": (degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "valuation_hard_degraded_ratio": (hard_degraded_rows / sample_count) if sample_count > 0 else 0.0,
+        "held_unpriceable_escalation_ratio": (
+            held_unpriceable_escalation_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
+        "held_unpriceable_defect_candidate_ratio": (
+            held_unpriceable_defect_candidate_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
         "latest_valuation_degraded": bool(latest.get("valuation_degraded", False)),
         "latest_valuation_hard_degraded": bool(latest.get("valuation_hard_degraded", False)),
         "latest_pnl_degraded": bool(latest.get("pnl_degraded", False)),
         "latest_loss_guard_degraded": bool(latest.get("loss_guard_degraded", False)),
         "latest_valuation_degraded_reasons": list(latest.get("valuation_degraded_reasons") or []),
         "latest_valuation_mid_source_counts": dict(latest.get("valuation_mid_source_counts") or {}),
+        "latest_held_unpriceable_escalation_active": bool(latest.get("held_unpriceable_escalation_active", False)),
+        "latest_held_unpriceable_defect_candidate": bool(latest.get("held_unpriceable_defect_candidate", False)),
+        "latest_held_unpriceable_escalation_token_ids": list(latest.get("held_unpriceable_escalation_token_ids") or []),
+        "latest_held_unpriceable_escalation_reasons": list(latest.get("held_unpriceable_escalation_reasons") or []),
+        "latest_held_unpriceable_operator_action": str(latest.get("held_unpriceable_operator_action") or ""),
+        "latest_held_unpriceable_escalation_threshold_sec": _safe_float(
+            latest.get("held_unpriceable_escalation_threshold_sec")
+        ),
+        "latest_held_unpriceable_escalation_max_age_sec": _safe_float(
+            latest.get("held_unpriceable_escalation_max_age_sec")
+        ),
         "valuation_source_counts_run": dict(source_totals),
         "valuation_source_counts_latest": {
             "live_mid": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("live_mid")),
@@ -2559,7 +2588,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             "valuation_truth="
             + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
             + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
+            + f"held_unpriceable_escalation_ratio={_safe_float(valuation_truth.get('held_unpriceable_escalation_ratio')):.4f},"
+            + f"held_unpriceable_defect_candidate_ratio={_safe_float(valuation_truth.get('held_unpriceable_defect_candidate_ratio')):.4f},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
+            + f"latest_escalation_reasons={json.dumps(valuation_truth.get('latest_held_unpriceable_escalation_reasons', []), sort_keys=True)},"
+            + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"
             + f"source_counts_run={json.dumps(valuation_truth.get('valuation_source_counts_run', {}), sort_keys=True)}"
         ),
         f"taker_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",
