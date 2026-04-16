@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "e0895dec237371fb2fb9cb9785c802aff2f0b32242cc27cb1d9ba6dd361a4dd4"
+  paper_expected_config_fingerprint_sha256: "8976361e7283a56e84f1feadc2bbe2f8d138320332448f4df611383dce1d1bb7"
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.

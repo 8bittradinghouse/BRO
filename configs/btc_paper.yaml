@@ -33,7 +33,7 @@ runtime:
   guard_stop_file: "../logs_exec_btc_paper/guard_stop.txt"
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "78c9fb2bf86a45c9532ed2e4a4875ae1710a47b25ea38eb4954a83da4454f574"
+  paper_expected_config_fingerprint_sha256: "e38de9fac6579b326b516edc02bb8817eec9f5f97b0177f4403119cc72265e00"
 
 ramp:
   reconcile_status_path: "../logs_exec_btc_paper/reconcile_latest.json"
