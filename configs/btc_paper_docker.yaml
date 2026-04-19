@@ -40,7 +40,7 @@ runtime:
   paper_background_fill_ratio: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "210afcabaf570e7e4a0660e56480dbba3dd6f7c0cab06bd0cf2bcfa3f9350590"
+  paper_expected_config_fingerprint_sha256: "753af8c50e5ad77066625364b71b2596d37d5f8530cc132bf28355ae375e08f7"
 
 doctrine:
   mode: canonical

@@ -60,7 +60,19 @@ class ExecutionStackTests(unittest.TestCase):
             45.0,
             places=9,
         )
+        self.assertAlmostEqual(float(runtime.get("held_preexpiry_reduce_only_sec") or 0.0), 90.0, places=9)
         self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 45.0, places=9)
+        execution_quality = dict(strategy.get("execution_quality") or {})
+        self.assertAlmostEqual(
+            float(execution_quality.get("reduce_only_recovery_min_expected_fill_prob_floor") or 0.0),
+            0.02,
+            places=9,
+        )
+        self.assertAlmostEqual(
+            float(execution_quality.get("reduce_only_recovery_max_queue_ahead_size_multiplier") or 0.0),
+            2.0,
+            places=9,
+        )
         self.assertLess(
             float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0),
             float(maker_comp.get("timing_gate_max_sec_to_expiry") or 0.0),
@@ -665,6 +677,163 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertIsNotNone(placed)
             self.assertIn(reason, (None, ""))
             self.assertAlmostEqual(float(placed.size), 1.25, places=9)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_manager_recovery_quality_relaxation_applies_only_for_true_reduce_only(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = True
+            strategy_cfg["execution_quality"]["max_queue_ahead_size"] = 100.0
+            strategy_cfg["execution_quality"]["min_expected_fill_prob"] = 0.06
+            strategy_cfg["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"] = 2.0
+            strategy_cfg["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"] = 0.02
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1", net_shares=5.0)}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100.0,
+                best_ask_price=0.55,
+                best_ask_size=150.0,
+            )
+
+            reduce_only_intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.56,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="reduce_only_recovery",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            placed_recovery, reject_recovery = manager._place_order(  # pylint: disable=protected-access
+                reduce_only_intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context={
+                    "submission_lane": "maker",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "reduce_only_recovery_active": True,
+                    "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                    "reduce_only_size_cap_shares": 2.0,
+                },
+            )
+            self.assertIsNotNone(placed_recovery)
+            self.assertIn(reject_recovery, (None, ""))
+
+            non_recovery_intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.56,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="maker_quote",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            placed_non_recovery, reject_non_recovery = manager._place_order(  # pylint: disable=protected-access
+                non_recovery_intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context={
+                    "submission_lane": "maker",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                },
+            )
+            self.assertIsNone(placed_non_recovery)
+            self.assertEqual(str(reject_non_recovery), "quote_quality_skip_queue_depth")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_quote_quality_skip_emits_effective_thresholds(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = True
+            strategy_cfg["execution_quality"]["max_queue_ahead_size"] = 100.0
+            strategy_cfg["execution_quality"]["min_expected_fill_prob"] = 0.06
+            strategy_cfg["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"] = 2.0
+            strategy_cfg["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"] = 0.02
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1", net_shares=0.0)}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100.0,
+                best_ask_price=0.55,
+                best_ask_size=150.0,
+            )
+            intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.56,
+                size=2.0,
+                tif="GTC",
+                post_only=True,
+                reason="maker_quote",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            placed, reject_reason = manager._place_order(  # pylint: disable=protected-access
+                intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            )
+            self.assertIsNone(placed)
+            self.assertEqual(str(reject_reason), "quote_quality_skip_queue_depth")
+            events.close()
+            events = None
+            quote_skip_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "quote_quality_skip":
+                        quote_skip_rows.append(payload)
+            self.assertTrue(quote_skip_rows)
+            row = quote_skip_rows[-1]
+            self.assertEqual(str(row.get("skip_reason") or ""), "queue_ahead_too_deep")
+            self.assertAlmostEqual(float(row.get("default_max_queue_ahead_size") or 0.0), 100.0, places=9)
+            self.assertAlmostEqual(float(row.get("effective_max_queue_ahead_size") or 0.0), 100.0, places=9)
+            self.assertAlmostEqual(float(row.get("default_min_expected_fill_prob") or 0.0), 0.06, places=9)
+            self.assertAlmostEqual(float(row.get("effective_min_expected_fill_prob") or 0.0), 0.06, places=9)
         finally:
             if events is not None:
                 events.close()
@@ -2943,6 +3112,51 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_valuation_ladder_supplies_mid_before_pnl_and_loss_checks(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=3.0)
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.43,
+                    best_bid_size=50.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                valuation_state = runner._apply_valuation_controls(  # pylint: disable=protected-access
+                    books={"t1": top},
+                    phase="unit_test",
+                )
+                mids = dict(valuation_state.get("mid_by_token") or {})
+                self.assertIn("t1", mids)
+                self.assertIsInstance(mids.get("t1"), float)
+                total_pnl, pnl_by_token = runner.risk.mark_to_market(mids)
+                self.assertIn("t1", pnl_by_token)
+                self.assertIsInstance(float(total_pnl), float)
+                loss_decision = runner.risk.evaluate_loss_limits(mids)
+                self.assertTrue(bool(loss_decision.allowed))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_valuation_state_rejects_malformed_one_sided_quotes(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -3092,6 +3306,56 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertFalse(bool(recovered_state.get("held_unpriceable_escalation_active", False)))
                 self.assertEqual(list(recovered_state.get("held_unpriceable_escalation_token_ids") or []), [])
                 self.assertEqual(str(recovered_state.get("held_unpriceable_operator_action") or ""), "none")
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_apply_valuation_controls_tracks_hard_degraded_and_unpriceable_transitions(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["max_book_age_sec"] = 6.0
+            cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
+            cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=2.0)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    hard_state = runner._apply_valuation_controls(books={}, phase="test_hard")  # pylint: disable=protected-access
+                self.assertTrue(bool(hard_state.get("valuation_hard_degraded", False)))
+                self.assertEqual(runner._valuation_hard_degraded_enter_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._valuation_hard_degraded_clear_count, 0)  # pylint: disable=protected-access
+                self.assertEqual(runner._held_unpriceable_started_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._held_unpriceable_recovered_count, 0)  # pylint: disable=protected-access
+
+                recovery_top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.46,
+                    best_bid_size=80.0,
+                    best_ask_price=0.54,
+                    best_ask_size=80.0,
+                )
+                with mock.patch("executor.time.monotonic", return_value=101.0):
+                    recovered_state = runner._apply_valuation_controls(  # pylint: disable=protected-access
+                        books={"t1": recovery_top},
+                        phase="test_recovered",
+                    )
+                self.assertFalse(bool(recovered_state.get("valuation_hard_degraded", False)))
+                self.assertEqual(runner._valuation_hard_degraded_enter_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._valuation_hard_degraded_clear_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._held_unpriceable_started_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._held_unpriceable_recovered_count, 1)  # pylint: disable=protected-access
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -3788,6 +4052,206 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_sniper_taker_forces_reduce_only_side_in_recovery_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}  # positive edge would normally pick BUY
+                submitted_sides: list[str] = []
+
+                def _fake_place_taker_order_with_outcome(**kwargs):
+                    submitted_sides.append(str(kwargs.get("side") or ""))
+                    context = kwargs.get("competitiveness_context") or {}
+                    self.assertTrue(bool(context.get("reduce_only_recovery_active")))
+                    self.assertEqual(str(context.get("reduce_only_side") or ""), "SELL")
+                    self.assertAlmostEqual(float(context.get("reduce_only_size_cap_shares") or 0.0), 2.0, places=9)
+                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t1"}
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=_fake_place_taker_order_with_outcome,
+                ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                    )
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["SELL"])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_sniper_taker_allows_recovery_submit_with_one_sided_touch_and_missing_midpoint(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.5  # should be bypassed in recovery mode
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,  # SELL reduce-only touch is available
+                    best_bid_size=100.0,
+                    best_ask_price=None,  # midpoint unavailable
+                    best_ask_size=None,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                submitted_sides: list[str] = []
+
+                def _fake_place_taker_order_with_outcome(**kwargs):
+                    submitted_sides.append(str(kwargs.get("side") or ""))
+                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t1"}
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=_fake_place_taker_order_with_outcome,
+                ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                    )
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["SELL"])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_sniper_taker_blocks_when_reduce_only_touch_price_is_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=None,  # required for SELL reduce-only path
+                    best_bid_size=None,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval), mock.patch(
+                    "executor.validate_edge_inputs",
+                    return_value=mock.Mock(valid=True, reason_code="", detail=None),
+                ), mock.patch("executor.compute_edge_value", return_value=0.2):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("reduce_only_recovery_touch_price_unavailable", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_disarmed_signal_ignored_when_chainlink_disabled(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -4047,6 +4511,41 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertEqual(str(stage_info.get("stage") or ""), "MAKER_TAKER_SELECTIVE")
                 self.assertEqual(str(stage_info.get("reason") or ""), "expired_reduce_only_grace_active")
                 self.assertTrue(bool(stage_info.get("expired_reduce_only_grace_active")))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_token_stage_info_enables_preexpiry_reduce_only_recovery_for_held_token(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["held-preexpiry"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["runtime"]["held_preexpiry_reduce_only_sec"] = 90.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "held-preexpiry"
+                expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=60)).isoformat().replace("+00:00", "Z")
+                runner._apply_token_expiry_map({token_id: expiry}, source="test")  # pylint: disable=protected-access
+                runner.token_side_by_token[token_id] = "YES"
+                runner.token_strike_by_token[token_id] = 50000.0
+                runner.token_market_key_by_token[token_id] = "mk-held-preexpiry"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
+                stage_info = runner._token_stage_info(token_id)  # pylint: disable=protected-access
+                self.assertTrue(bool(stage_info.get("reduce_only_recovery_active")))
+                self.assertTrue(bool(stage_info.get("preexpiry_reduce_only_active")))
+                self.assertEqual(str(stage_info.get("reduce_only_side") or ""), "SELL")
+                self.assertEqual(str(stage_info.get("reduce_only_side_policy") or ""), "SELL_ONLY")
+                self.assertAlmostEqual(float(stage_info.get("reduce_only_size_cap_shares") or 0.0), 2.0, places=9)
+                self.assertTrue(bool(stage_info.get("allow_maker")))
+                self.assertTrue(bool(stage_info.get("allow_taker")))
             finally:
                 runner.events.close()
                 runner.book_client.close()

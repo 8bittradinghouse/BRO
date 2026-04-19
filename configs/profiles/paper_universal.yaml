@@ -34,10 +34,11 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "f6585cf2853b1a00af8a8926734914b311c996b19c5e4689c2ffa4f789fdd6cf"
+  paper_expected_config_fingerprint_sha256: "3b15ea94a2d48f511a484b4d7a5d2731dcc4b91512a7fa55aeefa232ec98dbe6"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
+  held_preexpiry_reduce_only_sec: 90.0
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -59,6 +60,8 @@ strategy:
   execution_quality:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
+    reduce_only_recovery_min_expected_fill_prob_floor: 0.02
+    reduce_only_recovery_max_queue_ahead_size_multiplier: 2.0
   maker_competitiveness:
     timing_gate_enabled: true
     timing_gate_min_sec_to_expiry: 45.0

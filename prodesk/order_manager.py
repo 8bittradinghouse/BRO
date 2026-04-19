@@ -170,6 +170,25 @@ class OrderManager:
         self._seen_trade_ids_queue: Deque[str] = deque()
         self.last_fill_ts_utc: Optional[str] = None
         self.quality = ExecutionQualityModel(strategy_cfg.get("execution_quality", {}))
+        execution_quality_cfg = strategy_cfg.get("execution_quality", {})
+        if not isinstance(execution_quality_cfg, dict):
+            execution_quality_cfg = {}
+        recovery_min_fill_prob_floor = parse_float(
+            execution_quality_cfg.get("reduce_only_recovery_min_expected_fill_prob_floor")
+        )
+        self.reduce_only_recovery_min_expected_fill_prob_floor = (
+            max(0.0, min(1.0, float(recovery_min_fill_prob_floor)))
+            if recovery_min_fill_prob_floor is not None
+            else 0.02
+        )
+        recovery_queue_multiplier = parse_float(
+            execution_quality_cfg.get("reduce_only_recovery_max_queue_ahead_size_multiplier")
+        )
+        self.reduce_only_recovery_max_queue_ahead_size_multiplier = (
+            max(1.0, float(recovery_queue_multiplier))
+            if recovery_queue_multiplier is not None
+            else 2.0
+        )
 
     def _next_client_order_id(self, token_id: str, side: str) -> str:
         self._client_seq += 1
@@ -685,6 +704,28 @@ class OrderManager:
         quality_fields: Dict[str, float] = {}
         if self.quality.enabled and intent_sized.post_only is not False and intent_sized.tif.upper() == "GTC":
             quality = self.quality.assess_quote(intent=intent_sized, top=top)
+            default_min_expected_fill_prob = float(self.quality.min_expected_fill_prob)
+            default_max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
+            effective_min_expected_fill_prob = float(default_min_expected_fill_prob)
+            effective_max_queue_ahead_size = float(default_max_queue_ahead_size)
+            reduce_only_recovery_active = bool(risk_context_payload.get("reduce_only_recovery_active", False))
+            reduce_only_recovery_reason = str(risk_context_payload.get("reduce_only_recovery_reason") or "")
+            pos = self.risk.positions.get(intent_sized.token_id)
+            net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
+            is_pure_risk_reducing = RiskEngine._is_pure_risk_reducing_intent(
+                net_shares=net_shares,
+                side=intent_sized.side,
+                size=float(intent_sized.size),
+            )
+            quality_relaxation_active = bool(reduce_only_recovery_active and is_pure_risk_reducing)
+            if quality_relaxation_active:
+                effective_min_expected_fill_prob = min(
+                    float(default_min_expected_fill_prob),
+                    float(self.reduce_only_recovery_min_expected_fill_prob_floor),
+                )
+                effective_max_queue_ahead_size = float(default_max_queue_ahead_size) * float(
+                    self.reduce_only_recovery_max_queue_ahead_size_multiplier
+                )
             quality_fields = {
                 "expected_fill_prob": quality.expected_fill_prob,
                 "quality_score": quality.expected_quality_score,
@@ -700,7 +741,7 @@ class OrderManager:
                 f"quote_quality_score.{intent_sized.token_id}.{intent_sized.side}",
                 quality.expected_quality_score,
             )
-            if quality.queue_ahead_size > self.quality.max_queue_ahead_size:
+            if quality.queue_ahead_size > float(effective_max_queue_ahead_size):
                 self.telemetry.incr("low_quality_quote_skips")
                 self.events.log_event(
                     "quote_quality_skip",
@@ -712,17 +753,23 @@ class OrderManager:
                         "size": intent_sized.size,
                         "skip_reason": "queue_ahead_too_deep",
                         "queue_ahead_size": quality.queue_ahead_size,
-                        "max_queue_ahead_size": self.quality.max_queue_ahead_size,
+                        "max_queue_ahead_size": float(effective_max_queue_ahead_size),
                         "expected_fill_prob": quality.expected_fill_prob,
                         "quality_score": quality.expected_quality_score,
                         "distance_to_touch": quality.distance_to_touch,
+                        "reduce_only_recovery_active": bool(quality_relaxation_active),
+                        "reduce_only_recovery_reason": str(reduce_only_recovery_reason),
+                        "default_min_expected_fill_prob": float(default_min_expected_fill_prob),
+                        "default_max_queue_ahead_size": float(default_max_queue_ahead_size),
+                        "effective_min_expected_fill_prob": float(effective_min_expected_fill_prob),
+                        "effective_max_queue_ahead_size": float(effective_max_queue_ahead_size),
                     },
                 )
                 return _local_reject(
                     "quote_quality_skip_queue_depth",
                     detail="queue_ahead_too_deep",
                 )
-            if quality.expected_fill_prob < self.quality.min_expected_fill_prob:
+            if quality.expected_fill_prob < float(effective_min_expected_fill_prob):
                 self.telemetry.incr("low_quality_quote_skips")
                 self.events.log_event(
                     "quote_quality_skip",
@@ -734,10 +781,16 @@ class OrderManager:
                         "size": intent_sized.size,
                         "skip_reason": "expected_fill_prob_below_min",
                         "expected_fill_prob": quality.expected_fill_prob,
-                        "min_expected_fill_prob": self.quality.min_expected_fill_prob,
+                        "min_expected_fill_prob": float(effective_min_expected_fill_prob),
                         "quality_score": quality.expected_quality_score,
                         "queue_ahead_size": quality.queue_ahead_size,
                         "distance_to_touch": quality.distance_to_touch,
+                        "reduce_only_recovery_active": bool(quality_relaxation_active),
+                        "reduce_only_recovery_reason": str(reduce_only_recovery_reason),
+                        "default_min_expected_fill_prob": float(default_min_expected_fill_prob),
+                        "default_max_queue_ahead_size": float(default_max_queue_ahead_size),
+                        "effective_min_expected_fill_prob": float(effective_min_expected_fill_prob),
+                        "effective_max_queue_ahead_size": float(effective_max_queue_ahead_size),
                     },
                 )
                 return _local_reject(

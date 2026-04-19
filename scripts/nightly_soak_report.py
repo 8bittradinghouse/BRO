@@ -888,6 +888,12 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     held_unpriceable_escalation_rows = 0.0
     held_unpriceable_defect_candidate_rows = 0.0
     held_book_not_found_404_rows = 0.0
+    preexpiry_404_anomaly_rows = 0.0
+    valuation_hard_degraded_enter_count = 0.0
+    valuation_hard_degraded_clear_count = 0.0
+    held_unpriceable_started_count = 0.0
+    held_unpriceable_recovered_count = 0.0
+    preexpiry_404_anomaly_count = 0.0
     source_totals = {
         "live_mid": 0.0,
         "live_side_conservative_quote": 0.0,
@@ -912,6 +918,28 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         degraded_reasons = [str(reason) for reason in list(row.get("valuation_degraded_reasons") or [])]
         if any("held_book_not_found_404" in reason for reason in degraded_reasons):
             held_book_not_found_404_rows += 1.0
+        if bool(row.get("preexpiry_404_anomaly_active", False)):
+            preexpiry_404_anomaly_rows += 1.0
+        valuation_hard_degraded_enter_count = max(
+            valuation_hard_degraded_enter_count,
+            _safe_float(row.get("valuation_hard_degraded_enter_count")),
+        )
+        valuation_hard_degraded_clear_count = max(
+            valuation_hard_degraded_clear_count,
+            _safe_float(row.get("valuation_hard_degraded_clear_count")),
+        )
+        held_unpriceable_started_count = max(
+            held_unpriceable_started_count,
+            _safe_float(row.get("held_unpriceable_started_count")),
+        )
+        held_unpriceable_recovered_count = max(
+            held_unpriceable_recovered_count,
+            _safe_float(row.get("held_unpriceable_recovered_count")),
+        )
+        preexpiry_404_anomaly_count = max(
+            preexpiry_404_anomaly_count,
+            _safe_float(row.get("preexpiry_404_anomaly_count")),
+        )
         row_counts_raw = row.get("valuation_mid_source_counts")
         row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
         live_mid = _safe_float(row_counts.get("live_mid", row_counts.get("fresh_live_mid")))
@@ -948,6 +976,12 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "held_unpriceable_escalation_rows": float(held_unpriceable_escalation_rows),
         "held_unpriceable_defect_candidate_rows": float(held_unpriceable_defect_candidate_rows),
         "held_book_not_found_404_rows": float(held_book_not_found_404_rows),
+        "preexpiry_404_anomaly_rows": float(preexpiry_404_anomaly_rows),
+        "valuation_hard_degraded_enter_count": float(valuation_hard_degraded_enter_count),
+        "valuation_hard_degraded_clear_count": float(valuation_hard_degraded_clear_count),
+        "held_unpriceable_started_count": float(held_unpriceable_started_count),
+        "held_unpriceable_recovered_count": float(held_unpriceable_recovered_count),
+        "preexpiry_404_anomaly_count": float(preexpiry_404_anomaly_count),
         "valuation_degraded_ratio": (degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "valuation_hard_degraded_ratio": (hard_degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "held_unpriceable_escalation_ratio": (
@@ -962,6 +996,11 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         else 0.0,
         "held_book_not_found_404_ratio": (
             held_book_not_found_404_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
+        "preexpiry_404_anomaly_ratio": (
+            preexpiry_404_anomaly_rows / sample_count
         )
         if sample_count > 0
         else 0.0,
@@ -981,6 +1020,22 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         ),
         "latest_held_unpriceable_escalation_max_age_sec": _safe_float(
             latest.get("held_unpriceable_escalation_max_age_sec")
+        ),
+        "latest_valuation_hard_degraded_enter_count": _safe_float(
+            latest.get("valuation_hard_degraded_enter_count")
+        ),
+        "latest_valuation_hard_degraded_clear_count": _safe_float(
+            latest.get("valuation_hard_degraded_clear_count")
+        ),
+        "latest_held_unpriceable_started_count": _safe_float(
+            latest.get("held_unpriceable_started_count")
+        ),
+        "latest_held_unpriceable_recovered_count": _safe_float(
+            latest.get("held_unpriceable_recovered_count")
+        ),
+        "latest_preexpiry_404_anomaly_active": bool(latest.get("preexpiry_404_anomaly_active", False)),
+        "latest_preexpiry_404_anomaly_count": _safe_float(
+            latest.get("preexpiry_404_anomaly_count")
         ),
         "valuation_source_counts_run": dict(source_totals),
         "valuation_source_counts_latest": {
@@ -2599,8 +2654,13 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
             + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
             + f"held_book_not_found_404_ratio={_safe_float(valuation_truth.get('held_book_not_found_404_ratio')):.4f},"
+            + f"preexpiry_404_anomaly_ratio={_safe_float(valuation_truth.get('preexpiry_404_anomaly_ratio')):.4f},"
             + f"held_unpriceable_escalation_ratio={_safe_float(valuation_truth.get('held_unpriceable_escalation_ratio')):.4f},"
             + f"held_unpriceable_defect_candidate_ratio={_safe_float(valuation_truth.get('held_unpriceable_defect_candidate_ratio')):.4f},"
+            + f"hard_degraded_enter_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_enter_count')))},"
+            + f"hard_degraded_clear_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_clear_count')))},"
+            + f"held_unpriceable_started_count={int(_safe_float(valuation_truth.get('held_unpriceable_started_count')))},"
+            + f"held_unpriceable_recovered_count={int(_safe_float(valuation_truth.get('held_unpriceable_recovered_count')))},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
             + f"latest_escalation_reasons={json.dumps(valuation_truth.get('latest_held_unpriceable_escalation_reasons', []), sort_keys=True)},"
             + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"

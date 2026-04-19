@@ -49,6 +49,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_backoff_sec": 10.0,
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
+        "held_preexpiry_reduce_only_sec": 90.0,
         "guard_stop_file": "",
         "clear_guard_stop_on_start": False,
         "paper_passive_touch_fill_enabled": False,
@@ -265,6 +266,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "queue_depth_scale": 120.0,
             "distance_scale": 0.02,
             "adverse_selection_penalty": 0.3,
+            "reduce_only_recovery_min_expected_fill_prob_floor": 0.02,
+            "reduce_only_recovery_max_queue_ahead_size_multiplier": 2.0,
         },
         "volatility": {
             "enabled": True,
@@ -761,6 +764,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["runtime"]["held_book_not_found_force_refresh_min_unpriceable_age_sec"],
         allow_zero=True,
     )
+    _require_positive(
+        "runtime.held_preexpiry_reduce_only_sec",
+        cfg["runtime"]["held_preexpiry_reduce_only_sec"],
+        allow_zero=True,
+    )
     _require_fraction("runtime.order_rate_soft_limit_pct", cfg["runtime"]["order_rate_soft_limit_pct"])
     _require_fraction("runtime.cancel_rate_soft_limit_pct", cfg["runtime"]["cancel_rate_soft_limit_pct"])
     _require_positive("runtime.log_flush_every_records", cfg["runtime"]["log_flush_every_records"])
@@ -1241,6 +1249,15 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "strategy.execution_quality.adverse_selection_penalty",
         cfg["strategy"]["execution_quality"]["adverse_selection_penalty"],
         allow_zero=True,
+    )
+    _require_fraction(
+        "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor",
+        cfg["strategy"]["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier",
+        cfg["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"],
     )
     _require_positive("risk.max_abs_position_shares", cfg["risk"]["max_abs_position_shares"])
     _require_positive("risk.max_notional_per_token", cfg["risk"]["max_notional_per_token"])

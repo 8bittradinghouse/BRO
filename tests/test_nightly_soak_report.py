@@ -359,6 +359,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "held_unpriceable_operator_action": (
                         "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable"
                     ),
+                    "valuation_hard_degraded_enter_count": 2,
+                    "valuation_hard_degraded_clear_count": 1,
+                    "held_unpriceable_started_count": 3,
+                    "held_unpriceable_recovered_count": 1,
+                    "preexpiry_404_anomaly_count": 2,
+                    "preexpiry_404_anomaly_active": True,
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -374,6 +380,13 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(valuation_truth.get("held_unpriceable_defect_candidate_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_book_not_found_404_rows") or 0.0), 1.0)
             self.assertGreater(float(valuation_truth.get("held_book_not_found_404_ratio") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_404_anomaly_rows") or 0.0), 1.0)
+            self.assertGreater(float(valuation_truth.get("preexpiry_404_anomaly_ratio") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_enter_count") or 0.0), 2.0)
+            self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_clear_count") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_started_count") or 0.0), 3.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_recovered_count") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_404_anomaly_count") or 0.0), 2.0)
             self.assertIn(
                 "held_book_not_found_404_age_sec",
                 " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
@@ -410,7 +423,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("pickoff=horizon_sec=", summary)
             self.assertIn("valuation_truth=", summary)
             self.assertIn("held_book_not_found_404_ratio=", summary)
+            self.assertIn("preexpiry_404_anomaly_ratio=", summary)
             self.assertIn("held_unpriceable_escalation_ratio=", summary)
+            self.assertIn("hard_degraded_enter_count=", summary)
             self.assertIn("latest_operator_action=", summary)
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):

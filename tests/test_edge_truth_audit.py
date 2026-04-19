@@ -959,6 +959,71 @@ class EdgeTruthAuditTests(unittest.TestCase):
             self.assertIn("taker_allowed_stage_policy_mismatch", findings)
             self.assertIn("stage_action_mismatch", findings)
 
+    def test_edge_truth_audit_allows_recovery_override_for_stage_policy_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            run_id = "rid-recovery-override"
+            events_path = self._write_event_rows(
+                log_dir,
+                [
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "t1",
+                        "timestamp_utc": "2026-03-22T00:00:00Z",
+                        "stage": "SNIPER_PRIMARY",
+                        "time_remaining_sec": 24.0,
+                        "fair_probability": 0.55,
+                        "market_probability": 0.50,
+                        "edge_value": 0.05,
+                        "oracle_tick_age_sec": 0.1,
+                        "latency_state": "armed",
+                        "maker_allowed": True,
+                        "taker_allowed": True,
+                        "reduce_only_recovery_active": True,
+                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                        "action_taken": "maker",
+                        "block_reason": None,
+                        "submitted": True,
+                        "filled": False,
+                        "result": None,
+                        "evaluation_scope": "maker",
+                        "cycle_index": 19,
+                        "order_id": "ord-recovery-override",
+                    }
+                ],
+            )
+            status_path = self._write_status_rows(
+                log_dir,
+                [
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:02Z",
+                        "runtime_state": "active",
+                        "target_count": 1,
+                    }
+                ],
+            )
+            run_contract_path = self._write_contract(
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            out = run_audit(
+                log_dir=log_dir,
+                run_id=run_id,
+                config_path=self._config_path(),
+                run_contract_path=run_contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+            )
+            self.assertTrue(bool(out.get("ok")))
+            findings = "\n".join(str(x) for x in out.get("findings", []))
+            self.assertNotIn("maker_allowed_stage_policy_mismatch", findings)
+            self.assertNotIn("taker_allowed_stage_policy_mismatch", findings)
+            self.assertNotIn("stage_action_mismatch", findings)
+
     def test_edge_truth_audit_allows_standdown_only_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)

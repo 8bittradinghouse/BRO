@@ -293,6 +293,20 @@ class ExecutionRunner:
             if configured_held_expired_reduce_only_grace is not None
             else 90.0
         )
+        configured_held_preexpiry_reduce_only_sec = parse_float(
+            runtime_cfg.get("held_preexpiry_reduce_only_sec")
+        )
+        self.held_preexpiry_reduce_only_sec = (
+            max(0.0, float(configured_held_preexpiry_reduce_only_sec))
+            if configured_held_preexpiry_reduce_only_sec is not None
+            else 90.0
+        )
+        self._valuation_hard_degraded_enter_count: int = 0
+        self._valuation_hard_degraded_clear_count: int = 0
+        self._held_unpriceable_started_count: int = 0
+        self._held_unpriceable_recovered_count: int = 0
+        self._preexpiry_404_anomaly_count: int = 0
+        self._preexpiry_404_anomaly_last_cycle: bool = False
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_force_refresh_next_mono_by_token: Dict[str, float] = {}
@@ -1286,6 +1300,62 @@ class ExecutionRunner:
         )
         held_unpriceable_defect_candidate = bool(valuation_state.get("held_unpriceable_defect_candidate", False))
         held_unpriceable_operator_action = str(valuation_state.get("held_unpriceable_operator_action") or "none")
+        prev_hard_degraded = bool(self._valuation_hard_degraded)
+        prev_held_unpriceable_tokens = set(self._held_unpriceable_token_ids)
+        next_held_unpriceable_tokens = set(held_unpriceable_token_ids)
+        started_unpriceable_tokens = sorted(next_held_unpriceable_tokens - prev_held_unpriceable_tokens)
+        recovered_unpriceable_tokens = sorted(prev_held_unpriceable_tokens - next_held_unpriceable_tokens)
+        if (not prev_hard_degraded) and hard_degraded:
+            self._valuation_hard_degraded_enter_count += 1
+            self.telemetry.incr("valuation_hard_degraded_enter")
+            self.events.log_event(
+                "valuation_hard_degraded_transition",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "transition": "enter",
+                    "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
+                    "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                    "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
+                    "valuation_degraded_reasons": list(degraded_reasons),
+                },
+            )
+        elif prev_hard_degraded and (not hard_degraded):
+            self._valuation_hard_degraded_clear_count += 1
+            self.telemetry.incr("valuation_hard_degraded_clear")
+            self.events.log_event(
+                "valuation_hard_degraded_transition",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "transition": "clear",
+                    "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
+                    "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                    "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
+                    "valuation_degraded_reasons": list(degraded_reasons),
+                },
+            )
+        if started_unpriceable_tokens or recovered_unpriceable_tokens:
+            self._held_unpriceable_started_count += int(len(started_unpriceable_tokens))
+            self._held_unpriceable_recovered_count += int(len(recovered_unpriceable_tokens))
+            self.telemetry.incr("held_unpriceable_started", int(len(started_unpriceable_tokens)))
+            self.telemetry.incr("held_unpriceable_recovered", int(len(recovered_unpriceable_tokens)))
+            self.events.log_event(
+                "held_unpriceable_transition",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "started_token_ids": list(started_unpriceable_tokens),
+                    "recovered_token_ids": list(recovered_unpriceable_tokens),
+                    "started_count_delta": int(len(started_unpriceable_tokens)),
+                    "recovered_count_delta": int(len(recovered_unpriceable_tokens)),
+                    "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
+                    "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
+                },
+            )
 
         self._valuation_degraded = degraded
         self._valuation_hard_degraded = hard_degraded
@@ -1329,6 +1399,26 @@ class ExecutionRunner:
             "valuation_held_unpriceable_escalation_max_age_sec",
             float(held_unpriceable_escalation_max_age_sec),
         )
+        self.telemetry.set_gauge(
+            "valuation_hard_degraded_enter_count",
+            float(self._valuation_hard_degraded_enter_count),
+        )
+        self.telemetry.set_gauge(
+            "valuation_hard_degraded_clear_count",
+            float(self._valuation_hard_degraded_clear_count),
+        )
+        self.telemetry.set_gauge(
+            "held_unpriceable_started_count",
+            float(self._held_unpriceable_started_count),
+        )
+        self.telemetry.set_gauge(
+            "held_unpriceable_recovered_count",
+            float(self._held_unpriceable_recovered_count),
+        )
+        self.telemetry.set_gauge(
+            "preexpiry_404_anomaly_count",
+            float(self._preexpiry_404_anomaly_count),
+        )
 
         signature = (
             bool(degraded),
@@ -1367,9 +1457,15 @@ class ExecutionRunner:
                     "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
                     "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
                     "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
+                    "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
+                    "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                    "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
+                    "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
+                    "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
                     "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
+                    "held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
                 },
             )
         escalation_signature = (
@@ -2064,6 +2160,11 @@ class ExecutionRunner:
         if expired_reduce_only_grace_active:
             stage = STAGE_MAKER_TAKER_SELECTIVE
             reason = "expired_reduce_only_grace_active"
+        reduce_only_recovery = self._reduce_only_recovery_payload(
+            token_id=token_id,
+            sec_to_expiry=sec_to_expiry,
+            expired_reduce_only_grace_active=bool(expired_reduce_only_grace_active),
+        )
         if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
             entry_mono = self._market_entry_mono_by_token.get(token_id)
             entry_cycle = self._market_entry_cycle_by_token.get(token_id)
@@ -2077,6 +2178,16 @@ class ExecutionRunner:
                     stage = STAGE_OBSERVE
                     reason = f"observe_hold_active:{raw_stage}"
         allow_maker, allow_taker = self._stage_policy(stage)
+        if bool(reduce_only_recovery.get("active", False)) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
+            allow_maker, allow_taker = True, True
+            recovery_reason = str(reduce_only_recovery.get("reason") or "").strip()
+            if recovery_reason:
+                if reason:
+                    reason_parts = [str(part).strip() for part in str(reason).split("|") if str(part).strip()]
+                    if recovery_reason not in reason_parts:
+                        reason = f"{reason}|{recovery_reason}"
+                else:
+                    reason = recovery_reason
         verdict = "pass" if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED} else "fail"
         if verdict == "fail" and not reason:
             reason = "stage_not_tradeable"
@@ -2089,6 +2200,15 @@ class ExecutionRunner:
             "observe_hold_cycles_remaining": hold_cycles_remaining,
             "observe_hold_seconds_remaining": hold_seconds_remaining,
             "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
+            "preexpiry_reduce_only_active": bool(reduce_only_recovery.get("preexpiry_active", False)),
+            "reduce_only_recovery_active": bool(reduce_only_recovery.get("active", False)),
+            "reduce_only_recovery_reason": str(reduce_only_recovery.get("reason") or ""),
+            "reduce_only_side": str(reduce_only_recovery.get("side") or "NONE"),
+            "reduce_only_side_policy": str(reduce_only_recovery.get("side_policy") or "NONE"),
+            "reduce_only_size_cap_shares": float(reduce_only_recovery.get("size_cap_shares", 0.0) or 0.0),
+            "reduce_only_net_shares": float(reduce_only_recovery.get("net_shares", 0.0) or 0.0),
+            "reduce_only_open_order_present": bool(reduce_only_recovery.get("open_order_present", False)),
+            "held_preexpiry_reduce_only_sec": float(reduce_only_recovery.get("preexpiry_window_sec", 0.0) or 0.0),
             "allow_maker": allow_maker,
             "allow_taker": allow_taker,
             "doctrine_gate_verdict": verdict,
@@ -2382,6 +2502,8 @@ class ExecutionRunner:
         decision_input_type_override: Optional[str] = None,
         decision_input_data_class_override: Optional[str] = None,
         taker_submit_reject_reason: Optional[str] = None,
+        reduce_only_recovery_active: Optional[bool] = None,
+        reduce_only_recovery_reason: Optional[str] = None,
     ) -> None:
         normalized_action = str(action_taken or EDGE_ACTION_NONE).strip().lower() or EDGE_ACTION_NONE
         normalized_scope = str(evaluation_scope or "").strip().lower()
@@ -2455,6 +2577,10 @@ class ExecutionRunner:
             ),
             "taker_submit_reject_reason": (
                 str(taker_submit_reject_reason or "").strip().lower() or None
+            ),
+            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "reduce_only_recovery_reason": (
+                str(reduce_only_recovery_reason or "").strip().lower() or None
             ),
         }
         if payload["block_reason"] != "maker_no_submission":
@@ -2565,6 +2691,8 @@ class ExecutionRunner:
             maker_allowed = bool(info.get("allow_maker", default_maker_allowed))
             taker_allowed = bool(info.get("allow_taker", default_taker_allowed))
             time_remaining_sec = info.get("sec_to_expiry")
+            reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
+            reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
             top = books.get(token_id)
             maker_prereq_failure_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
             market_reference = self._resolve_maker_market_reference(
@@ -2659,6 +2787,8 @@ class ExecutionRunner:
                     if market_reference.get("decision_input_data_class_override") is not None
                     else None
                 ),
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                reduce_only_recovery_reason=reduce_only_recovery_reason,
             )
 
     @staticmethod
@@ -2821,6 +2951,10 @@ class ExecutionRunner:
             maker_allowed = bool(info.get("allow_maker", default_maker_allowed))
             taker_allowed = bool(info.get("allow_taker", default_taker_allowed))
             time_remaining_sec = info.get("sec_to_expiry")
+            reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
+            reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
+            reduce_only_side = str(info.get("reduce_only_side") or "NONE").strip().upper() or "NONE"
+            reduce_only_size_cap_shares = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
             top = books.get(token_id)
             midpoint = top.midpoint if top is not None else None
             fair = fair_probability_by_token.get(token_id)
@@ -2875,13 +3009,20 @@ class ExecutionRunner:
                 block_reason = "oracle_unavailable_or_stale"
             elif self.doctrine_mode == "canonical" and top is not None and (not self._book_source_is_ws(top)):
                 block_reason = "taker_requires_ws_book_source"
-            elif not validation.valid:
+            elif (not validation.valid) and not (
+                reduce_only_recovery_active and str(validation.reason_code or "") == "market_probability_missing"
+            ):
                 block_reason = str(validation.reason_code or "")
-            elif edge is None:
+            elif edge is None and (not reduce_only_recovery_active):
                 block_reason = "edge_value_invalid"
-            elif abs(float(edge)) < float(required_min_edge):
+            elif (not reduce_only_recovery_active) and abs(float(edge)) < float(required_min_edge):
                 block_reason = "edge_below_min"
             else:
+                if reduce_only_recovery_active:
+                    if reduce_only_side not in {"BUY", "SELL"}:
+                        block_reason = "reduce_only_recovery_no_reducing_side"
+                    elif reduce_only_size_cap_shares <= 1e-9:
+                        block_reason = "reduce_only_recovery_size_cap_unavailable"
                 now_mono = time.monotonic()
                 last_submit = self._last_taker_submit_mono_by_token.get(token_id)
                 cooldown_sec = self._resolve_taker_cooldown_sec(stage)
@@ -2898,10 +3039,14 @@ class ExecutionRunner:
                     if block_reason is None and submitted >= max_orders:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
-                        side = "BUY" if float(edge) > 0.0 else "SELL"
+                        side = reduce_only_side if reduce_only_recovery_active else ("BUY" if float(edge) > 0.0 else "SELL")
                         touch_price = top.best_ask_price if side == "BUY" else top.best_bid_price
                         if touch_price is None:
-                            block_reason = "taker_price_unavailable"
+                            block_reason = (
+                                "reduce_only_recovery_touch_price_unavailable"
+                                if reduce_only_recovery_active
+                                else "taker_price_unavailable"
+                            )
                         else:
                             token_stats = self.latency_verifier.token_stats(token_id)
                             token_median_lag_ms = (
@@ -2913,7 +3058,7 @@ class ExecutionRunner:
                             confidence_score = self.latency_verifier.token_score(token_id)
                             multi_oracle_status = secondary_oracle_base_status
                             multi_oracle_confirmation = False
-                            if competitiveness_enabled and bool(
+                            if (not reduce_only_recovery_active) and competitiveness_enabled and bool(
                                 self.sniper_taker_competitiveness_cfg.multi_oracle_boost_enabled
                             ):
                                 secondary_fair = secondary_fair_probability_by_token.get(token_id)
@@ -2942,7 +3087,7 @@ class ExecutionRunner:
                                         multi_oracle_confirmation = bool(same_direction)
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
                             decision: Optional[SniperDecision] = None
-                            if competitiveness_enabled:
+                            if competitiveness_enabled and (not reduce_only_recovery_active):
                                 self._refresh_sniper_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
                                     price=float(touch_price)
@@ -3062,6 +3207,9 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None and isinstance(decision.price, (int, float))
                                     else float(touch_price)
                                 )
+                                if reduce_only_recovery_active:
+                                    submit_side = reduce_only_side
+                                    submit_price = float(touch_price)
                                 submit_target_usd = (
                                     float(decision.target_usd_resolved)
                                     if competitiveness_enabled and decision is not None
@@ -3072,6 +3220,22 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None
                                     else None
                                 )
+                                if reduce_only_recovery_active:
+                                    recovery_context = dict(competitiveness_context or {})
+                                    recovery_context["reduce_only_recovery_active"] = True
+                                    recovery_context["reduce_only_recovery_reason"] = str(reduce_only_recovery_reason)
+                                    recovery_context["reduce_only_side"] = str(reduce_only_side)
+                                    recovery_context["reduce_only_side_policy"] = (
+                                        "BUY_ONLY" if reduce_only_side == "BUY" else "SELL_ONLY"
+                                    )
+                                    recovery_context["reduce_only_size_cap_shares"] = float(reduce_only_size_cap_shares)
+                                    recovery_context["preexpiry_reduce_only_active"] = bool(
+                                        info.get("preexpiry_reduce_only_active", False)
+                                    )
+                                    recovery_context["held_preexpiry_reduce_only_sec"] = float(
+                                        info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0
+                                    )
+                                    competitiveness_context = recovery_context
                                 attempts += 1
                                 outcome = self.manager.place_taker_order_with_outcome(
                                     token_id=token_id,
@@ -3146,6 +3310,16 @@ class ExecutionRunner:
                                             None if str(stage or "").strip() else "missing_stage_info"
                                         ),
                                         "confidence_score": float(confidence_score),
+                                        "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                                        "reduce_only_recovery_reason": (
+                                            str(reduce_only_recovery_reason) if reduce_only_recovery_active else ""
+                                        ),
+                                        "reduce_only_side": (
+                                            str(reduce_only_side) if reduce_only_recovery_active else "NONE"
+                                        ),
+                                        "reduce_only_size_cap_shares": (
+                                            float(reduce_only_size_cap_shares) if reduce_only_recovery_active else 0.0
+                                        ),
                                     }
                                     if competitiveness_enabled and decision is not None:
                                         submit_payload.update(
@@ -3212,6 +3386,8 @@ class ExecutionRunner:
                 market_reference_source_side="none",
                 market_reference_class=("authoritative" if isinstance(midpoint, (int, float)) else "not_available"),
                 taker_submit_reject_reason=taker_submit_reject_reason,
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                reduce_only_recovery_reason=reduce_only_recovery_reason,
             )
 
         return {
@@ -3272,6 +3448,85 @@ class ExecutionRunner:
             return True
         pos = self.risk.positions.get(token_id)
         return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
+
+    def _reduce_only_recovery_payload(
+        self,
+        *,
+        token_id: str,
+        sec_to_expiry: Optional[float],
+        expired_reduce_only_grace_active: bool,
+    ) -> Dict[str, Any]:
+        token = str(token_id or "").strip()
+        if not token:
+            return {
+                "active": False,
+                "reason": "",
+                "side": "NONE",
+                "side_policy": "NONE",
+                "size_cap_shares": 0.0,
+                "net_shares": 0.0,
+                "open_order_present": False,
+                "preexpiry_active": False,
+                "expired_grace_active": bool(expired_reduce_only_grace_active),
+                "sec_to_expiry": sec_to_expiry,
+                "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
+            }
+        pos = self.risk.positions.get(token)
+        net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
+        open_order_present = token in self._open_order_token_ids()
+        held_present = open_order_present or (abs(net_shares) > 1e-9)
+        sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+        preexpiry_active = bool(
+            held_present
+            and isinstance(sec, float)
+            and sec >= 0.0
+            and float(self.held_preexpiry_reduce_only_sec) > 0.0
+            and sec <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
+        )
+        active = bool(expired_reduce_only_grace_active or preexpiry_active)
+        side = "NONE"
+        side_policy = "NONE"
+        size_cap_shares = 0.0
+        if net_shares > 1e-9:
+            side = "SELL"
+            side_policy = "SELL_ONLY"
+            size_cap_shares = abs(float(net_shares))
+        elif net_shares < -1e-9:
+            side = "BUY"
+            side_policy = "BUY_ONLY"
+            size_cap_shares = abs(float(net_shares))
+        if not active:
+            return {
+                "active": False,
+                "reason": "",
+                "side": side,
+                "side_policy": side_policy,
+                "size_cap_shares": float(size_cap_shares),
+                "net_shares": float(net_shares),
+                "open_order_present": bool(open_order_present),
+                "preexpiry_active": False,
+                "expired_grace_active": bool(expired_reduce_only_grace_active),
+                "sec_to_expiry": sec_to_expiry,
+                "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
+            }
+        reason = (
+            "expired_reduce_only_grace_active"
+            if bool(expired_reduce_only_grace_active)
+            else "preexpiry_reduce_only_window_active"
+        )
+        return {
+            "active": True,
+            "reason": str(reason),
+            "side": side,
+            "side_policy": side_policy,
+            "size_cap_shares": float(size_cap_shares),
+            "net_shares": float(net_shares),
+            "open_order_present": bool(open_order_present),
+            "preexpiry_active": bool(preexpiry_active),
+            "expired_grace_active": bool(expired_reduce_only_grace_active),
+            "sec_to_expiry": sec_to_expiry,
+            "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
+        }
 
     def _book_not_found_backoff_sec_for_token(
         self,
@@ -4081,6 +4336,7 @@ class ExecutionRunner:
                 if not has_targets:
                     self.telemetry.incr("no_target_cycles")
                 now_mono = time.monotonic()
+                self._preexpiry_404_anomaly_last_cycle = False
                 missing_rest_tokens, held_ws_unusable_token_ids = self._rest_fetch_candidate_tokens_for_cycle(
                     valuation_token_ids=valuation_token_ids,
                     ws_books=ws_books,
@@ -4139,6 +4395,48 @@ class ExecutionRunner:
                                     )
                                     self._held_book_not_found_last_mono_by_token[token_id] = float(now_mono_error)
                                     missing_book_not_found_tokens.append(token_id)
+                                    stage_info = self._token_stage_info(token_id)
+                                    stage_name = str(stage_info.get("stage") or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
+                                    sec_to_expiry_val = stage_info.get("sec_to_expiry")
+                                    sec_to_expiry = (
+                                        float(sec_to_expiry_val)
+                                        if isinstance(sec_to_expiry_val, (int, float))
+                                        else None
+                                    )
+                                    preexpiry_404_anomaly = bool(
+                                        token_id in held_exposure_tokens
+                                        and isinstance(sec_to_expiry, float)
+                                        and sec_to_expiry > (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
+                                    )
+                                    if preexpiry_404_anomaly:
+                                        self._preexpiry_404_anomaly_count += 1
+                                        self._preexpiry_404_anomaly_last_cycle = True
+                                        self.telemetry.incr("preexpiry_404_anomaly")
+                                        self.events.log_event(
+                                            "preexpiry_404_anomaly",
+                                            {
+                                                "ts_utc": utc_iso(),
+                                                "run_id": self.run_id,
+                                                "token_id": token_id,
+                                                "market_key": str(stage_info.get("market_key") or ""),
+                                                "stage": stage_name,
+                                                "sec_to_expiry": sec_to_expiry,
+                                                "preexpiry_reduce_only_window_sec": float(
+                                                    self.held_preexpiry_reduce_only_sec
+                                                ),
+                                                "held_exposure_token": bool(token_id in held_exposure_tokens),
+                                                "expired_reduce_only_grace_active": bool(
+                                                    stage_info.get("expired_reduce_only_grace_active", False)
+                                                ),
+                                                "reduce_only_recovery_active": bool(
+                                                    stage_info.get("reduce_only_recovery_active", False)
+                                                ),
+                                                "reduce_only_recovery_reason": str(
+                                                    stage_info.get("reduce_only_recovery_reason") or ""
+                                                ),
+                                                "error": err_text,
+                                            },
+                                        )
                                     self.telemetry.incr("book_not_found")
                                     self.events.log_event(
                                         "book_not_found",
@@ -4149,6 +4447,22 @@ class ExecutionRunner:
                                             "error": err_text,
                                             "backoff_sec": float(backoff_sec),
                                             "held_exposure_token": bool(token_id in held_exposure_tokens),
+                                            "market_key": str(stage_info.get("market_key") or ""),
+                                            "stage": stage_name,
+                                            "sec_to_expiry": sec_to_expiry,
+                                            "expired_reduce_only_grace_active": bool(
+                                                stage_info.get("expired_reduce_only_grace_active", False)
+                                            ),
+                                            "preexpiry_reduce_only_active": bool(
+                                                stage_info.get("preexpiry_reduce_only_active", False)
+                                            ),
+                                            "reduce_only_recovery_active": bool(
+                                                stage_info.get("reduce_only_recovery_active", False)
+                                            ),
+                                            "reduce_only_recovery_reason": str(
+                                                stage_info.get("reduce_only_recovery_reason") or ""
+                                            ),
+                                            "preexpiry_404_anomaly": bool(preexpiry_404_anomaly),
                                         },
                                     )
                                     if top is None:
@@ -4539,6 +4853,7 @@ class ExecutionRunner:
                         info = stage_info_by_token.get(token_id, {})
                         timing_gate_open = bool(maker_timing_gate_open_by_token.get(token_id, False))
                         expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
+                        reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
                         failure_reason = self._maker_prereq_failure_reason(
                             token_id,
                             fair_probability_by_token=fair_probability_by_token,
@@ -4550,6 +4865,8 @@ class ExecutionRunner:
                             continue
                         if self.maker_comp_timing_gate_enabled and (not timing_gate_open) and (
                             not expired_reduce_only_grace_active
+                        ) and (
+                            not reduce_only_recovery_active
                         ):
                             maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
@@ -4657,19 +4974,27 @@ class ExecutionRunner:
                         maker_requote_delta_by_token[token_id] = float(profile["requote_delta_applied"])
                         side_policy = str(profile["side_policy"])
                         context_payload = dict(profile["context"])
-                        expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
-                        if expired_reduce_only_grace_active:
-                            net_shares = float(
-                                getattr(self.risk.positions.get(token_id), "net_shares", 0.0) or 0.0
+                        reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
+                        reduce_only_side_policy = str(info.get("reduce_only_side_policy") or "NONE").upper()
+                        reduce_only_side = str(info.get("reduce_only_side") or "NONE").upper()
+                        reduce_only_size_cap = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
+                        if reduce_only_recovery_active:
+                            context_payload["reduce_only_recovery_active"] = True
+                            context_payload["reduce_only_recovery_reason"] = str(
+                                info.get("reduce_only_recovery_reason") or ""
                             )
-                            if net_shares > 1e-9:
-                                side_policy = "SELL_ONLY"
-                            elif net_shares < -1e-9:
-                                side_policy = "BUY_ONLY"
-                            if side_policy in {"SELL_ONLY", "BUY_ONLY"}:
-                                context_payload["reduce_only_recovery_active"] = True
-                                context_payload["reduce_only_size_cap_shares"] = abs(float(net_shares))
-                                context_payload["reduce_only_recovery_reason"] = "expired_reduce_only_grace_active"
+                            context_payload["reduce_only_side"] = reduce_only_side
+                            context_payload["reduce_only_side_policy"] = reduce_only_side_policy
+                            context_payload["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
+                            context_payload["reduce_only_net_shares"] = float(info.get("reduce_only_net_shares", 0.0) or 0.0)
+                            context_payload["held_preexpiry_reduce_only_sec"] = float(
+                                info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0
+                            )
+                            context_payload["preexpiry_reduce_only_active"] = bool(
+                                info.get("preexpiry_reduce_only_active", False)
+                            )
+                            if reduce_only_side_policy in {"SELL_ONLY", "BUY_ONLY", "NONE"}:
+                                side_policy = reduce_only_side_policy
                         maker_side_policy_by_token[token_id] = side_policy
                         maker_competitiveness_context_by_token[token_id] = context_payload
                     side_policy = str(profile.get("side_policy") or "TWO_SIDED").upper()
@@ -5315,10 +5640,17 @@ class ExecutionRunner:
                         "held_unpriceable_escalation_threshold_sec": float(self.held_unpriceable_escalation_sec),
                         "held_unpriceable_operator_action": str(self._held_unpriceable_operator_action),
                         "held_unpriceable_defect_candidate": bool(self._held_unpriceable_escalation_active),
+                        "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
+                        "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                        "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
+                        "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
+                        "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
+                        "preexpiry_404_anomaly_active": bool(self._preexpiry_404_anomaly_last_cycle),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
                         "valuation_held_unpriceable_escalation_sec": float(self.held_unpriceable_escalation_sec),
+                        "valuation_held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
                         "sniper_multi_oracle_cap_usd": (
                             float(self.sniper_taker_multi_oracle_cap_usd)
                             if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))

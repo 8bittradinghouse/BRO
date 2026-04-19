@@ -107,10 +107,32 @@ Required observability surfaces:
   - held-token 404 recovery refresh is bounded and rate-limited by:
     - `runtime.held_book_not_found_force_refresh_interval_sec`
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec`
+  - pre-expiry reduce-only recovery activation is explicit and bounded by:
+    - `runtime.held_preexpiry_reduce_only_sec` (default `90.0`)
+    - activation requires held exposure (`non-flat` or `open-order`) and `sec_to_expiry <= held_preexpiry_reduce_only_sec`
+    - expired-grace and pre-expiry recovery share the same canonical payload:
+      - `reduce_only_recovery_active`
+      - `reduce_only_side`
+      - `reduce_only_size_cap_shares`
+    - maker and taker both consume this payload; recovery mode never authorizes risk increase
+    - if recovery-side touch price is unavailable, submit is explicitly blocked (`reduce_only_recovery_touch_price_unavailable`)
+  - recovery-only maker quote-quality relaxation is bounded and non-bypass:
+    - `strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor` (default `0.02`)
+    - `strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier` (default `2.0`)
+    - applies only for true risk-reducing recovery intents
+    - does not bypass post-only cross checks, stale-book checks, wallet authority, or risk authority
   - canonical paper profile currently uses:
     - `runtime.held_book_not_found_backoff_sec = 5.0`
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`
     - `runtime.held_book_not_found_force_refresh_interval_sec = 45.0`
+    - `runtime.held_preexpiry_reduce_only_sec = 90.0`
+  - transition/anomaly truth surfaces are explicit:
+    - `valuation_hard_degraded_enter_count`
+    - `valuation_hard_degraded_clear_count`
+    - `held_unpriceable_started_count`
+    - `held_unpriceable_recovered_count`
+    - `preexpiry_404_anomaly_count`
+    - `preexpiry_404_anomaly_active`
 
 ## Execution-Quality Semantic Split (Canonical Reporting)
 - Immediate midpoint-relative fill quality is reported under:

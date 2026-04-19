@@ -374,6 +374,7 @@ def run_audit(
 
         maker_allowed = row.get("maker_allowed")
         taker_allowed = row.get("taker_allowed")
+        reduce_only_recovery_active = bool(row.get("reduce_only_recovery_active", False))
         submitted = row.get("submitted")
         filled = row.get("filled")
         if not isinstance(maker_allowed, bool):
@@ -385,11 +386,19 @@ def run_audit(
         if not isinstance(filled, bool):
             findings.append(f"{row_prefix}_filled_not_bool")
         expected_maker_allowed, expected_taker_allowed = stage_policy(stage)
-        if isinstance(maker_allowed, bool) and bool(maker_allowed) != bool(expected_maker_allowed):
+        if (
+            isinstance(maker_allowed, bool)
+            and (not reduce_only_recovery_active)
+            and bool(maker_allowed) != bool(expected_maker_allowed)
+        ):
             findings.append(
                 f"{row_prefix}_maker_allowed_stage_policy_mismatch:{stage}:{maker_allowed}:{expected_maker_allowed}"
             )
-        if isinstance(taker_allowed, bool) and bool(taker_allowed) != bool(expected_taker_allowed):
+        if (
+            isinstance(taker_allowed, bool)
+            and (not reduce_only_recovery_active)
+            and bool(taker_allowed) != bool(expected_taker_allowed)
+        ):
             findings.append(
                 f"{row_prefix}_taker_allowed_stage_policy_mismatch:{stage}:{taker_allowed}:{expected_taker_allowed}"
             )
@@ -479,7 +488,7 @@ def run_audit(
 
         if action != EDGE_ACTION_NONE:
             action_rows += 1
-            if not stage_allows_action(stage, action):
+            if (not reduce_only_recovery_active) and (not stage_allows_action(stage, action)):
                 findings.append(f"{row_prefix}_stage_action_mismatch:{stage}:{action}")
             if submitted is not True:
                 findings.append(f"{row_prefix}_action_without_submission")
