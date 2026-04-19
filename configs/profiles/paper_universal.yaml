@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "f1c63905d3cd3652d62068d69851395a8d00fe62230166b43fa8b4cd75bb831a"
+  paper_expected_config_fingerprint_sha256: "f6585cf2853b1a00af8a8926734914b311c996b19c5e4689c2ffa4f789fdd6cf"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
@@ -101,6 +101,9 @@ wallet:
   treasury_wallet_address: ""
 
 risk:
+  # Keep new exposure out of terminal windows while preserving a non-empty
+  # actionable interval in canonical maker/taker stages.
+  min_sec_to_expiry_for_new_exposure: 45.0
   max_abs_position_shares: 4000.0
   max_notional_per_token: 1300.0
   max_order_size: 8000.0

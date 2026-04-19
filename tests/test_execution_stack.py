@@ -46,6 +46,9 @@ class ExecutionStackTests(unittest.TestCase):
         cfg_path = (Path(__file__).resolve().parents[1] / "configs/profiles/paper_universal.yaml").resolve()
         cfg = load_execution_config(cfg_path)
         runtime = dict(cfg.get("runtime") or {})
+        risk = dict(cfg.get("risk") or {})
+        strategy = dict(cfg.get("strategy") or {})
+        maker_comp = dict(strategy.get("maker_competitiveness") or {})
         self.assertAlmostEqual(float(runtime.get("held_book_not_found_backoff_sec") or 0.0), 5.0, places=9)
         self.assertAlmostEqual(
             float(runtime.get("held_book_not_found_force_refresh_min_unpriceable_age_sec") or 0.0),
@@ -56,6 +59,11 @@ class ExecutionStackTests(unittest.TestCase):
             float(runtime.get("held_book_not_found_force_refresh_interval_sec") or 0.0),
             45.0,
             places=9,
+        )
+        self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 45.0, places=9)
+        self.assertLess(
+            float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0),
+            float(maker_comp.get("timing_gate_max_sec_to_expiry") or 0.0),
         )
         expected = str(runtime.get("paper_expected_config_fingerprint_sha256") or "").strip().lower()
         observed = str((cfg.get("_meta") or {}).get("effective_config_sha256") or "").strip().lower()
