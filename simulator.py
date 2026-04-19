@@ -347,6 +347,21 @@ def _probability_up(spot: float, strike: float, sec_to_expiry: float, vol_scale:
     return 1.0 / (1.0 + math.exp(-z))
 
 
+def _sim_stage_for_sec_to_expiry(sec_to_expiry: float) -> str:
+    sec = float(sec_to_expiry)
+    if sec > 120.0:
+        return "MAKER_ONLY"
+    if sec > 90.0:
+        return "MAKER_TAKER_SELECTIVE"
+    if sec > 60.0:
+        return "SNIPER_SETUP"
+    if sec > 30.0:
+        return "SNIPER_PREP"
+    if sec > 20.0:
+        return "SNIPER_PRIMARY"
+    return "SNIPER_LATE"
+
+
 def _make_top(
     token_id: str,
     mid: float,
@@ -759,6 +774,7 @@ def run_scenario(
 
             tracked_tokens = {token for w in active_windows for token in (w.yes_token, w.no_token)}
             books: Dict[str, BookTop] = {}
+            competitiveness_context_by_token: Dict[str, Dict[str, Any]] = {}
             seen_tokens.update(tracked_tokens)
             spread = settings.spike_spread if in_spike_phase else settings.base_spread
 
@@ -773,6 +789,7 @@ def run_scenario(
 
             for i, window in enumerate(active_windows):
                 sec_to_expiry = max(0.0, (window.expiry_step - step) * dt_sec)
+                stage = _sim_stage_for_sec_to_expiry(sec_to_expiry)
                 p_yes = _probability_up(spot, window.strike, sec_to_expiry, vol_scale=1.0 + sigma / 20.0)
                 p_no = clamp(1.0 - p_yes, 0.001, 0.999)
                 size = 80.0 + abs(rng.gauss(0.0, 20.0))
@@ -806,6 +823,14 @@ def run_scenario(
                 )
                 books[yes_top.token_id] = yes_top
                 books[no_top.token_id] = no_top
+                competitiveness_context_by_token[yes_top.token_id] = {
+                    "stage": stage,
+                    "sec_to_expiry": sec_to_expiry,
+                }
+                competitiveness_context_by_token[no_top.token_id] = {
+                    "stage": stage,
+                    "sec_to_expiry": sec_to_expiry,
+                }
                 gateway.on_book(yes_top)
                 gateway.on_book(no_top)
 
@@ -862,7 +887,11 @@ def run_scenario(
                 if orphan_canceled:
                     telemetry.incr("orphan_cancels", orphan_canceled)
 
-            summary = manager.step(books, tracked_tokens=tracked_tokens)
+            summary = manager.step(
+                books,
+                tracked_tokens=tracked_tokens,
+                competitiveness_context_by_token=competitiveness_context_by_token,
+            )
             fills_total += int(summary["fills"])
             actions_total += int(summary["actions"])
             max_open_orders = max(max_open_orders, int(summary["open_orders"]))

@@ -25,6 +25,8 @@ class PreliveGateTests(unittest.TestCase):
         cfg["market_data"]["ws"]["enabled"] = False
         cfg["targets"]["discovery"]["enabled"] = False
         cfg["auth"]["allow_taker"] = allow_taker
+        if str(mode).strip().lower() == "live":
+            cfg["wallet"]["approval_spender_targets"] = ["0x1111111111111111111111111111111111111111"]
         cfg["storage"]["log_dir"] = str(root / "logs_exec")
         cfg["storage"]["state_path"] = str(root / "logs_exec" / "state.json")
         cfg["runtime"]["guard_stop_file"] = str(root / "logs_exec" / "guard_stop.txt")

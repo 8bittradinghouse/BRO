@@ -48,6 +48,7 @@ def run_gate() -> Dict[str, Any]:
         cfg["preflight"]["check_clock_sync"] = False
         cfg["preflight"]["check_endpoint_health"] = False
         cfg["auth"]["allow_taker"] = True
+        cfg["wallet"]["approval_spender_targets"] = ["0x1111111111111111111111111111111111111111"]
         cfg["storage"]["log_dir"] = str(root / "logs_exec")
         cfg["storage"]["state_path"] = str(root / "logs_exec" / "state.json")
         cfg["runtime"]["guard_stop_file"] = str(root / "logs_exec" / "guard_stop.txt")
