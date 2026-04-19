@@ -415,11 +415,17 @@ def run_audit(
             value = row.get(prob_field)
             if value is not None and not _is_prob(value):
                 findings.append(f"{row_prefix}_{prob_field}_invalid")
-        for nonneg_field in ("time_remaining_sec", "oracle_tick_age_sec"):
-            value = row.get(nonneg_field)
-            parsed = _safe_float(value)
-            if value is not None and (parsed is None or parsed < 0.0):
-                findings.append(f"{row_prefix}_{nonneg_field}_invalid")
+        # time_remaining_sec may legitimately be negative for recently expired opportunities
+        # (for example during explicit reduce-only recovery windows). Treat it as numeric-only.
+        time_remaining_value = row.get("time_remaining_sec")
+        time_remaining_parsed = _safe_float(time_remaining_value)
+        if time_remaining_value is not None and time_remaining_parsed is None:
+            findings.append(f"{row_prefix}_time_remaining_sec_invalid")
+
+        oracle_tick_age_value = row.get("oracle_tick_age_sec")
+        oracle_tick_age_parsed = _safe_float(oracle_tick_age_value)
+        if oracle_tick_age_value is not None and (oracle_tick_age_parsed is None or oracle_tick_age_parsed < 0.0):
+            findings.append(f"{row_prefix}_oracle_tick_age_sec_invalid")
         if row.get("edge_value") is not None and _safe_float(row.get("edge_value")) is None:
             findings.append(f"{row_prefix}_edge_value_invalid")
 
