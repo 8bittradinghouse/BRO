@@ -16,6 +16,14 @@ _VALID_FUNDER = "0x" + ("b" * 40)
 
 
 class PreflightAndRiskTests(unittest.TestCase):
+    @staticmethod
+    def _risk_cfg() -> dict:
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        # Most tests in this module validate legacy risk behaviors and should
+        # remain independent from the expiry new-exposure gate unless explicit.
+        cfg["min_sec_to_expiry_for_new_exposure"] = 0.0
+        return cfg
+
     def test_live_preflight_requires_confirmation(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["mode"] = "live"
@@ -112,7 +120,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertTrue(any(x.startswith("state_file_invalid:") for x in findings))
 
     def test_risk_cancel_rate_limit(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_cancels_per_min"] = 1
         positions = {"t1": Position(token_id="t1")}
         risk = RiskEngine(cfg, positions)
@@ -123,7 +131,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(deny_second.allowed)
 
     def test_mark_to_market_and_loss_limits(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_total_loss"] = 5.0
         cfg["max_loss_per_token"] = 3.0
         positions = {"t1": Position(token_id="t1")}
@@ -136,7 +144,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
 
     def test_mark_to_market_keeps_realized_pnl_for_flat_position_without_mid(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         positions = {"t1": Position(token_id="t1")}
         risk = RiskEngine(cfg, positions)
         risk.on_fill(FillEvent(trade_id="x1", token_id="t1", side="BUY", price=0.4, size=10, ts_utc="2026-01-01T00:00:00Z"))
@@ -146,7 +154,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertAlmostEqual(float(pnl_by_token.get("t1", 0.0)), 2.0, places=9)
 
     def test_validate_order_hard_degraded_blocks_risk_increase_allows_pure_reduce(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         positions = {"t1": Position(token_id="t1", net_shares=5.0)}
         risk = RiskEngine(cfg, positions)
@@ -196,8 +204,96 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "valuation_hard_degraded_risk_increase_blocked")
 
-    def test_validate_order_rejects_stale_book(self):
+    def test_validate_order_blocks_new_exposure_when_sec_to_expiry_unknown(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_sec_to_expiry_for_new_exposure"] = 120.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "new_exposure_sec_to_expiry_unknown_blocked")
+        self.assertIsInstance(decision.basis, dict)
+        self.assertAlmostEqual(
+            float(decision.basis.get("min_sec_to_expiry_for_new_exposure") or 0.0),
+            120.0,
+            places=9,
+        )
+
+    def test_validate_order_blocks_new_exposure_below_expiry_threshold_and_allows_reduce(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_sec_to_expiry_for_new_exposure"] = 120.0
+        positions = {"t1": Position(token_id="t1", net_shares=5.0)}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked_buy = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 60.0},
+        )
+        self.assertFalse(blocked_buy.allowed)
+        self.assertEqual(blocked_buy.reason, "new_exposure_expiry_gate_blocked")
+
+        allowed_reduce = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=3.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 60.0},
+        )
+        self.assertTrue(allowed_reduce.allowed)
+
+        allowed_flatten = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=5.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 60.0},
+        )
+        self.assertTrue(allowed_flatten.allowed)
+
+        blocked_cross = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=6.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 60.0},
+        )
+        self.assertFalse(blocked_cross.allowed)
+        self.assertEqual(blocked_cross.reason, "new_exposure_expiry_gate_blocked")
+
+    def test_validate_order_rejects_stale_book(self):
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 0.001
         positions = {"t1": Position(token_id="t1")}
         risk = RiskEngine(cfg, positions)
@@ -222,7 +318,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(decision.reason, "stale_book")
 
     def test_validate_order_rejects_future_book_timestamp(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["max_book_future_skew_sec"] = 0.5
         positions = {"t1": Position(token_id="t1")}
@@ -249,7 +345,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(decision.reason, "future_book_timestamp")
 
     def test_validate_order_rejects_notional_cap_per_side(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["max_notional_per_token"] = 5.0
         cfg["exposure_cap_mode"] = "per_side"
@@ -276,7 +372,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(decision.reason, "notional_cap_long")
 
     def test_validate_order_rejects_when_pending_same_side_exceeds_position_cap(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["max_abs_position_shares"] = 100.0
         positions = {"t1": Position(token_id="t1", net_shares=0.0)}
@@ -311,7 +407,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(decision.reason, "position_cap")
 
     def test_dynamic_risk_scaling_unknown_input_does_not_allow_aggressive_uplift(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["dynamic_scaling"]["enabled"] = True
         cfg["dynamic_scaling"]["edge_enabled"] = True
@@ -349,7 +445,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertNotEqual(dynamic_scaling.get("scaling_class"), "aggressive")
 
     def test_global_exposure_guard_rejects_combined_projected_exposure(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
         cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
@@ -394,7 +490,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
 
     def test_global_exposure_sniper_reserve_applies_only_to_non_sniper_taker(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
         cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
@@ -446,7 +542,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(bool(sniper_guard.get("sniper_reserve_applied")))
 
     def test_preview_order_feasibility_is_read_only_and_non_authoritative(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         positions = {"t1": Position(token_id="t1", net_shares=0.0)}
         risk = RiskEngine(cfg, positions)

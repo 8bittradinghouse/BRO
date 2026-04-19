@@ -506,6 +506,9 @@ class RiskEngine:
             "submission_lane": str(context.get("submission_lane") or "unknown"),
             "stage": str(context.get("stage") or "unknown"),
             "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
+            "min_sec_to_expiry_for_new_exposure": self._safe_float(
+                self.cfg.get("min_sec_to_expiry_for_new_exposure")
+            ),
             "edge_abs": self._safe_float(context.get("edge_abs")),
             "realized_volatility": self._safe_float(context.get("realized_volatility")),
             "dynamic_scaling": dynamic_scaling_basis,
@@ -521,12 +524,44 @@ class RiskEngine:
         }
 
         pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
+        min_sec_to_expiry_for_new_exposure = float(self.cfg.get("min_sec_to_expiry_for_new_exposure", 0.0) or 0.0)
+        pure_risk_reducing_intent = self._is_pure_risk_reducing_intent(
+            net_shares=float(pos.net_shares),
+            side=str(intent.side or ""),
+            size=float(intent.size),
+        )
+        sec_to_expiry = self._safe_float(context.get("sec_to_expiry"))
+        if min_sec_to_expiry_for_new_exposure > 0.0 and (not pure_risk_reducing_intent):
+            if sec_to_expiry is None:
+                return RiskDecision(
+                    False,
+                    "new_exposure_sec_to_expiry_unknown_blocked",
+                    (
+                        "risk-increasing intent requires sec_to_expiry context when "
+                        f"min_sec_to_expiry_for_new_exposure={min_sec_to_expiry_for_new_exposure:.3f}"
+                    ),
+                    basis={
+                        **basis_base,
+                        "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                        "sec_to_expiry": None,
+                    },
+                )
+            if float(sec_to_expiry) <= (min_sec_to_expiry_for_new_exposure + 1e-9):
+                return RiskDecision(
+                    False,
+                    "new_exposure_expiry_gate_blocked",
+                    (
+                        f"sec_to_expiry={float(sec_to_expiry):.6f}"
+                        f"<=min_sec_to_expiry_for_new_exposure={min_sec_to_expiry_for_new_exposure:.6f}"
+                    ),
+                    basis={
+                        **basis_base,
+                        "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                        "sec_to_expiry": float(sec_to_expiry),
+                    },
+                )
         if self._valuation_hard_degraded:
-            if not self._is_pure_risk_reducing_intent(
-                net_shares=float(pos.net_shares),
-                side=str(intent.side or ""),
-                size=float(intent.size),
-            ):
+            if not pure_risk_reducing_intent:
                 return RiskDecision(
                     False,
                     "valuation_hard_degraded_risk_increase_blocked",
