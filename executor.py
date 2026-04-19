@@ -285,6 +285,14 @@ class ExecutionRunner:
             if configured_held_book_not_found_force_refresh_min_unpriceable_age is not None
             else 30.0
         )
+        configured_held_expired_reduce_only_grace = parse_float(
+            runtime_cfg.get("held_expired_reduce_only_grace_sec")
+        )
+        self.held_expired_reduce_only_grace_sec = (
+            max(0.0, float(configured_held_expired_reduce_only_grace))
+            if configured_held_expired_reduce_only_grace is not None
+            else 90.0
+        )
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_force_refresh_next_mono_by_token: Dict[str, float] = {}
@@ -2008,6 +2016,13 @@ class ExecutionRunner:
         raw_stage = stage
         if not market_key:
             stage = STAGE_UNKNOWN
+        expired_reduce_only_grace_active = (
+            stage == STAGE_EXPIRED
+            and self._held_expired_reduce_only_grace_active(token_id=token_id, sec_to_expiry=sec_to_expiry)
+        )
+        if expired_reduce_only_grace_active:
+            stage = STAGE_MAKER_TAKER_SELECTIVE
+            reason = "expired_reduce_only_grace_active"
         if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
             entry_mono = self._market_entry_mono_by_token.get(token_id)
             entry_cycle = self._market_entry_cycle_by_token.get(token_id)
@@ -2032,6 +2047,7 @@ class ExecutionRunner:
             "observe_hold_active": hold_active,
             "observe_hold_cycles_remaining": hold_cycles_remaining,
             "observe_hold_seconds_remaining": hold_seconds_remaining,
+            "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
             "allow_maker": allow_maker,
             "allow_taker": allow_taker,
             "doctrine_gate_verdict": verdict,
@@ -3192,6 +3208,30 @@ class ExecutionRunner:
         held.update(self._open_order_token_ids())
         return held
 
+    def _discovery_carry_forward_token_ids(self, discovered_token_ids: List[str]) -> List[str]:
+        discovered = set(str(token_id) for token_id in discovered_token_ids if str(token_id or "").strip())
+        carry = sorted(token_id for token_id in self._held_exposure_token_ids() if token_id not in discovered)
+        return self._unique_ordered(carry)
+
+    def _held_expired_reduce_only_grace_active(
+        self,
+        *,
+        token_id: str,
+        sec_to_expiry: Optional[float],
+    ) -> bool:
+        if not isinstance(sec_to_expiry, (int, float)):
+            return False
+        if float(sec_to_expiry) >= 0.0:
+            return False
+        if float(self.held_expired_reduce_only_grace_sec) <= 0.0:
+            return False
+        if abs(float(sec_to_expiry)) > float(self.held_expired_reduce_only_grace_sec):
+            return False
+        if token_id in self._open_order_token_ids():
+            return True
+        pos = self.risk.positions.get(token_id)
+        return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
+
     def _book_not_found_backoff_sec_for_token(
         self,
         *,
@@ -3331,6 +3371,8 @@ class ExecutionRunner:
             return
 
         discovered_ids = self._unique_ordered([str(x) for x in result.token_ids])
+        carry_forward_ids = self._discovery_carry_forward_token_ids(discovered_ids)
+        effective_discovered_ids = self._unique_ordered(discovered_ids + carry_forward_ids)
         self.telemetry.set_gauge("target_discovery_allowlist_enabled", 1.0 if result.allowlist_enabled else 0.0)
         self.telemetry.set_gauge("target_discovery_allowlist_rejected_pairs", float(result.allowlist_rejected_pairs))
         self.telemetry.set_gauge("target_discovery_contract_rejected_pairs", float(result.contract_rejected_pairs))
@@ -3371,8 +3413,8 @@ class ExecutionRunner:
             if str(token_id) and str(market_key)
         }
         self.telemetry.set_gauge("target_discovery_active_targets", float(len(discovered_ids)))
-        self.telemetry.set_gauge("target_discovery_standdown", 1.0 if not discovered_ids else 0.0)
-        if not discovered_ids:
+        self.telemetry.set_gauge("target_discovery_standdown", 1.0 if not effective_discovered_ids else 0.0)
+        if not effective_discovered_ids:
             self.telemetry.incr("target_discovery_empty")
             old = list(self.token_ids)
             if old:
@@ -3419,9 +3461,9 @@ class ExecutionRunner:
             self._last_discovery_target_count = 0
             return
 
-        if discovered_ids != self.token_ids:
+        if effective_discovered_ids != self.token_ids:
             old = list(self.token_ids)
-            self.token_ids = discovered_ids
+            self.token_ids = effective_discovered_ids
             self._reset_ws_slo_bootstrap(reason="targets_updated")
             old_set = set(old)
             active_set = set(self.token_ids)
@@ -3472,6 +3514,10 @@ class ExecutionRunner:
                     "side_map_count": len(self.token_side_by_token),
                     "strike_map_count": len(self.token_strike_by_token),
                     "market_key_map_count": len(self.token_market_key_by_token),
+                    "discovered_token_count": len(discovered_ids),
+                    "discovered_token_ids": list(discovered_ids),
+                    "carry_forward_token_count": len(carry_forward_ids),
+                    "carry_forward_token_ids": list(carry_forward_ids),
                 },
             )
             self._sync_book_feed_watch_tokens()
@@ -4416,7 +4462,9 @@ class ExecutionRunner:
                 if self.doctrine_mode == "canonical":
                     maker_eligible_tokens = set()
                     for token_id in maker_stage_tokens:
+                        info = stage_info_by_token.get(token_id, {})
                         timing_gate_open = bool(maker_timing_gate_open_by_token.get(token_id, False))
+                        expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
                         failure_reason = self._maker_prereq_failure_reason(
                             token_id,
                             fair_probability_by_token=fair_probability_by_token,
@@ -4426,7 +4474,9 @@ class ExecutionRunner:
                         if failure_reason:
                             maker_prereq_failure_by_token[token_id] = failure_reason
                             continue
-                        if self.maker_comp_timing_gate_enabled and not timing_gate_open:
+                        if self.maker_comp_timing_gate_enabled and (not timing_gate_open) and (
+                            not expired_reduce_only_grace_active
+                        ):
                             maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
                         maker_eligible_tokens.add(token_id)
@@ -4531,8 +4581,23 @@ class ExecutionRunner:
                         size_multiplier_by_token[token_id] = float(profile["size_multiplier_applied"])
                         spread_multiplier_by_token[token_id] = float(profile["spread_multiplier_applied"])
                         maker_requote_delta_by_token[token_id] = float(profile["requote_delta_applied"])
-                        maker_side_policy_by_token[token_id] = str(profile["side_policy"])
-                        maker_competitiveness_context_by_token[token_id] = dict(profile["context"])
+                        side_policy = str(profile["side_policy"])
+                        context_payload = dict(profile["context"])
+                        expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
+                        if expired_reduce_only_grace_active:
+                            net_shares = float(
+                                getattr(self.risk.positions.get(token_id), "net_shares", 0.0) or 0.0
+                            )
+                            if net_shares > 1e-9:
+                                side_policy = "SELL_ONLY"
+                            elif net_shares < -1e-9:
+                                side_policy = "BUY_ONLY"
+                            if side_policy in {"SELL_ONLY", "BUY_ONLY"}:
+                                context_payload["reduce_only_recovery_active"] = True
+                                context_payload["reduce_only_size_cap_shares"] = abs(float(net_shares))
+                                context_payload["reduce_only_recovery_reason"] = "expired_reduce_only_grace_active"
+                        maker_side_policy_by_token[token_id] = side_policy
+                        maker_competitiveness_context_by_token[token_id] = context_payload
                     side_policy = str(profile.get("side_policy") or "TWO_SIDED").upper()
                     if side_policy == "BUY_ONLY":
                         maker_one_sided_buy_active_count += 1

@@ -614,6 +614,62 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_order_manager_reduce_only_size_cap_is_applied_before_submit(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1", net_shares=5.0)}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.55,
+                size=10.0,
+                tif="GTC",
+                post_only=True,
+                reason="reduce_only_recovery",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            placed, reason = manager._place_order(  # pylint: disable=protected-access
+                intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context={
+                    "submission_lane": "maker",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "reduce_only_size_cap_shares": 1.25,
+                },
+            )
+            self.assertIsNotNone(placed)
+            self.assertIn(reason, (None, ""))
+            self.assertAlmostEqual(float(placed.size), 1.25, places=9)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_order_manager_handles_cancel_exception_without_crashing_cycle(self):
         class _CancelBoomGateway(PaperGateway):
             def cancel_order(self, order_id: str) -> bool:  # type: ignore[override]
@@ -3675,6 +3731,54 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_refresh_targets_carries_forward_non_flat_held_tokens_on_empty_discovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["held1"]
+            cfg["targets"]["token_expiry_utc_by_token"] = {"held1": "2030-01-01T00:01:00.000Z"}
+            cfg["targets"]["token_side_by_token"] = {"held1": "YES"}
+            cfg["targets"]["token_strike_by_token"] = {"held1": 50000.0}
+            cfg["targets"]["token_market_key_by_token"] = {"held1": "mk-held1"}
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["held1"] = Position(token_id="held1", net_shares=2.0)
+                runner.token_market_key_by_token["held1"] = "mk-held1"
+                result = type(
+                    "DiscoveryStub",
+                    (),
+                    {
+                        "token_ids": [],
+                        "pairs_selected": 0,
+                        "scanned_markets": 100,
+                        "fee_eligible_markets": 10,
+                        "contract_rejected_pairs": 5,
+                        "allowlist_enabled": False,
+                        "allowlist_rejected_pairs": 0,
+                        "token_expiry_utc_by_token": {},
+                        "token_side_by_token": {},
+                        "token_strike_by_token": {},
+                        "token_market_key_by_token": {},
+                    },
+                )()
+                with mock.patch.object(runner.discovery, "discover", return_value=result):
+                    runner._refresh_targets(force=True)
+                self.assertEqual(runner.token_ids, ["held1"])
+                self.assertEqual(runner.telemetry.gauges.get("target_discovery_standdown"), 0.0)
+                self.assertEqual(runner.telemetry.gauges.get("target_discovery_active_targets"), 0.0)
+                self.assertEqual(str(runner.token_market_key_by_token.get("held1") or ""), "mk-held1")
+                self.assertIn("held1", set(runner._valuation_watch_token_ids()))  # pylint: disable=protected-access
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_refresh_targets_transitions_between_standdown_and_active(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -3726,6 +3830,36 @@ class ExecutionStackTests(unittest.TestCase):
                     self.assertEqual(runner.token_ids, ["yes1", "no1"])
                     runner._refresh_targets(force=True)
                     self.assertEqual(runner.token_ids, [])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_token_stage_info_enables_reduce_only_grace_for_recently_expired_held_token(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["held-expired"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "held-expired"
+                expiry = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=30)).isoformat().replace("+00:00", "Z")
+                runner._apply_token_expiry_map({token_id: expiry}, source="test")  # pylint: disable=protected-access
+                runner.token_side_by_token[token_id] = "YES"
+                runner.token_strike_by_token[token_id] = 50000.0
+                runner.token_market_key_by_token[token_id] = "mk-held-expired"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=3.0)
+                stage_info = runner._token_stage_info(token_id)  # pylint: disable=protected-access
+                self.assertEqual(str(stage_info.get("stage") or ""), "MAKER_TAKER_SELECTIVE")
+                self.assertEqual(str(stage_info.get("reason") or ""), "expired_reduce_only_grace_active")
+                self.assertTrue(bool(stage_info.get("expired_reduce_only_grace_active")))
             finally:
                 runner.events.close()
                 runner.book_client.close()

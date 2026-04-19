@@ -9,7 +9,7 @@ import math
 import re
 from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
-from .common import parse_ts, utc_iso, utc_now
+from .common import parse_float, parse_ts, utc_iso, utc_now
 from .execution_quality import ExecutionQualityModel
 from .gateway import BaseGateway, PostOnlyRejectError
 from .logging_utils import EventLogger
@@ -524,6 +524,23 @@ class OrderManager:
                 detail=f"mode={self.sizing_mode}",
                 extra={"size_resolution": size_resolution},
             )
+        reduce_only_size_cap_raw = (
+            (risk_context or {}).get("reduce_only_size_cap_shares") if isinstance(risk_context, dict) else None
+        )
+        reduce_only_size_cap = parse_float(reduce_only_size_cap_raw)
+        if (
+            isinstance(reduce_only_size_cap, (int, float))
+            and float(reduce_only_size_cap) > 0.0
+            and float(resolved_size) > (float(reduce_only_size_cap) + 1e-9)
+        ):
+            resolved_size = float(reduce_only_size_cap)
+            resolution_reasons = size_resolution.get("size_decision_reasons")
+            if isinstance(resolution_reasons, list):
+                resolution_reasons.append("reduce_only_size_cap_to_position")
+            size_resolution["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
+            size_resolution["resolved_shares"] = float(resolved_size)
+            if isinstance(top.midpoint, (int, float)):
+                size_resolution["resolved_notional_usd"] = float(resolved_size) * float(top.midpoint)
         intent_ts = utc_iso()
         default_execution_pref = (
             "taker_only"
