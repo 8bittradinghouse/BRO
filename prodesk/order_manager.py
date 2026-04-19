@@ -299,6 +299,7 @@ class OrderManager:
             "sizing_reject": "sizing_reject",
             "wallet_reject": "wallet_reject",
             "order_submit_exception": "order_submit_exception",
+            "reduce_only_recovery_size_cap_below_min_order_size": "reduce_only_recovery_size_cap_below_min_order_size",
         }
         return str(mapping.get(normalized, "unknown"))
 
@@ -1775,6 +1776,7 @@ class OrderManager:
             "quote_quality_skip_fill_probability": 2,
             "quote_quality_skip_queue_depth": 2,
             "risk_reject": 2,
+            "reduce_only_recovery_size_cap_below_min_order_size": 2,
             "replace_guard_min_rest": 3,
             "no_desired_quote": 4,
             "quote_unchanged": 5,
@@ -1859,6 +1861,19 @@ class OrderManager:
                 if isinstance(competitiveness_context_by_token, dict)
                 else None
             )
+            reduce_only_recovery_active = bool(
+                isinstance(token_competitiveness_context, dict)
+                and token_competitiveness_context.get("reduce_only_recovery_active", False)
+            )
+            reduce_only_side = (
+                str(token_competitiveness_context.get("reduce_only_side") or "").strip().upper()
+                if isinstance(token_competitiveness_context, dict)
+                else ""
+            )
+            reduce_only_size_cap_below_min_order_size = bool(
+                isinstance(token_competitiveness_context, dict)
+                and token_competitiveness_context.get("reduce_only_size_cap_below_min_order_size", False)
+            )
             if actions >= max_actions:
                 _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                 continue
@@ -1917,6 +1932,23 @@ class OrderManager:
                             _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                             break
                         if self._cancel_order(order, "one_sided_mode_disallow_side"):
+                            actions += 1
+                            open_orders_total = max(0, open_orders_total - 1)
+                            with suppress(ValueError):
+                                token_orders.remove(order)
+                    continue
+
+                if (
+                    reduce_only_recovery_active
+                    and reduce_only_size_cap_below_min_order_size
+                    and side == reduce_only_side
+                ):
+                    _record_maker_no_submission_reason(token_id, "reduce_only_recovery_size_cap_below_min_order_size")
+                    for order in side_orders:
+                        if actions >= max_actions:
+                            _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
+                            break
+                        if self._cancel_order(order, "reduce_only_recovery_size_cap_below_min_order_size"):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
                             with suppress(ValueError):

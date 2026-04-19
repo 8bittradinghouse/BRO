@@ -217,6 +217,7 @@ class ExecutionRunner:
             if configured_last_known_mid_age is not None
             else 6.0
         )
+        self.risk_min_order_size_shares = max(1e-9, float(risk_cfg.get("min_order_size", 1.0)))
         configured_held_unpriceable_escalation_sec = parse_float(risk_cfg.get("held_unpriceable_escalation_sec"))
         self.held_unpriceable_escalation_sec = (
             max(0.0, float(configured_held_unpriceable_escalation_sec))
@@ -2374,6 +2375,12 @@ class ExecutionRunner:
             "reduce_only_side": str(reduce_only_recovery.get("side") or "NONE"),
             "reduce_only_side_policy": str(reduce_only_recovery.get("side_policy") or "NONE"),
             "reduce_only_size_cap_shares": float(reduce_only_recovery.get("size_cap_shares", 0.0) or 0.0),
+            "reduce_only_size_cap_below_min_order_size": bool(
+                reduce_only_recovery.get("size_cap_below_min_order_size", False)
+            ),
+            "reduce_only_min_order_size_shares": float(
+                reduce_only_recovery.get("min_order_size_shares", self.risk_min_order_size_shares) or 0.0
+            ),
             "reduce_only_net_shares": float(reduce_only_recovery.get("net_shares", 0.0) or 0.0),
             "reduce_only_open_order_present": bool(reduce_only_recovery.get("open_order_present", False)),
             "held_preexpiry_reduce_only_sec": float(reduce_only_recovery.get("preexpiry_window_sec", 0.0) or 0.0),
@@ -3132,6 +3139,9 @@ class ExecutionRunner:
             reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
             reduce_only_side = str(info.get("reduce_only_side") or "NONE").strip().upper() or "NONE"
             reduce_only_size_cap_shares = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
+            reduce_only_size_cap_below_min_order_size = bool(
+                info.get("reduce_only_size_cap_below_min_order_size", False)
+            )
             top = books.get(token_id)
             midpoint = top.midpoint if top is not None else None
             fair = fair_probability_by_token.get(token_id)
@@ -3200,7 +3210,9 @@ class ExecutionRunner:
                 block_reason = "edge_below_min"
             else:
                 if reduce_only_recovery_active:
-                    if reduce_only_side not in {"BUY", "SELL"}:
+                    if reduce_only_size_cap_below_min_order_size:
+                        block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
+                    elif reduce_only_side not in {"BUY", "SELL"}:
                         block_reason = "reduce_only_recovery_no_reducing_side"
                     elif reduce_only_size_cap_shares <= 1e-9:
                         block_reason = "reduce_only_recovery_size_cap_unavailable"
@@ -3414,6 +3426,13 @@ class ExecutionRunner:
                                         "BUY_ONLY" if reduce_only_side == "BUY" else "SELL_ONLY"
                                     )
                                     recovery_context["reduce_only_size_cap_shares"] = float(reduce_only_size_cap_shares)
+                                    recovery_context["reduce_only_size_cap_below_min_order_size"] = bool(
+                                        reduce_only_size_cap_below_min_order_size
+                                    )
+                                    recovery_context["reduce_only_min_order_size_shares"] = float(
+                                        info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares)
+                                        or 0.0
+                                    )
                                     recovery_context["preexpiry_reduce_only_active"] = bool(
                                         info.get("preexpiry_reduce_only_active", False)
                                     )
@@ -3692,6 +3711,7 @@ class ExecutionRunner:
         expired_reduce_only_grace_active: bool,
     ) -> Dict[str, Any]:
         token = str(token_id or "").strip()
+        min_order_size_shares = float(self.risk_min_order_size_shares)
         if not token:
             return {
                 "active": False,
@@ -3699,6 +3719,8 @@ class ExecutionRunner:
                 "side": "NONE",
                 "side_policy": "NONE",
                 "size_cap_shares": 0.0,
+                "size_cap_below_min_order_size": False,
+                "min_order_size_shares": float(min_order_size_shares),
                 "net_shares": 0.0,
                 "open_order_present": False,
                 "preexpiry_active": False,
@@ -3730,6 +3752,11 @@ class ExecutionRunner:
             side = "BUY"
             side_policy = "BUY_ONLY"
             size_cap_shares = abs(float(net_shares))
+        size_cap_below_min_order_size = bool(
+            active
+            and float(size_cap_shares) > 1e-9
+            and float(size_cap_shares) + 1e-9 < float(min_order_size_shares)
+        )
         if not active:
             return {
                 "active": False,
@@ -3737,6 +3764,8 @@ class ExecutionRunner:
                 "side": side,
                 "side_policy": side_policy,
                 "size_cap_shares": float(size_cap_shares),
+                "size_cap_below_min_order_size": False,
+                "min_order_size_shares": float(min_order_size_shares),
                 "net_shares": float(net_shares),
                 "open_order_present": bool(open_order_present),
                 "preexpiry_active": False,
@@ -3755,6 +3784,8 @@ class ExecutionRunner:
             "side": side,
             "side_policy": side_policy,
             "size_cap_shares": float(size_cap_shares),
+            "size_cap_below_min_order_size": bool(size_cap_below_min_order_size),
+            "min_order_size_shares": float(min_order_size_shares),
             "net_shares": float(net_shares),
             "open_order_present": bool(open_order_present),
             "preexpiry_active": bool(preexpiry_active),
@@ -5273,6 +5304,12 @@ class ExecutionRunner:
                             context_payload["reduce_only_side"] = reduce_only_side
                             context_payload["reduce_only_side_policy"] = reduce_only_side_policy
                             context_payload["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
+                            context_payload["reduce_only_size_cap_below_min_order_size"] = bool(
+                                info.get("reduce_only_size_cap_below_min_order_size", False)
+                            )
+                            context_payload["reduce_only_min_order_size_shares"] = float(
+                                info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares) or 0.0
+                            )
                             context_payload["reduce_only_net_shares"] = float(info.get("reduce_only_net_shares", 0.0) or 0.0)
                             context_payload["held_preexpiry_reduce_only_sec"] = float(
                                 info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0
