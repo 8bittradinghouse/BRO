@@ -10,7 +10,7 @@ from pathlib import Path
 from executor import ExecutionRunner
 from prodesk.chainlink_feed import ChainlinkTick
 from prodesk.common import utc_iso
-from prodesk.config import DEFAULT_EXECUTION_CONFIG, validate_execution_config
+from prodesk.config import DEFAULT_EXECUTION_CONFIG, load_execution_config, validate_execution_config
 from prodesk.gateway import PaperGateway, PostOnlyRejectError
 from prodesk.latency_verifier import LatencySnapshot
 from prodesk.logging_utils import EventLogger
@@ -35,6 +35,25 @@ class ExecutionStackTests(unittest.TestCase):
         cfg["targets"]["token_ids"] = []
         cfg["targets"]["discovery"]["enabled"] = True
         validate_execution_config(cfg)
+
+    def test_paper_universal_profile_wires_held_book_not_found_recovery_thresholds(self):
+        cfg_path = (Path(__file__).resolve().parents[1] / "configs/profiles/paper_universal.yaml").resolve()
+        cfg = load_execution_config(cfg_path)
+        runtime = dict(cfg.get("runtime") or {})
+        self.assertAlmostEqual(float(runtime.get("held_book_not_found_backoff_sec") or 0.0), 5.0, places=9)
+        self.assertAlmostEqual(
+            float(runtime.get("held_book_not_found_force_refresh_min_unpriceable_age_sec") or 0.0),
+            20.0,
+            places=9,
+        )
+        self.assertAlmostEqual(
+            float(runtime.get("held_book_not_found_force_refresh_interval_sec") or 0.0),
+            45.0,
+            places=9,
+        )
+        expected = str(runtime.get("paper_expected_config_fingerprint_sha256") or "").strip().lower()
+        observed = str((cfg.get("_meta") or {}).get("effective_config_sha256") or "").strip().lower()
+        self.assertEqual(expected, observed)
 
     def test_config_rejects_duplicate_target_ids(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
