@@ -34,14 +34,21 @@ def _resolve_path(cfg_path: pathlib.Path, raw: str) -> pathlib.Path:
 def run_audit(*, profile_paths: List[pathlib.Path]) -> Dict[str, Any]:
     findings: List[str] = []
     warnings: List[str] = []
+    load_errors: List[str] = []
     resolved_profiles = [p.resolve() for p in profile_paths]
     seen_logs: Dict[str, str] = {}
     seen_states: Dict[str, str] = {}
     seen_guards: Dict[str, str] = {}
 
     for cfg_path in resolved_profiles:
-        cfg = load_execution_config(cfg_path)
         profile_label = cfg_path.name
+        try:
+            cfg = load_execution_config(cfg_path)
+        except Exception as exc:  # pragma: no cover - exercised by unit test through run_audit
+            error = f"{profile_label}:load_error:{exc.__class__.__name__}:{exc}"
+            findings.append(error)
+            load_errors.append(error)
+            continue
         mode = str(cfg.get("mode", "")).strip().lower()
         if mode not in {"paper", "live"}:
             findings.append(f"{profile_label}:mode_invalid:{mode}")
@@ -99,6 +106,7 @@ def run_audit(*, profile_paths: List[pathlib.Path]) -> Dict[str, Any]:
         "warning_count": len(warnings),
         "findings": findings,
         "warnings": warnings,
+        "load_errors": load_errors,
         "ok": len(findings) == 0,
     }
 

@@ -51,6 +51,20 @@ class ProfileMatrixAuditTests(unittest.TestCase):
         self.assertIn("log_dir_collision_with", text)
         self.assertIn("state_path_collision_with", text)
 
+    def test_profile_matrix_audit_reports_per_profile_load_error_without_crash(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            good = root / "good.yaml"
+            bad = root / "bad.yaml"
+            _write_profile(good, symbol="BTC", suffix="good")
+            bad.write_text("runtime:\n  paper_enforce_setup_lock: true\n", encoding="utf-8")
+            result = run_audit(profile_paths=[good, bad])
+        self.assertFalse(result["ok"])
+        self.assertIn("load_errors", result)
+        self.assertEqual(len(result["load_errors"]), 1)
+        self.assertIn("bad.yaml:load_error:", result["load_errors"][0])
+        self.assertIn(result["load_errors"][0], result["findings"])
+
 
 if __name__ == "__main__":
     unittest.main()
