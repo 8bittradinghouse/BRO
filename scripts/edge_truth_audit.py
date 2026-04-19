@@ -483,7 +483,16 @@ def run_audit(
             findings.append(f"{row_prefix}_action_requires_maker_allowed_true")
         if action == EDGE_ACTION_TAKER and taker_allowed is not True:
             findings.append(f"{row_prefix}_action_requires_taker_allowed_true")
-        if (not validation.valid) and action != EDGE_ACTION_NONE:
+        allow_recovery_missing_fair_probability = (
+            action != EDGE_ACTION_NONE
+            and bool(reduce_only_recovery_active)
+            and str(validation.reason_code or "").strip().lower() == "fair_probability_missing"
+        )
+        if (
+            (not validation.valid)
+            and action != EDGE_ACTION_NONE
+            and (not allow_recovery_missing_fair_probability)
+        ):
             findings.append(f"{row_prefix}_action_with_invalid_edge_inputs:{validation.reason_code}")
 
         if action != EDGE_ACTION_NONE:
