@@ -24,6 +24,12 @@ from prodesk.wallet_doctrine import WalletAuthorization
 
 
 class ExecutionStackTests(unittest.TestCase):
+    @staticmethod
+    def _risk_cfg_without_expiry_gate() -> dict:
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+        cfg["min_sec_to_expiry_for_new_exposure"] = 0.0
+        return cfg
+
     def test_config_validation_requires_targets(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = []
@@ -367,7 +373,7 @@ class ExecutionStackTests(unittest.TestCase):
     def test_order_manager_rejects_live_mode_without_explicit_wallet(self):
         runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
         strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-        risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+        risk_cfg = self._risk_cfg_without_expiry_gate()
         risk_cfg["max_book_age_sec"] = 100.0
 
         gateway = PaperGateway()
@@ -396,7 +402,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_notional_per_token"] = 1.0
 
@@ -439,7 +445,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_notional_per_token"] = 1000.0
 
@@ -492,7 +498,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -541,7 +547,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -611,7 +617,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["max_order_size"] = 1000.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = _CancelBoomGateway()
@@ -639,7 +645,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_open_orders_per_token"] = 2
 
@@ -686,7 +692,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             runtime_cfg["maker_replace_min_rest_sec"] = 2.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -737,7 +743,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             runtime_cfg["maker_replace_min_rest_sec"] = 1.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -791,7 +797,7 @@ class ExecutionStackTests(unittest.TestCase):
             strategy_cfg["execution_quality"]["enabled"] = False
             # Force clamp-unavailable crossing so this test keeps validating reject semantics.
             strategy_cfg["tick_size"] = 1.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             class _AggressiveMakerStrategy:
@@ -859,7 +865,7 @@ class ExecutionStackTests(unittest.TestCase):
             strategy_cfg["execution_quality"]["enabled"] = False
             # Force clamp-unavailable crossing so local reject path remains exercised.
             strategy_cfg["tick_size"] = 1.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 1
 
@@ -927,7 +933,7 @@ class ExecutionStackTests(unittest.TestCase):
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
             strategy_cfg["tick_size"] = 0.001
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 5
 
@@ -990,7 +996,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg["order_rate_soft_limit_pct"] = 1.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 1
 
@@ -1058,7 +1064,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg["order_rate_soft_limit_pct"] = 1.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 2
 
@@ -1141,7 +1147,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg["order_rate_soft_limit_pct"] = 1.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 2
 
@@ -1192,7 +1198,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg["order_rate_soft_limit_pct"] = 1.0
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_orders_per_min"] = 1
 
@@ -1270,7 +1276,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             runtime_cfg["seen_trade_ids_max"] = 2
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1309,7 +1315,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["max_notional_per_token"] = 5.0
             risk_cfg["dynamic_scaling"]["enabled"] = True
@@ -1395,7 +1401,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
@@ -1466,7 +1472,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["execution_quality"]["enabled"] = False
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
@@ -1542,7 +1548,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1575,7 +1581,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1615,7 +1621,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1687,7 +1693,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             events = EventLogger(Path(tmp.name))
@@ -1711,7 +1717,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1739,7 +1745,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1775,7 +1781,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             runtime_cfg["order_rate_soft_limit_pct"] = 0.5
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_orders_per_min"] = 2
             risk_cfg["max_book_age_sec"] = 100.0
 
@@ -1814,7 +1820,7 @@ class ExecutionStackTests(unittest.TestCase):
             strategy_cfg["execution_quality"]["enabled"] = True
             strategy_cfg["execution_quality"]["min_expected_fill_prob"] = 0.99
             strategy_cfg["execution_quality"]["queue_depth_scale"] = 1.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1851,7 +1857,7 @@ class ExecutionStackTests(unittest.TestCase):
             strategy_cfg["execution_quality"]["enabled"] = True
             strategy_cfg["execution_quality"]["min_expected_fill_prob"] = 0.0
             strategy_cfg["execution_quality"]["max_queue_ahead_size"] = 20.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1885,7 +1891,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = PaperGateway()
@@ -1928,7 +1934,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
             gateway = _CountingPaperGateway()
@@ -1961,7 +1967,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
@@ -2005,7 +2011,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
@@ -2064,7 +2070,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
             sizing_cfg["mode"] = "notional"
             sizing_cfg["min_usd"] = 1.0
@@ -2119,7 +2125,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
             sizing_cfg["mode"] = "notional"
             sizing_cfg["min_usd"] = 1.0
@@ -2174,7 +2180,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["max_order_size"] = 200.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
             sizing_cfg["mode"] = "notional"
             sizing_cfg["min_usd"] = 1.0
@@ -2229,7 +2235,7 @@ class ExecutionStackTests(unittest.TestCase):
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
             strategy_cfg["max_order_size"] = 1000.0
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
             sizing_cfg["mode"] = "notional"
             sizing_cfg["min_usd"] = 1.0
@@ -2286,7 +2292,7 @@ class ExecutionStackTests(unittest.TestCase):
         try:
             runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
             strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-            risk_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["risk"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
             sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
             sizing_cfg["mode"] = "notional"
             sizing_cfg["min_usd"] = 1.0
@@ -3372,6 +3378,7 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["sniper"]["taker"]["enabled"] = True
             cfg["sniper"]["taker"]["min_edge"] = 0.001
             cfg["sniper"]["taker"]["order_size"] = 5.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
