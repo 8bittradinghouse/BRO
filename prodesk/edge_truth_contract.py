@@ -69,6 +69,10 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "taker_hard_min_notional_unachievable",
     "taker_dynamic_size_capped_by_risk",
     "taker_price_unavailable",
+    "reduce_only_recovery_size_cap_below_min_order_size",
+    "reduce_only_recovery_no_reducing_side",
+    "reduce_only_recovery_size_cap_unavailable",
+    "reduce_only_recovery_touch_price_unavailable",
     "taker_submit_rejected",
 )
 

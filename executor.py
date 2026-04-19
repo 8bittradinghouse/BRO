@@ -3178,11 +3178,11 @@ class ExecutionRunner:
                 block_reason = "sniper_taker_disabled"
             elif max_orders <= 0:
                 block_reason = "taker_budget_disabled"
-            elif mode_state == MODE_MAKER_ONLY:
+            elif mode_state == MODE_MAKER_ONLY and (not reduce_only_recovery_active):
                 block_reason = "operating_mode_maker_only"
-            elif mode_state == MODE_SAFE_STOP:
+            elif mode_state == MODE_SAFE_STOP and (not reduce_only_recovery_active):
                 block_reason = "operating_mode_safe_stop"
-            elif mode_state != MODE_NORMAL:
+            elif mode_state != MODE_NORMAL and (not reduce_only_recovery_active):
                 block_reason = "operating_mode_non_normal"
             elif not lag_ready_for_sniper:
                 block_reason = "latency_not_armed"

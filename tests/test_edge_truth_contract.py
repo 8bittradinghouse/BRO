@@ -110,6 +110,10 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("taker_outside_final_window"))
         self.assertTrue(is_canonical_block_reason("taker_hard_min_notional_unachievable"))
         self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
+        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_size_cap_below_min_order_size"))
+        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_no_reducing_side"))
+        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_size_cap_unavailable"))
+        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_touch_price_unavailable"))
         self.assertFalse(is_canonical_block_reason("unspecified_no_action"))
         self.assertFalse(is_canonical_block_reason("some_random_reason"))
 
