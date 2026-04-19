@@ -2313,6 +2313,7 @@ class ExecutionRunner:
         fair_probability_by_token: Dict[str, float],
         latency_snapshot: LatencySnapshot,
         oracle_fresh: bool,
+        reduce_only_recovery_active: bool = False,
     ) -> str:
         if self.token_expiry_dt_by_token.get(token_id) is None:
             return "missing_expiry_metadata"
@@ -2322,14 +2323,22 @@ class ExecutionRunner:
             return "missing_side_metadata"
         if not oracle_fresh:
             return "oracle_unavailable_or_stale"
-        if self.latency_verifier.require_armed_for_maker and not latency_snapshot.armed:
+        if (
+            self.latency_verifier.require_armed_for_maker
+            and (not bool(reduce_only_recovery_active))
+            and (not latency_snapshot.armed)
+        ):
             return "latency_not_armed_for_maker"
-        if self.latency_verifier.require_armed_for_maker and not self._lag_verified(token_id):
+        if (
+            self.latency_verifier.require_armed_for_maker
+            and (not bool(reduce_only_recovery_active))
+            and (not self._lag_verified(token_id))
+        ):
             return "token_lag_not_verified_for_maker"
-        if self.latency_verifier.score_enabled:
+        if self.latency_verifier.score_enabled and (not bool(reduce_only_recovery_active)):
             if self.latency_verifier.token_score(token_id) < self.latency_verifier.score_min_for_maker:
                 return "token_score_below_maker_min"
-        if token_id not in fair_probability_by_token:
+        if (token_id not in fair_probability_by_token) and (not bool(reduce_only_recovery_active)):
             return "fair_probability_unavailable"
         return ""
 
@@ -3001,7 +3010,11 @@ class ExecutionRunner:
                 block_reason = "latency_not_armed"
             elif not sniper_ramp_allowed:
                 block_reason = "ramp_sniper_disabled"
-            elif self.sniper_require_lag_verification and token_id not in lag_verified_set:
+            elif (
+                self.sniper_require_lag_verification
+                and token_id not in lag_verified_set
+                and (not reduce_only_recovery_active)
+            ):
                 block_reason = "token_lag_not_verified"
             elif not taker_allowed:
                 block_reason = "stage_disallow_taker"
@@ -4859,6 +4872,7 @@ class ExecutionRunner:
                             fair_probability_by_token=fair_probability_by_token,
                             latency_snapshot=latency_snapshot,
                             oracle_fresh=oracle_fresh,
+                            reduce_only_recovery_active=reduce_only_recovery_active,
                         )
                         if failure_reason:
                             maker_prereq_failure_by_token[token_id] = failure_reason

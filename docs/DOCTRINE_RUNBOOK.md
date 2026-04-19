@@ -121,6 +121,9 @@ Required observability surfaces:
     - `strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier` (default `2.0`)
     - applies only for true risk-reducing recovery intents
     - does not bypass post-only cross checks, stale-book checks, wallet authority, or risk authority
+  - recovery-only lag/fair prereq relaxation is explicit and bounded:
+    - when `reduce_only_recovery_active=true`, maker/taker lag-verification prereq gates and maker fair-probability prereq may be relaxed for de-risking continuity
+    - this does not authorize risk increase and does not bypass WS-source, touch-price, stale-book, wallet, or risk authority checks
   - canonical paper profile currently uses:
     - `runtime.held_book_not_found_backoff_sec = 5.0`
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`

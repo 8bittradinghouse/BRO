@@ -4122,6 +4122,73 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_sniper_taker_allows_recovery_submit_without_lag_verification(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["sniper"]["require_lag_verification"] = True
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                submitted_sides: list[str] = []
+
+                def _fake_place_taker_order_with_outcome(**kwargs):
+                    submitted_sides.append(str(kwargs.get("side") or ""))
+                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t1"}
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=_fake_place_taker_order_with_outcome,
+                ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=[],
+                    )
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["SELL"])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_sniper_taker_allows_recovery_submit_with_one_sided_touch_and_missing_midpoint(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -4546,6 +4613,54 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertAlmostEqual(float(stage_info.get("reduce_only_size_cap_shares") or 0.0), 2.0, places=9)
                 self.assertTrue(bool(stage_info.get("allow_maker")))
                 self.assertTrue(bool(stage_info.get("allow_taker")))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_maker_prereq_allows_recovery_without_lag_or_fair_probability(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["held-preexpiry"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["latency_verifier"]["require_armed_for_maker"] = True
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "held-preexpiry"
+                expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=45)).isoformat().replace("+00:00", "Z")
+                runner._apply_token_expiry_map({token_id: expiry}, source="test")  # pylint: disable=protected-access
+                runner.token_side_by_token[token_id] = "YES"
+                runner.token_strike_by_token[token_id] = 50000.0
+                runner.token_market_key_by_token[token_id] = "mk-held-preexpiry"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
+                latency_snapshot = mock.Mock(armed=True)
+
+                default_reason = runner._maker_prereq_failure_reason(  # pylint: disable=protected-access
+                    token_id,
+                    fair_probability_by_token={},
+                    latency_snapshot=latency_snapshot,
+                    oracle_fresh=True,
+                    reduce_only_recovery_active=False,
+                )
+                self.assertEqual(default_reason, "token_lag_not_verified_for_maker")
+
+                recovery_reason = runner._maker_prereq_failure_reason(  # pylint: disable=protected-access
+                    token_id,
+                    fair_probability_by_token={},
+                    latency_snapshot=latency_snapshot,
+                    oracle_fresh=True,
+                    reduce_only_recovery_active=True,
+                )
+                self.assertEqual(recovery_reason, "")
             finally:
                 runner.events.close()
                 runner.book_client.close()
