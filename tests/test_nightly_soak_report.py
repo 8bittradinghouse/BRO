@@ -487,6 +487,37 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(report["errors_by_component"].get("market_data"), 1)
             self.assertIsNone(report["errors_by_component"].get("gateway"))
 
+    def test_build_report_emits_run_commit_lineage(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-lineage"
+            (root / f"run_manifest_{run_id}.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "manifest_schema_version": 2,
+                        "config_fingerprint_sha256": "cfg123",
+                        "code_fingerprint_sha256": "code456",
+                        "runtime_identity": {"git_commit": "abc789"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            (root / "status_2026-01-01.jsonl").write_text(
+                json.dumps({"run_id": run_id, "gauge.open_orders": 0}) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id=run_id)
+            lineage = report.get("run_commit_lineage", {})
+            self.assertEqual(str(lineage.get("run_id") or ""), run_id)
+            self.assertEqual(str(lineage.get("git_commit") or ""), "abc789")
+            self.assertEqual(str(lineage.get("config_fingerprint_sha256") or ""), "cfg123")
+            self.assertEqual(str(lineage.get("code_fingerprint_sha256") or ""), "code456")
+            self.assertTrue(bool(lineage.get("complete")))
+
     def test_build_report_quote_uptime_uses_quote_activity_signal(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

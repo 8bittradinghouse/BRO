@@ -94,6 +94,32 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_new_exposure_expiry_gate_above_maker_timing_max(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 90.0
+        cfg["strategy"]["maker_competitiveness"]["timing_gate_max_sec_to_expiry"] = 60.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_preexpiry_recovery_window_below_new_exposure_gate(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["runtime"]["held_preexpiry_reduce_only_sec"] = 30.0
+        cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 45.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_unbounded_recovery_relaxation_knobs(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["strategy"]["execution_quality"]["min_expected_fill_prob"] = 0.05
+        cfg["strategy"]["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"] = 0.10
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+        cfg2 = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg2["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"] = 6.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg2)
+
     def test_config_rejects_invalid_token_side_metadata(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]

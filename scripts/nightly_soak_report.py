@@ -2393,6 +2393,17 @@ def build_report(
         mode_val = status[-1].get("gauge.operating_mode_state")
         if isinstance(mode_val, (int, float)):
             latest_operating_mode_state = float(mode_val)
+    artifact_identity = build_artifact_identity(log_dir=resolved_log_dir, run_id=resolved_run_id)
+    run_commit_lineage = {
+        "run_id": str(artifact_identity.get("run_id") or ""),
+        "git_commit": str(artifact_identity.get("git_commit") or ""),
+        "config_fingerprint_sha256": str(artifact_identity.get("config_fingerprint_sha256") or ""),
+        "code_fingerprint_sha256": str(artifact_identity.get("code_fingerprint_sha256") or ""),
+        "complete": all(
+            bool(str(artifact_identity.get(key) or "").strip())
+            for key in ("run_id", "git_commit", "config_fingerprint_sha256", "code_fingerprint_sha256")
+        ),
+    }
 
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -2406,7 +2417,8 @@ def build_report(
             if explicit_run_id
             else "all_runs"
         ),
-        "artifact_identity": build_artifact_identity(log_dir=resolved_log_dir, run_id=resolved_run_id),
+        "artifact_identity": artifact_identity,
+        "run_commit_lineage": run_commit_lineage,
         "event_files": len(event_files),
         "status_files": len(status_files),
         "error_files": len(error_files),

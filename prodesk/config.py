@@ -50,6 +50,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
         "held_preexpiry_reduce_only_sec": 90.0,
+        "valuation_hard_degraded_clear_consecutive_healthy_cycles": 2,
+        "held_unpriceable_operator_action_min_emit_interval_sec": 60.0,
         "guard_stop_file": "",
         "clear_guard_stop_on_start": False,
         "paper_passive_touch_fill_enabled": False,
@@ -769,6 +771,15 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["runtime"]["held_preexpiry_reduce_only_sec"],
         allow_zero=True,
     )
+    _require_positive(
+        "runtime.valuation_hard_degraded_clear_consecutive_healthy_cycles",
+        cfg["runtime"]["valuation_hard_degraded_clear_consecutive_healthy_cycles"],
+    )
+    _require_positive(
+        "runtime.held_unpriceable_operator_action_min_emit_interval_sec",
+        cfg["runtime"]["held_unpriceable_operator_action_min_emit_interval_sec"],
+        allow_zero=True,
+    )
     _require_fraction("runtime.order_rate_soft_limit_pct", cfg["runtime"]["order_rate_soft_limit_pct"])
     _require_fraction("runtime.cancel_rate_soft_limit_pct", cfg["runtime"]["cancel_rate_soft_limit_pct"])
     _require_positive("runtime.log_flush_every_records", cfg["runtime"]["log_flush_every_records"])
@@ -1259,6 +1270,22 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier",
         cfg["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"],
     )
+    min_expected_fill_prob = float(cfg["strategy"]["execution_quality"]["min_expected_fill_prob"])
+    reduce_only_recovery_floor = float(
+        cfg["strategy"]["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"]
+    )
+    reduce_only_recovery_queue_mult = float(
+        cfg["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"]
+    )
+    if reduce_only_recovery_floor > (min_expected_fill_prob + 1e-9):
+        raise ValueError(
+            "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor "
+            "must be <= strategy.execution_quality.min_expected_fill_prob"
+        )
+    if reduce_only_recovery_queue_mult > 5.0:
+        raise ValueError(
+            "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier must be <= 5.0"
+        )
     _require_positive("risk.max_abs_position_shares", cfg["risk"]["max_abs_position_shares"])
     _require_positive("risk.max_notional_per_token", cfg["risk"]["max_notional_per_token"])
     _require_positive("risk.max_open_orders_per_token", cfg["risk"]["max_open_orders_per_token"])
@@ -1275,6 +1302,16 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.last_known_mid_max_age_sec", cfg["risk"]["last_known_mid_max_age_sec"], allow_zero=True)
     _require_positive("risk.held_unpriceable_escalation_sec", cfg["risk"]["held_unpriceable_escalation_sec"], allow_zero=True)
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
+    min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
+    held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
+    if (
+        held_preexpiry_reduce_only_sec > 0.0
+        and min_sec_to_expiry_for_new_exposure > 0.0
+        and held_preexpiry_reduce_only_sec + 1e-9 < min_sec_to_expiry_for_new_exposure
+    ):
+        raise ValueError(
+            "runtime.held_preexpiry_reduce_only_sec must be >= risk.min_sec_to_expiry_for_new_exposure"
+        )
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):
         raise ValueError("risk.dynamic_scaling must be a mapping")
@@ -1415,6 +1452,14 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     if timing_max < timing_min:
         raise ValueError(
             "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry must be >= timing_gate_min_sec_to_expiry"
+        )
+    if (
+        min_sec_to_expiry_for_new_exposure > 0.0
+        and min_sec_to_expiry_for_new_exposure > (timing_max + 1e-9)
+    ):
+        raise ValueError(
+            "risk.min_sec_to_expiry_for_new_exposure must be <= "
+            "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry"
         )
     _require_fraction(
         "strategy.maker_competitiveness.edge_scale_start_abs",
