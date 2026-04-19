@@ -90,6 +90,11 @@ Required observability surfaces:
   - risk engine enters risk-reduction-only posture
   - new risk-increasing submissions are rejected
   - management/exit submissions are allowed only when they reduce exposure without crossing through flat
+- New-exposure expiry gate is explicit and fail-closed:
+  - `risk.min_sec_to_expiry_for_new_exposure` (default `120.0`)
+  - risk-increasing submissions are rejected when `sec_to_expiry <= threshold`
+  - risk-increasing submissions are rejected when `sec_to_expiry` is missing/unknown
+  - pure risk-reducing/flatten submissions remain admissible under this gate
 - No implied auto-flatten behavior is introduced by degraded valuation mode.
 - Required truth surfaces:
   - `valuation_degraded`
@@ -102,6 +107,10 @@ Required observability surfaces:
   - held-token 404 recovery refresh is bounded and rate-limited by:
     - `runtime.held_book_not_found_force_refresh_interval_sec`
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec`
+  - canonical paper profile currently uses:
+    - `runtime.held_book_not_found_backoff_sec = 5.0`
+    - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`
+    - `runtime.held_book_not_found_force_refresh_interval_sec = 45.0`
 
 ## Execution-Quality Semantic Split (Canonical Reporting)
 - Immediate midpoint-relative fill quality is reported under:
