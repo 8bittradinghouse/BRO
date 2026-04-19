@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "3b15ea94a2d48f511a484b4d7a5d2731dcc4b91512a7fa55aeefa232ec98dbe6"
+  paper_expected_config_fingerprint_sha256: "5fcafe15d09d902806bacdbd293ea45dec3146e48a72c7a5fe71e1ecdcf82ecf"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0

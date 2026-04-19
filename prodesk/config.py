@@ -358,7 +358,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_orders_per_min": 120,
         "max_cancels_per_min": 220,
         "max_book_age_sec": 6.0,
-        "min_sec_to_expiry_for_new_exposure": 120.0,
+        "min_sec_to_expiry_for_new_exposure": 45.0,
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
         "held_unpriceable_escalation_sec": 120.0,
