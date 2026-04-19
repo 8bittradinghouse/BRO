@@ -505,6 +505,7 @@ class RiskEngine:
             "risk_authority": "risk_engine_v2",
             "submission_lane": str(context.get("submission_lane") or "unknown"),
             "stage": str(context.get("stage") or "unknown"),
+            "financial_posture_class": str(context.get("financial_posture_class") or "UNKNOWN"),
             "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
             "min_sec_to_expiry_for_new_exposure": self._safe_float(
                 self.cfg.get("min_sec_to_expiry_for_new_exposure")

@@ -1557,6 +1557,7 @@ class OrderManager:
         risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", "taker")
         risk_context_payload.setdefault("stage", str(intent.stage or "").strip().upper() or "UNKNOWN")
+        risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
         placed, _submit_reject_reason = self._place_order(
@@ -1641,6 +1642,7 @@ class OrderManager:
         risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", "taker")
         risk_context_payload.setdefault("stage", str(base_intent.stage or "").strip().upper() or "UNKNOWN")
+        risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
         reference_mid = float(top.midpoint) if isinstance(top.midpoint, (int, float)) else None
@@ -1951,6 +1953,7 @@ class OrderManager:
                         break
                     risk_context_payload = dict(token_competitiveness_context) if isinstance(token_competitiveness_context, dict) else {}
                     risk_context_payload.setdefault("submission_lane", "maker")
+                    risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
                     if isinstance(realized_vol, (int, float)):
                         risk_context_payload["realized_volatility"] = float(realized_vol)
                     placed, submit_reject_reason = self._place_order(

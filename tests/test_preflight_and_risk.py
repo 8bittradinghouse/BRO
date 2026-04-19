@@ -226,7 +226,11 @@ class PreflightAndRiskTests(unittest.TestCase):
             top=top,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "PREEXPIRY_REDUCE_ONLY",
+            },
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "new_exposure_sec_to_expiry_unknown_blocked")
@@ -236,6 +240,7 @@ class PreflightAndRiskTests(unittest.TestCase):
             120.0,
             places=9,
         )
+        self.assertEqual(str(decision.basis.get("financial_posture_class") or ""), "PREEXPIRY_REDUCE_ONLY")
 
     def test_validate_order_blocks_new_exposure_below_expiry_threshold_and_allows_reduce(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
