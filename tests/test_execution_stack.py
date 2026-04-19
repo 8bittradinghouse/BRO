@@ -3314,6 +3314,193 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_ws_quote_unusable_for_held_valuation_requires_missing_mid_and_required_side(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                long_token = "held-long"
+                short_token = "held-short"
+                flat_token = "flat-token"
+                runner.risk.positions[long_token] = Position(token_id=long_token, net_shares=2.0)
+                runner.risk.positions[short_token] = Position(token_id=short_token, net_shares=-2.0)
+                runner.risk.positions[flat_token] = Position(token_id=flat_token, net_shares=0.0)
+
+                ask_only = BookTop(
+                    token_id=long_token,
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=None,
+                    best_bid_size=None,
+                    best_ask_price=0.62,
+                    best_ask_size=50.0,
+                )
+                bid_only = BookTop(
+                    token_id=short_token,
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.38,
+                    best_bid_size=50.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                long_usable = BookTop(
+                    token_id=long_token,
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.41,
+                    best_bid_size=25.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+
+                self.assertTrue(
+                    runner._ws_quote_unusable_for_held_valuation(token_id=long_token, top=ask_only),  # pylint: disable=protected-access
+                )
+                self.assertTrue(
+                    runner._ws_quote_unusable_for_held_valuation(token_id=short_token, top=bid_only),  # pylint: disable=protected-access
+                )
+                self.assertFalse(
+                    runner._ws_quote_unusable_for_held_valuation(token_id=long_token, top=long_usable),  # pylint: disable=protected-access
+                )
+                self.assertFalse(
+                    runner._ws_quote_unusable_for_held_valuation(token_id=flat_token, top=ask_only),  # pylint: disable=protected-access
+                )
+                self.assertFalse(
+                    runner._ws_quote_unusable_for_held_valuation(token_id="no-position", top=ask_only),  # pylint: disable=protected-access
+                )
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_rest_fetch_candidates_include_held_tokens_with_ws_unusable_quotes(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held_unusable = "held-unusable"
+                held_usable = "held-usable"
+                missing_token = "missing-token"
+                non_held_unusable = "non-held-unusable"
+                runner.risk.positions[held_unusable] = Position(token_id=held_unusable, net_shares=3.0)
+                runner.risk.positions[held_usable] = Position(token_id=held_usable, net_shares=3.0)
+
+                ws_books = {
+                    held_unusable: BookTop(
+                        token_id=held_unusable,
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=None,
+                        best_bid_size=None,
+                        best_ask_price=0.57,
+                        best_ask_size=10.0,
+                    ),
+                    held_usable: BookTop(
+                        token_id=held_usable,
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.43,
+                        best_bid_size=10.0,
+                        best_ask_price=None,
+                        best_ask_size=None,
+                    ),
+                    non_held_unusable: BookTop(
+                        token_id=non_held_unusable,
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=None,
+                        best_bid_size=None,
+                        best_ask_price=0.66,
+                        best_ask_size=5.0,
+                    ),
+                }
+
+                candidates, held_ws_unusable = runner._rest_fetch_candidate_tokens_for_cycle(  # pylint: disable=protected-access
+                    valuation_token_ids=[
+                        held_unusable,
+                        held_usable,
+                        missing_token,
+                        non_held_unusable,
+                        held_unusable,
+                    ],
+                    ws_books=ws_books,
+                    now_mono=time.monotonic(),
+                )
+
+                self.assertEqual(candidates, [held_unusable, missing_token])
+                self.assertEqual(held_ws_unusable, {held_unusable})
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_rest_fetch_candidates_respect_backoff_for_missing_and_unusable_tokens(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                held_unusable = "held-unusable"
+                missing_token = "missing-token"
+                runner.risk.positions[held_unusable] = Position(token_id=held_unusable, net_shares=2.0)
+                ws_books = {
+                    held_unusable: BookTop(
+                        token_id=held_unusable,
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=None,
+                        best_bid_size=None,
+                        best_ask_price=0.61,
+                        best_ask_size=11.0,
+                    ),
+                }
+                now_mono = time.monotonic()
+                runner._book_not_found_backoff_mono_by_token[held_unusable] = now_mono + 30.0  # pylint: disable=protected-access
+                runner._book_not_found_backoff_mono_by_token[missing_token] = now_mono + 30.0  # pylint: disable=protected-access
+
+                candidates, held_ws_unusable = runner._rest_fetch_candidate_tokens_for_cycle(  # pylint: disable=protected-access
+                    valuation_token_ids=[held_unusable, missing_token],
+                    ws_books=ws_books,
+                    now_mono=now_mono,
+                )
+
+                self.assertEqual(candidates, [])
+                self.assertEqual(held_ws_unusable, set())
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_valuation_watch_tokens_persist_for_non_flat_and_open_orders(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)

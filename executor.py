@@ -1022,6 +1022,47 @@ class ExecutionRunner:
             "sane": not bool(reasons),
         }
 
+    def _ws_quote_unusable_for_held_valuation(self, *, token_id: str, top: Any) -> bool:
+        token = str(token_id or "").strip()
+        if not token:
+            return False
+        pos = self.risk.positions.get(token)
+        if pos is None:
+            return False
+        net = float(getattr(pos, "net_shares", 0.0) or 0.0)
+        if abs(net) <= 1e-9:
+            return False
+        quote = self._book_quote_snapshot(top=top)
+        if not bool(quote.get("sane")):
+            return False
+        quote_mid = parse_float(quote.get("mid"))
+        quote_bid = parse_float(quote.get("bid"))
+        quote_ask = parse_float(quote.get("ask"))
+        required_side = "bid" if net > 1e-9 else "ask"
+        required_side_mid = quote_bid if required_side == "bid" else quote_ask
+        return bool(quote_mid is None and required_side_mid is None)
+
+    def _rest_fetch_candidate_tokens_for_cycle(
+        self,
+        *,
+        valuation_token_ids: List[str],
+        ws_books: Dict[str, Any],
+        now_mono: float,
+    ) -> Tuple[List[str], set[str]]:
+        candidates: List[str] = []
+        held_ws_unusable_token_ids: set[str] = set()
+        for token_id in valuation_token_ids:
+            if self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) > now_mono:
+                continue
+            ws_top = ws_books.get(token_id)
+            if ws_top is None:
+                candidates.append(token_id)
+                continue
+            if self._ws_quote_unusable_for_held_valuation(token_id=token_id, top=ws_top):
+                candidates.append(token_id)
+                held_ws_unusable_token_ids.add(token_id)
+        return self._unique_ordered(candidates), held_ws_unusable_token_ids
+
     def _build_valuation_state(self, *, books: Dict[str, Any]) -> Dict[str, Any]:
         now_mono = time.monotonic()
         mids_by_token: Dict[str, float] = {}
@@ -4040,22 +4081,38 @@ class ExecutionRunner:
                 if not has_targets:
                     self.telemetry.incr("no_target_cycles")
                 now_mono = time.monotonic()
-                missing_rest_tokens = [
-                    token_id
-                    for token_id in valuation_token_ids
-                    if ws_books.get(token_id) is None
-                    and self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) <= now_mono
-                ]
+                missing_rest_tokens, held_ws_unusable_token_ids = self._rest_fetch_candidate_tokens_for_cycle(
+                    valuation_token_ids=valuation_token_ids,
+                    ws_books=ws_books,
+                    now_mono=now_mono,
+                )
                 requested_rest_token_ids = set(missing_rest_tokens)
                 rest_books, rest_errors = self._fetch_missing_books(missing_rest_tokens)
                 missing_book_not_found_tokens: list[str] = []
                 for token_id in valuation_token_ids:
                         raw = None
                         top = ws_books.get(token_id)
-                        if top is None:
+                        force_rest_for_held_unusable_quote = bool(
+                            top is not None and token_id in held_ws_unusable_token_ids
+                        )
+                        if top is None or force_rest_for_held_unusable_quote:
                             backoff_until = self._book_not_found_backoff_mono_by_token.get(token_id, 0.0)
                             if backoff_until > time.monotonic():
-                                continue
+                                if top is not None and force_rest_for_held_unusable_quote:
+                                    force_rest_for_held_unusable_quote = False
+                                else:
+                                    continue
+                            if force_rest_for_held_unusable_quote:
+                                self.telemetry.incr("held_valuation_rest_fallback_attempted")
+                                self.events.log_event(
+                                    "held_valuation_rest_fallback_attempted",
+                                    {
+                                        "ts_utc": utc_iso(),
+                                        "run_id": self.run_id,
+                                        "token_id": token_id,
+                                        "reason": "ws_quote_missing_mid_and_required_conservative_side",
+                                    },
+                                )
                             fetched, err_text, fetch_attempted = self._rest_fetch_result_for_token(
                                 token_id=token_id,
                                 requested_rest_token_ids=requested_rest_token_ids,
@@ -4065,11 +4122,13 @@ class ExecutionRunner:
                             if not fetch_attempted:
                                 # Backoff can expire after we snapshot rest-fetch candidates for the cycle.
                                 # Defer this token to the next cycle instead of inventing a synthetic fetch error.
-                                continue
+                                if top is None:
+                                    continue
                             if fetched is None:
                                 if not err_text:
-                                    continue
-                                if self.discovery.enabled and self._is_missing_book_not_found_error(err_text):
+                                    if top is None:
+                                        continue
+                                elif self.discovery.enabled and self._is_missing_book_not_found_error(err_text):
                                     backoff_sec = self._book_not_found_backoff_sec_for_token(
                                         token_id=token_id,
                                         held_exposure_tokens=held_exposure_tokens,
@@ -4092,29 +4151,44 @@ class ExecutionRunner:
                                             "held_exposure_token": bool(token_id in held_exposure_tokens),
                                         },
                                     )
-                                    continue
-                                self.telemetry.incr("book_errors")
-                                cycle_had_error = True
-                                self.events.log_error(
-                                    {
-                                        "ts_utc": utc_iso(),
-                                        "component": "market_data",
-                                        "token_id": token_id,
-                                        "error": err_text,
-                                    }
+                                    if top is None:
+                                        continue
+                                else:
+                                    self.telemetry.incr("book_errors")
+                                    cycle_had_error = True
+                                    self.events.log_error(
+                                        {
+                                            "ts_utc": utc_iso(),
+                                            "component": "market_data",
+                                            "token_id": token_id,
+                                            "error": err_text,
+                                        }
+                                    )
+                                    if top is None:
+                                        continue
+                            else:
+                                top, raw, latency_ms = fetched
+                                self._book_not_found_backoff_mono_by_token.pop(token_id, None)
+                                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
+                                self.telemetry.set_gauge(
+                                    f"book_fetch_latency_ms.{token_id}",
+                                    latency_ms,
                                 )
-                                continue
-                            top, raw, latency_ms = fetched
-                            self._book_not_found_backoff_mono_by_token.pop(token_id, None)
-                            self._held_book_not_found_last_mono_by_token.pop(token_id, None)
-                            self.telemetry.set_gauge(
-                                f"book_fetch_latency_ms.{token_id}",
-                                latency_ms,
-                            )
-                            self.telemetry.incr("book_updates_rest")
-                            rest_updates_cycle += 1
-                            if token_id in target_token_set:
-                                rest_updates_target_cycle += 1
+                                self.telemetry.incr("book_updates_rest")
+                                if force_rest_for_held_unusable_quote:
+                                    self.telemetry.incr("held_valuation_rest_fallback_applied")
+                                    self.events.log_event(
+                                        "held_valuation_rest_fallback_applied",
+                                        {
+                                            "ts_utc": utc_iso(),
+                                            "run_id": self.run_id,
+                                            "token_id": token_id,
+                                            "reason": "rest_book_replaced_ws_unusable_quote",
+                                        },
+                                    )
+                                rest_updates_cycle += 1
+                                if token_id in target_token_set:
+                                    rest_updates_target_cycle += 1
                         else:
                             self._book_not_found_backoff_mono_by_token.pop(token_id, None)
                             self._held_book_not_found_last_mono_by_token.pop(token_id, None)
