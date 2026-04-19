@@ -505,11 +505,63 @@ class OrderManager:
                 },
             )
             return _local_reject("order_soft_throttle")
+        risk_context_payload = risk_context if isinstance(risk_context, dict) else {}
+        reduce_only_recovery_active = bool(risk_context_payload.get("reduce_only_recovery_active", False))
+        reduce_only_size_cap_raw = risk_context_payload.get("reduce_only_size_cap_shares")
+        reduce_only_size_cap = parse_float(reduce_only_size_cap_raw)
+        reduce_only_size_cap_below_min_order_size = bool(
+            risk_context_payload.get("reduce_only_size_cap_below_min_order_size", False)
+        )
+        reduce_only_min_order_size_raw = risk_context_payload.get("reduce_only_min_order_size_shares")
+        reduce_only_min_order_size_shares = parse_float(reduce_only_min_order_size_raw)
+
         resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
             intent,
             top,
             notional_target_usd=notional_target_usd,
         )
+        if (
+            resolved_size is None
+            and lane == "maker"
+            and reduce_only_recovery_active
+            and isinstance(reduce_only_size_cap, (int, float))
+            and float(reduce_only_size_cap) > 0.0
+            and (not reduce_only_size_cap_below_min_order_size)
+        ):
+            fallback_size = min(
+                float(reduce_only_size_cap),
+                float(self._round_shares(float(reduce_only_size_cap))),
+                float(self.strategy_max_order_size),
+            )
+            min_size_floor = (
+                float(reduce_only_min_order_size_shares)
+                if isinstance(reduce_only_min_order_size_shares, (int, float))
+                else 0.0
+            )
+            if (
+                fallback_size > 1e-9
+                and (min_size_floor <= 0.0 or fallback_size + 1e-9 >= min_size_floor)
+            ):
+                resolved_size = float(fallback_size)
+                if not isinstance(size_resolution, dict):
+                    size_resolution = {}
+                resolution_reasons = size_resolution.get("size_decision_reasons")
+                if not isinstance(resolution_reasons, list):
+                    resolution_reasons = []
+                resolution_reasons.append("reduce_only_recovery_size_cap_fallback")
+                size_resolution["size_decision_reasons"] = resolution_reasons
+                size_resolution["reduce_only_recovery_active"] = True
+                size_resolution["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
+                size_resolution["resolved_shares"] = float(resolved_size)
+                fallback_price = self._sizing_price(top, intent.side)
+                size_resolution["resolved_notional_usd"] = (
+                    float(resolved_size) * float(fallback_price)
+                    if isinstance(fallback_price, (int, float)) and float(fallback_price) > 0.0
+                    else None
+                )
+                if min_size_floor > 0.0:
+                    size_resolution["reduce_only_min_order_size_shares"] = float(min_size_floor)
+
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
             event_stage_raw = str(intent.stage or "").strip().upper()
@@ -544,10 +596,6 @@ class OrderManager:
                 detail=f"mode={self.sizing_mode}",
                 extra={"size_resolution": size_resolution},
             )
-        reduce_only_size_cap_raw = (
-            (risk_context or {}).get("reduce_only_size_cap_shares") if isinstance(risk_context, dict) else None
-        )
-        reduce_only_size_cap = parse_float(reduce_only_size_cap_raw)
         if (
             isinstance(reduce_only_size_cap, (int, float))
             and float(reduce_only_size_cap) > 0.0

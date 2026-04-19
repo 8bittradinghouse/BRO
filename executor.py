@@ -3201,7 +3201,8 @@ class ExecutionRunner:
             elif self.doctrine_mode == "canonical" and top is not None and (not self._book_source_is_ws(top)):
                 block_reason = "taker_requires_ws_book_source"
             elif (not validation.valid) and not (
-                reduce_only_recovery_active and str(validation.reason_code or "") == "market_probability_missing"
+                reduce_only_recovery_active
+                and str(validation.reason_code or "") in {"market_probability_missing", "fair_probability_missing"}
             ):
                 block_reason = str(validation.reason_code or "")
             elif edge is None and (not reduce_only_recovery_active):
