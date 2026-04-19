@@ -93,6 +93,13 @@ STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
 STAGE_EXTREME_ONLY = "EXTREME_ONLY"
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
+HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE = "preexpiry_fetch_failure"
+HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED = "postexpiry_market_retired"
+HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP = "unknown_data_gap"
+FINANCIAL_POSTURE_NORMAL = "NORMAL"
+FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY = "PREEXPIRY_REDUCE_ONLY"
+FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY = "HARD_DEGRADED_REDUCE_ONLY"
+FINANCIAL_POSTURE_HALT_NEW_RISK = "HALT_NEW_RISK"
 RUN_MANIFEST_REQUIRED_FIELDS = (
     "manifest_schema_version",
     "ts_utc",
@@ -232,6 +239,10 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_reasons: List[str] = []
         self._held_unpriceable_escalation_max_age_sec: float = 0.0
         self._held_unpriceable_operator_action: str = "none"
+        self._held_unpriceable_cause_by_token: Dict[str, str] = {}
+        self._held_unpriceable_cause_counts: Dict[str, int] = {}
+        self._held_unpriceable_dominant_cause: str = HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        self._financial_posture_class: str = FINANCIAL_POSTURE_NORMAL
         self._last_valuation_event_signature: Optional[Tuple[Any, ...]] = None
         self._last_held_unpriceable_escalation_signature: Optional[Tuple[Any, ...]] = None
         vol_cfg = self.cfg.get("strategy", {}).get("volatility", {})
@@ -301,12 +312,30 @@ class ExecutionRunner:
             if configured_held_preexpiry_reduce_only_sec is not None
             else 90.0
         )
+        configured_hard_degraded_clear_hysteresis_cycles = parse_float(
+            runtime_cfg.get("valuation_hard_degraded_clear_consecutive_healthy_cycles")
+        )
+        self.valuation_hard_degraded_clear_consecutive_healthy_cycles = (
+            max(1, int(float(configured_hard_degraded_clear_hysteresis_cycles)))
+            if configured_hard_degraded_clear_hysteresis_cycles is not None
+            else 2
+        )
+        configured_held_unpriceable_operator_action_min_emit_interval_sec = parse_float(
+            runtime_cfg.get("held_unpriceable_operator_action_min_emit_interval_sec")
+        )
+        self.held_unpriceable_operator_action_min_emit_interval_sec = (
+            max(0.0, float(configured_held_unpriceable_operator_action_min_emit_interval_sec))
+            if configured_held_unpriceable_operator_action_min_emit_interval_sec is not None
+            else 60.0
+        )
         self._valuation_hard_degraded_enter_count: int = 0
         self._valuation_hard_degraded_clear_count: int = 0
+        self._valuation_hard_degraded_pending_healthy_cycles: int = 0
         self._held_unpriceable_started_count: int = 0
         self._held_unpriceable_recovered_count: int = 0
         self._preexpiry_404_anomaly_count: int = 0
         self._preexpiry_404_anomaly_last_cycle: bool = False
+        self._held_unpriceable_operator_action_last_emit_mono: float = 0.0
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_force_refresh_next_mono_by_token: Dict[str, float] = {}
@@ -1084,6 +1113,7 @@ class ExecutionRunner:
         degraded_reasons: List[str] = []
         hard_degraded_reasons: List[str] = []
         held_unpriceable_age_by_token: Dict[str, float] = {}
+        held_unpriceable_cause_by_token: Dict[str, str] = {}
         non_flat_positions: Dict[str, Position] = {
             str(token_id): pos
             for token_id, pos in self.risk.positions.items()
@@ -1142,10 +1172,6 @@ class ExecutionRunner:
             hard_reason_parts: List[str] = []
             if quote is None:
                 hard_reason_parts.append("book_top_missing")
-                last_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token_id)
-                if isinstance(last_not_found_mono, (int, float)):
-                    age_since_not_found_sec = max(0.0, float(now_mono - float(last_not_found_mono)))
-                    hard_reason_parts.append(f"held_book_not_found_404_age_sec={age_since_not_found_sec:.3f}")
             else:
                 if not sane_quote:
                     hard_reason_parts.extend([f"quote_sanity:{reason}" for reason in quote.get("sanity_reasons", [])])
@@ -1184,6 +1210,13 @@ class ExecutionRunner:
                 hard_reason_parts.append(
                     f"last_known_mid_age_sec={last_age:.3f}>last_known_mid_max_age_sec={float(self.last_known_mid_max_age_sec):.3f}"
                 )
+            held_unpriceable_cause = self._held_unpriceable_cause_class(
+                token_id=token_id,
+                quote=quote if isinstance(quote, dict) else None,
+                now_mono=now_mono,
+                hard_reason_parts=hard_reason_parts,
+            )
+            held_unpriceable_cause_by_token[token_id] = str(held_unpriceable_cause)
             hard_reason = "|".join(hard_reason_parts)
             hard_reason_row = f"hard_degraded:{token_id}:{hard_reason}"
             degraded_reasons.append(hard_reason_row)
@@ -1226,6 +1259,27 @@ class ExecutionRunner:
             if held_unpriceable_escalation_active
             else "none"
         )
+        held_unpriceable_cause_counts_counter = collections.Counter(
+            str(held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP)
+            for token_id in held_unpriceable_token_ids
+        )
+        held_unpriceable_cause_counts = {
+            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE: int(
+                held_unpriceable_cause_counts_counter.get(HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE, 0)
+            ),
+            HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED: int(
+                held_unpriceable_cause_counts_counter.get(HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED, 0)
+            ),
+            HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP: int(
+                held_unpriceable_cause_counts_counter.get(HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP, 0)
+            ),
+        }
+        held_unpriceable_dominant_cause = HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        if held_unpriceable_cause_counts:
+            held_unpriceable_dominant_cause = max(
+                held_unpriceable_cause_counts.items(),
+                key=lambda kv: (int(kv[1]), str(kv[0])),
+            )[0]
 
         source_counts = dict(collections.Counter(source_by_token.values()))
         summary_counts = {
@@ -1263,12 +1317,20 @@ class ExecutionRunner:
             "held_unpriceable_escalation_threshold_sec": float(escalation_threshold_sec),
             "held_unpriceable_defect_candidate": bool(held_unpriceable_escalation_active),
             "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
+            "held_unpriceable_cause_by_token": {
+                token_id: str(held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP)
+                for token_id in held_unpriceable_token_ids
+            },
+            "held_unpriceable_cause_counts": dict(held_unpriceable_cause_counts),
+            "held_unpriceable_dominant_cause": str(held_unpriceable_dominant_cause),
         }
 
     def _apply_valuation_controls(self, *, books: Dict[str, Any], phase: str) -> Dict[str, Any]:
         valuation_state = self._build_valuation_state(books=books)
-        degraded = bool(valuation_state.get("valuation_degraded", False))
-        hard_degraded = bool(valuation_state.get("valuation_hard_degraded", False))
+        raw_degraded = bool(valuation_state.get("valuation_degraded", False))
+        raw_hard_degraded = bool(valuation_state.get("valuation_hard_degraded", False))
+        degraded = bool(raw_degraded)
+        hard_degraded = bool(raw_hard_degraded)
         degraded_reasons = [str(x) for x in list(valuation_state.get("degraded_reasons", [])) if str(x).strip()]
         source_counts = dict(valuation_state.get("source_counts", {}))
         source_counts_raw = dict(valuation_state.get("source_counts_raw", {}))
@@ -1300,11 +1362,59 @@ class ExecutionRunner:
         )
         held_unpriceable_defect_candidate = bool(valuation_state.get("held_unpriceable_defect_candidate", False))
         held_unpriceable_operator_action = str(valuation_state.get("held_unpriceable_operator_action") or "none")
+        held_unpriceable_cause_by_token = {
+            str(token_id): str(cause).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+            for token_id, cause in dict(valuation_state.get("held_unpriceable_cause_by_token", {})).items()
+            if str(token_id).strip()
+        }
+        held_unpriceable_cause_counts = {
+            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE: int(
+                dict(valuation_state.get("held_unpriceable_cause_counts", {})).get(
+                    HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE,
+                    0,
+                )
+            ),
+            HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED: int(
+                dict(valuation_state.get("held_unpriceable_cause_counts", {})).get(
+                    HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED,
+                    0,
+                )
+            ),
+            HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP: int(
+                dict(valuation_state.get("held_unpriceable_cause_counts", {})).get(
+                    HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP,
+                    0,
+                )
+            ),
+        }
+        held_unpriceable_dominant_cause = str(
+            valuation_state.get("held_unpriceable_dominant_cause") or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        ).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
         prev_hard_degraded = bool(self._valuation_hard_degraded)
         prev_held_unpriceable_tokens = set(self._held_unpriceable_token_ids)
         next_held_unpriceable_tokens = set(held_unpriceable_token_ids)
         started_unpriceable_tokens = sorted(next_held_unpriceable_tokens - prev_held_unpriceable_tokens)
         recovered_unpriceable_tokens = sorted(prev_held_unpriceable_tokens - next_held_unpriceable_tokens)
+        if raw_hard_degraded:
+            self._valuation_hard_degraded_pending_healthy_cycles = 0
+            hard_degraded = True
+        elif prev_hard_degraded:
+            self._valuation_hard_degraded_pending_healthy_cycles += 1
+            required_cycles = max(1, int(self.valuation_hard_degraded_clear_consecutive_healthy_cycles))
+            if self._valuation_hard_degraded_pending_healthy_cycles < required_cycles:
+                hard_degraded = True
+                degraded = True
+                degraded_reasons.append(
+                    "hard_degraded_clear_hysteresis_pending:"
+                    + f"healthy_cycles={int(self._valuation_hard_degraded_pending_healthy_cycles)}"
+                    + f"/required={int(required_cycles)}"
+                )
+            else:
+                hard_degraded = False
+                self._valuation_hard_degraded_pending_healthy_cycles = 0
+        else:
+            self._valuation_hard_degraded_pending_healthy_cycles = 0
+            hard_degraded = False
         if (not prev_hard_degraded) and hard_degraded:
             self._valuation_hard_degraded_enter_count += 1
             self.telemetry.incr("valuation_hard_degraded_enter")
@@ -1375,6 +1485,10 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_reasons = list(held_unpriceable_escalation_reasons)
         self._held_unpriceable_escalation_max_age_sec = float(held_unpriceable_escalation_max_age_sec)
         self._held_unpriceable_operator_action = str(held_unpriceable_operator_action)
+        self._held_unpriceable_cause_by_token = dict(held_unpriceable_cause_by_token)
+        self._held_unpriceable_cause_counts = dict(held_unpriceable_cause_counts)
+        self._held_unpriceable_dominant_cause = str(held_unpriceable_dominant_cause)
+        self._financial_posture_class = self._resolve_financial_posture_class(stage_info_by_token=None)
 
         self.risk.set_valuation_degraded_state(
             hard_degraded=hard_degraded,
@@ -1419,6 +1533,10 @@ class ExecutionRunner:
             "preexpiry_404_anomaly_count",
             float(self._preexpiry_404_anomaly_count),
         )
+        self.telemetry.set_gauge(
+            "financial_posture_class",
+            self._financial_posture_class_to_gauge(self._financial_posture_class),
+        )
 
         signature = (
             bool(degraded),
@@ -1428,6 +1546,8 @@ class ExecutionRunner:
             tuple(held_unpriceable_token_ids),
             bool(held_unpriceable_escalation_active),
             tuple(held_unpriceable_escalation_token_ids),
+            tuple(sorted(held_unpriceable_cause_counts.items(), key=lambda item: item[0])),
+            str(held_unpriceable_dominant_cause),
         )
         if signature != self._last_valuation_event_signature:
             self._last_valuation_event_signature = signature
@@ -1457,11 +1577,21 @@ class ExecutionRunner:
                     "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
                     "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
                     "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
+                    "held_unpriceable_cause_by_token": dict(held_unpriceable_cause_by_token),
+                    "held_unpriceable_cause_counts": dict(held_unpriceable_cause_counts),
+                    "held_unpriceable_dominant_cause": str(held_unpriceable_dominant_cause),
                     "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
                     "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                    "valuation_hard_degraded_pending_healthy_cycles": int(
+                        self._valuation_hard_degraded_pending_healthy_cycles
+                    ),
+                    "valuation_hard_degraded_clear_consecutive_healthy_cycles": int(
+                        self.valuation_hard_degraded_clear_consecutive_healthy_cycles
+                    ),
                     "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
                     "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
                     "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
+                    "financial_posture_class": str(self._financial_posture_class),
                     "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
@@ -1476,9 +1606,27 @@ class ExecutionRunner:
             float(held_unpriceable_escalation_threshold_sec),
             bool(held_unpriceable_defect_candidate),
             str(held_unpriceable_operator_action),
+            tuple(sorted(held_unpriceable_cause_counts.items(), key=lambda item: item[0])),
+            str(held_unpriceable_dominant_cause),
         )
-        if escalation_signature != self._last_held_unpriceable_escalation_signature:
+        now_mono = time.monotonic()
+        signature_changed = escalation_signature != self._last_held_unpriceable_escalation_signature
+        throttle_interval_sec = float(self.held_unpriceable_operator_action_min_emit_interval_sec)
+        emit_age_sec = max(0.0, now_mono - float(self._held_unpriceable_operator_action_last_emit_mono))
+        throttle_elapsed = bool(
+            throttle_interval_sec <= 0.0 or emit_age_sec >= (throttle_interval_sec - 1e-9)
+        )
+        should_emit_escalation_event = bool(
+            signature_changed or (held_unpriceable_escalation_active and throttle_elapsed)
+        )
+        emit_reason = (
+            "signature_change"
+            if signature_changed
+            else ("throttle_interval_elapsed" if should_emit_escalation_event else "suppressed_by_throttle")
+        )
+        if should_emit_escalation_event:
             self._last_held_unpriceable_escalation_signature = escalation_signature
+            self._held_unpriceable_operator_action_last_emit_mono = now_mono
             self.events.log_event(
                 "valuation_held_unpriceable_escalation",
                 {
@@ -1493,8 +1641,28 @@ class ExecutionRunner:
                     "max_age_sec": float(held_unpriceable_escalation_max_age_sec),
                     "threshold_sec": float(held_unpriceable_escalation_threshold_sec),
                     "operator_action": str(held_unpriceable_operator_action),
+                    "cause_counts": dict(held_unpriceable_cause_counts),
+                    "dominant_cause": str(held_unpriceable_dominant_cause),
+                    "severity": (
+                        "critical"
+                        if held_unpriceable_escalation_max_age_sec
+                        >= (2.0 * max(1e-9, held_unpriceable_escalation_threshold_sec))
+                        else "warning"
+                    ),
+                    "emit_reason": str(emit_reason),
+                    "throttle_interval_sec": float(throttle_interval_sec),
+                    "throttle_emit_age_sec": float(emit_age_sec),
                 },
             )
+        valuation_state["valuation_degraded"] = bool(degraded)
+        valuation_state["valuation_hard_degraded"] = bool(hard_degraded)
+        valuation_state["degraded_reasons"] = list(degraded_reasons)
+        valuation_state["valuation_hard_degraded_pending_healthy_cycles"] = int(
+            self._valuation_hard_degraded_pending_healthy_cycles
+        )
+        valuation_state["valuation_hard_degraded_clear_consecutive_healthy_cycles"] = int(
+            self.valuation_hard_degraded_clear_consecutive_healthy_cycles
+        )
         return valuation_state
 
     def _emit_guardian_hook(self, severity: str, message: str, details: Dict[str, Any]) -> None:
@@ -3233,8 +3401,12 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None
                                     else None
                                 )
+                                if not isinstance(competitiveness_context, dict):
+                                    competitiveness_context = {}
+                                competitiveness_context["financial_posture_class"] = str(self._financial_posture_class)
                                 if reduce_only_recovery_active:
                                     recovery_context = dict(competitiveness_context or {})
+                                    recovery_context["financial_posture_class"] = str(self._financial_posture_class)
                                     recovery_context["reduce_only_recovery_active"] = True
                                     recovery_context["reduce_only_recovery_reason"] = str(reduce_only_recovery_reason)
                                     recovery_context["reduce_only_side"] = str(reduce_only_side)
@@ -3438,6 +3610,56 @@ class ExecutionRunner:
         held.update(self._open_order_token_ids())
         return held
 
+    @staticmethod
+    def _financial_posture_class_to_gauge(posture: str) -> float:
+        normalized = str(posture or "").strip().upper()
+        mapping = {
+            FINANCIAL_POSTURE_NORMAL: 0.0,
+            FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY: 1.0,
+            FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY: 2.0,
+            FINANCIAL_POSTURE_HALT_NEW_RISK: 3.0,
+        }
+        return float(mapping.get(normalized, 0.0))
+
+    def _resolve_financial_posture_class(self, *, stage_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+        if bool(self.risk.kill_switch):
+            return FINANCIAL_POSTURE_HALT_NEW_RISK
+        if bool(self._valuation_hard_degraded):
+            return FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY
+        stage_map = stage_info_by_token if isinstance(stage_info_by_token, dict) else {}
+        if any(bool((info or {}).get("reduce_only_recovery_active", False)) for info in stage_map.values()):
+            return FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
+        return FINANCIAL_POSTURE_NORMAL
+
+    def _held_unpriceable_cause_class(
+        self,
+        *,
+        token_id: str,
+        quote: Optional[Dict[str, Any]],
+        now_mono: float,
+        hard_reason_parts: List[str],
+    ) -> str:
+        has_held_404_signal = False
+        if quote is None:
+            last_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token_id)
+            if isinstance(last_not_found_mono, (int, float)):
+                has_held_404_signal = True
+                age_since_not_found_sec = max(0.0, float(now_mono - float(last_not_found_mono)))
+                hard_reason_parts.append(f"held_book_not_found_404_age_sec={age_since_not_found_sec:.3f}")
+        if not has_held_404_signal:
+            return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+        sec_to_expiry = (
+            (expiry_dt - utc_now()).total_seconds()
+            if isinstance(expiry_dt, dt.datetime)
+            else None
+        )
+        if isinstance(sec_to_expiry, (int, float)):
+            if float(sec_to_expiry) > 1e-9:
+                return HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE
+            return HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+        return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+
     def _discovery_carry_forward_token_ids(self, discovered_token_ids: List[str]) -> List[str]:
         discovered = set(str(token_id) for token_id in discovered_token_ids if str(token_id or "").strip())
         carry = sorted(token_id for token_id in self._held_exposure_token_ids() if token_id not in discovered)
@@ -3562,7 +3784,50 @@ class ExecutionRunner:
         pos = self.risk.positions.get(token)
         position_flat = bool(pos is None or abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) <= 1e-9)
         has_open_order = token in self._open_order_token_ids()
-        return bool(position_flat and (not has_open_order))
+        now_mono = time.monotonic()
+        recent_book_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token)
+        recent_book_not_found = bool(
+            isinstance(recent_book_not_found_mono, (int, float))
+            and (
+                now_mono - float(recent_book_not_found_mono)
+            )
+            <= (
+                max(
+                    float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
+                    float(self.held_book_not_found_backoff_sec),
+                )
+                + 1e-9
+            )
+        )
+        forced_refresh_pending_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token)
+        forced_refresh_pending = bool(
+            isinstance(forced_refresh_pending_mono, (int, float))
+            and float(forced_refresh_pending_mono) > now_mono
+        )
+        expiry_dt = self.token_expiry_dt_by_token.get(token)
+        sec_to_expiry = (
+            (expiry_dt - utc_now()).total_seconds()
+            if isinstance(expiry_dt, dt.datetime)
+            else None
+        )
+        expired_reduce_only_grace_active = self._held_expired_reduce_only_grace_active(
+            token_id=token,
+            sec_to_expiry=sec_to_expiry,
+        )
+        preexpiry_reduce_only_active = bool(
+            isinstance(sec_to_expiry, (int, float))
+            and float(sec_to_expiry) >= 0.0
+            and float(self.held_preexpiry_reduce_only_sec) > 0.0
+            and float(sec_to_expiry) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
+        )
+        unresolved_lifecycle_obligation = bool(
+            token in self._held_unpriceable_since_mono_by_token
+            or recent_book_not_found
+            or forced_refresh_pending
+            or expired_reduce_only_grace_active
+            or preexpiry_reduce_only_active
+        )
+        return bool(position_flat and (not has_open_order) and (not unresolved_lifecycle_obligation))
 
     def _handle_missing_book_not_found_tokens(
         self,
@@ -4779,6 +5044,13 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("edge_confidence_token_count", float(len(confidence_scores_by_token)))
 
                 stage_info_by_token = {token_id: self._token_stage_info(token_id) for token_id in self.token_ids}
+                self._financial_posture_class = self._resolve_financial_posture_class(
+                    stage_info_by_token=stage_info_by_token
+                )
+                self.telemetry.set_gauge(
+                    "financial_posture_class",
+                    self._financial_posture_class_to_gauge(self._financial_posture_class),
+                )
                 maker_stage_tokens = {
                     token_id for token_id, info in stage_info_by_token.items() if bool(info.get("allow_maker", False))
                 }
@@ -4988,6 +5260,7 @@ class ExecutionRunner:
                         maker_requote_delta_by_token[token_id] = float(profile["requote_delta_applied"])
                         side_policy = str(profile["side_policy"])
                         context_payload = dict(profile["context"])
+                        context_payload["financial_posture_class"] = str(self._financial_posture_class)
                         reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
                         reduce_only_side_policy = str(info.get("reduce_only_side_policy") or "NONE").upper()
                         reduce_only_side = str(info.get("reduce_only_side") or "NONE").upper()
@@ -5654,12 +5927,22 @@ class ExecutionRunner:
                         "held_unpriceable_escalation_threshold_sec": float(self.held_unpriceable_escalation_sec),
                         "held_unpriceable_operator_action": str(self._held_unpriceable_operator_action),
                         "held_unpriceable_defect_candidate": bool(self._held_unpriceable_escalation_active),
+                        "held_unpriceable_cause_by_token": dict(self._held_unpriceable_cause_by_token),
+                        "held_unpriceable_cause_counts": dict(self._held_unpriceable_cause_counts),
+                        "held_unpriceable_dominant_cause": str(self._held_unpriceable_dominant_cause),
                         "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
                         "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
+                        "valuation_hard_degraded_pending_healthy_cycles": int(
+                            self._valuation_hard_degraded_pending_healthy_cycles
+                        ),
+                        "valuation_hard_degraded_clear_consecutive_healthy_cycles": int(
+                            self.valuation_hard_degraded_clear_consecutive_healthy_cycles
+                        ),
                         "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
                         "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
                         "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
                         "preexpiry_404_anomaly_active": bool(self._preexpiry_404_anomaly_last_cycle),
+                        "financial_posture_class": str(self._financial_posture_class),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),

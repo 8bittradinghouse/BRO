@@ -3350,6 +3350,7 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["risk"]["max_book_age_sec"] = 6.0
             cfg["risk"]["one_sided_quote_max_age_sec"] = 6.0
             cfg["risk"]["last_known_mid_max_age_sec"] = 2.0
+            cfg["runtime"]["valuation_hard_degraded_clear_consecutive_healthy_cycles"] = 1
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
             runner = ExecutionRunner(cfg)
@@ -3382,6 +3383,126 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertEqual(runner._valuation_hard_degraded_clear_count, 1)  # pylint: disable=protected-access
                 self.assertEqual(runner._held_unpriceable_started_count, 1)  # pylint: disable=protected-access
                 self.assertEqual(runner._held_unpriceable_recovered_count, 1)  # pylint: disable=protected-access
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_apply_valuation_controls_uses_hard_degraded_clear_hysteresis(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["runtime"]["valuation_hard_degraded_clear_consecutive_healthy_cycles"] = 2
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=2.0)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    hard_state = runner._apply_valuation_controls(books={}, phase="test_hard")  # pylint: disable=protected-access
+                self.assertTrue(bool(hard_state.get("valuation_hard_degraded", False)))
+                self.assertEqual(runner._valuation_hard_degraded_enter_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._valuation_hard_degraded_clear_count, 0)  # pylint: disable=protected-access
+
+                recovery_top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.46,
+                    best_bid_size=80.0,
+                    best_ask_price=0.54,
+                    best_ask_size=80.0,
+                )
+                with mock.patch("executor.time.monotonic", return_value=101.0):
+                    recovered_state_pending = runner._apply_valuation_controls(  # pylint: disable=protected-access
+                        books={"t1": recovery_top},
+                        phase="test_recovered_pending",
+                    )
+                self.assertTrue(bool(recovered_state_pending.get("valuation_hard_degraded", False)))
+                self.assertEqual(runner._valuation_hard_degraded_clear_count, 0)  # pylint: disable=protected-access
+                self.assertEqual(runner._valuation_hard_degraded_pending_healthy_cycles, 1)  # pylint: disable=protected-access
+
+                with mock.patch("executor.time.monotonic", return_value=102.0):
+                    recovered_state_clear = runner._apply_valuation_controls(  # pylint: disable=protected-access
+                        books={"t1": recovery_top},
+                        phase="test_recovered_clear",
+                    )
+                self.assertFalse(bool(recovered_state_clear.get("valuation_hard_degraded", False)))
+                self.assertEqual(runner._valuation_hard_degraded_clear_count, 1)  # pylint: disable=protected-access
+                self.assertEqual(runner._valuation_hard_degraded_pending_healthy_cycles, 0)  # pylint: disable=protected-access
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_classifies_held_unpriceable_cause_taxonomy(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_pre", "t_post"]
+            cfg["targets"]["token_expiry_utc_by_token"] = {
+                "t_pre": utc_iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=45)),
+                "t_post": utc_iso(dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=45)),
+            }
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t_pre"] = Position(token_id="t_pre", net_shares=2.0)
+                runner.risk.positions["t_post"] = Position(token_id="t_post", net_shares=-2.0)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    runner._held_book_not_found_last_mono_by_token["t_pre"] = 95.0  # pylint: disable=protected-access
+                    runner._held_book_not_found_last_mono_by_token["t_post"] = 95.0  # pylint: disable=protected-access
+                    state = runner._build_valuation_state(books={})  # pylint: disable=protected-access
+                cause_by_token = dict(state.get("held_unpriceable_cause_by_token") or {})
+                self.assertEqual(str(cause_by_token.get("t_pre") or ""), "preexpiry_fetch_failure")
+                self.assertEqual(str(cause_by_token.get("t_post") or ""), "postexpiry_market_retired")
+                cause_counts = dict(state.get("held_unpriceable_cause_counts") or {})
+                self.assertEqual(int(cause_counts.get("preexpiry_fetch_failure") or 0), 1)
+                self.assertEqual(int(cause_counts.get("postexpiry_market_retired") or 0), 1)
+                self.assertEqual(int(cause_counts.get("unknown_data_gap") or 0), 0)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_prune_removed_tokens_preserves_watch_state_when_lifecycle_obligation_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = []
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                token_id = "flat-token-obligation"
+                runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=0.0)
+                runner.last_midpoint_by_token[token_id] = 0.50
+                runner.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
+                runner._held_unpriceable_since_mono_by_token[token_id] = time.monotonic() - 1.0  # pylint: disable=protected-access
+
+                runner._prune_removed_tokens(old_set={token_id}, active_set=set())
+
+                self.assertIn(token_id, runner.last_midpoint_by_token)
+                self.assertIn(token_id, runner.last_midpoint_ts_mono_by_token)
             finally:
                 runner.events.close()
                 runner.book_client.close()
