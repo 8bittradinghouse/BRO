@@ -3837,6 +3837,76 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_valuation_state_allows_postexpiry_recent_404_dust_classification(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_post"]
+            cfg["targets"]["token_expiry_utc_by_token"] = {
+                "t_post": utc_iso(dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=200))
+            }
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["position_dust_shares_epsilon"] = 1.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t_post"] = Position(token_id="t_post", net_shares=-0.72)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    runner._held_book_not_found_last_mono_by_token["t_post"] = 95.0  # pylint: disable=protected-access
+                    state = runner._build_valuation_state(books={})  # pylint: disable=protected-access
+                self.assertEqual(
+                    str((state.get("held_exposure_class_by_token") or {}).get("t_post") or ""),
+                    "DUST_ELIGIBLE",
+                )
+                detail = dict((state.get("held_exposure_detail_by_token") or {}).get("t_post") or {})
+                self.assertFalse(bool(detail.get("unresolved_lifecycle_obligation", True)))
+                self.assertTrue(bool(detail.get("postexpiry_retired_recent_404_dust_exempted", False)))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_valuation_state_keeps_preexpiry_recent_404_dust_quarantined(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_pre"]
+            cfg["targets"]["token_expiry_utc_by_token"] = {
+                "t_pre": utc_iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=45))
+            }
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["position_dust_shares_epsilon"] = 1.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t_pre"] = Position(token_id="t_pre", net_shares=0.72)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    runner._held_book_not_found_last_mono_by_token["t_pre"] = 95.0  # pylint: disable=protected-access
+                    state = runner._build_valuation_state(books={})  # pylint: disable=protected-access
+                self.assertEqual(
+                    str((state.get("held_exposure_class_by_token") or {}).get("t_pre") or ""),
+                    "DUST_QUARANTINED",
+                )
+                detail = dict((state.get("held_exposure_detail_by_token") or {}).get("t_pre") or {})
+                self.assertTrue(bool(detail.get("unresolved_lifecycle_obligation", False)))
+                self.assertFalse(bool(detail.get("postexpiry_retired_recent_404_dust_exempted", True)))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_prune_removed_tokens_preserves_watch_state_when_lifecycle_obligation_present(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)

@@ -1371,8 +1371,21 @@ class ExecutionRunner:
                 sec_to_expiry=sec_to_expiry,
                 open_order_present=bool(token_id in open_order_tokens),
             )
-            unresolved_for_dust = bool(
+            cause_for_token = str(
+                held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+            )
+            postexpiry_retired_recent_404 = bool(
                 lifecycle_flags.get("recent_book_not_found", False)
+                and cause_for_token == HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+                and isinstance(sec_to_expiry, (int, float))
+                and float(sec_to_expiry) <= (-max(float(self.expiry_boundary_epsilon_sec), 1e-9))
+                and (not bool(lifecycle_flags.get("expired_reduce_only_grace_active", False)))
+            )
+            unresolved_for_dust = bool(
+                (
+                    bool(lifecycle_flags.get("recent_book_not_found", False))
+                    and (not bool(postexpiry_retired_recent_404))
+                )
                 or lifecycle_flags.get("forced_refresh_pending", False)
                 or lifecycle_flags.get("expired_reduce_only_grace_active", False)
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
@@ -1415,8 +1428,21 @@ class ExecutionRunner:
                 sec_to_expiry=sec_to_expiry,
                 open_order_present=bool(token_id in open_order_tokens),
             )
-            unresolved_for_dust = bool(
+            cause_for_token = str(
+                held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+            )
+            postexpiry_retired_recent_404 = bool(
                 lifecycle_flags.get("recent_book_not_found", False)
+                and cause_for_token == HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+                and isinstance(sec_to_expiry, (int, float))
+                and float(sec_to_expiry) <= (-max(float(self.expiry_boundary_epsilon_sec), 1e-9))
+                and (not bool(lifecycle_flags.get("expired_reduce_only_grace_active", False)))
+            )
+            unresolved_for_dust = bool(
+                (
+                    bool(lifecycle_flags.get("recent_book_not_found", False))
+                    and (not bool(postexpiry_retired_recent_404))
+                )
                 or lifecycle_flags.get("forced_refresh_pending", False)
                 or lifecycle_flags.get("expired_reduce_only_grace_active", False)
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
@@ -1445,6 +1471,7 @@ class ExecutionRunner:
                     "unresolved_lifecycle_obligation_watch_state": bool(
                         lifecycle_flags.get("unresolved_lifecycle_obligation", False)
                     ),
+                    "postexpiry_retired_recent_404_dust_exempted": bool(postexpiry_retired_recent_404),
                     "held_unpriceable_tracking_active": bool(
                         lifecycle_flags.get("held_unpriceable_tracking_active", False)
                     ),
