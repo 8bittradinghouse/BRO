@@ -40,8 +40,7 @@ runtime:
   paper_background_fill_ratio: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "0446ad55846c9341f38f81b10c2fc6ff0f9a1332233d4d112b7184e33f71fe72"
-
+  paper_expected_config_fingerprint_sha256: b0c04cda260f585859584930a26031e2dfb91d9a73c910e7328f842d8f748cf3
 doctrine:
   mode: canonical
   oracle_max_tick_age_sec: 1.5
