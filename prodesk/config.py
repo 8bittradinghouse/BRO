@@ -50,6 +50,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
         "held_preexpiry_reduce_only_sec": 90.0,
+        "expiry_boundary_epsilon_sec": 1.0,
+        "dust_classifier_enforce_enabled": False,
         "valuation_hard_degraded_clear_consecutive_healthy_cycles": 2,
         "held_unpriceable_operator_action_min_emit_interval_sec": 60.0,
         "guard_stop_file": "",
@@ -362,6 +364,13 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
         "held_unpriceable_escalation_sec": 120.0,
+        "position_dust_shares_epsilon": 0.25,
+        "position_dust_notional_usd_epsilon": 1.0,
+        "position_dust_total_notional_usd_cap": 5.0,
+        "position_dust_token_count_cap": 4,
+        "position_dust_max_age_sec": 900.0,
+        "position_dust_enter_consecutive_cycles": 2,
+        "position_dust_clear_consecutive_cycles": 2,
         "max_book_future_skew_sec": 2.0,
         "allow_crossed_quotes": False,
         "max_total_loss": None,
@@ -771,6 +780,13 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["runtime"]["held_preexpiry_reduce_only_sec"],
         allow_zero=True,
     )
+    _require_positive(
+        "runtime.expiry_boundary_epsilon_sec",
+        cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0),
+        allow_zero=True,
+    )
+    if not isinstance(cfg["runtime"].get("dust_classifier_enforce_enabled", False), bool):
+        raise ValueError("runtime.dust_classifier_enforce_enabled must be a boolean")
     _require_positive(
         "runtime.valuation_hard_degraded_clear_consecutive_healthy_cycles",
         cfg["runtime"]["valuation_hard_degraded_clear_consecutive_healthy_cycles"],
@@ -1301,9 +1317,66 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.one_sided_quote_max_age_sec", cfg["risk"]["one_sided_quote_max_age_sec"], allow_zero=True)
     _require_positive("risk.last_known_mid_max_age_sec", cfg["risk"]["last_known_mid_max_age_sec"], allow_zero=True)
     _require_positive("risk.held_unpriceable_escalation_sec", cfg["risk"]["held_unpriceable_escalation_sec"], allow_zero=True)
+    _require_positive(
+        "risk.position_dust_shares_epsilon",
+        cfg["risk"]["position_dust_shares_epsilon"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.position_dust_notional_usd_epsilon",
+        cfg["risk"]["position_dust_notional_usd_epsilon"],
+        allow_zero=True,
+    )
+    _require_positive(
+        "risk.position_dust_total_notional_usd_cap",
+        cfg["risk"]["position_dust_total_notional_usd_cap"],
+    )
+    _require_positive(
+        "risk.position_dust_token_count_cap",
+        cfg["risk"]["position_dust_token_count_cap"],
+    )
+    _require_positive(
+        "risk.position_dust_max_age_sec",
+        cfg["risk"]["position_dust_max_age_sec"],
+    )
+    _require_positive(
+        "risk.position_dust_enter_consecutive_cycles",
+        cfg["risk"]["position_dust_enter_consecutive_cycles"],
+    )
+    _require_positive(
+        "risk.position_dust_clear_consecutive_cycles",
+        cfg["risk"]["position_dust_clear_consecutive_cycles"],
+    )
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
     held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
+    runtime_expiry_boundary_epsilon_sec = float(cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0) or 0.0)
+    dust_shares_epsilon = float(cfg["risk"].get("position_dust_shares_epsilon", 0.0) or 0.0)
+    dust_notional_usd_epsilon = float(cfg["risk"].get("position_dust_notional_usd_epsilon", 0.0) or 0.0)
+    dust_total_notional_usd_cap = float(cfg["risk"].get("position_dust_total_notional_usd_cap", 0.0) or 0.0)
+    dust_token_count_cap = int(float(cfg["risk"].get("position_dust_token_count_cap", 0.0) or 0.0))
+    dust_enter_consecutive_cycles = int(float(cfg["risk"].get("position_dust_enter_consecutive_cycles", 0.0) or 0.0))
+    dust_clear_consecutive_cycles = int(float(cfg["risk"].get("position_dust_clear_consecutive_cycles", 0.0) or 0.0))
+    risk_min_order_size = float(cfg["risk"].get("min_order_size", 0.0) or 0.0)
+    strategy_min_order_size = float(cfg["strategy"].get("min_order_size", 0.0) or 0.0)
+    if runtime_expiry_boundary_epsilon_sec > 5.0:
+        raise ValueError("runtime.expiry_boundary_epsilon_sec must be <= 5.0")
+    if dust_token_count_cap < 1:
+        raise ValueError("risk.position_dust_token_count_cap must be >= 1")
+    if dust_enter_consecutive_cycles < 1:
+        raise ValueError("risk.position_dust_enter_consecutive_cycles must be >= 1")
+    if dust_clear_consecutive_cycles < 1:
+        raise ValueError("risk.position_dust_clear_consecutive_cycles must be >= 1")
+    if dust_total_notional_usd_cap + 1e-9 < dust_notional_usd_epsilon:
+        raise ValueError(
+            "risk.position_dust_total_notional_usd_cap must be >= risk.position_dust_notional_usd_epsilon"
+        )
+    if risk_min_order_size > 0.0 and dust_shares_epsilon - 1e-9 > risk_min_order_size:
+        raise ValueError("risk.position_dust_shares_epsilon must be <= risk.min_order_size")
+    if strategy_min_order_size > 0.0 and dust_shares_epsilon - 1e-9 > strategy_min_order_size:
+        raise ValueError("risk.position_dust_shares_epsilon must be <= strategy.min_order_size")
+    if dust_notional_usd_epsilon - 1e-9 > float(cfg["risk"]["max_notional_per_token"]):
+        raise ValueError("risk.position_dust_notional_usd_epsilon must be <= risk.max_notional_per_token")
     if (
         held_preexpiry_reduce_only_sec > 0.0
         and min_sec_to_expiry_for_new_exposure > 0.0

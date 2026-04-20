@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from .common import parse_ts, utc_now
+from .exposure_classifier import EXPOSURE_CLASS_MEANINGFUL, is_flat_position
 from .models import BookTop, FillEvent, OrderIntent, Position, RiskDecision
 
 
@@ -34,6 +35,8 @@ class RiskEngine:
         self._order_submission_reserved_outstanding: int = 0
         self._valuation_hard_degraded: bool = False
         self._valuation_degraded_reasons: List[str] = []
+        self._exposure_class_by_token: Dict[str, str] = {}
+        self._last_mark_to_market_skipped_nonflat_by_class: Dict[str, int] = {}
 
     def set_kill_switch(self, reason: str) -> None:
         self.kill_switch = True
@@ -53,9 +56,20 @@ class RiskEngine:
             "reasons": list(self._valuation_degraded_reasons),
         }
 
+    def set_exposure_classification_state(self, *, exposure_class_by_token: Optional[Dict[str, Any]] = None) -> None:
+        raw = exposure_class_by_token if isinstance(exposure_class_by_token, dict) else {}
+        normalized: Dict[str, str] = {}
+        for token_id, exposure_class in raw.items():
+            token = str(token_id or "").strip()
+            if not token:
+                continue
+            klass = str(exposure_class or "").strip().upper() or EXPOSURE_CLASS_MEANINGFUL
+            normalized[token] = klass
+        self._exposure_class_by_token = normalized
+
     @classmethod
     def _is_flat_position(cls, net_shares: float) -> bool:
-        return abs(float(net_shares)) <= cls._POSITION_EPSILON
+        return is_flat_position(float(net_shares), position_epsilon=cls._POSITION_EPSILON)
 
     @classmethod
     def _is_pure_risk_reducing_intent(cls, *, net_shares: float, side: str, size: float) -> bool:
@@ -522,6 +536,9 @@ class RiskEngine:
                 "max_notional_per_token_effective": float(max_notional_effective),
                 "effective_multiplier": float(effective_multiplier),
             },
+            "intent_exposure_class": str(
+                self._exposure_class_by_token.get(str(intent.token_id), EXPOSURE_CLASS_MEANINGFUL)
+            ),
         }
 
         pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
@@ -694,12 +711,19 @@ class RiskEngine:
 
     def mark_to_market(self, mid_by_token: Dict[str, Optional[float]]) -> Tuple[float, Dict[str, float]]:
         pnl_by_token: Dict[str, float] = {}
+        skipped_nonflat_by_class: Dict[str, int] = {}
         total = 0.0
         for token_id, pos in self.positions.items():
             mid = mid_by_token.get(token_id)
             realized_cashflow = float(pos.sold_notional - pos.bought_notional)
             if mid is None:
                 if not self._is_flat_position(float(pos.net_shares)):
+                    exposure_class = str(
+                        self._exposure_class_by_token.get(str(token_id), EXPOSURE_CLASS_MEANINGFUL)
+                    ).strip().upper() or EXPOSURE_CLASS_MEANINGFUL
+                    skipped_nonflat_by_class[exposure_class] = (
+                        int(skipped_nonflat_by_class.get(exposure_class, 0)) + 1
+                    )
                     continue
                 pnl = realized_cashflow
                 pnl_by_token[token_id] = pnl
@@ -712,6 +736,7 @@ class RiskEngine:
             pnl = realized_cashflow + (float(pos.net_shares) * float(mid))
             pnl_by_token[token_id] = pnl
             total += pnl
+        self._last_mark_to_market_skipped_nonflat_by_class = dict(skipped_nonflat_by_class)
         return total, pnl_by_token
 
     def evaluate_loss_limits(self, mid_by_token: Dict[str, Optional[float]]) -> RiskDecision:

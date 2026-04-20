@@ -889,11 +889,18 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     held_unpriceable_defect_candidate_rows = 0.0
     held_book_not_found_404_rows = 0.0
     preexpiry_404_anomaly_rows = 0.0
+    held_dust_shadow_candidate_rows = 0.0
+    held_dust_shadow_active_rows = 0.0
+    held_dust_enforced_rows = 0.0
     valuation_hard_degraded_enter_count = 0.0
     valuation_hard_degraded_clear_count = 0.0
     held_unpriceable_started_count = 0.0
     held_unpriceable_recovered_count = 0.0
     preexpiry_404_anomaly_count = 0.0
+    held_dust_hard_degraded_exempt_count = 0.0
+    held_dust_count_max = 0.0
+    held_dust_quarantined_count_max = 0.0
+    held_dust_total_notional_upper_bound_usd_max = 0.0
     source_totals = {
         "live_mid": 0.0,
         "live_side_conservative_quote": 0.0,
@@ -920,6 +927,12 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             held_book_not_found_404_rows += 1.0
         if bool(row.get("preexpiry_404_anomaly_active", False)):
             preexpiry_404_anomaly_rows += 1.0
+        if bool(row.get("held_dust_shadow_candidate_active", False)):
+            held_dust_shadow_candidate_rows += 1.0
+        if bool(row.get("held_dust_shadow_active", False)):
+            held_dust_shadow_active_rows += 1.0
+        if bool(row.get("held_dust_enforced_this_cycle", False)):
+            held_dust_enforced_rows += 1.0
         valuation_hard_degraded_enter_count = max(
             valuation_hard_degraded_enter_count,
             _safe_float(row.get("valuation_hard_degraded_enter_count")),
@@ -939,6 +952,22 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         preexpiry_404_anomaly_count = max(
             preexpiry_404_anomaly_count,
             _safe_float(row.get("preexpiry_404_anomaly_count")),
+        )
+        held_dust_hard_degraded_exempt_count = max(
+            held_dust_hard_degraded_exempt_count,
+            _safe_float(row.get("held_dust_hard_degraded_exempt_count")),
+        )
+        held_dust_count_max = max(
+            held_dust_count_max,
+            _safe_float(row.get("held_dust_count")),
+        )
+        held_dust_quarantined_count_max = max(
+            held_dust_quarantined_count_max,
+            _safe_float(row.get("held_dust_quarantined_count")),
+        )
+        held_dust_total_notional_upper_bound_usd_max = max(
+            held_dust_total_notional_upper_bound_usd_max,
+            _safe_float(row.get("held_dust_total_notional_upper_bound_usd")),
         )
         row_counts_raw = row.get("valuation_mid_source_counts")
         row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
@@ -977,11 +1006,18 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "held_unpriceable_defect_candidate_rows": float(held_unpriceable_defect_candidate_rows),
         "held_book_not_found_404_rows": float(held_book_not_found_404_rows),
         "preexpiry_404_anomaly_rows": float(preexpiry_404_anomaly_rows),
+        "held_dust_shadow_candidate_rows": float(held_dust_shadow_candidate_rows),
+        "held_dust_shadow_active_rows": float(held_dust_shadow_active_rows),
+        "held_dust_enforced_rows": float(held_dust_enforced_rows),
         "valuation_hard_degraded_enter_count": float(valuation_hard_degraded_enter_count),
         "valuation_hard_degraded_clear_count": float(valuation_hard_degraded_clear_count),
         "held_unpriceable_started_count": float(held_unpriceable_started_count),
         "held_unpriceable_recovered_count": float(held_unpriceable_recovered_count),
         "preexpiry_404_anomaly_count": float(preexpiry_404_anomaly_count),
+        "held_dust_hard_degraded_exempt_count": float(held_dust_hard_degraded_exempt_count),
+        "held_dust_count_max": float(held_dust_count_max),
+        "held_dust_quarantined_count_max": float(held_dust_quarantined_count_max),
+        "held_dust_total_notional_upper_bound_usd_max": float(held_dust_total_notional_upper_bound_usd_max),
         "valuation_degraded_ratio": (degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "valuation_hard_degraded_ratio": (hard_degraded_rows / sample_count) if sample_count > 0 else 0.0,
         "held_unpriceable_escalation_ratio": (
@@ -1004,8 +1040,25 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         )
         if sample_count > 0
         else 0.0,
+        "held_dust_shadow_candidate_ratio": (
+            held_dust_shadow_candidate_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
+        "held_dust_shadow_active_ratio": (
+            held_dust_shadow_active_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
+        "held_dust_enforced_ratio": (
+            held_dust_enforced_rows / sample_count
+        )
+        if sample_count > 0
+        else 0.0,
         "latest_valuation_degraded": bool(latest.get("valuation_degraded", False)),
         "latest_valuation_hard_degraded": bool(latest.get("valuation_hard_degraded", False)),
+        "latest_valuation_raw_degraded": bool(latest.get("valuation_raw_degraded", False)),
+        "latest_valuation_raw_hard_degraded": bool(latest.get("valuation_raw_hard_degraded", False)),
         "latest_pnl_degraded": bool(latest.get("pnl_degraded", False)),
         "latest_loss_guard_degraded": bool(latest.get("loss_guard_degraded", False)),
         "latest_valuation_degraded_reasons": list(latest.get("valuation_degraded_reasons") or []),
@@ -1036,6 +1089,21 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "latest_preexpiry_404_anomaly_active": bool(latest.get("preexpiry_404_anomaly_active", False)),
         "latest_preexpiry_404_anomaly_count": _safe_float(
             latest.get("preexpiry_404_anomaly_count")
+        ),
+        "latest_held_dust_shadow_candidate_active": bool(latest.get("held_dust_shadow_candidate_active", False)),
+        "latest_held_dust_shadow_active": bool(latest.get("held_dust_shadow_active", False)),
+        "latest_held_dust_enforced_this_cycle": bool(latest.get("held_dust_enforced_this_cycle", False)),
+        "latest_held_dust_hard_degraded_exempt_count": _safe_float(
+            latest.get("held_dust_hard_degraded_exempt_count")
+        ),
+        "latest_held_dust_count": _safe_float(latest.get("held_dust_count")),
+        "latest_held_dust_quarantined_count": _safe_float(latest.get("held_dust_quarantined_count")),
+        "latest_held_dust_total_notional_upper_bound_usd": _safe_float(
+            latest.get("held_dust_total_notional_upper_bound_usd")
+        ),
+        "latest_dust_classifier_enforce_enabled": bool(latest.get("dust_classifier_enforce_enabled", False)),
+        "latest_runtime_expiry_boundary_epsilon_sec": _safe_float(
+            latest.get("runtime_expiry_boundary_epsilon_sec")
         ),
         "valuation_source_counts_run": dict(source_totals),
         "valuation_source_counts_latest": {
@@ -2669,10 +2737,13 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"preexpiry_404_anomaly_ratio={_safe_float(valuation_truth.get('preexpiry_404_anomaly_ratio')):.4f},"
             + f"held_unpriceable_escalation_ratio={_safe_float(valuation_truth.get('held_unpriceable_escalation_ratio')):.4f},"
             + f"held_unpriceable_defect_candidate_ratio={_safe_float(valuation_truth.get('held_unpriceable_defect_candidate_ratio')):.4f},"
+            + f"held_dust_shadow_active_ratio={_safe_float(valuation_truth.get('held_dust_shadow_active_ratio')):.4f},"
+            + f"held_dust_enforced_ratio={_safe_float(valuation_truth.get('held_dust_enforced_ratio')):.4f},"
             + f"hard_degraded_enter_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_enter_count')))},"
             + f"hard_degraded_clear_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_clear_count')))},"
             + f"held_unpriceable_started_count={int(_safe_float(valuation_truth.get('held_unpriceable_started_count')))},"
             + f"held_unpriceable_recovered_count={int(_safe_float(valuation_truth.get('held_unpriceable_recovered_count')))},"
+            + f"held_dust_hard_degraded_exempt_count={int(_safe_float(valuation_truth.get('held_dust_hard_degraded_exempt_count')))},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
             + f"latest_escalation_reasons={json.dumps(valuation_truth.get('latest_held_unpriceable_escalation_reasons', []), sort_keys=True)},"
             + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"

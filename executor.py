@@ -47,6 +47,14 @@ from prodesk.edge_truth_contract import (
     EdgeInputSnapshot,
     stage_policy as edge_stage_policy,
 )
+from prodesk.exposure_classifier import (
+    EXPOSURE_CLASS_DUST_ELIGIBLE,
+    EXPOSURE_CLASS_DUST_QUARANTINED,
+    EXPOSURE_CLASS_MEANINGFUL,
+    ExposureClassifierConfig,
+    classify_exposure_fail_closed,
+    exposure_class_to_dict,
+)
 from prodesk.gateway import BaseGateway, GatewayError, LiveClobGateway, PaperGateway
 from prodesk.logging_utils import EventLogger, configure_console_logging
 from prodesk.latency_verifier import (
@@ -217,6 +225,43 @@ class ExecutionRunner:
             if configured_last_known_mid_age is not None
             else 6.0
         )
+        self.position_dust_shares_epsilon = max(
+            0.0,
+            float(parse_float(risk_cfg.get("position_dust_shares_epsilon")) or 0.0),
+        )
+        self.position_dust_notional_usd_epsilon = max(
+            0.0,
+            float(parse_float(risk_cfg.get("position_dust_notional_usd_epsilon")) or 0.0),
+        )
+        self.position_dust_total_notional_usd_cap = max(
+            0.0,
+            float(parse_float(risk_cfg.get("position_dust_total_notional_usd_cap")) or 0.0),
+        )
+        self.position_dust_token_count_cap = max(
+            1,
+            int(float(parse_float(risk_cfg.get("position_dust_token_count_cap")) or 1.0)),
+        )
+        self.position_dust_max_age_sec = max(
+            0.0,
+            float(parse_float(risk_cfg.get("position_dust_max_age_sec")) or 0.0),
+        )
+        self.position_dust_enter_consecutive_cycles = max(
+            1,
+            int(float(parse_float(risk_cfg.get("position_dust_enter_consecutive_cycles")) or 1.0)),
+        )
+        self.position_dust_clear_consecutive_cycles = max(
+            1,
+            int(float(parse_float(risk_cfg.get("position_dust_clear_consecutive_cycles")) or 1.0)),
+        )
+        self._dust_classifier_cfg = ExposureClassifierConfig(
+            dust_shares_epsilon=float(self.position_dust_shares_epsilon),
+            dust_notional_usd_epsilon=float(self.position_dust_notional_usd_epsilon),
+            dust_total_notional_usd_cap=float(self.position_dust_total_notional_usd_cap),
+            dust_token_count_cap=int(self.position_dust_token_count_cap),
+            dust_max_age_sec=float(self.position_dust_max_age_sec),
+            dust_enter_consecutive_cycles=int(self.position_dust_enter_consecutive_cycles),
+            dust_clear_consecutive_cycles=int(self.position_dust_clear_consecutive_cycles),
+        )
         self.risk_min_order_size_shares = max(1e-9, float(risk_cfg.get("min_order_size", 1.0)))
         configured_held_unpriceable_escalation_sec = parse_float(risk_cfg.get("held_unpriceable_escalation_sec"))
         self.held_unpriceable_escalation_sec = (
@@ -313,6 +358,17 @@ class ExecutionRunner:
             if configured_held_preexpiry_reduce_only_sec is not None
             else 90.0
         )
+        configured_expiry_boundary_epsilon_sec = parse_float(
+            runtime_cfg.get("expiry_boundary_epsilon_sec")
+        )
+        self.expiry_boundary_epsilon_sec = (
+            max(0.0, float(configured_expiry_boundary_epsilon_sec))
+            if configured_expiry_boundary_epsilon_sec is not None
+            else 1.0
+        )
+        self.dust_classifier_enforce_enabled = bool(
+            runtime_cfg.get("dust_classifier_enforce_enabled", False)
+        )
         configured_hard_degraded_clear_hysteresis_cycles = parse_float(
             runtime_cfg.get("valuation_hard_degraded_clear_consecutive_healthy_cycles")
         )
@@ -336,6 +392,18 @@ class ExecutionRunner:
         self._held_unpriceable_recovered_count: int = 0
         self._preexpiry_404_anomaly_count: int = 0
         self._preexpiry_404_anomaly_last_cycle: bool = False
+        self._held_exposure_class_by_token: Dict[str, str] = {}
+        self._held_exposure_detail_by_token: Dict[str, Dict[str, Any]] = {}
+        self._held_dust_token_ids: List[str] = []
+        self._held_dust_quarantined_token_ids: List[str] = []
+        self._held_dust_total_notional_upper_bound_usd: float = 0.0
+        self._held_dust_shadow_candidate_active: bool = False
+        self._held_dust_shadow_active: bool = False
+        self._held_dust_shadow_enter_pending_cycles: int = 0
+        self._held_dust_shadow_clear_pending_cycles: int = 0
+        self._held_dust_enforced_this_cycle: bool = False
+        self._held_dust_effective_hard_degraded_exempt_count: int = 0
+        self._held_dust_raw_hard_degraded_token_count: int = 0
         self._held_unpriceable_operator_action_last_emit_mono: float = 0.0
         self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
         self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
@@ -1115,6 +1183,8 @@ class ExecutionRunner:
         hard_degraded_reasons: List[str] = []
         held_unpriceable_age_by_token: Dict[str, float] = {}
         held_unpriceable_cause_by_token: Dict[str, str] = {}
+        conservative_mark_by_token: Dict[str, float] = {}
+        open_order_tokens = self._open_order_token_ids()
         non_flat_positions: Dict[str, Position] = {
             str(token_id): pos
             for token_id, pos in self.risk.positions.items()
@@ -1137,6 +1207,8 @@ class ExecutionRunner:
                 and quote_age_sec <= (self.one_sided_quote_max_age_sec + 1e-9)
             )
             net = float(position.net_shares)
+            conservative_mark = self._conservative_mid_for_position(position)
+            conservative_mark_by_token[token_id] = float(conservative_mark)
             required_side = "bid" if net > 1e-9 else "ask"
             required_side_mid = quote_bid if required_side == "bid" else quote_ask
             if live_mid_age_fresh and quote_mid is not None:
@@ -1163,7 +1235,7 @@ class ExecutionRunner:
                     )
                     continue
 
-            mids_by_token[token_id] = self._conservative_mid_for_position(position)
+            mids_by_token[token_id] = float(conservative_mark)
             source_by_token[token_id] = "conservative_bound_hard_degraded"
             unpriceable_since = self._held_unpriceable_since_mono_by_token.get(token_id)
             if not isinstance(unpriceable_since, (int, float)):
@@ -1282,6 +1354,136 @@ class ExecutionRunner:
                 key=lambda kv: (int(kv[1]), str(kv[0])),
             )[0]
 
+        held_exposure_class_by_token: Dict[str, str] = {}
+        held_exposure_detail_by_token: Dict[str, Dict[str, Any]] = {}
+        _base_classification_by_token: Dict[str, Any] = {}
+        for token_id in sorted(non_flat_positions.keys()):
+            position = non_flat_positions[token_id]
+            expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+            sec_to_expiry = (
+                (expiry_dt - utc_now()).total_seconds()
+                if isinstance(expiry_dt, dt.datetime)
+                else None
+            )
+            lifecycle_flags = self._token_lifecycle_obligation_flags(
+                token_id=token_id,
+                now_mono=now_mono,
+                sec_to_expiry=sec_to_expiry,
+                open_order_present=bool(token_id in open_order_tokens),
+            )
+            unresolved_for_dust = bool(
+                lifecycle_flags.get("recent_book_not_found", False)
+                or lifecycle_flags.get("forced_refresh_pending", False)
+                or lifecycle_flags.get("expired_reduce_only_grace_active", False)
+                or lifecycle_flags.get("preexpiry_reduce_only_active", False)
+            )
+            dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
+            _base_classification_by_token[token_id] = classify_exposure_fail_closed(
+                net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
+                cfg=self._dust_classifier_cfg,
+                conservative_mark_price=float(conservative_mark_by_token.get(token_id, 0.0) or 0.0),
+                open_order_present=bool(lifecycle_flags.get("open_order_present", False)),
+                unresolved_lifecycle_obligation=bool(unresolved_for_dust),
+                dust_age_sec=float(dust_age_sec),
+                aggregate_dust_notional_upper_bound_usd=0.0,
+                aggregate_dust_token_count=0,
+            )
+        aggregate_dust_candidate_token_ids = sorted(
+            token_id
+            for token_id, classification in _base_classification_by_token.items()
+            if bool(getattr(classification, "dust_share_eligible", False))
+            and bool(getattr(classification, "dust_notional_eligible", False))
+        )
+        aggregate_dust_token_count = int(len(aggregate_dust_candidate_token_ids))
+        aggregate_dust_notional_upper_bound_usd = float(
+            sum(
+                float(getattr(_base_classification_by_token[token_id], "dust_notional_upper_bound_usd", 0.0) or 0.0)
+                for token_id in aggregate_dust_candidate_token_ids
+            )
+        )
+        for token_id in sorted(non_flat_positions.keys()):
+            position = non_flat_positions[token_id]
+            expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+            sec_to_expiry = (
+                (expiry_dt - utc_now()).total_seconds()
+                if isinstance(expiry_dt, dt.datetime)
+                else None
+            )
+            lifecycle_flags = self._token_lifecycle_obligation_flags(
+                token_id=token_id,
+                now_mono=now_mono,
+                sec_to_expiry=sec_to_expiry,
+                open_order_present=bool(token_id in open_order_tokens),
+            )
+            unresolved_for_dust = bool(
+                lifecycle_flags.get("recent_book_not_found", False)
+                or lifecycle_flags.get("forced_refresh_pending", False)
+                or lifecycle_flags.get("expired_reduce_only_grace_active", False)
+                or lifecycle_flags.get("preexpiry_reduce_only_active", False)
+            )
+            dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
+            classification = classify_exposure_fail_closed(
+                net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
+                cfg=self._dust_classifier_cfg,
+                conservative_mark_price=float(conservative_mark_by_token.get(token_id, 0.0) or 0.0),
+                open_order_present=bool(lifecycle_flags.get("open_order_present", False)),
+                unresolved_lifecycle_obligation=bool(unresolved_for_dust),
+                dust_age_sec=float(dust_age_sec),
+                aggregate_dust_notional_upper_bound_usd=float(aggregate_dust_notional_upper_bound_usd),
+                aggregate_dust_token_count=int(aggregate_dust_token_count),
+            )
+            held_exposure_class_by_token[token_id] = str(classification.exposure_class)
+            detail = exposure_class_to_dict(classification)
+            detail.update(
+                {
+                    "token_id": str(token_id),
+                    "source": str(source_by_token.get(token_id) or ""),
+                    "net_shares": float(getattr(position, "net_shares", 0.0) or 0.0),
+                    "conservative_mark_price": float(conservative_mark_by_token.get(token_id, 0.0) or 0.0),
+                    "open_order_present": bool(lifecycle_flags.get("open_order_present", False)),
+                    "unresolved_lifecycle_obligation": bool(unresolved_for_dust),
+                    "unresolved_lifecycle_obligation_watch_state": bool(
+                        lifecycle_flags.get("unresolved_lifecycle_obligation", False)
+                    ),
+                    "held_unpriceable_tracking_active": bool(
+                        lifecycle_flags.get("held_unpriceable_tracking_active", False)
+                    ),
+                    "dust_age_sec": float(dust_age_sec),
+                    "sec_to_expiry": (
+                        float(sec_to_expiry)
+                        if isinstance(sec_to_expiry, (int, float))
+                        else None
+                    ),
+                    "aggregate_dust_notional_upper_bound_usd": float(aggregate_dust_notional_upper_bound_usd),
+                    "aggregate_dust_token_count": int(aggregate_dust_token_count),
+                }
+            )
+            held_exposure_detail_by_token[token_id] = detail
+        held_dust_token_ids = sorted(
+            token_id
+            for token_id, klass in held_exposure_class_by_token.items()
+            if str(klass) == EXPOSURE_CLASS_DUST_ELIGIBLE
+        )
+        held_dust_quarantined_token_ids = sorted(
+            token_id
+            for token_id, klass in held_exposure_class_by_token.items()
+            if str(klass) == EXPOSURE_CLASS_DUST_QUARANTINED
+        )
+        hard_degraded_token_ids = sorted(
+            token_id
+            for token_id, source in source_by_token.items()
+            if str(source) == "conservative_bound_hard_degraded"
+        )
+        hard_degraded_dust_eligible_token_ids = sorted(
+            token_id
+            for token_id in hard_degraded_token_ids
+            if str(held_exposure_class_by_token.get(token_id) or EXPOSURE_CLASS_MEANINGFUL)
+            == EXPOSURE_CLASS_DUST_ELIGIBLE
+        )
+        hard_degraded_meaningful_token_ids = sorted(
+            token_id for token_id in hard_degraded_token_ids if token_id not in hard_degraded_dust_eligible_token_ids
+        )
+
         source_counts = dict(collections.Counter(source_by_token.values()))
         summary_counts = {
             "live_mid": int(source_counts.get("fresh_live_mid", 0)),
@@ -1324,6 +1526,20 @@ class ExecutionRunner:
             },
             "held_unpriceable_cause_counts": dict(held_unpriceable_cause_counts),
             "held_unpriceable_dominant_cause": str(held_unpriceable_dominant_cause),
+            "held_exposure_class_by_token": dict(held_exposure_class_by_token),
+            "held_exposure_detail_by_token": dict(held_exposure_detail_by_token),
+            "held_dust_token_ids": list(held_dust_token_ids),
+            "held_dust_count": int(len(held_dust_token_ids)),
+            "held_dust_quarantined_token_ids": list(held_dust_quarantined_token_ids),
+            "held_dust_quarantined_count": int(len(held_dust_quarantined_token_ids)),
+            "held_dust_total_notional_upper_bound_usd": float(aggregate_dust_notional_upper_bound_usd),
+            "held_dust_candidate_token_ids": list(aggregate_dust_candidate_token_ids),
+            "held_dust_candidate_count": int(aggregate_dust_token_count),
+            "hard_degraded_token_ids": list(hard_degraded_token_ids),
+            "hard_degraded_dust_eligible_token_ids": list(hard_degraded_dust_eligible_token_ids),
+            "hard_degraded_meaningful_token_ids": list(hard_degraded_meaningful_token_ids),
+            "raw_valuation_hard_degraded": bool(hard_degraded),
+            "raw_valuation_degraded": bool(degraded),
         }
 
     def _apply_valuation_controls(self, *, books: Dict[str, Any], phase: str) -> Dict[str, Any]:
@@ -1335,6 +1551,118 @@ class ExecutionRunner:
         degraded_reasons = [str(x) for x in list(valuation_state.get("degraded_reasons", [])) if str(x).strip()]
         source_counts = dict(valuation_state.get("source_counts", {}))
         source_counts_raw = dict(valuation_state.get("source_counts_raw", {}))
+        held_exposure_class_by_token = {
+            str(token_id): str(klass or "").strip().upper() or EXPOSURE_CLASS_MEANINGFUL
+            for token_id, klass in dict(valuation_state.get("held_exposure_class_by_token", {})).items()
+            if str(token_id).strip()
+        }
+        held_exposure_detail_by_token = {
+            str(token_id): dict(detail)
+            for token_id, detail in dict(valuation_state.get("held_exposure_detail_by_token", {})).items()
+            if str(token_id).strip() and isinstance(detail, dict)
+        }
+        held_dust_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("held_dust_token_ids", []))
+            if str(token_id).strip()
+        ]
+        held_dust_quarantined_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("held_dust_quarantined_token_ids", []))
+            if str(token_id).strip()
+        ]
+        held_dust_total_notional_upper_bound_usd = float(
+            valuation_state.get("held_dust_total_notional_upper_bound_usd", 0.0) or 0.0
+        )
+        hard_degraded_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("hard_degraded_token_ids", []))
+            if str(token_id).strip()
+        ]
+        hard_degraded_dust_eligible_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("hard_degraded_dust_eligible_token_ids", []))
+            if str(token_id).strip()
+        ]
+        hard_degraded_meaningful_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("hard_degraded_meaningful_token_ids", []))
+            if str(token_id).strip()
+        ]
+        raw_dust_shadow_candidate_active = bool(
+            raw_hard_degraded
+            and hard_degraded_token_ids
+            and (not hard_degraded_meaningful_token_ids)
+            and len(hard_degraded_dust_eligible_token_ids) == len(hard_degraded_token_ids)
+        )
+        prev_shadow_hysteresis_active = bool(self._held_dust_shadow_active)
+        if raw_dust_shadow_candidate_active:
+            self._held_dust_shadow_enter_pending_cycles += 1
+            self._held_dust_shadow_clear_pending_cycles = 0
+            if self._held_dust_shadow_enter_pending_cycles >= int(self.position_dust_enter_consecutive_cycles):
+                self._held_dust_shadow_active = True
+        else:
+            self._held_dust_shadow_enter_pending_cycles = 0
+            if self._held_dust_shadow_active:
+                self._held_dust_shadow_clear_pending_cycles += 1
+                if self._held_dust_shadow_clear_pending_cycles >= int(self.position_dust_clear_consecutive_cycles):
+                    self._held_dust_shadow_active = False
+                    self._held_dust_shadow_clear_pending_cycles = 0
+            else:
+                self._held_dust_shadow_clear_pending_cycles = 0
+        prev_shadow_candidate_active = bool(self._held_dust_shadow_candidate_active)
+        self._held_dust_shadow_candidate_active = bool(raw_dust_shadow_candidate_active)
+        shadow_active = bool(self._held_dust_shadow_active)
+        if prev_shadow_candidate_active != self._held_dust_shadow_candidate_active:
+            self.events.log_event(
+                "held_dust_shadow_candidate_transition",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "transition": (
+                        "enter"
+                        if self._held_dust_shadow_candidate_active
+                        else "clear"
+                    ),
+                    "candidate_active": bool(self._held_dust_shadow_candidate_active),
+                    "shadow_active": bool(shadow_active),
+                    "position_dust_enter_consecutive_cycles": int(self.position_dust_enter_consecutive_cycles),
+                    "position_dust_clear_consecutive_cycles": int(self.position_dust_clear_consecutive_cycles),
+                    "enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
+                    "clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
+                    "hard_degraded_token_ids": list(hard_degraded_token_ids),
+                    "hard_degraded_dust_eligible_token_ids": list(hard_degraded_dust_eligible_token_ids),
+                    "hard_degraded_meaningful_token_ids": list(hard_degraded_meaningful_token_ids),
+                },
+            )
+        if prev_shadow_hysteresis_active != shadow_active:
+            self.events.log_event(
+                "held_dust_shadow_transition",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "phase": str(phase or "unknown"),
+                    "transition": ("enter" if shadow_active else "clear"),
+                    "shadow_active": bool(shadow_active),
+                    "candidate_active": bool(self._held_dust_shadow_candidate_active),
+                    "position_dust_enter_consecutive_cycles": int(self.position_dust_enter_consecutive_cycles),
+                    "position_dust_clear_consecutive_cycles": int(self.position_dust_clear_consecutive_cycles),
+                    "enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
+                    "clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
+                },
+            )
+        effective_hard_degraded_exempt_count = 0
+        if bool(self.dust_classifier_enforce_enabled) and bool(shadow_active) and bool(raw_hard_degraded):
+            if not hard_degraded_meaningful_token_ids and hard_degraded_dust_eligible_token_ids:
+                effective_hard_degraded_exempt_count = int(len(hard_degraded_dust_eligible_token_ids))
+                raw_hard_degraded = False
+                raw_degraded = True
+                degraded_reasons.append(
+                    "hard_degraded_exempted_dust_only:"
+                    + f"token_count={effective_hard_degraded_exempt_count}"
+                    + f":shadow_active={int(shadow_active)}"
+                )
         held_unpriceable_token_ids = [
             str(token_id) for token_id in list(valuation_state.get("held_unpriceable_token_ids", [])) if str(token_id)
         ]
@@ -1391,6 +1719,12 @@ class ExecutionRunner:
         held_unpriceable_dominant_cause = str(
             valuation_state.get("held_unpriceable_dominant_cause") or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
         ).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        self._held_dust_shadow_active = bool(shadow_active)
+        self._held_dust_enforced_this_cycle = bool(
+            self.dust_classifier_enforce_enabled and effective_hard_degraded_exempt_count > 0
+        )
+        self._held_dust_effective_hard_degraded_exempt_count = int(effective_hard_degraded_exempt_count)
+        self._held_dust_raw_hard_degraded_token_count = int(len(hard_degraded_token_ids))
         prev_hard_degraded = bool(self._valuation_hard_degraded)
         prev_held_unpriceable_tokens = set(self._held_unpriceable_token_ids)
         next_held_unpriceable_tokens = set(held_unpriceable_token_ids)
@@ -1430,6 +1764,10 @@ class ExecutionRunner:
                     "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
                     "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
                     "valuation_degraded_reasons": list(degraded_reasons),
+                    "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
+                    "dust_shadow_active": bool(self._held_dust_shadow_active),
+                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
+                    "dust_hard_degraded_exempt_count": int(self._held_dust_effective_hard_degraded_exempt_count),
                 },
             )
         elif prev_hard_degraded and (not hard_degraded):
@@ -1446,6 +1784,10 @@ class ExecutionRunner:
                     "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
                     "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
                     "valuation_degraded_reasons": list(degraded_reasons),
+                    "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
+                    "dust_shadow_active": bool(self._held_dust_shadow_active),
+                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
+                    "dust_hard_degraded_exempt_count": int(self._held_dust_effective_hard_degraded_exempt_count),
                 },
             )
         if started_unpriceable_tokens or recovered_unpriceable_tokens:
@@ -1489,11 +1831,19 @@ class ExecutionRunner:
         self._held_unpriceable_cause_by_token = dict(held_unpriceable_cause_by_token)
         self._held_unpriceable_cause_counts = dict(held_unpriceable_cause_counts)
         self._held_unpriceable_dominant_cause = str(held_unpriceable_dominant_cause)
+        self._held_exposure_class_by_token = dict(held_exposure_class_by_token)
+        self._held_exposure_detail_by_token = dict(held_exposure_detail_by_token)
+        self._held_dust_token_ids = list(held_dust_token_ids)
+        self._held_dust_quarantined_token_ids = list(held_dust_quarantined_token_ids)
+        self._held_dust_total_notional_upper_bound_usd = float(held_dust_total_notional_upper_bound_usd)
         self._financial_posture_class = self._resolve_financial_posture_class(stage_info_by_token=None)
 
         self.risk.set_valuation_degraded_state(
             hard_degraded=hard_degraded,
             reasons=degraded_reasons,
+        )
+        self.risk.set_exposure_classification_state(
+            exposure_class_by_token=held_exposure_class_by_token,
         )
 
         self.telemetry.set_gauge("valuation_degraded", 1.0 if degraded else 0.0)
@@ -1538,6 +1888,34 @@ class ExecutionRunner:
             "financial_posture_class",
             self._financial_posture_class_to_gauge(self._financial_posture_class),
         )
+        self.telemetry.set_gauge(
+            "held_dust_count",
+            float(len(self._held_dust_token_ids)),
+        )
+        self.telemetry.set_gauge(
+            "held_dust_quarantined_count",
+            float(len(self._held_dust_quarantined_token_ids)),
+        )
+        self.telemetry.set_gauge(
+            "held_dust_total_notional_upper_bound_usd",
+            float(self._held_dust_total_notional_upper_bound_usd),
+        )
+        self.telemetry.set_gauge(
+            "held_dust_shadow_candidate_active",
+            1.0 if self._held_dust_shadow_candidate_active else 0.0,
+        )
+        self.telemetry.set_gauge(
+            "held_dust_shadow_active",
+            1.0 if self._held_dust_shadow_active else 0.0,
+        )
+        self.telemetry.set_gauge(
+            "held_dust_enforced_this_cycle",
+            1.0 if self._held_dust_enforced_this_cycle else 0.0,
+        )
+        self.telemetry.set_gauge(
+            "held_dust_hard_degraded_exempt_count",
+            float(self._held_dust_effective_hard_degraded_exempt_count),
+        )
 
         signature = (
             bool(degraded),
@@ -1549,6 +1927,13 @@ class ExecutionRunner:
             tuple(held_unpriceable_escalation_token_ids),
             tuple(sorted(held_unpriceable_cause_counts.items(), key=lambda item: item[0])),
             str(held_unpriceable_dominant_cause),
+            tuple(sorted(self._held_exposure_class_by_token.items(), key=lambda item: item[0])),
+            tuple(self._held_dust_token_ids),
+            tuple(self._held_dust_quarantined_token_ids),
+            bool(self._held_dust_shadow_candidate_active),
+            bool(self._held_dust_shadow_active),
+            bool(self._held_dust_enforced_this_cycle),
+            int(self._held_dust_effective_hard_degraded_exempt_count),
         )
         if signature != self._last_valuation_event_signature:
             self._last_valuation_event_signature = signature
@@ -1597,6 +1982,29 @@ class ExecutionRunner:
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
                     "held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
+                    "raw_valuation_degraded": bool(valuation_state.get("raw_valuation_degraded", False)),
+                    "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
+                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
+                    "held_exposure_class_by_token": dict(self._held_exposure_class_by_token),
+                    "held_exposure_detail_by_token": dict(self._held_exposure_detail_by_token),
+                    "held_dust_token_ids": list(self._held_dust_token_ids),
+                    "held_dust_count": int(len(self._held_dust_token_ids)),
+                    "held_dust_quarantined_token_ids": list(self._held_dust_quarantined_token_ids),
+                    "held_dust_quarantined_count": int(len(self._held_dust_quarantined_token_ids)),
+                    "held_dust_total_notional_upper_bound_usd": float(
+                        self._held_dust_total_notional_upper_bound_usd
+                    ),
+                    "held_dust_shadow_candidate_active": bool(self._held_dust_shadow_candidate_active),
+                    "held_dust_shadow_active": bool(self._held_dust_shadow_active),
+                    "held_dust_shadow_enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
+                    "held_dust_shadow_clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
+                    "held_dust_enforced_this_cycle": bool(self._held_dust_enforced_this_cycle),
+                    "held_dust_hard_degraded_exempt_count": int(
+                        self._held_dust_effective_hard_degraded_exempt_count
+                    ),
+                    "held_dust_raw_hard_degraded_token_count": int(
+                        self._held_dust_raw_hard_degraded_token_count
+                    ),
                 },
             )
         escalation_signature = (
@@ -1663,6 +2071,31 @@ class ExecutionRunner:
         )
         valuation_state["valuation_hard_degraded_clear_consecutive_healthy_cycles"] = int(
             self.valuation_hard_degraded_clear_consecutive_healthy_cycles
+        )
+        valuation_state["raw_valuation_degraded"] = bool(valuation_state.get("raw_valuation_degraded", False))
+        valuation_state["raw_valuation_hard_degraded"] = bool(
+            valuation_state.get("raw_valuation_hard_degraded", False)
+        )
+        valuation_state["held_exposure_class_by_token"] = dict(self._held_exposure_class_by_token)
+        valuation_state["held_exposure_detail_by_token"] = dict(self._held_exposure_detail_by_token)
+        valuation_state["held_dust_token_ids"] = list(self._held_dust_token_ids)
+        valuation_state["held_dust_count"] = int(len(self._held_dust_token_ids))
+        valuation_state["held_dust_quarantined_token_ids"] = list(self._held_dust_quarantined_token_ids)
+        valuation_state["held_dust_quarantined_count"] = int(len(self._held_dust_quarantined_token_ids))
+        valuation_state["held_dust_total_notional_upper_bound_usd"] = float(
+            self._held_dust_total_notional_upper_bound_usd
+        )
+        valuation_state["dust_classifier_enforce_enabled"] = bool(self.dust_classifier_enforce_enabled)
+        valuation_state["held_dust_shadow_candidate_active"] = bool(self._held_dust_shadow_candidate_active)
+        valuation_state["held_dust_shadow_active"] = bool(self._held_dust_shadow_active)
+        valuation_state["held_dust_shadow_enter_pending_cycles"] = int(self._held_dust_shadow_enter_pending_cycles)
+        valuation_state["held_dust_shadow_clear_pending_cycles"] = int(self._held_dust_shadow_clear_pending_cycles)
+        valuation_state["held_dust_enforced_this_cycle"] = bool(self._held_dust_enforced_this_cycle)
+        valuation_state["held_dust_hard_degraded_exempt_count"] = int(
+            self._held_dust_effective_hard_degraded_exempt_count
+        )
+        valuation_state["held_dust_raw_hard_degraded_token_count"] = int(
+            self._held_dust_raw_hard_degraded_token_count
         )
         return valuation_state
 
@@ -3675,9 +4108,12 @@ class ExecutionRunner:
             else None
         )
         if isinstance(sec_to_expiry, (int, float)):
-            if float(sec_to_expiry) > 1e-9:
+            boundary_eps = max(0.0, float(self.expiry_boundary_epsilon_sec))
+            if float(sec_to_expiry) > (boundary_eps + 1e-9):
                 return HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE
-            return HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+            if float(sec_to_expiry) < -(boundary_eps + 1e-9):
+                return HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+            return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
         return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
 
     def _discovery_carry_forward_token_ids(self, discovered_token_ids: List[str]) -> List[str]:
@@ -3703,6 +4139,86 @@ class ExecutionRunner:
             return True
         pos = self.risk.positions.get(token_id)
         return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
+
+    def _token_lifecycle_obligation_flags(
+        self,
+        *,
+        token_id: str,
+        now_mono: Optional[float] = None,
+        sec_to_expiry: Optional[float] = None,
+        open_order_present: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        token = str(token_id or "").strip()
+        if not token:
+            return {
+                "unresolved_lifecycle_obligation": False,
+                "open_order_present": False,
+                "recent_book_not_found": False,
+                "forced_refresh_pending": False,
+                "expired_reduce_only_grace_active": False,
+                "preexpiry_reduce_only_active": False,
+                "held_unpriceable_tracking_active": False,
+                "sec_to_expiry": None,
+            }
+        now_mono_value = float(now_mono) if isinstance(now_mono, (int, float)) else float(time.monotonic())
+        open_orders_flag = bool(open_order_present) if isinstance(open_order_present, bool) else bool(
+            token in self._open_order_token_ids()
+        )
+        recent_book_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token)
+        recent_book_not_found = bool(
+            isinstance(recent_book_not_found_mono, (int, float))
+            and (
+                now_mono_value - float(recent_book_not_found_mono)
+            )
+            <= (
+                max(
+                    float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
+                    float(self.held_book_not_found_backoff_sec),
+                )
+                + 1e-9
+            )
+        )
+        forced_refresh_pending_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token)
+        forced_refresh_pending = bool(
+            isinstance(forced_refresh_pending_mono, (int, float))
+            and float(forced_refresh_pending_mono) > now_mono_value
+        )
+        sec = sec_to_expiry
+        if not isinstance(sec, (int, float)):
+            expiry_dt = self.token_expiry_dt_by_token.get(token)
+            sec = (
+                (expiry_dt - utc_now()).total_seconds()
+                if isinstance(expiry_dt, dt.datetime)
+                else None
+            )
+        expired_reduce_only_grace_active = self._held_expired_reduce_only_grace_active(
+            token_id=token,
+            sec_to_expiry=sec,
+        )
+        preexpiry_reduce_only_active = bool(
+            isinstance(sec, (int, float))
+            and float(sec) >= 0.0
+            and float(self.held_preexpiry_reduce_only_sec) > 0.0
+            and float(sec) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
+        )
+        held_unpriceable_tracking_active = bool(token in self._held_unpriceable_since_mono_by_token)
+        unresolved_lifecycle_obligation = bool(
+            held_unpriceable_tracking_active
+            or recent_book_not_found
+            or forced_refresh_pending
+            or expired_reduce_only_grace_active
+            or preexpiry_reduce_only_active
+        )
+        return {
+            "unresolved_lifecycle_obligation": bool(unresolved_lifecycle_obligation),
+            "open_order_present": bool(open_orders_flag),
+            "recent_book_not_found": bool(recent_book_not_found),
+            "forced_refresh_pending": bool(forced_refresh_pending),
+            "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
+            "preexpiry_reduce_only_active": bool(preexpiry_reduce_only_active),
+            "held_unpriceable_tracking_active": bool(held_unpriceable_tracking_active),
+            "sec_to_expiry": (float(sec) if isinstance(sec, (int, float)) else None),
+        }
 
     def _reduce_only_recovery_payload(
         self,
@@ -3815,50 +4331,9 @@ class ExecutionRunner:
             return True
         pos = self.risk.positions.get(token)
         position_flat = bool(pos is None or abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) <= 1e-9)
-        has_open_order = token in self._open_order_token_ids()
-        now_mono = time.monotonic()
-        recent_book_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token)
-        recent_book_not_found = bool(
-            isinstance(recent_book_not_found_mono, (int, float))
-            and (
-                now_mono - float(recent_book_not_found_mono)
-            )
-            <= (
-                max(
-                    float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
-                    float(self.held_book_not_found_backoff_sec),
-                )
-                + 1e-9
-            )
-        )
-        forced_refresh_pending_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token)
-        forced_refresh_pending = bool(
-            isinstance(forced_refresh_pending_mono, (int, float))
-            and float(forced_refresh_pending_mono) > now_mono
-        )
-        expiry_dt = self.token_expiry_dt_by_token.get(token)
-        sec_to_expiry = (
-            (expiry_dt - utc_now()).total_seconds()
-            if isinstance(expiry_dt, dt.datetime)
-            else None
-        )
-        expired_reduce_only_grace_active = self._held_expired_reduce_only_grace_active(
-            token_id=token,
-            sec_to_expiry=sec_to_expiry,
-        )
-        preexpiry_reduce_only_active = bool(
-            isinstance(sec_to_expiry, (int, float))
-            and float(sec_to_expiry) >= 0.0
-            and float(self.held_preexpiry_reduce_only_sec) > 0.0
-            and float(sec_to_expiry) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
-        )
-        unresolved_lifecycle_obligation = bool(
-            token in self._held_unpriceable_since_mono_by_token
-            or recent_book_not_found
-            or forced_refresh_pending
-            or expired_reduce_only_grace_active
-            or preexpiry_reduce_only_active
-        )
+        lifecycle_flags = self._token_lifecycle_obligation_flags(token_id=token)
+        has_open_order = bool(lifecycle_flags.get("open_order_present", False))
+        unresolved_lifecycle_obligation = bool(lifecycle_flags.get("unresolved_lifecycle_obligation", False))
         return bool(position_flat and (not has_open_order) and (not unresolved_lifecycle_obligation))
 
     def _handle_missing_book_not_found_tokens(
@@ -4716,7 +5191,12 @@ class ExecutionRunner:
                                     preexpiry_404_anomaly = bool(
                                         token_id in held_exposure_tokens
                                         and isinstance(sec_to_expiry, float)
-                                        and sec_to_expiry > (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
+                                        and sec_to_expiry
+                                        > (
+                                            float(self.held_preexpiry_reduce_only_sec)
+                                            + float(self.expiry_boundary_epsilon_sec)
+                                            + 1e-9
+                                        )
                                     )
                                     if preexpiry_404_anomaly:
                                         self._preexpiry_404_anomaly_count += 1
@@ -5968,6 +6448,34 @@ class ExecutionRunner:
                         "held_unpriceable_cause_by_token": dict(self._held_unpriceable_cause_by_token),
                         "held_unpriceable_cause_counts": dict(self._held_unpriceable_cause_counts),
                         "held_unpriceable_dominant_cause": str(self._held_unpriceable_dominant_cause),
+                        "held_exposure_class_by_token": dict(self._held_exposure_class_by_token),
+                        "held_exposure_detail_by_token": dict(self._held_exposure_detail_by_token),
+                        "held_dust_token_ids": list(self._held_dust_token_ids),
+                        "held_dust_count": int(len(self._held_dust_token_ids)),
+                        "held_dust_quarantined_token_ids": list(self._held_dust_quarantined_token_ids),
+                        "held_dust_quarantined_count": int(len(self._held_dust_quarantined_token_ids)),
+                        "held_dust_total_notional_upper_bound_usd": float(
+                            self._held_dust_total_notional_upper_bound_usd
+                        ),
+                        "held_dust_shadow_candidate_active": bool(self._held_dust_shadow_candidate_active),
+                        "held_dust_shadow_active": bool(self._held_dust_shadow_active),
+                        "held_dust_shadow_enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
+                        "held_dust_shadow_clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
+                        "held_dust_enforced_this_cycle": bool(self._held_dust_enforced_this_cycle),
+                        "held_dust_hard_degraded_exempt_count": int(
+                            self._held_dust_effective_hard_degraded_exempt_count
+                        ),
+                        "held_dust_raw_hard_degraded_token_count": int(
+                            self._held_dust_raw_hard_degraded_token_count
+                        ),
+                        "valuation_raw_hard_degraded": bool(
+                            self._held_dust_raw_hard_degraded_token_count > 0
+                        ),
+                        "valuation_raw_degraded": bool(
+                            self._valuation_degraded or (self._held_dust_raw_hard_degraded_token_count > 0)
+                        ),
+                        "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
+                        "runtime_expiry_boundary_epsilon_sec": float(self.expiry_boundary_epsilon_sec),
                         "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
                         "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
                         "valuation_hard_degraded_pending_healthy_cycles": int(

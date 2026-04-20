@@ -62,7 +62,7 @@ runtime:
   paper_chainlink_lag_penalty_bps_above_window: 0.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: "99556d2f3afe6c2d43e44040e87e5cbf178613d38d02c4726d2b76a6cec98ab9"
+  paper_expected_config_fingerprint_sha256: "5045145c9d1d08a85a4323477310e1e5082398faca0fddf5e089885fbfee786e"
 
 storage:
   log_dir: "./logs_exec"

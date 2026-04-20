@@ -121,6 +121,27 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg2)
 
+    def test_config_rejects_invalid_dust_classifier_bounds(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["risk"]["position_dust_notional_usd_epsilon"] = 2.0
+        cfg["risk"]["position_dust_total_notional_usd_cap"] = 1.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+        cfg2 = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg2["targets"]["token_ids"] = ["tok1"]
+        cfg2["risk"]["position_dust_shares_epsilon"] = 2.0
+        cfg2["risk"]["min_order_size"] = 1.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg2)
+
+        cfg3 = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg3["targets"]["token_ids"] = ["tok1"]
+        cfg3["runtime"]["expiry_boundary_epsilon_sec"] = 9.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg3)
+
     def test_config_rejects_invalid_token_side_metadata(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -3596,6 +3617,84 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertFalse(bool(recovered_state_clear.get("valuation_hard_degraded", False)))
                 self.assertEqual(runner._valuation_hard_degraded_clear_count, 1)  # pylint: disable=protected-access
                 self.assertEqual(runner._valuation_hard_degraded_pending_healthy_cycles, 0)  # pylint: disable=protected-access
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_apply_valuation_controls_dust_shadow_mode_emits_without_enforcing(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["position_dust_shares_epsilon"] = 0.5
+            cfg["risk"]["position_dust_notional_usd_epsilon"] = 2.0
+            cfg["risk"]["position_dust_total_notional_usd_cap"] = 5.0
+            cfg["risk"]["position_dust_token_count_cap"] = 4
+            cfg["risk"]["position_dust_max_age_sec"] = 900.0
+            cfg["risk"]["position_dust_enter_consecutive_cycles"] = 1
+            cfg["risk"]["position_dust_clear_consecutive_cycles"] = 1
+            cfg["runtime"]["dust_classifier_enforce_enabled"] = False
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=0.2)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    state = runner._apply_valuation_controls(books={}, phase="test_dust_shadow")  # pylint: disable=protected-access
+                self.assertTrue(bool(state.get("valuation_hard_degraded", False)))
+                self.assertTrue(bool(state.get("raw_valuation_hard_degraded", False)))
+                self.assertEqual(
+                    str((state.get("held_exposure_class_by_token") or {}).get("t1") or ""),
+                    "DUST_ELIGIBLE",
+                )
+                self.assertTrue(bool(state.get("held_dust_shadow_active", False)))
+                self.assertFalse(bool(state.get("held_dust_enforced_this_cycle", False)))
+                self.assertEqual(int(state.get("held_dust_hard_degraded_exempt_count") or 0), 0)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_apply_valuation_controls_dust_enforce_exempts_dust_only_hard_degraded(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["risk"]["position_dust_shares_epsilon"] = 0.5
+            cfg["risk"]["position_dust_notional_usd_epsilon"] = 2.0
+            cfg["risk"]["position_dust_total_notional_usd_cap"] = 5.0
+            cfg["risk"]["position_dust_token_count_cap"] = 4
+            cfg["risk"]["position_dust_max_age_sec"] = 900.0
+            cfg["risk"]["position_dust_enter_consecutive_cycles"] = 1
+            cfg["risk"]["position_dust_clear_consecutive_cycles"] = 1
+            cfg["runtime"]["dust_classifier_enforce_enabled"] = True
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.risk.positions["t1"] = Position(token_id="t1", net_shares=0.2)
+                with mock.patch("executor.time.monotonic", return_value=100.0):
+                    state = runner._apply_valuation_controls(books={}, phase="test_dust_enforce")  # pylint: disable=protected-access
+                self.assertFalse(bool(state.get("valuation_hard_degraded", False)))
+                self.assertTrue(bool(state.get("raw_valuation_hard_degraded", False)))
+                self.assertTrue(bool(state.get("valuation_degraded", False)))
+                self.assertTrue(bool(state.get("held_dust_shadow_active", False)))
+                self.assertTrue(bool(state.get("held_dust_enforced_this_cycle", False)))
+                self.assertEqual(int(state.get("held_dust_hard_degraded_exempt_count") or 0), 1)
+                self.assertFalse(bool(runner.risk.valuation_degraded_state().get("hard_degraded", True)))
             finally:
                 runner.events.close()
                 runner.book_client.close()

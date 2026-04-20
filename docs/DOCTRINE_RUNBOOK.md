@@ -102,6 +102,26 @@ Required observability surfaces:
   - `pnl_degraded`
   - `loss_guard_degraded`
   - `valuation_degraded_reasons`
+- Dust residual handling is explicit and two-phase (`shadow -> enforce`), not implicit:
+  - one canonical classifier emits per-token exposure class:
+    - `MEANINGFUL`
+    - `DUST_ELIGIBLE`
+    - `DUST_QUARANTINED`
+  - classifier uncertainty is fail-closed (`MEANINGFUL`)
+  - aggregate containment is bounded by:
+    - `risk.position_dust_total_notional_usd_cap`
+    - `risk.position_dust_token_count_cap`
+    - `risk.position_dust_max_age_sec`
+  - shadow posture transitions are hysteresis-bounded by:
+    - `risk.position_dust_enter_consecutive_cycles`
+    - `risk.position_dust_clear_consecutive_cycles`
+  - enforcement is opt-in and rollback-ready:
+    - `runtime.dust_classifier_enforce_enabled=false` keeps pure shadow mode
+    - enabling enforcement allows dust-only hard-degraded exemption only when:
+      - all raw hard-degraded held tokens are `DUST_ELIGIBLE`
+      - no open-order/lifecycle obligation blocks remain
+      - aggregate containment caps are not breached
+    - any uncertainty or cap breach stays fail-closed (`MEANINGFUL` behavior)
 - Held-token market-data starvation remains explicitly classified, not hidden:
   - `valuation_degraded_reasons` may include `held_book_not_found_404_age_sec=...` when a held token repeatedly returns `/book` 404.
   - held-token 404 recovery refresh is bounded and rate-limited by:
@@ -136,6 +156,17 @@ Required observability surfaces:
     - `held_unpriceable_recovered_count`
     - `preexpiry_404_anomaly_count`
     - `preexpiry_404_anomaly_active`
+  - additive dust truth surfaces are explicit:
+    - `held_exposure_class_by_token`
+    - `held_exposure_detail_by_token`
+    - `held_dust_token_ids`, `held_dust_count`
+    - `held_dust_quarantined_token_ids`, `held_dust_quarantined_count`
+    - `held_dust_total_notional_upper_bound_usd`
+    - `held_dust_shadow_candidate_active`
+    - `held_dust_shadow_active`
+    - `held_dust_enforced_this_cycle`
+    - `held_dust_hard_degraded_exempt_count`
+    - `raw_valuation_degraded`, `raw_valuation_hard_degraded`
 
 ## Execution-Quality Semantic Split (Canonical Reporting)
 - Immediate midpoint-relative fill quality is reported under:

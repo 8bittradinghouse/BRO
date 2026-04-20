@@ -153,6 +153,21 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertAlmostEqual(total_pnl, 2.0, places=9)
         self.assertAlmostEqual(float(pnl_by_token.get("t1", 0.0)), 2.0, places=9)
 
+    def test_mark_to_market_tracks_missing_mid_skip_by_exposure_class(self):
+        cfg = self._risk_cfg()
+        positions = {"t1": Position(token_id="t1", net_shares=1.0)}
+        risk = RiskEngine(cfg, positions)
+        risk.set_exposure_classification_state(exposure_class_by_token={"t1": "DUST_ELIGIBLE"})
+
+        total_pnl, pnl_by_token = risk.mark_to_market({})
+
+        self.assertAlmostEqual(total_pnl, 0.0, places=9)
+        self.assertEqual(pnl_by_token, {})
+        self.assertEqual(
+            int(risk._last_mark_to_market_skipped_nonflat_by_class.get("DUST_ELIGIBLE", 0)),  # pylint: disable=protected-access
+            1,
+        )
+
     def test_validate_order_hard_degraded_blocks_risk_increase_allows_pure_reduce(self):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
