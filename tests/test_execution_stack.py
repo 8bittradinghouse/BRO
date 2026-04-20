@@ -63,6 +63,7 @@ class ExecutionStackTests(unittest.TestCase):
         )
         self.assertAlmostEqual(float(runtime.get("held_preexpiry_reduce_only_sec") or 0.0), 90.0, places=9)
         self.assertAlmostEqual(float(runtime.get("terminal_unwind_halt_new_risk_sec") or 0.0), 60.0, places=9)
+        self.assertTrue(bool(runtime.get("require_lifecycle_context_for_decisions", False)))
         self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 45.0, places=9)
         execution_quality = dict(strategy.get("execution_quality") or {})
         self.assertAlmostEqual(
@@ -118,6 +119,30 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_preexpiry_emergency_taker_window_above_preexpiry_window(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["runtime"]["held_preexpiry_reduce_only_sec"] = 45.0
+        cfg["runtime"]["preexpiry_emergency_taker_window_sec"] = 60.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_terminal_min_notional_above_normal_order_floor(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["risk"]["reduce_only_terminal_min_notional_usd"] = 8.0
+        cfg["risk"]["min_order_size"] = 5.0
+        cfg["strategy"]["min_order_size"] = 5.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_non_boolean_require_lifecycle_context_for_decisions(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["runtime"]["require_lifecycle_context_for_decisions"] = "yes"
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_financial_posture_enters_halt_new_risk_in_terminal_unwind_window(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.risk = type("RiskStub", (), {"kill_switch": False})()
@@ -148,6 +173,40 @@ class ExecutionStackTests(unittest.TestCase):
             }
         )
         self.assertEqual(preexpiry_only, "PREEXPIRY_REDUCE_ONLY")
+
+    def test_build_submission_lifecycle_context_repairs_recovery_posture_mismatch(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.risk = type("RiskStub", (), {"kill_switch": False})()
+        runner._valuation_hard_degraded = False
+        runner._financial_posture_class = "NORMAL"
+        runner.terminal_unwind_halt_new_risk_sec = 60.0
+        runner.risk_min_order_size_shares = 1.0
+        runner.require_lifecycle_context_for_decisions = True
+        runner._lifecycle_context_mismatch_count = 0
+        runner._lifecycle_context_missing_sec_to_expiry_count = 0
+        runner.run_id = "unit-test"
+        runner.telemetry = type("TelemetryStub", (), {"incr": lambda *args, **kwargs: None})()
+        runner.events = type("EventStub", (), {"log_event": lambda *args, **kwargs: None})()
+
+        context = runner._build_submission_lifecycle_context(
+            token_id="tok1",
+            info={
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "sec_to_expiry": 45.0,
+                "reduce_only_recovery_active": True,
+                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                "reduce_only_side": "SELL",
+                "reduce_only_side_policy": "SELL_ONLY",
+                "reduce_only_size_cap_shares": 3.0,
+                "reduce_only_net_shares": 3.0,
+            },
+            submission_lane="maker",
+            stage="MAKER_TAKER_SELECTIVE",
+        )
+        self.assertEqual(str(context.get("financial_posture_class") or ""), "HALT_NEW_RISK")
+        self.assertTrue(bool(context.get("lifecycle_context_mismatch")))
+        self.assertTrue(bool(context.get("lifecycle_context_present")))
+        self.assertEqual(int(runner._lifecycle_context_mismatch_count), 1)
 
     def test_config_rejects_unbounded_recovery_relaxation_knobs(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -2114,6 +2173,95 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(str(row.get("stage") or ""), "SNIPER_PRIMARY")
             self.assertEqual(str(row.get("stage_source") or ""), "risk_context")
             self.assertIsNone(row.get("stage_unknown_reason"))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_reduce_only_terminal_notional_fallback_allows_sub_min_size_in_terminal_posture(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["min_order_size"] = 5.0
+            risk_cfg["reduce_only_terminal_min_notional_usd"] = 2.0
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1", net_shares=4.5)}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+
+            intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.50,
+                size=20.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            risk_context = {
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "HALT_NEW_RISK",
+                "sec_to_expiry": 20.0,
+                "reduce_only_recovery_active": True,
+                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                "reduce_only_side": "SELL",
+                "reduce_only_size_cap_shares": 4.0,
+                "reduce_only_size_cap_below_min_order_size": True,
+                "reduce_only_min_order_size_shares": 5.0,
+            }
+            with mock.patch.object(
+                manager,
+                "_resolve_order_size_shares_with_details",
+                return_value=(None, {"forced": True}),
+            ):
+                placed, reject_reason = manager._place_order(
+                    intent,
+                    top,
+                    open_orders_for_token=[],
+                    open_orders_total=0,
+                    risk_context=risk_context,
+                )
+            self.assertIsNotNone(placed)
+            self.assertIsNone(reject_reason)
+
+            events.close()
+            events = None
+            submit_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "order_submit":
+                        submit_rows.append(payload)
+            self.assertTrue(submit_rows)
+            size_resolution = dict(submit_rows[-1].get("size_resolution") or {})
+            self.assertTrue(bool(size_resolution.get("terminal_min_notional_floor_bypass")))
+            self.assertIn(
+                "reduce_only_terminal_notional_fallback",
+                list(size_resolution.get("size_decision_reasons") or []),
+            )
         finally:
             if events is not None:
                 events.close()
@@ -4721,6 +4869,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -4788,6 +4937,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -4854,6 +5004,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         mode_state=MODE_CAUTIOUS,
@@ -4984,6 +5135,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -5047,6 +5199,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -5110,6 +5263,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -5206,6 +5360,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
@@ -5213,6 +5368,149 @@ class ExecutionStackTests(unittest.TestCase):
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertIn("reduce_only_recovery_touch_price_unavailable", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_sniper_taker_waits_for_maker_exit_when_preexpiry_recovery_has_no_emergency_trigger(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval), mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("taker submit should be skipped until maker exit is blocked"),
+                ):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 25.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": False,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                        maker_submitted_token_ids=set(),
+                        maker_no_submission_reason_by_token={},
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("reduce_only_recovery_waiting_for_maker_exit", emitted_block_reasons)
+                self.assertEqual(int(runner._preexpiry_emergency_taker_attempt_count), 0)
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_sniper_taker_activates_preexpiry_emergency_when_maker_exit_is_blocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                submitted_sides: list[str] = []
+
+                def _fake_place_taker_order_with_outcome(**kwargs):
+                    submitted_sides.append(str(kwargs.get("side") or ""))
+                    context = kwargs.get("competitiveness_context") or {}
+                    self.assertTrue(bool(context.get("reduce_only_recovery_active")))
+                    self.assertEqual(str(context.get("reduce_only_side") or ""), "SELL")
+                    return {"submitted": True, "fills_accepted": 1, "order_id": "ord-t1"}
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=_fake_place_taker_order_with_outcome,
+                ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
+                    out = runner._run_sniper_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 20.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": False,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                        maker_submitted_token_ids=set(),
+                        maker_no_submission_reason_by_token={"t1": "risk_reject"},
+                    )
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["SELL"])
+                self.assertEqual(int(runner._preexpiry_emergency_taker_attempt_count), 1)
+                self.assertEqual(int(runner._preexpiry_emergency_taker_fill_count), 1)
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -5272,6 +5570,7 @@ class ExecutionStackTests(unittest.TestCase):
                                 "reduce_only_side": "SELL",
                                 "reduce_only_size_cap_shares": 0.68,
                                 "reduce_only_size_cap_below_min_order_size": True,
+                                "expired_reduce_only_grace_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,

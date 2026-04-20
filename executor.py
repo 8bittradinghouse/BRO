@@ -358,6 +358,14 @@ class ExecutionRunner:
             if configured_held_preexpiry_reduce_only_sec is not None
             else 90.0
         )
+        configured_preexpiry_emergency_taker_window_sec = parse_float(
+            runtime_cfg.get("preexpiry_emergency_taker_window_sec")
+        )
+        self.preexpiry_emergency_taker_window_sec = (
+            max(0.0, float(configured_preexpiry_emergency_taker_window_sec))
+            if configured_preexpiry_emergency_taker_window_sec is not None
+            else 30.0
+        )
         configured_terminal_unwind_halt_new_risk_sec = parse_float(
             runtime_cfg.get("terminal_unwind_halt_new_risk_sec")
         )
@@ -373,6 +381,9 @@ class ExecutionRunner:
             max(0.0, float(configured_expiry_boundary_epsilon_sec))
             if configured_expiry_boundary_epsilon_sec is not None
             else 1.0
+        )
+        self.require_lifecycle_context_for_decisions = bool(
+            runtime_cfg.get("require_lifecycle_context_for_decisions", True)
         )
         self.dust_classifier_enforce_enabled = bool(
             runtime_cfg.get("dust_classifier_enforce_enabled", False)
@@ -400,6 +411,12 @@ class ExecutionRunner:
         self._held_unpriceable_recovered_count: int = 0
         self._preexpiry_404_anomaly_count: int = 0
         self._preexpiry_404_anomaly_last_cycle: bool = False
+        self._lifecycle_context_mismatch_count: int = 0
+        self._lifecycle_context_missing_sec_to_expiry_count: int = 0
+        self._preexpiry_emergency_taker_attempt_count: int = 0
+        self._preexpiry_emergency_taker_fill_count: int = 0
+        self._preexpiry_emergency_taker_block_count: int = 0
+        self._preexpiry_emergency_taker_block_reasons: Dict[str, int] = {}
         self._held_exposure_class_by_token: Dict[str, str] = {}
         self._held_exposure_detail_by_token: Dict[str, Dict[str, Any]] = {}
         self._held_dust_token_ids: List[str] = []
@@ -3468,6 +3485,28 @@ class ExecutionRunner:
             return "sniper_primary_on_arrival"
         return "normal_on_arrival"
 
+    @staticmethod
+    def _maker_reduce_only_exit_blocked(reason: Optional[str]) -> bool:
+        normalized = str(reason or "").strip().lower()
+        if not normalized:
+            return False
+        if normalized.startswith("submit_rejected"):
+            return True
+        blocked_reasons = {
+            "replace_cancel_unavailable",
+            "reduce_only_recovery_size_cap_below_min_order_size",
+            "action_budget_exhausted",
+            "no_desired_quote",
+            "order_soft_throttle",
+            "risk_reject",
+            "sizing_reject",
+            "pre_submit_cross_guarded",
+            "post_only_reject",
+            "quote_quality_skip_fill_probability",
+            "quote_quality_skip_queue_depth",
+        }
+        return normalized in blocked_reasons
+
     def _on_market_key_transition(self, token_id: str, old_key: str, new_key: str) -> None:
         now = utc_now()
         now_mono = time.monotonic()
@@ -3550,6 +3589,8 @@ class ExecutionRunner:
         sniper_ramp_allowed: bool = True,
         cycle_index: Optional[int] = None,
         oracle_fresh: bool = True,
+        maker_submitted_token_ids: Optional[set[str]] = None,
+        maker_no_submission_reason_by_token: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         if not token_ids:
             return {
@@ -3567,6 +3608,12 @@ class ExecutionRunner:
         max_orders = max(0, int(self.sniper_taker_max_orders_per_cycle))
         stage_info_by_token = stage_info_by_token or {}
         lag_verified_set = {str(x) for x in (lag_verified_token_ids or [])}
+        maker_submitted_token_ids = {str(token_id) for token_id in (maker_submitted_token_ids or set())}
+        maker_no_submission_reason_by_token = {
+            str(token_id): str(reason).strip().lower()
+            for token_id, reason in dict(maker_no_submission_reason_by_token or {}).items()
+            if str(token_id).strip() and str(reason).strip()
+        }
         latency_state = (
             str(latency_snapshot.state).strip().lower()
             if isinstance(latency_snapshot, LatencySnapshot)
@@ -3616,12 +3663,39 @@ class ExecutionRunner:
             maker_allowed = bool(info.get("allow_maker", default_maker_allowed))
             taker_allowed = bool(info.get("allow_taker", default_taker_allowed))
             time_remaining_sec = info.get("sec_to_expiry")
+            sec_to_expiry = (
+                float(time_remaining_sec)
+                if isinstance(time_remaining_sec, (int, float))
+                else None
+            )
             reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
             reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
             reduce_only_side = str(info.get("reduce_only_side") or "NONE").strip().upper() or "NONE"
             reduce_only_size_cap_shares = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
             reduce_only_size_cap_below_min_order_size = bool(
                 info.get("reduce_only_size_cap_below_min_order_size", False)
+            )
+            expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
+            maker_submitted_for_token = token_id in maker_submitted_token_ids
+            maker_no_submission_reason = str(maker_no_submission_reason_by_token.get(token_id) or "")
+            maker_reduce_only_exit_blocked = bool(
+                reduce_only_recovery_active
+                and (not maker_submitted_for_token)
+                and self._maker_reduce_only_exit_blocked(maker_no_submission_reason)
+            )
+            preexpiry_emergency_window_open = bool(
+                reduce_only_recovery_active
+                and isinstance(sec_to_expiry, float)
+                and sec_to_expiry >= 0.0
+                and float(self.preexpiry_emergency_taker_window_sec) > 0.0
+                and sec_to_expiry <= (float(self.preexpiry_emergency_taker_window_sec) + 1e-9)
+            )
+            preexpiry_emergency_taker_active = bool(
+                preexpiry_emergency_window_open and maker_reduce_only_exit_blocked
+            )
+            taker_recovery_override_active = bool(
+                reduce_only_recovery_active
+                and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active)
             )
             top = books.get(token_id)
             midpoint = top.midpoint if top is not None else None
@@ -3659,11 +3733,11 @@ class ExecutionRunner:
                 block_reason = "sniper_taker_disabled"
             elif max_orders <= 0:
                 block_reason = "taker_budget_disabled"
-            elif mode_state == MODE_MAKER_ONLY and (not reduce_only_recovery_active):
+            elif mode_state == MODE_MAKER_ONLY and (not taker_recovery_override_active):
                 block_reason = "operating_mode_maker_only"
-            elif mode_state == MODE_SAFE_STOP and (not reduce_only_recovery_active):
+            elif mode_state == MODE_SAFE_STOP and (not taker_recovery_override_active):
                 block_reason = "operating_mode_safe_stop"
-            elif mode_state != MODE_NORMAL and (not reduce_only_recovery_active):
+            elif mode_state != MODE_NORMAL and (not taker_recovery_override_active):
                 block_reason = "operating_mode_non_normal"
             elif not lag_ready_for_sniper:
                 block_reason = "latency_not_armed"
@@ -3672,31 +3746,33 @@ class ExecutionRunner:
             elif (
                 self.sniper_require_lag_verification
                 and token_id not in lag_verified_set
-                and (not reduce_only_recovery_active)
+                and (not taker_recovery_override_active)
             ):
                 block_reason = "token_lag_not_verified"
             elif not taker_allowed:
                 block_reason = "stage_disallow_taker"
+            elif reduce_only_recovery_active and (not taker_recovery_override_active):
+                block_reason = "reduce_only_recovery_waiting_for_maker_exit"
             elif not oracle_fresh:
                 block_reason = "oracle_unavailable_or_stale"
             elif (
                 self.doctrine_mode == "canonical"
                 and top is not None
                 and (not self._book_source_is_ws(top))
-                and (not reduce_only_recovery_active)
+                and (not taker_recovery_override_active)
             ):
                 block_reason = "taker_requires_ws_book_source"
             elif (not validation.valid) and not (
-                reduce_only_recovery_active
+                taker_recovery_override_active
                 and str(validation.reason_code or "") in {"market_probability_missing", "fair_probability_missing"}
             ):
                 block_reason = str(validation.reason_code or "")
-            elif edge is None and (not reduce_only_recovery_active):
+            elif edge is None and (not taker_recovery_override_active):
                 block_reason = "edge_value_invalid"
-            elif (not reduce_only_recovery_active) and abs(float(edge)) < float(required_min_edge):
+            elif (not taker_recovery_override_active) and abs(float(edge)) < float(required_min_edge):
                 block_reason = "edge_below_min"
             else:
-                if reduce_only_recovery_active:
+                if taker_recovery_override_active:
                     if reduce_only_size_cap_below_min_order_size:
                         block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
                     elif reduce_only_side not in {"BUY", "SELL"}:
@@ -3719,12 +3795,16 @@ class ExecutionRunner:
                     if block_reason is None and submitted >= max_orders:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
-                        side = reduce_only_side if reduce_only_recovery_active else ("BUY" if float(edge) > 0.0 else "SELL")
+                        side = (
+                            reduce_only_side
+                            if taker_recovery_override_active
+                            else ("BUY" if float(edge) > 0.0 else "SELL")
+                        )
                         touch_price = top.best_ask_price if side == "BUY" else top.best_bid_price
                         if touch_price is None:
                             block_reason = (
                                 "reduce_only_recovery_touch_price_unavailable"
-                                if reduce_only_recovery_active
+                                if taker_recovery_override_active
                                 else "taker_price_unavailable"
                             )
                         else:
@@ -3738,7 +3818,7 @@ class ExecutionRunner:
                             confidence_score = self.latency_verifier.token_score(token_id)
                             multi_oracle_status = secondary_oracle_base_status
                             multi_oracle_confirmation = False
-                            if (not reduce_only_recovery_active) and competitiveness_enabled and bool(
+                            if (not taker_recovery_override_active) and competitiveness_enabled and bool(
                                 self.sniper_taker_competitiveness_cfg.multi_oracle_boost_enabled
                             ):
                                 secondary_fair = secondary_fair_probability_by_token.get(token_id)
@@ -3767,7 +3847,7 @@ class ExecutionRunner:
                                         multi_oracle_confirmation = bool(same_direction)
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
                             decision: Optional[SniperDecision] = None
-                            if competitiveness_enabled and (not reduce_only_recovery_active):
+                            if competitiveness_enabled and (not taker_recovery_override_active):
                                 self._refresh_sniper_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
                                     price=float(touch_price)
@@ -3887,7 +3967,7 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None and isinstance(decision.price, (int, float))
                                     else float(touch_price)
                                 )
-                                if reduce_only_recovery_active:
+                                if taker_recovery_override_active:
                                     submit_side = reduce_only_side
                                     submit_price = float(touch_price)
                                 submit_target_usd = (
@@ -3902,31 +3982,19 @@ class ExecutionRunner:
                                 )
                                 if not isinstance(competitiveness_context, dict):
                                     competitiveness_context = {}
-                                competitiveness_context["financial_posture_class"] = str(self._financial_posture_class)
-                                if reduce_only_recovery_active:
-                                    recovery_context = dict(competitiveness_context or {})
-                                    recovery_context["financial_posture_class"] = str(self._financial_posture_class)
-                                    recovery_context["reduce_only_recovery_active"] = True
-                                    recovery_context["reduce_only_recovery_reason"] = str(reduce_only_recovery_reason)
-                                    recovery_context["reduce_only_side"] = str(reduce_only_side)
-                                    recovery_context["reduce_only_side_policy"] = (
-                                        "BUY_ONLY" if reduce_only_side == "BUY" else "SELL_ONLY"
+                                competitiveness_context.update(
+                                    self._build_submission_lifecycle_context(
+                                        token_id=token_id,
+                                        info=info,
+                                        submission_lane="taker",
+                                        stage=stage,
+                                        edge_abs=(
+                                            abs(float(edge))
+                                            if isinstance(edge, (int, float))
+                                            else None
+                                        ),
                                     )
-                                    recovery_context["reduce_only_size_cap_shares"] = float(reduce_only_size_cap_shares)
-                                    recovery_context["reduce_only_size_cap_below_min_order_size"] = bool(
-                                        reduce_only_size_cap_below_min_order_size
-                                    )
-                                    recovery_context["reduce_only_min_order_size_shares"] = float(
-                                        info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares)
-                                        or 0.0
-                                    )
-                                    recovery_context["preexpiry_reduce_only_active"] = bool(
-                                        info.get("preexpiry_reduce_only_active", False)
-                                    )
-                                    recovery_context["held_preexpiry_reduce_only_sec"] = float(
-                                        info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0
-                                    )
-                                    competitiveness_context = recovery_context
+                                )
                                 attempts += 1
                                 outcome = self.manager.place_taker_order_with_outcome(
                                     token_id=token_id,
@@ -4001,15 +4069,15 @@ class ExecutionRunner:
                                             None if str(stage or "").strip() else "missing_stage_info"
                                         ),
                                         "confidence_score": float(confidence_score),
-                                        "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                                        "reduce_only_recovery_active": bool(taker_recovery_override_active),
                                         "reduce_only_recovery_reason": (
-                                            str(reduce_only_recovery_reason) if reduce_only_recovery_active else ""
+                                            str(reduce_only_recovery_reason) if taker_recovery_override_active else ""
                                         ),
                                         "reduce_only_side": (
-                                            str(reduce_only_side) if reduce_only_recovery_active else "NONE"
+                                            str(reduce_only_side) if taker_recovery_override_active else "NONE"
                                         ),
                                         "reduce_only_size_cap_shares": (
-                                            float(reduce_only_size_cap_shares) if reduce_only_recovery_active else 0.0
+                                            float(reduce_only_size_cap_shares) if taker_recovery_override_active else 0.0
                                         ),
                                     }
                                     if competitiveness_enabled and decision is not None:
@@ -4048,6 +4116,51 @@ class ExecutionRunner:
                                     taker_submit_reject_reason = (
                                         str(outcome.get("submit_reject_reason") or "").strip().lower() or None
                                     )
+
+            if preexpiry_emergency_taker_active:
+                self._preexpiry_emergency_taker_attempt_count += 1
+                emergency_outcome = "submitted"
+                emergency_outcome_reason = "submitted"
+                if was_submitted:
+                    if was_filled:
+                        self._preexpiry_emergency_taker_fill_count += 1
+                        emergency_outcome = "filled"
+                        emergency_outcome_reason = "filled"
+                    else:
+                        emergency_outcome = "submitted_no_fill"
+                        emergency_outcome_reason = "submitted_no_fill"
+                else:
+                    self._preexpiry_emergency_taker_block_count += 1
+                    emergency_block_reason = (
+                        str(taker_submit_reject_reason or block_reason or "unknown").strip().lower()
+                    )
+                    if not emergency_block_reason:
+                        emergency_block_reason = "unknown"
+                    emergency_outcome = "blocked"
+                    emergency_outcome_reason = f"blocked_{emergency_block_reason}"
+                    self._preexpiry_emergency_taker_block_reasons[emergency_block_reason] = (
+                        int(self._preexpiry_emergency_taker_block_reasons.get(emergency_block_reason, 0)) + 1
+                    )
+                self.events.log_event(
+                    "preexpiry_emergency_taker_unwind",
+                    {
+                        "ts_utc": utc_iso(),
+                        "run_id": self.run_id,
+                        "token_id": token_id,
+                        "stage": (str(stage or "").strip().upper() or "UNKNOWN"),
+                        "sec_to_expiry": sec_to_expiry,
+                        "financial_posture_class": str(self._financial_posture_class),
+                        "preexpiry_emergency_taker_window_sec": float(self.preexpiry_emergency_taker_window_sec),
+                        "maker_submitted_for_token": bool(maker_submitted_for_token),
+                        "maker_no_submission_reason": str(maker_no_submission_reason or ""),
+                        "maker_reduce_only_exit_blocked": bool(maker_reduce_only_exit_blocked),
+                        "outcome": emergency_outcome,
+                        "outcome_reason": emergency_outcome_reason,
+                        "submitted": bool(was_submitted),
+                        "filled": bool(was_filled),
+                        "taker_submit_reject_reason": str(taker_submit_reject_reason or ""),
+                    },
+                )
 
             self._emit_edge_evaluation(
                 token_id=token_id,
@@ -4159,6 +4272,150 @@ class ExecutionRunner:
             if open_order_present or (net_shares_abs + 1e-9 >= meaningful_shares_floor):
                 return True
         return False
+
+    def _token_terminal_unwind_halt_new_risk_active(self, info: Dict[str, Any]) -> bool:
+        threshold_sec = float(self.terminal_unwind_halt_new_risk_sec)
+        if threshold_sec <= 0.0:
+            return False
+        if not bool((info or {}).get("reduce_only_recovery_active", False)):
+            return False
+        sec_raw = (info or {}).get("sec_to_expiry")
+        if not isinstance(sec_raw, (int, float)):
+            return False
+        sec = float(sec_raw)
+        if sec < 0.0 or sec > (threshold_sec + 1e-9):
+            return False
+        meaningful_shares_floor = max(1e-9, float(self.risk_min_order_size_shares))
+        net_shares_abs = abs(float((info or {}).get("reduce_only_net_shares", 0.0) or 0.0))
+        open_order_present = bool((info or {}).get("reduce_only_open_order_present", False))
+        return bool(open_order_present or (net_shares_abs + 1e-9 >= meaningful_shares_floor))
+
+    def _emit_lifecycle_context_event(
+        self,
+        *,
+        event_type: str,
+        token_id: str,
+        submission_lane: str,
+        stage: str,
+        sec_to_expiry: Optional[float],
+        financial_posture_class: str,
+        reduce_only_recovery_active: bool,
+        detail: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "ts_utc": utc_iso(),
+            "run_id": self.run_id,
+            "token_id": str(token_id or ""),
+            "submission_lane": str(submission_lane or "unknown"),
+            "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+            "sec_to_expiry": (float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None),
+            "financial_posture_class": str(financial_posture_class or "UNKNOWN").strip().upper() or "UNKNOWN",
+            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "detail": str(detail or "").strip(),
+        }
+        if isinstance(extra, dict):
+            payload.update(extra)
+        self.events.log_event(event_type, payload)
+
+    def _build_submission_lifecycle_context(
+        self,
+        *,
+        token_id: str,
+        info: Dict[str, Any],
+        submission_lane: str,
+        stage: Optional[str] = None,
+        edge_abs: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        token = str(token_id or "").strip()
+        lifecycle_info = dict(info or {})
+        stage_value = str(stage or lifecycle_info.get("stage") or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
+        sec_to_expiry = (
+            float(lifecycle_info.get("sec_to_expiry"))
+            if isinstance(lifecycle_info.get("sec_to_expiry"), (int, float))
+            else None
+        )
+        reduce_only_recovery_active = bool(lifecycle_info.get("reduce_only_recovery_active", False))
+        base_posture = str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper() or FINANCIAL_POSTURE_NORMAL
+        resolved_posture = base_posture
+        if reduce_only_recovery_active and base_posture not in {
+            FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY,
+            FINANCIAL_POSTURE_HALT_NEW_RISK,
+        }:
+            resolved_posture = (
+                FINANCIAL_POSTURE_HALT_NEW_RISK
+                if self._token_terminal_unwind_halt_new_risk_active(lifecycle_info)
+                else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
+            )
+        lifecycle_context_mismatch = bool(
+            reduce_only_recovery_active
+            and base_posture == FINANCIAL_POSTURE_NORMAL
+            and resolved_posture != FINANCIAL_POSTURE_NORMAL
+        )
+        if lifecycle_context_mismatch:
+            self._lifecycle_context_mismatch_count += 1
+            self.telemetry.incr("lifecycle_context_mismatch")
+            self._emit_lifecycle_context_event(
+                event_type="lifecycle_context_mismatch",
+                token_id=token,
+                submission_lane=submission_lane,
+                stage=stage_value,
+                sec_to_expiry=sec_to_expiry,
+                financial_posture_class=resolved_posture,
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                detail="reduce_only_recovery_active_with_normal_financial_posture",
+                extra={
+                    "base_financial_posture_class": str(base_posture),
+                    "resolved_financial_posture_class": str(resolved_posture),
+                },
+            )
+        lifecycle_context_present = bool(isinstance(sec_to_expiry, float))
+        lifecycle_context_missing_reason = ""
+        if reduce_only_recovery_active and not lifecycle_context_present:
+            lifecycle_context_missing_reason = "reduce_only_recovery_missing_sec_to_expiry"
+            self._lifecycle_context_missing_sec_to_expiry_count += 1
+            self.telemetry.incr("lifecycle_context_missing_sec_to_expiry")
+            self._emit_lifecycle_context_event(
+                event_type="lifecycle_context_missing",
+                token_id=token,
+                submission_lane=submission_lane,
+                stage=stage_value,
+                sec_to_expiry=None,
+                financial_posture_class=resolved_posture,
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                detail=lifecycle_context_missing_reason,
+                extra={
+                    "require_lifecycle_context_for_decisions": bool(self.require_lifecycle_context_for_decisions),
+                },
+            )
+        context: Dict[str, Any] = {
+            "submission_lane": str(submission_lane or "unknown"),
+            "stage": stage_value,
+            "financial_posture_class": str(resolved_posture),
+            "sec_to_expiry": sec_to_expiry,
+            "lifecycle_context_present": bool(lifecycle_context_present),
+            "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
+            "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
+            "require_lifecycle_context_for_decisions": bool(self.require_lifecycle_context_for_decisions),
+            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "reduce_only_recovery_reason": str(lifecycle_info.get("reduce_only_recovery_reason") or ""),
+            "reduce_only_side": str(lifecycle_info.get("reduce_only_side") or "NONE"),
+            "reduce_only_side_policy": str(lifecycle_info.get("reduce_only_side_policy") or "NONE"),
+            "reduce_only_size_cap_shares": float(lifecycle_info.get("reduce_only_size_cap_shares", 0.0) or 0.0),
+            "reduce_only_size_cap_below_min_order_size": bool(
+                lifecycle_info.get("reduce_only_size_cap_below_min_order_size", False)
+            ),
+            "reduce_only_min_order_size_shares": float(
+                lifecycle_info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares) or 0.0
+            ),
+            "reduce_only_net_shares": float(lifecycle_info.get("reduce_only_net_shares", 0.0) or 0.0),
+            "reduce_only_open_order_present": bool(lifecycle_info.get("reduce_only_open_order_present", False)),
+            "preexpiry_reduce_only_active": bool(lifecycle_info.get("preexpiry_reduce_only_active", False)),
+            "held_preexpiry_reduce_only_sec": float(lifecycle_info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0),
+        }
+        if isinstance(edge_abs, (int, float)):
+            context["edge_abs"] = float(edge_abs)
+        return context
 
     def _held_unpriceable_cause_class(
         self,
@@ -5852,32 +6109,17 @@ class ExecutionRunner:
                         maker_requote_delta_by_token[token_id] = float(profile["requote_delta_applied"])
                         side_policy = str(profile["side_policy"])
                         context_payload = dict(profile["context"])
-                        context_payload["financial_posture_class"] = str(self._financial_posture_class)
-                        reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
-                        reduce_only_side_policy = str(info.get("reduce_only_side_policy") or "NONE").upper()
-                        reduce_only_side = str(info.get("reduce_only_side") or "NONE").upper()
-                        reduce_only_size_cap = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
+                        context_payload.update(
+                            self._build_submission_lifecycle_context(
+                                token_id=token_id,
+                                info=info,
+                                submission_lane="maker",
+                                stage=stage,
+                            )
+                        )
+                        reduce_only_recovery_active = bool(context_payload.get("reduce_only_recovery_active", False))
+                        reduce_only_side_policy = str(context_payload.get("reduce_only_side_policy") or "NONE").upper()
                         if reduce_only_recovery_active:
-                            context_payload["reduce_only_recovery_active"] = True
-                            context_payload["reduce_only_recovery_reason"] = str(
-                                info.get("reduce_only_recovery_reason") or ""
-                            )
-                            context_payload["reduce_only_side"] = reduce_only_side
-                            context_payload["reduce_only_side_policy"] = reduce_only_side_policy
-                            context_payload["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
-                            context_payload["reduce_only_size_cap_below_min_order_size"] = bool(
-                                info.get("reduce_only_size_cap_below_min_order_size", False)
-                            )
-                            context_payload["reduce_only_min_order_size_shares"] = float(
-                                info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares) or 0.0
-                            )
-                            context_payload["reduce_only_net_shares"] = float(info.get("reduce_only_net_shares", 0.0) or 0.0)
-                            context_payload["held_preexpiry_reduce_only_sec"] = float(
-                                info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0
-                            )
-                            context_payload["preexpiry_reduce_only_active"] = bool(
-                                info.get("preexpiry_reduce_only_active", False)
-                            )
                             if reduce_only_side_policy in {"SELL_ONLY", "BUY_ONLY", "NONE"}:
                                 side_policy = reduce_only_side_policy
                         maker_side_policy_by_token[token_id] = side_policy
@@ -5986,10 +6228,12 @@ class ExecutionRunner:
                             latency_snapshot=latency_snapshot,
                             mode_state=mode_state,
                             lag_ready_for_sniper=lag_ready_for_sniper,
-                                lag_verified_token_ids=lag_verified_token_ids,
-                                sniper_ramp_allowed=self._sniper_ramp_allowed,
-                                cycle_index=int(self._doctrine_cycle_index),
-                            )
+                            lag_verified_token_ids=lag_verified_token_ids,
+                            sniper_ramp_allowed=self._sniper_ramp_allowed,
+                            cycle_index=int(self._doctrine_cycle_index),
+                            maker_submitted_token_ids=maker_submitted_token_ids,
+                            maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
+                        )
                     valuation_state = self._apply_valuation_controls(books=valuation_books, phase="post_submit")
                     mids = dict(valuation_state.get("mid_by_token", {}))
                     total_pnl, pnl_by_token = self.risk.mark_to_market(mids)
@@ -6111,6 +6355,8 @@ class ExecutionRunner:
                                 lag_verified_token_ids=lag_verified_token_ids,
                                 sniper_ramp_allowed=self._sniper_ramp_allowed,
                                 cycle_index=int(self._doctrine_cycle_index),
+                                maker_submitted_token_ids=maker_submitted_token_ids,
+                                maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
                             )
                             if taker_summary["attempts"] > 0:
                                 self.telemetry.incr("sniper_taker_attempts", taker_summary["attempts"])
@@ -6568,7 +6814,29 @@ class ExecutionRunner:
                         "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
                         "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
                         "preexpiry_404_anomaly_active": bool(self._preexpiry_404_anomaly_last_cycle),
+                        "lifecycle_context_mismatch_count": int(self._lifecycle_context_mismatch_count),
+                        "lifecycle_context_missing_sec_to_expiry_count": int(
+                            self._lifecycle_context_missing_sec_to_expiry_count
+                        ),
+                        "preexpiry_emergency_taker_attempt_count": int(
+                            self._preexpiry_emergency_taker_attempt_count
+                        ),
+                        "preexpiry_emergency_taker_fill_count": int(
+                            self._preexpiry_emergency_taker_fill_count
+                        ),
+                        "preexpiry_emergency_taker_block_count": int(
+                            self._preexpiry_emergency_taker_block_count
+                        ),
+                        "preexpiry_emergency_taker_block_reasons": dict(
+                            self._preexpiry_emergency_taker_block_reasons
+                        ),
                         "financial_posture_class": str(self._financial_posture_class),
+                        "runtime_require_lifecycle_context_for_decisions": bool(
+                            self.require_lifecycle_context_for_decisions
+                        ),
+                        "runtime_preexpiry_emergency_taker_window_sec": float(
+                            self.preexpiry_emergency_taker_window_sec
+                        ),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),

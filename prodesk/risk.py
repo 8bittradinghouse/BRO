@@ -494,7 +494,39 @@ class RiskEngine:
         )
         financial_posture_class = str(context.get("financial_posture_class") or "UNKNOWN").strip().upper()
         reduce_only_recovery_active = bool(context.get("reduce_only_recovery_active", False))
+        require_lifecycle_context_for_decisions = bool(
+            context.get("require_lifecycle_context_for_decisions", False)
+        )
+        sec_to_expiry = self._safe_float(context.get("sec_to_expiry"))
+        lifecycle_context_present = bool(sec_to_expiry is not None)
+        lifecycle_context_missing_reason = str(context.get("lifecycle_context_missing_reason") or "").strip()
+        lifecycle_context_mismatch = bool(context.get("lifecycle_context_mismatch", False))
+        if reduce_only_recovery_active and financial_posture_class == "NORMAL":
+            lifecycle_context_mismatch = True
+            if not lifecycle_context_missing_reason:
+                lifecycle_context_missing_reason = "reduce_only_recovery_active_with_normal_financial_posture"
         reduce_only_recovery_priority = bool(reduce_only_recovery_active and pure_risk_reducing_intent)
+        if lifecycle_context_mismatch and (not pure_risk_reducing_intent):
+            return RiskDecision(
+                False,
+                "lifecycle_context_posture_mismatch_blocked",
+                (
+                    "risk-increasing intent blocked because "
+                    "reduce_only_recovery_active is incompatible with NORMAL posture"
+                ),
+                basis={
+                    "risk_authority": "lifecycle_context",
+                    "financial_posture_class": str(financial_posture_class),
+                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                    "sec_to_expiry": sec_to_expiry,
+                    "lifecycle_context_present": bool(lifecycle_context_present),
+                    "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
+                    "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
+                    "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
+                },
+            )
         if financial_posture_class == "HALT_NEW_RISK" and (not pure_risk_reducing_intent):
             return RiskDecision(
                 False,
@@ -509,8 +541,12 @@ class RiskEngine:
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
                     "reduce_only_recovery_active": bool(reduce_only_recovery_active),
                     "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
-                    "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
+                    "sec_to_expiry": sec_to_expiry,
                     "terminal_unwind_halt_new_risk_active": True,
+                    "lifecycle_context_present": bool(lifecycle_context_present),
+                    "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
+                    "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
+                    "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
                 },
             )
         order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
@@ -562,7 +598,24 @@ class RiskEngine:
                     basis={"risk_authority": "open_orders_global_cap"},
                 )
 
-        if intent.size < float(self.cfg["min_order_size"]):
+        min_order_size = float(self.cfg["min_order_size"])
+        reduce_only_terminal_min_notional_usd = float(
+            self.cfg.get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
+        )
+        terminal_reduce_only_posture = financial_posture_class in {
+            "PREEXPIRY_REDUCE_ONLY",
+            "HARD_DEGRADED_REDUCE_ONLY",
+            "HALT_NEW_RISK",
+        }
+        terminal_reduce_only_notional_exemption = bool(
+            reduce_only_recovery_priority
+            and terminal_reduce_only_posture
+            and float(intent.size) + 1e-9 < min_order_size
+            and reduce_only_terminal_min_notional_usd > 0.0
+            and float(intent.price) > 0.0
+            and (float(intent.size) * float(intent.price) + 1e-9) >= reduce_only_terminal_min_notional_usd
+        )
+        if float(intent.size) < min_order_size and (not terminal_reduce_only_notional_exemption):
             return RiskDecision(False, "size_too_small", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
         if intent.size > float(self.cfg["max_order_size"]):
             return RiskDecision(False, "size_too_large", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
@@ -594,7 +647,7 @@ class RiskEngine:
             "submission_lane": str(context.get("submission_lane") or "unknown"),
             "stage": str(context.get("stage") or "unknown"),
             "financial_posture_class": str(context.get("financial_posture_class") or "UNKNOWN"),
-            "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
+            "sec_to_expiry": sec_to_expiry,
             "min_sec_to_expiry_for_new_exposure": self._safe_float(
                 self.cfg.get("min_sec_to_expiry_for_new_exposure")
             ),
@@ -605,6 +658,12 @@ class RiskEngine:
             "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
             "reduce_only_recovery_active": bool(reduce_only_recovery_active),
             "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+            "lifecycle_context_present": bool(lifecycle_context_present),
+            "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
+            "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
+            "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
+            "reduce_only_terminal_min_notional_usd": float(reduce_only_terminal_min_notional_usd),
+            "terminal_reduce_only_notional_exemption": bool(terminal_reduce_only_notional_exemption),
             "effective_caps": {
                 "max_abs_position_shares_base": float(max_abs_position_base),
                 "max_abs_position_shares_effective": float(max_abs_position_effective),
@@ -624,7 +683,17 @@ class RiskEngine:
         }
 
         min_sec_to_expiry_for_new_exposure = float(self.cfg.get("min_sec_to_expiry_for_new_exposure", 0.0) or 0.0)
-        sec_to_expiry = self._safe_float(context.get("sec_to_expiry"))
+        if require_lifecycle_context_for_decisions and (not pure_risk_reducing_intent) and sec_to_expiry is None:
+            return RiskDecision(
+                False,
+                "new_exposure_sec_to_expiry_unknown_blocked",
+                "risk-increasing intent requires sec_to_expiry lifecycle context",
+                basis={
+                    **basis_base,
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                    "sec_to_expiry": None,
+                },
+            )
         if min_sec_to_expiry_for_new_exposure > 0.0 and (not pure_risk_reducing_intent):
             if sec_to_expiry is None:
                 return RiskDecision(

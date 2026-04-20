@@ -50,8 +50,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
         "held_preexpiry_reduce_only_sec": 90.0,
+        "preexpiry_emergency_taker_window_sec": 30.0,
         "terminal_unwind_halt_new_risk_sec": 60.0,
         "expiry_boundary_epsilon_sec": 1.0,
+        "require_lifecycle_context_for_decisions": True,
         "dust_classifier_enforce_enabled": False,
         "valuation_hard_degraded_clear_consecutive_healthy_cycles": 2,
         "held_unpriceable_operator_action_min_emit_interval_sec": 60.0,
@@ -363,6 +365,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_cancels_per_min": 220,
         "max_book_age_sec": 6.0,
         "min_sec_to_expiry_for_new_exposure": 45.0,
+        "reduce_only_terminal_min_notional_usd": 2.0,
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
         "held_unpriceable_escalation_sec": 120.0,
@@ -788,10 +791,17 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         allow_zero=True,
     )
     _require_positive(
+        "runtime.preexpiry_emergency_taker_window_sec",
+        cfg["runtime"].get("preexpiry_emergency_taker_window_sec", 0.0),
+        allow_zero=True,
+    )
+    _require_positive(
         "runtime.expiry_boundary_epsilon_sec",
         cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0),
         allow_zero=True,
     )
+    if not isinstance(cfg["runtime"].get("require_lifecycle_context_for_decisions", True), bool):
+        raise ValueError("runtime.require_lifecycle_context_for_decisions must be a boolean")
     if not isinstance(cfg["runtime"].get("dust_classifier_enforce_enabled", False), bool):
         raise ValueError("runtime.dust_classifier_enforce_enabled must be a boolean")
     _require_positive(
@@ -1326,6 +1336,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["risk"]["min_sec_to_expiry_for_new_exposure"],
         allow_zero=True,
     )
+    _require_positive(
+        "risk.reduce_only_terminal_min_notional_usd",
+        cfg["risk"].get("reduce_only_terminal_min_notional_usd", 0.0),
+        allow_zero=True,
+    )
     _require_positive("risk.one_sided_quote_max_age_sec", cfg["risk"]["one_sided_quote_max_age_sec"], allow_zero=True)
     _require_positive("risk.last_known_mid_max_age_sec", cfg["risk"]["last_known_mid_max_age_sec"], allow_zero=True)
     _require_positive("risk.held_unpriceable_escalation_sec", cfg["risk"]["held_unpriceable_escalation_sec"], allow_zero=True)
@@ -1362,6 +1377,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
     held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
+    preexpiry_emergency_taker_window_sec = float(
+        cfg["runtime"].get("preexpiry_emergency_taker_window_sec", 0.0) or 0.0
+    )
     terminal_unwind_halt_new_risk_sec = float(
         cfg["runtime"].get("terminal_unwind_halt_new_risk_sec", 0.0) or 0.0
     )
@@ -1378,6 +1396,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     max_orders_per_min = int(float(cfg["risk"].get("max_orders_per_min", 0.0) or 0.0))
     risk_min_order_size = float(cfg["risk"].get("min_order_size", 0.0) or 0.0)
     strategy_min_order_size = float(cfg["strategy"].get("min_order_size", 0.0) or 0.0)
+    reduce_only_terminal_min_notional_usd = float(
+        cfg["risk"].get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
+    )
     if runtime_expiry_boundary_epsilon_sec > 5.0:
         raise ValueError("runtime.expiry_boundary_epsilon_sec must be <= 5.0")
     if dust_token_count_cap < 1:
@@ -1413,6 +1434,25 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     ):
         raise ValueError(
             "runtime.terminal_unwind_halt_new_risk_sec must be <= runtime.held_preexpiry_reduce_only_sec"
+        )
+    if (
+        preexpiry_emergency_taker_window_sec > 0.0
+        and held_preexpiry_reduce_only_sec > 0.0
+        and preexpiry_emergency_taker_window_sec - 1e-9 > held_preexpiry_reduce_only_sec
+    ):
+        raise ValueError(
+            "runtime.preexpiry_emergency_taker_window_sec must be <= runtime.held_preexpiry_reduce_only_sec"
+        )
+    # Polymarket binary contracts are bounded to [0, 1] USDC per share, so the
+    # normal share floor is a conservative proxy upper-bound for minimum notional.
+    normal_min_order_floor_usd_proxy = max(float(risk_min_order_size), float(strategy_min_order_size))
+    if (
+        reduce_only_terminal_min_notional_usd > 0.0
+        and normal_min_order_floor_usd_proxy > 0.0
+        and reduce_only_terminal_min_notional_usd - 1e-9 > normal_min_order_floor_usd_proxy
+    ):
+        raise ValueError(
+            "risk.reduce_only_terminal_min_notional_usd must be <= normal minimum order-size floor"
         )
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):

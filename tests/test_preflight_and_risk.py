@@ -312,6 +312,54 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "new_exposure_expiry_gate_blocked")
 
+    def test_validate_order_requires_sec_to_expiry_when_lifecycle_context_enforced(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_sec_to_expiry_for_new_exposure"] = 0.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "NORMAL",
+                "require_lifecycle_context_for_decisions": True,
+            },
+        )
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "new_exposure_sec_to_expiry_unknown_blocked")
+        self.assertIsInstance(blocked.basis, dict)
+        self.assertTrue(bool(blocked.basis.get("require_lifecycle_context_for_decisions")))
+
+        allowed_when_disabled = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "NORMAL",
+                "require_lifecycle_context_for_decisions": False,
+            },
+        )
+        self.assertTrue(allowed_when_disabled.allowed)
+
     def test_validate_order_halt_new_risk_blocks_increase_and_allows_pure_reduce(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
@@ -372,6 +420,72 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "terminal_unwind_halt_new_risk_blocked")
+
+    def test_validate_order_allows_terminal_reduce_only_notional_exemption_only_in_terminal_posture(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_order_size"] = 5.0
+        cfg["reduce_only_terminal_min_notional_usd"] = 2.0
+        positions = {"t1": Position(token_id="t1", net_shares=4.5)}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        allowed_terminal_reduce = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=4.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "HALT_NEW_RISK",
+                "sec_to_expiry": 20.0,
+                "reduce_only_recovery_active": True,
+            },
+        )
+        self.assertTrue(allowed_terminal_reduce.allowed)
+        self.assertTrue(bool((allowed_terminal_reduce.basis or {}).get("terminal_reduce_only_notional_exemption")))
+
+        blocked_non_terminal = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=4.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "NORMAL",
+                "sec_to_expiry": 20.0,
+                "reduce_only_recovery_active": True,
+            },
+        )
+        self.assertFalse(blocked_non_terminal.allowed)
+        self.assertEqual(blocked_non_terminal.reason, "size_too_small")
+
+        blocked_risk_increase = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=4.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "HALT_NEW_RISK",
+                "sec_to_expiry": 20.0,
+                "reduce_only_recovery_active": True,
+            },
+        )
+        self.assertFalse(blocked_risk_increase.allowed)
+        self.assertEqual(blocked_risk_increase.reason, "terminal_unwind_halt_new_risk_blocked")
 
     def test_validate_order_reserves_hard_rate_capacity_for_reduce_only_recovery(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]

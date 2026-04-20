@@ -483,6 +483,15 @@ class OrderManager:
         reduce_only_size_cap_below_min_order_size = bool(
             risk_context_payload.get("reduce_only_size_cap_below_min_order_size", False)
         )
+        financial_posture_class = str(risk_context_payload.get("financial_posture_class") or "UNKNOWN").strip().upper()
+        terminal_reduce_only_posture = financial_posture_class in {
+            "PREEXPIRY_REDUCE_ONLY",
+            "HARD_DEGRADED_REDUCE_ONLY",
+            "HALT_NEW_RISK",
+        }
+        reduce_only_terminal_min_notional_usd = float(
+            self.risk.cfg.get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
+        )
         reduce_only_min_order_size_raw = risk_context_payload.get("reduce_only_min_order_size_shares")
         reduce_only_min_order_size_shares = parse_float(reduce_only_min_order_size_raw)
         reduce_only_size_for_priority = float(intent.size)
@@ -497,6 +506,15 @@ class OrderManager:
                 side=str(intent.side or ""),
                 size=float(reduce_only_size_for_priority),
             )
+        )
+        reduce_only_terminal_notional_exemption_eligible = bool(
+            reduce_only_recovery_priority
+            and terminal_reduce_only_posture
+            and isinstance(reduce_only_size_cap, (int, float))
+            and float(reduce_only_size_cap) > 0.0
+            and float(intent.price) > 0.0
+            and reduce_only_terminal_min_notional_usd > 0.0
+            and (float(reduce_only_size_cap) * float(intent.price) + 1e-9) >= reduce_only_terminal_min_notional_usd
         )
         order_capacity = self.risk.order_capacity_state(self.order_rate_soft_limit_pct)
         soft_remaining_for_intent = int(
@@ -603,11 +621,9 @@ class OrderManager:
         )
         if (
             resolved_size is None
-            and lane == "maker"
             and reduce_only_recovery_active
             and isinstance(reduce_only_size_cap, (int, float))
             and float(reduce_only_size_cap) > 0.0
-            and (not reduce_only_size_cap_below_min_order_size)
         ):
             fallback_size = min(
                 float(reduce_only_size_cap),
@@ -619,9 +635,20 @@ class OrderManager:
                 if isinstance(reduce_only_min_order_size_shares, (int, float))
                 else 0.0
             )
+            terminal_min_notional_floor_bypass = bool(
+                reduce_only_size_cap_below_min_order_size and reduce_only_terminal_notional_exemption_eligible
+            )
             if (
                 fallback_size > 1e-9
-                and (min_size_floor <= 0.0 or fallback_size + 1e-9 >= min_size_floor)
+                and (
+                    (not reduce_only_size_cap_below_min_order_size)
+                    or terminal_min_notional_floor_bypass
+                )
+                and (
+                    min_size_floor <= 0.0
+                    or fallback_size + 1e-9 >= min_size_floor
+                    or terminal_min_notional_floor_bypass
+                )
             ):
                 resolved_size = float(fallback_size)
                 if not isinstance(size_resolution, dict):
@@ -629,11 +656,18 @@ class OrderManager:
                 resolution_reasons = size_resolution.get("size_decision_reasons")
                 if not isinstance(resolution_reasons, list):
                     resolution_reasons = []
-                resolution_reasons.append("reduce_only_recovery_size_cap_fallback")
+                if terminal_min_notional_floor_bypass:
+                    resolution_reasons.append("reduce_only_terminal_notional_fallback")
+                else:
+                    resolution_reasons.append("reduce_only_recovery_size_cap_fallback")
                 size_resolution["size_decision_reasons"] = resolution_reasons
                 size_resolution["reduce_only_recovery_active"] = True
                 size_resolution["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
                 size_resolution["resolved_shares"] = float(resolved_size)
+                size_resolution["financial_posture_class"] = str(financial_posture_class or "UNKNOWN")
+                size_resolution["terminal_reduce_only_posture"] = bool(terminal_reduce_only_posture)
+                size_resolution["reduce_only_terminal_min_notional_usd"] = float(reduce_only_terminal_min_notional_usd)
+                size_resolution["terminal_min_notional_floor_bypass"] = bool(terminal_min_notional_floor_bypass)
                 fallback_price = self._sizing_price(top, intent.side)
                 size_resolution["resolved_notional_usd"] = (
                     float(resolved_size) * float(fallback_price)
