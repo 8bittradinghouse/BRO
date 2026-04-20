@@ -3896,6 +3896,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.risk.positions["t_post"] = Position(token_id="t_post", net_shares=-0.72)
                 with mock.patch("executor.time.monotonic", return_value=100.0):
                     runner._held_book_not_found_last_mono_by_token["t_post"] = 95.0  # pylint: disable=protected-access
+                    runner._held_book_not_found_force_refresh_next_mono_by_token["t_post"] = 130.0  # pylint: disable=protected-access
                     state = runner._build_valuation_state(books={})  # pylint: disable=protected-access
                 self.assertEqual(
                     str((state.get("held_exposure_class_by_token") or {}).get("t_post") or ""),

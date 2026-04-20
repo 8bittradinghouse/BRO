@@ -1394,7 +1394,10 @@ class ExecutionRunner:
                     bool(lifecycle_flags.get("recent_book_not_found", False))
                     and (not bool(postexpiry_retired_recent_404))
                 )
-                or lifecycle_flags.get("forced_refresh_pending", False)
+                or (
+                    bool(lifecycle_flags.get("forced_refresh_pending", False))
+                    and (not bool(postexpiry_retired_recent_404))
+                )
                 or lifecycle_flags.get("expired_reduce_only_grace_active", False)
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
@@ -1451,7 +1454,10 @@ class ExecutionRunner:
                     bool(lifecycle_flags.get("recent_book_not_found", False))
                     and (not bool(postexpiry_retired_recent_404))
                 )
-                or lifecycle_flags.get("forced_refresh_pending", False)
+                or (
+                    bool(lifecycle_flags.get("forced_refresh_pending", False))
+                    and (not bool(postexpiry_retired_recent_404))
+                )
                 or lifecycle_flags.get("expired_reduce_only_grace_active", False)
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
