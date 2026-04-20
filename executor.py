@@ -3071,14 +3071,21 @@ class ExecutionRunner:
         books: Dict[str, Any],
         maker_eligible_tokens: set[str],
         maker_prereq_failure_by_token: Dict[str, str],
+        maker_reduce_only_recovery_tokens: Optional[set[str]] = None,
     ) -> set[str]:
         gated_tokens: set[str] = set()
+        recovery_tokens = set(str(token_id) for token_id in (maker_reduce_only_recovery_tokens or set()))
         for token_id in maker_eligible_tokens:
             top = books.get(token_id)
             if top is None:
                 gated_tokens.add(token_id)
                 continue
             if not cls._book_source_is_ws(top):
+                if token_id in recovery_tokens:
+                    # Recovery-only lane may rely on REST fallback when WS quote shape
+                    # is unusable for held-token unwind. Keep normal-mode WS doctrine intact.
+                    gated_tokens.add(token_id)
+                    continue
                 maker_prereq_failure_by_token.setdefault(token_id, "maker_requires_ws_book_source")
                 continue
             gated_tokens.add(token_id)
@@ -3631,7 +3638,12 @@ class ExecutionRunner:
                 block_reason = "stage_disallow_taker"
             elif not oracle_fresh:
                 block_reason = "oracle_unavailable_or_stale"
-            elif self.doctrine_mode == "canonical" and top is not None and (not self._book_source_is_ws(top)):
+            elif (
+                self.doctrine_mode == "canonical"
+                and top is not None
+                and (not self._book_source_is_ws(top))
+                and (not reduce_only_recovery_active)
+            ):
                 block_reason = "taker_requires_ws_book_source"
             elif (not validation.valid) and not (
                 reduce_only_recovery_active
@@ -5646,6 +5658,7 @@ class ExecutionRunner:
                 maker_eligible_tokens = set(maker_stage_tokens)
                 if self.doctrine_mode == "canonical":
                     maker_eligible_tokens = set()
+                    maker_reduce_only_recovery_tokens: set[str] = set()
                     for token_id in maker_stage_tokens:
                         info = stage_info_by_token.get(token_id, {})
                         timing_gate_open = bool(maker_timing_gate_open_by_token.get(token_id, False))
@@ -5669,10 +5682,13 @@ class ExecutionRunner:
                             maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
                         maker_eligible_tokens.add(token_id)
+                        if reduce_only_recovery_active:
+                            maker_reduce_only_recovery_tokens.add(str(token_id))
                     maker_eligible_tokens = self._apply_canonical_maker_ws_source_gate(
                         books=books,
                         maker_eligible_tokens=maker_eligible_tokens,
                         maker_prereq_failure_by_token=maker_prereq_failure_by_token,
+                        maker_reduce_only_recovery_tokens=maker_reduce_only_recovery_tokens,
                     )
                 self.telemetry.set_gauge("doctrine_maker_eligible_token_count", float(len(maker_eligible_tokens)))
                 self.telemetry.set_gauge(

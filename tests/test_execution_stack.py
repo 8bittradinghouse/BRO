@@ -142,6 +142,14 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg3)
 
+    def test_config_rejects_order_rate_recovery_reserve_at_or_above_order_rate_limit(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["risk"]["max_orders_per_min"] = 10
+        cfg["risk"]["order_rate_recovery_reserved_slots"] = 10
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_config_rejects_invalid_token_side_metadata(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -1704,6 +1712,95 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(int(basis.get("orders_limit_60s") or 0), 1)
             self.assertEqual(int(basis.get("orders_soft_limit_60s") or 0), 1)
             self.assertEqual(int(basis.get("orders_soft_effective_used_60s") or 0), 1)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_soft_throttle_bypass_for_reduce_only_recovery_priority(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            runtime_cfg["order_rate_soft_limit_pct"] = 0.5
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["max_orders_per_min"] = 2
+            risk_cfg["order_rate_recovery_reserved_slots"] = 1
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1", net_shares=1.0)}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.45,
+                best_bid_size=100,
+                best_ask_price=0.55,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+
+            recovery_intent = OrderIntent(
+                token_id="t1",
+                side="SELL",
+                price=0.56,
+                size=25.0,
+                tif="GTC",
+                post_only=True,
+                reason="reduce_only_recovery",
+                stage="MAKER_TAKER_SELECTIVE",
+            )
+            recovery_context = {
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "reduce_only_recovery_active": True,
+                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                "reduce_only_size_cap_shares": 1.0,
+            }
+
+            first, first_reason = manager._place_order(
+                recovery_intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context=recovery_context,
+            )
+            self.assertIsNotNone(first)
+            self.assertIn(first_reason, (None, ""))
+
+            placed_recovery, recovery_reason = manager._place_order(
+                recovery_intent,
+                top,
+                open_orders_for_token=[],
+                open_orders_total=0,
+                risk_context=recovery_context,
+            )
+            self.assertIsNotNone(placed_recovery)
+            self.assertIn(recovery_reason, (None, ""))
+            self.assertGreaterEqual(telemetry.counters.get("order_soft_throttle_bypass_reduce_only_recovery", 0), 1)
+
+            events.close()
+            events = None
+            bypass_rows: list[dict] = []
+            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    payload = json.loads(line)
+                    if str(payload.get("event_type") or "") == "order_soft_throttle_bypass":
+                        bypass_rows.append(payload)
+            self.assertTrue(bypass_rows)
+            row = bypass_rows[-1]
+            self.assertEqual(str(row.get("bypass_reason") or ""), "reduce_only_recovery_priority")
         finally:
             if events is not None:
                 events.close()
@@ -4853,6 +4950,101 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.discovery.close()
                 runner.chainlink.stop()
                 runner.alerts.close()
+
+    def test_runner_sniper_taker_allows_recovery_submit_with_rest_book_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["sniper"]["taker"]["enabled"] = True
+            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="rest",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                submitted_sides: list[str] = []
+
+                def _fake_place_taker_order_with_outcome(**kwargs):
+                    submitted_sides.append(str(kwargs.get("side") or ""))
+                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t1"}
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=_fake_place_taker_order_with_outcome,
+                ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
+                    out = runner._run_sniper_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={},
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                    )
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["SELL"])
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_canonical_maker_ws_source_gate_allows_rest_only_for_recovery_tokens(self):
+        top_rest = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="rest",
+            best_bid_price=0.49,
+            best_bid_size=100.0,
+            best_ask_price=0.51,
+            best_ask_size=100.0,
+        )
+        books = {"t1": top_rest}
+
+        prereq_failures_recovery: dict[str, str] = {}
+        gated_recovery = ExecutionRunner._apply_canonical_maker_ws_source_gate(
+            books=books,
+            maker_eligible_tokens={"t1"},
+            maker_prereq_failure_by_token=prereq_failures_recovery,
+            maker_reduce_only_recovery_tokens={"t1"},
+        )
+        self.assertIn("t1", gated_recovery)
+        self.assertNotIn("t1", prereq_failures_recovery)
+
+        prereq_failures_normal: dict[str, str] = {}
+        gated_normal = ExecutionRunner._apply_canonical_maker_ws_source_gate(
+            books=books,
+            maker_eligible_tokens={"t1"},
+            maker_prereq_failure_by_token=prereq_failures_normal,
+            maker_reduce_only_recovery_tokens=set(),
+        )
+        self.assertNotIn("t1", gated_normal)
+        self.assertEqual(prereq_failures_normal.get("t1"), "maker_requires_ws_book_source")
 
     def test_runner_sniper_taker_blocks_when_reduce_only_touch_price_is_missing(self):
         with tempfile.TemporaryDirectory() as td:

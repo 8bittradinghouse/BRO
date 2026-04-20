@@ -312,6 +312,55 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "new_exposure_expiry_gate_blocked")
 
+    def test_validate_order_reserves_hard_rate_capacity_for_reduce_only_recovery(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["max_orders_per_min"] = 3
+        cfg["order_rate_recovery_reserved_slots"] = 1
+        positions = {"t1": Position(token_id="t1", net_shares=2.0)}
+        risk = RiskEngine(cfg, positions)
+        now = risk._monotonic()  # pylint: disable=protected-access
+        risk.order_timestamps.append(now)
+        risk.order_timestamps.append(now)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked_non_recovery = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertFalse(blocked_non_recovery.allowed)
+        self.assertEqual(blocked_non_recovery.reason, "order_rate_limit")
+        self.assertIsInstance(blocked_non_recovery.basis, dict)
+        limit_basis = blocked_non_recovery.basis.get("order_rate_limit_basis") or {}
+        self.assertEqual(int(limit_basis.get("orders_hard_limit_non_recovery") or 0), 2)
+        self.assertEqual(int(limit_basis.get("orders_recovery_reserved_slots") or 0), 1)
+
+        allowed_recovery = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "reduce_only_recovery_active": True,
+                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+            },
+        )
+        self.assertTrue(allowed_recovery.allowed)
+
     def test_validate_order_rejects_stale_book(self):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 0.001

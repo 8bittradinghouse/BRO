@@ -358,6 +358,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_order_size": 200.0,
         "min_order_size": 1.0,
         "max_orders_per_min": 120,
+        "order_rate_recovery_reserved_slots": 0,
         "max_cancels_per_min": 220,
         "max_book_age_sec": 6.0,
         "min_sec_to_expiry_for_new_exposure": 45.0,
@@ -1307,6 +1308,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.max_open_orders_per_token", cfg["risk"]["max_open_orders_per_token"])
     _require_positive("risk.max_total_open_orders", cfg["risk"]["max_total_open_orders"])
     _require_positive("risk.max_orders_per_min", cfg["risk"]["max_orders_per_min"])
+    _require_positive(
+        "risk.order_rate_recovery_reserved_slots",
+        cfg["risk"]["order_rate_recovery_reserved_slots"],
+        allow_zero=True,
+    )
     _require_positive("risk.max_cancels_per_min", cfg["risk"]["max_cancels_per_min"])
     _require_positive("risk.max_book_age_sec", cfg["risk"]["max_book_age_sec"])
     _require_positive(
@@ -1357,6 +1363,10 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     dust_token_count_cap = int(float(cfg["risk"].get("position_dust_token_count_cap", 0.0) or 0.0))
     dust_enter_consecutive_cycles = int(float(cfg["risk"].get("position_dust_enter_consecutive_cycles", 0.0) or 0.0))
     dust_clear_consecutive_cycles = int(float(cfg["risk"].get("position_dust_clear_consecutive_cycles", 0.0) or 0.0))
+    order_rate_recovery_reserved_slots = int(
+        float(cfg["risk"].get("order_rate_recovery_reserved_slots", 0.0) or 0.0)
+    )
+    max_orders_per_min = int(float(cfg["risk"].get("max_orders_per_min", 0.0) or 0.0))
     risk_min_order_size = float(cfg["risk"].get("min_order_size", 0.0) or 0.0)
     strategy_min_order_size = float(cfg["strategy"].get("min_order_size", 0.0) or 0.0)
     if runtime_expiry_boundary_epsilon_sec > 5.0:
@@ -1367,6 +1377,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("risk.position_dust_enter_consecutive_cycles must be >= 1")
     if dust_clear_consecutive_cycles < 1:
         raise ValueError("risk.position_dust_clear_consecutive_cycles must be >= 1")
+    if max_orders_per_min > 0 and order_rate_recovery_reserved_slots >= max_orders_per_min:
+        raise ValueError("risk.order_rate_recovery_reserved_slots must be < risk.max_orders_per_min")
     if dust_total_notional_usd_cap + 1e-9 < dust_notional_usd_epsilon:
         raise ValueError(
             "risk.position_dust_total_notional_usd_cap must be >= risk.position_dust_notional_usd_epsilon"

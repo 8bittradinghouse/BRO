@@ -476,36 +476,7 @@ class OrderManager:
             self.events.log_event("order_submission_rejected_local", payload)
             return None, normalized_reason
 
-        order_capacity = self.risk.order_capacity_state(self.order_rate_soft_limit_pct)
-        if int(order_capacity.get("orders_soft_remaining", 0)) <= 0:
-            self.telemetry.incr("order_soft_throttle_skips")
-            self.events.log_event(
-                "order_soft_throttle",
-                {
-                    "ts_utc": utc_iso(),
-                    "token_id": intent.token_id,
-                    "side": intent.side,
-                    "price": intent.price,
-                    "size": intent.size,
-                    "submission_lane": lane,
-                    "soft_throttle_decision_basis": {
-                        "pool": "shared_order_rate_pool",
-                        "threshold_basis": "order_rate_soft_limit_pct",
-                        "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
-                        "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
-                        "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
-                        "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
-                        "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
-                        "orders_transport_attempted_60s": int(
-                            order_capacity.get("orders_transport_attempted_recent", 0)
-                        ),
-                        "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
-                        "lane_attribution": "shared_pool_maker_and_taker",
-                    },
-                },
-            )
-            return _local_reject("order_soft_throttle")
-        risk_context_payload = risk_context if isinstance(risk_context, dict) else {}
+        risk_context_payload: Dict[str, Any] = dict(risk_context) if isinstance(risk_context, dict) else {}
         reduce_only_recovery_active = bool(risk_context_payload.get("reduce_only_recovery_active", False))
         reduce_only_size_cap_raw = risk_context_payload.get("reduce_only_size_cap_shares")
         reduce_only_size_cap = parse_float(reduce_only_size_cap_raw)
@@ -514,6 +485,116 @@ class OrderManager:
         )
         reduce_only_min_order_size_raw = risk_context_payload.get("reduce_only_min_order_size_shares")
         reduce_only_min_order_size_shares = parse_float(reduce_only_min_order_size_raw)
+        reduce_only_size_for_priority = float(intent.size)
+        if isinstance(reduce_only_size_cap, (int, float)) and float(reduce_only_size_cap) > 0.0:
+            reduce_only_size_for_priority = min(float(reduce_only_size_for_priority), float(reduce_only_size_cap))
+        pos_for_priority = self.risk.positions.get(intent.token_id)
+        net_shares_for_priority = float(getattr(pos_for_priority, "net_shares", 0.0) or 0.0)
+        reduce_only_recovery_priority = bool(
+            reduce_only_recovery_active
+            and RiskEngine._is_pure_risk_reducing_intent(
+                net_shares=net_shares_for_priority,
+                side=str(intent.side or ""),
+                size=float(reduce_only_size_for_priority),
+            )
+        )
+        order_capacity = self.risk.order_capacity_state(self.order_rate_soft_limit_pct)
+        soft_remaining_for_intent = int(
+            order_capacity.get(
+                "orders_soft_remaining" if reduce_only_recovery_priority else "orders_soft_remaining_non_recovery",
+                0,
+            )
+        )
+        if soft_remaining_for_intent <= 0:
+            if reduce_only_recovery_priority:
+                self.telemetry.incr("order_soft_throttle_bypass_reduce_only_recovery")
+                self.events.log_event(
+                    "order_soft_throttle_bypass",
+                    {
+                        "ts_utc": utc_iso(),
+                        "token_id": intent.token_id,
+                        "side": intent.side,
+                        "price": intent.price,
+                        "size": intent.size,
+                        "submission_lane": lane,
+                        "bypass_reason": "reduce_only_recovery_priority",
+                        "soft_throttle_decision_basis": {
+                            "pool": "shared_order_rate_pool",
+                            "threshold_basis": "order_rate_soft_limit_pct",
+                            "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
+                            "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
+                            "orders_soft_limit_non_recovery_60s": int(
+                                order_capacity.get("orders_soft_limit_non_recovery", 0)
+                            ),
+                            "orders_hard_limit_non_recovery_60s": int(
+                                order_capacity.get("orders_hard_limit_non_recovery", 0)
+                            ),
+                            "orders_recovery_reserved_slots_60s": int(
+                                order_capacity.get("orders_recovery_reserved_slots", 0)
+                            ),
+                            "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
+                            "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
+                            "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
+                            "orders_transport_attempted_60s": int(
+                                order_capacity.get("orders_transport_attempted_recent", 0)
+                            ),
+                            "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
+                            "orders_soft_remaining_non_recovery_60s": int(
+                                order_capacity.get("orders_soft_remaining_non_recovery", 0)
+                            ),
+                            "lane_attribution": "shared_pool_maker_and_taker",
+                        },
+                        "reduce_only_recovery_active": True,
+                        "reduce_only_recovery_reason": str(risk_context_payload.get("reduce_only_recovery_reason") or ""),
+                    },
+                )
+            else:
+                self.telemetry.incr("order_soft_throttle_skips")
+                self.events.log_event(
+                    "order_soft_throttle",
+                    {
+                        "ts_utc": utc_iso(),
+                        "token_id": intent.token_id,
+                        "side": intent.side,
+                        "price": intent.price,
+                        "size": intent.size,
+                        "submission_lane": lane,
+                        "soft_throttle_decision_basis": {
+                            "pool": "shared_order_rate_pool",
+                            "threshold_basis": "order_rate_soft_limit_pct",
+                            "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
+                            "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
+                            "orders_soft_limit_non_recovery_60s": int(
+                                order_capacity.get("orders_soft_limit_non_recovery", 0)
+                            ),
+                            "orders_hard_limit_non_recovery_60s": int(
+                                order_capacity.get("orders_hard_limit_non_recovery", 0)
+                            ),
+                            "orders_recovery_reserved_slots_60s": int(
+                                order_capacity.get("orders_recovery_reserved_slots", 0)
+                            ),
+                            "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
+                            "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
+                            "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
+                            "orders_transport_attempted_60s": int(
+                                order_capacity.get("orders_transport_attempted_recent", 0)
+                            ),
+                            "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
+                            "orders_soft_remaining_non_recovery_60s": int(
+                                order_capacity.get("orders_soft_remaining_non_recovery", 0)
+                            ),
+                            "lane_attribution": "shared_pool_maker_and_taker",
+                        },
+                    },
+                )
+                return _local_reject(
+                    "order_soft_throttle",
+                    extra={
+                        "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                        "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+                        "reduce_only_recovery_reason": str(risk_context_payload.get("reduce_only_recovery_reason") or ""),
+                    },
+                )
 
         resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
             intent,

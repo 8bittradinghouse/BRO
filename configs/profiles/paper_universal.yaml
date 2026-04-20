@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "1cc945cc6065fb510d356dc86cba8656eba459a95afb41ecf9027cb5dc26ba3d"
+  paper_expected_config_fingerprint_sha256: "e7bb45a688791b152e87d86f88664b2df0b05800da406b531baf2a372f15e7b2"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
@@ -107,6 +107,9 @@ risk:
   # Keep new exposure out of terminal windows while preserving a non-empty
   # actionable interval in canonical maker/taker stages.
   min_sec_to_expiry_for_new_exposure: 45.0
+  # Reserve submit-rate headroom for forced pre-expiry reduce-only recovery so
+  # normal flow cannot fully consume the order-rate pool.
+  order_rate_recovery_reserved_slots: 12
   max_abs_position_shares: 4000.0
   max_notional_per_token: 1300.0
   max_order_size: 8000.0

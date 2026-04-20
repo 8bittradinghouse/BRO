@@ -405,10 +405,21 @@ class RiskEngine:
         used = len(self.order_timestamps) + int(self._order_submission_reserved_outstanding)
         return max(0, soft - used)
 
+    def _order_rate_recovery_reserved_slots(self, *, limit: int) -> int:
+        raw = self.cfg.get("order_rate_recovery_reserved_slots", 0)
+        try:
+            reserved = int(float(raw or 0.0))
+        except (TypeError, ValueError):
+            reserved = 0
+        return max(0, min(int(reserved), max(0, int(limit) - 1)))
+
     def order_capacity_state(self, soft_limit_pct: float = 1.0) -> Dict[str, int]:
         self._prune()
         limit = max(1, int(self.cfg["max_orders_per_min"]))
         soft_limit = max(1, int(math.floor(limit * float(soft_limit_pct))))
+        reserved_recovery_slots = self._order_rate_recovery_reserved_slots(limit=limit)
+        non_recovery_hard_limit = max(1, int(limit - reserved_recovery_slots))
+        non_recovery_soft_limit = max(0, int(soft_limit - reserved_recovery_slots))
         accepted_used = int(len(self.order_timestamps))
         reserved_outstanding = max(0, int(self._order_submission_reserved_outstanding))
         transport_attempted_recent = int(len(self.order_submission_transport_attempt_timestamps))
@@ -416,11 +427,17 @@ class RiskEngine:
         return {
             "orders_limit": int(limit),
             "orders_soft_limit": int(soft_limit),
+            "orders_recovery_reserved_slots": int(reserved_recovery_slots),
+            "orders_hard_limit_non_recovery": int(non_recovery_hard_limit),
+            "orders_soft_limit_non_recovery": int(non_recovery_soft_limit),
             "orders_used_accepted": int(accepted_used),
             "orders_reserved_outstanding": int(reserved_outstanding),
             "orders_transport_attempted_recent": int(transport_attempted_recent),
             "orders_soft_effective_used": int(effective_used),
             "orders_soft_remaining": int(max(0, soft_limit - effective_used)),
+            "orders_soft_remaining_non_recovery": int(max(0, non_recovery_soft_limit - effective_used)),
+            "orders_hard_remaining_recovery": int(max(0, limit - accepted_used)),
+            "orders_hard_remaining_non_recovery": int(max(0, non_recovery_hard_limit - accepted_used)),
         }
 
     def remaining_cancel_capacity(self, soft_limit_pct: float = 1.0) -> int:
@@ -467,8 +484,47 @@ class RiskEngine:
             return RiskDecision(False, "kill_switch", self.kill_reason, basis={"risk_authority": "kill_switch"})
 
         self._prune()
-        if len(self.order_timestamps) >= int(self.cfg["max_orders_per_min"]):
-            return RiskDecision(False, "order_rate_limit", "max orders/min reached", basis={"risk_authority": "order_rate"})
+
+        context = risk_context if isinstance(risk_context, dict) else {}
+        pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
+        pure_risk_reducing_intent = self._is_pure_risk_reducing_intent(
+            net_shares=float(pos.net_shares),
+            side=str(intent.side or ""),
+            size=float(intent.size),
+        )
+        reduce_only_recovery_active = bool(context.get("reduce_only_recovery_active", False))
+        reduce_only_recovery_priority = bool(reduce_only_recovery_active and pure_risk_reducing_intent)
+        order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
+        hard_limit = (
+            int(order_capacity.get("orders_limit") or 0)
+            if reduce_only_recovery_priority
+            else int(order_capacity.get("orders_hard_limit_non_recovery") or 0)
+        )
+        if int(order_capacity.get("orders_used_accepted") or 0) >= int(hard_limit):
+            return RiskDecision(
+                False,
+                "order_rate_limit",
+                (
+                    f"used={int(order_capacity.get('orders_used_accepted') or 0)}"
+                    f">=limit={int(hard_limit)}"
+                ),
+                basis={
+                    "risk_authority": "order_rate",
+                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                    "order_rate_limit_basis": {
+                        "orders_limit": int(order_capacity.get("orders_limit") or 0),
+                        "orders_hard_limit_non_recovery": int(
+                            order_capacity.get("orders_hard_limit_non_recovery") or 0
+                        ),
+                        "orders_recovery_reserved_slots": int(
+                            order_capacity.get("orders_recovery_reserved_slots") or 0
+                        ),
+                        "orders_used_accepted": int(order_capacity.get("orders_used_accepted") or 0),
+                    },
+                },
+            )
 
         is_aggressive = bool(intent.post_only is False) or intent.tif.upper() in {"IOC", "FOK"}
         if not is_aggressive:
@@ -509,7 +565,6 @@ class RiskEngine:
             if top.best_bid_price > top.best_ask_price and not bool(self.cfg.get("allow_crossed_quotes", False)):
                 return RiskDecision(False, "crossed_market", "bid > ask", basis={"risk_authority": "market_sanity"})
 
-        context = risk_context if isinstance(risk_context, dict) else {}
         effective_multiplier, dynamic_scaling_basis = self._resolve_dynamic_scaling(risk_context=context)
         max_abs_position_base = float(self.cfg["max_abs_position_shares"])
         max_notional_base = float(self.cfg["max_notional_per_token"])
@@ -529,6 +584,8 @@ class RiskEngine:
             "dynamic_scaling": dynamic_scaling_basis,
             "valuation_hard_degraded": bool(self._valuation_hard_degraded),
             "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
+            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
             "effective_caps": {
                 "max_abs_position_shares_base": float(max_abs_position_base),
                 "max_abs_position_shares_effective": float(max_abs_position_effective),
@@ -536,18 +593,18 @@ class RiskEngine:
                 "max_notional_per_token_effective": float(max_notional_effective),
                 "effective_multiplier": float(effective_multiplier),
             },
+            "order_rate_limit_basis": {
+                "orders_limit": int(order_capacity.get("orders_limit") or 0),
+                "orders_hard_limit_non_recovery": int(order_capacity.get("orders_hard_limit_non_recovery") or 0),
+                "orders_recovery_reserved_slots": int(order_capacity.get("orders_recovery_reserved_slots") or 0),
+                "orders_used_accepted": int(order_capacity.get("orders_used_accepted") or 0),
+            },
             "intent_exposure_class": str(
                 self._exposure_class_by_token.get(str(intent.token_id), EXPOSURE_CLASS_MEANINGFUL)
             ),
         }
 
-        pos = self.positions.setdefault(intent.token_id, Position(token_id=intent.token_id))
         min_sec_to_expiry_for_new_exposure = float(self.cfg.get("min_sec_to_expiry_for_new_exposure", 0.0) or 0.0)
-        pure_risk_reducing_intent = self._is_pure_risk_reducing_intent(
-            net_shares=float(pos.net_shares),
-            side=str(intent.side or ""),
-            size=float(intent.size),
-        )
         sec_to_expiry = self._safe_float(context.get("sec_to_expiry"))
         if min_sec_to_expiry_for_new_exposure > 0.0 and (not pure_risk_reducing_intent):
             if sec_to_expiry is None:
