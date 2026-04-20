@@ -897,6 +897,11 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     held_unpriceable_started_count = 0.0
     held_unpriceable_recovered_count = 0.0
     preexpiry_404_anomaly_count = 0.0
+    lifecycle_context_mismatch_count = 0.0
+    lifecycle_context_missing_sec_to_expiry_count = 0.0
+    preexpiry_emergency_taker_attempt_count = 0.0
+    preexpiry_emergency_taker_fill_count = 0.0
+    preexpiry_emergency_taker_block_count = 0.0
     held_dust_hard_degraded_exempt_count = 0.0
     held_dust_count_max = 0.0
     held_dust_quarantined_count_max = 0.0
@@ -908,6 +913,8 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "conservative_bound_hard_degraded": 0.0,
         "hard_degraded": 0.0,
     }
+    held_unpriceable_cause_counts_run: Counter[str] = Counter()
+    preexpiry_emergency_taker_block_reasons_run_max: Counter[str] = Counter()
     latest: Dict[str, Any] = {}
     for row in status_rows:
         if bool(row.get("valuation_degraded", False)):
@@ -953,6 +960,26 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             preexpiry_404_anomaly_count,
             _safe_float(row.get("preexpiry_404_anomaly_count")),
         )
+        lifecycle_context_mismatch_count = max(
+            lifecycle_context_mismatch_count,
+            _safe_float(row.get("lifecycle_context_mismatch_count")),
+        )
+        lifecycle_context_missing_sec_to_expiry_count = max(
+            lifecycle_context_missing_sec_to_expiry_count,
+            _safe_float(row.get("lifecycle_context_missing_sec_to_expiry_count")),
+        )
+        preexpiry_emergency_taker_attempt_count = max(
+            preexpiry_emergency_taker_attempt_count,
+            _safe_float(row.get("preexpiry_emergency_taker_attempt_count")),
+        )
+        preexpiry_emergency_taker_fill_count = max(
+            preexpiry_emergency_taker_fill_count,
+            _safe_float(row.get("preexpiry_emergency_taker_fill_count")),
+        )
+        preexpiry_emergency_taker_block_count = max(
+            preexpiry_emergency_taker_block_count,
+            _safe_float(row.get("preexpiry_emergency_taker_block_count")),
+        )
         held_dust_hard_degraded_exempt_count = max(
             held_dust_hard_degraded_exempt_count,
             _safe_float(row.get("held_dust_hard_degraded_exempt_count")),
@@ -991,6 +1018,25 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         source_totals["last_known_mid"] += last_known
         source_totals["conservative_bound_hard_degraded"] += conservative
         source_totals["hard_degraded"] += hard
+        row_cause_counts_raw = row.get("held_unpriceable_cause_counts")
+        row_cause_counts = row_cause_counts_raw if isinstance(row_cause_counts_raw, dict) else {}
+        for cause, count in row_cause_counts.items():
+            cause_name = str(cause or "").strip()
+            if not cause_name:
+                continue
+            held_unpriceable_cause_counts_run[cause_name] += _safe_float(count)
+        row_emergency_block_reasons_raw = row.get("preexpiry_emergency_taker_block_reasons")
+        row_emergency_block_reasons = (
+            row_emergency_block_reasons_raw if isinstance(row_emergency_block_reasons_raw, dict) else {}
+        )
+        for reason, count in row_emergency_block_reasons.items():
+            reason_name = str(reason or "").strip().lower()
+            if not reason_name:
+                continue
+            preexpiry_emergency_taker_block_reasons_run_max[reason_name] = max(
+                preexpiry_emergency_taker_block_reasons_run_max.get(reason_name, 0.0),
+                _safe_float(count),
+            )
     for row in reversed(status_rows):
         if "valuation_degraded" in row:
             latest = dict(row)
@@ -1014,6 +1060,13 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "held_unpriceable_started_count": float(held_unpriceable_started_count),
         "held_unpriceable_recovered_count": float(held_unpriceable_recovered_count),
         "preexpiry_404_anomaly_count": float(preexpiry_404_anomaly_count),
+        "lifecycle_context_mismatch_count": float(lifecycle_context_mismatch_count),
+        "lifecycle_context_missing_sec_to_expiry_count": float(
+            lifecycle_context_missing_sec_to_expiry_count
+        ),
+        "preexpiry_emergency_taker_attempt_count": float(preexpiry_emergency_taker_attempt_count),
+        "preexpiry_emergency_taker_fill_count": float(preexpiry_emergency_taker_fill_count),
+        "preexpiry_emergency_taker_block_count": float(preexpiry_emergency_taker_block_count),
         "held_dust_hard_degraded_exempt_count": float(held_dust_hard_degraded_exempt_count),
         "held_dust_count_max": float(held_dust_count_max),
         "held_dust_quarantined_count_max": float(held_dust_quarantined_count_max),
@@ -1090,6 +1143,24 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "latest_preexpiry_404_anomaly_count": _safe_float(
             latest.get("preexpiry_404_anomaly_count")
         ),
+        "latest_lifecycle_context_mismatch_count": _safe_float(
+            latest.get("lifecycle_context_mismatch_count")
+        ),
+        "latest_lifecycle_context_missing_sec_to_expiry_count": _safe_float(
+            latest.get("lifecycle_context_missing_sec_to_expiry_count")
+        ),
+        "latest_preexpiry_emergency_taker_attempt_count": _safe_float(
+            latest.get("preexpiry_emergency_taker_attempt_count")
+        ),
+        "latest_preexpiry_emergency_taker_fill_count": _safe_float(
+            latest.get("preexpiry_emergency_taker_fill_count")
+        ),
+        "latest_preexpiry_emergency_taker_block_count": _safe_float(
+            latest.get("preexpiry_emergency_taker_block_count")
+        ),
+        "latest_preexpiry_emergency_taker_block_reasons": dict(
+            latest.get("preexpiry_emergency_taker_block_reasons") or {}
+        ),
         "latest_held_dust_shadow_candidate_active": bool(latest.get("held_dust_shadow_candidate_active", False)),
         "latest_held_dust_shadow_active": bool(latest.get("held_dust_shadow_active", False)),
         "latest_held_dust_enforced_this_cycle": bool(latest.get("held_dust_enforced_this_cycle", False)),
@@ -1106,6 +1177,11 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             latest.get("runtime_expiry_boundary_epsilon_sec")
         ),
         "valuation_source_counts_run": dict(source_totals),
+        "held_unpriceable_cause_counts_run": dict(sorted(held_unpriceable_cause_counts_run.items(), key=lambda kv: kv[0])),
+        "held_unpriceable_cause_counts_latest": dict(latest.get("held_unpriceable_cause_counts") or {}),
+        "preexpiry_emergency_taker_block_reasons_run_max": dict(
+            sorted(preexpiry_emergency_taker_block_reasons_run_max.items(), key=lambda kv: kv[0])
+        ),
         "valuation_source_counts_latest": {
             "live_mid": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("live_mid")),
             "live_side_conservative_quote": _safe_float(
@@ -2743,10 +2819,17 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"hard_degraded_clear_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_clear_count')))},"
             + f"held_unpriceable_started_count={int(_safe_float(valuation_truth.get('held_unpriceable_started_count')))},"
             + f"held_unpriceable_recovered_count={int(_safe_float(valuation_truth.get('held_unpriceable_recovered_count')))},"
+            + f"lifecycle_context_mismatch_count={int(_safe_float(valuation_truth.get('lifecycle_context_mismatch_count')))},"
+            + f"lifecycle_context_missing_sec_to_expiry_count={int(_safe_float(valuation_truth.get('lifecycle_context_missing_sec_to_expiry_count')))},"
+            + f"preexpiry_emergency_taker_attempt_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_attempt_count')))},"
+            + f"preexpiry_emergency_taker_fill_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_fill_count')))},"
+            + f"preexpiry_emergency_taker_block_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_block_count')))},"
             + f"held_dust_hard_degraded_exempt_count={int(_safe_float(valuation_truth.get('held_dust_hard_degraded_exempt_count')))},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
             + f"latest_escalation_reasons={json.dumps(valuation_truth.get('latest_held_unpriceable_escalation_reasons', []), sort_keys=True)},"
             + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"
+            + f"held_unpriceable_cause_counts_latest={json.dumps(valuation_truth.get('held_unpriceable_cause_counts_latest', {}), sort_keys=True)},"
+            + f"preexpiry_emergency_taker_block_reasons_run_max={json.dumps(valuation_truth.get('preexpiry_emergency_taker_block_reasons_run_max', {}), sort_keys=True)},"
             + f"source_counts_run={json.dumps(valuation_truth.get('valuation_source_counts_run', {}), sort_keys=True)}"
         ),
         f"taker_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",

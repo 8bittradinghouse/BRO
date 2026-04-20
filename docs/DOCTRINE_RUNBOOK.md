@@ -138,8 +138,18 @@ Required observability surfaces:
       - `reduce_only_recovery_active`
       - `reduce_only_side`
       - `reduce_only_size_cap_shares`
+      - `financial_posture_class` + `sec_to_expiry` lifecycle context (required when `runtime.require_lifecycle_context_for_decisions=true`)
+      - invalid payload combinations are surfaced explicitly (`lifecycle_context_mismatch`, `lifecycle_context_missing`)
     - maker and taker both consume this payload; recovery mode never authorizes risk increase
     - if recovery-side touch price is unavailable, submit is explicitly blocked (`reduce_only_recovery_touch_price_unavailable`)
+    - pre-expiry emergency taker unwind is bounded and explicit:
+      - `runtime.preexpiry_emergency_taker_window_sec` (default `30.0`)
+      - activates only when `sec_to_expiry <= preexpiry_emergency_taker_window_sec` and maker reduce-only exit is blocked/ineffective in-cycle
+      - emits explicit outcomes (`preexpiry_emergency_taker_unwind`) with `attempted`, `filled`, and `blocked_*` reason codes
+    - terminal tiny-notional reduce-only fallback is bounded and non-bypass:
+      - `risk.reduce_only_terminal_min_notional_usd` (default `2.0`)
+      - only for pure risk-reducing recovery intents in `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, or `HALT_NEW_RISK`
+      - never authorizes risk increase, never bypasses wallet/risk authority, and remains fail-closed on missing lifecycle context
   - recovery-only maker quote-quality relaxation is bounded and non-bypass:
     - `strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor` (default `0.02`)
     - `strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier` (default `2.0`)
@@ -161,6 +171,13 @@ Required observability surfaces:
     - `held_unpriceable_recovered_count`
     - `preexpiry_404_anomaly_count`
     - `preexpiry_404_anomaly_active`
+    - `lifecycle_context_mismatch_count`
+    - `lifecycle_context_missing_sec_to_expiry_count`
+    - `preexpiry_emergency_taker_attempt_count`
+    - `preexpiry_emergency_taker_fill_count`
+    - `preexpiry_emergency_taker_block_count`
+    - `preexpiry_emergency_taker_block_reasons`
+    - `held_unpriceable_cause_counts`
   - additive dust truth surfaces are explicit:
     - `held_exposure_class_by_token`
     - `held_exposure_detail_by_token`

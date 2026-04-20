@@ -365,6 +365,19 @@ class NightlySoakReportTests(unittest.TestCase):
                     "held_unpriceable_recovered_count": 1,
                     "preexpiry_404_anomaly_count": 2,
                     "preexpiry_404_anomaly_active": True,
+                    "lifecycle_context_mismatch_count": 4,
+                    "lifecycle_context_missing_sec_to_expiry_count": 2,
+                    "preexpiry_emergency_taker_attempt_count": 7,
+                    "preexpiry_emergency_taker_fill_count": 3,
+                    "preexpiry_emergency_taker_block_count": 4,
+                    "preexpiry_emergency_taker_block_reasons": {
+                        "edge_below_min": 1,
+                        "taker_submit_rejected": 3,
+                    },
+                    "held_unpriceable_cause_counts": {
+                        "postexpiry_market_retired": 1,
+                        "preexpiry_fetch_failure": 2,
+                    },
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -387,6 +400,35 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(valuation_truth.get("held_unpriceable_started_count") or 0.0), 3.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_recovered_count") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("preexpiry_404_anomaly_count") or 0.0), 2.0)
+            self.assertEqual(float(valuation_truth.get("lifecycle_context_mismatch_count") or 0.0), 4.0)
+            self.assertEqual(
+                float(valuation_truth.get("lifecycle_context_missing_sec_to_expiry_count") or 0.0),
+                2.0,
+            )
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_attempt_count") or 0.0), 7.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_fill_count") or 0.0), 3.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_block_count") or 0.0), 4.0)
+            self.assertEqual(
+                float(
+                    (valuation_truth.get("held_unpriceable_cause_counts_latest") or {}).get(
+                        "preexpiry_fetch_failure"
+                    )
+                    or 0.0
+                ),
+                2.0,
+            )
+            self.assertEqual(
+                int(
+                    float(
+                        (valuation_truth.get("preexpiry_emergency_taker_block_reasons_run_max") or {}).get(
+                            "taker_submit_rejected",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                ),
+                3,
+            )
             self.assertIn(
                 "held_book_not_found_404_age_sec",
                 " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
@@ -426,6 +468,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("preexpiry_404_anomaly_ratio=", summary)
             self.assertIn("held_unpriceable_escalation_ratio=", summary)
             self.assertIn("hard_degraded_enter_count=", summary)
+            self.assertIn("preexpiry_emergency_taker_attempt_count=", summary)
+            self.assertIn("lifecycle_context_mismatch_count=", summary)
+            self.assertIn("held_unpriceable_cause_counts_latest=", summary)
             self.assertIn("latest_operator_action=", summary)
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
