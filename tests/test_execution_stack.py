@@ -174,7 +174,7 @@ class ExecutionStackTests(unittest.TestCase):
         )
         self.assertEqual(preexpiry_only, "PREEXPIRY_REDUCE_ONLY")
 
-    def test_build_submission_lifecycle_context_repairs_recovery_posture_mismatch(self):
+    def test_build_submission_lifecycle_context_promotes_recovery_posture_without_mismatch(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.risk = type("RiskStub", (), {"kill_switch": False})()
         runner._valuation_hard_degraded = False
@@ -204,9 +204,9 @@ class ExecutionStackTests(unittest.TestCase):
             stage="MAKER_TAKER_SELECTIVE",
         )
         self.assertEqual(str(context.get("financial_posture_class") or ""), "HALT_NEW_RISK")
-        self.assertTrue(bool(context.get("lifecycle_context_mismatch")))
+        self.assertFalse(bool(context.get("lifecycle_context_mismatch")))
         self.assertTrue(bool(context.get("lifecycle_context_present")))
-        self.assertEqual(int(runner._lifecycle_context_mismatch_count), 1)
+        self.assertEqual(int(runner._lifecycle_context_mismatch_count), 0)
 
     def test_config_rejects_unbounded_recovery_relaxation_knobs(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)

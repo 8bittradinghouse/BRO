@@ -4347,10 +4347,29 @@ class ExecutionRunner:
                 if self._token_terminal_unwind_halt_new_risk_active(lifecycle_info)
                 else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
             )
-        lifecycle_context_mismatch = bool(
+        lifecycle_context_promoted = bool(
             reduce_only_recovery_active
             and base_posture == FINANCIAL_POSTURE_NORMAL
             and resolved_posture != FINANCIAL_POSTURE_NORMAL
+        )
+        if lifecycle_context_promoted:
+            self.telemetry.incr("lifecycle_context_promoted")
+            self._emit_lifecycle_context_event(
+                event_type="lifecycle_context_promoted",
+                token_id=token,
+                submission_lane=submission_lane,
+                stage=stage_value,
+                sec_to_expiry=sec_to_expiry,
+                financial_posture_class=resolved_posture,
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                detail="reduce_only_recovery_promoted_financial_posture",
+                extra={
+                    "base_financial_posture_class": str(base_posture),
+                    "resolved_financial_posture_class": str(resolved_posture),
+                },
+            )
+        lifecycle_context_mismatch = bool(
+            reduce_only_recovery_active and resolved_posture == FINANCIAL_POSTURE_NORMAL
         )
         if lifecycle_context_mismatch:
             self._lifecycle_context_mismatch_count += 1
@@ -4363,7 +4382,7 @@ class ExecutionRunner:
                 sec_to_expiry=sec_to_expiry,
                 financial_posture_class=resolved_posture,
                 reduce_only_recovery_active=reduce_only_recovery_active,
-                detail="reduce_only_recovery_active_with_normal_financial_posture",
+                detail="reduce_only_recovery_without_recovery_posture",
                 extra={
                     "base_financial_posture_class": str(base_posture),
                     "resolved_financial_posture_class": str(resolved_posture),
