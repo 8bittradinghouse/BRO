@@ -358,6 +358,14 @@ class ExecutionRunner:
             if configured_held_preexpiry_reduce_only_sec is not None
             else 90.0
         )
+        configured_terminal_unwind_halt_new_risk_sec = parse_float(
+            runtime_cfg.get("terminal_unwind_halt_new_risk_sec")
+        )
+        self.terminal_unwind_halt_new_risk_sec = (
+            max(0.0, float(configured_terminal_unwind_halt_new_risk_sec))
+            if configured_terminal_unwind_halt_new_risk_sec is not None
+            else 60.0
+        )
         configured_expiry_boundary_epsilon_sec = parse_float(
             runtime_cfg.get("expiry_boundary_epsilon_sec")
         )
@@ -4119,9 +4127,32 @@ class ExecutionRunner:
         if bool(self._valuation_hard_degraded):
             return FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY
         stage_map = stage_info_by_token if isinstance(stage_info_by_token, dict) else {}
+        if self._terminal_unwind_halt_new_risk_active(stage_map):
+            return FINANCIAL_POSTURE_HALT_NEW_RISK
         if any(bool((info or {}).get("reduce_only_recovery_active", False)) for info in stage_map.values()):
             return FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
         return FINANCIAL_POSTURE_NORMAL
+
+    def _terminal_unwind_halt_new_risk_active(self, stage_info_by_token: Dict[str, Dict[str, Any]]) -> bool:
+        threshold_sec = float(self.terminal_unwind_halt_new_risk_sec)
+        if threshold_sec <= 0.0:
+            return False
+        meaningful_shares_floor = max(1e-9, float(self.risk_min_order_size_shares))
+        for _, raw_info in stage_info_by_token.items():
+            info = raw_info or {}
+            if not bool(info.get("reduce_only_recovery_active", False)):
+                continue
+            sec_raw = info.get("sec_to_expiry")
+            if not isinstance(sec_raw, (int, float)):
+                continue
+            sec = float(sec_raw)
+            if sec < 0.0 or sec > (threshold_sec + 1e-9):
+                continue
+            net_shares_abs = abs(float(info.get("reduce_only_net_shares", 0.0) or 0.0))
+            open_order_present = bool(info.get("reduce_only_open_order_present", False))
+            if open_order_present or (net_shares_abs + 1e-9 >= meaningful_shares_floor):
+                return True
+        return False
 
     def _held_unpriceable_cause_class(
         self,

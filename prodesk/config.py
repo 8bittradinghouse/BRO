@@ -50,6 +50,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
         "held_preexpiry_reduce_only_sec": 90.0,
+        "terminal_unwind_halt_new_risk_sec": 60.0,
         "expiry_boundary_epsilon_sec": 1.0,
         "dust_classifier_enforce_enabled": False,
         "valuation_hard_degraded_clear_consecutive_healthy_cycles": 2,
@@ -782,6 +783,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         allow_zero=True,
     )
     _require_positive(
+        "runtime.terminal_unwind_halt_new_risk_sec",
+        cfg["runtime"].get("terminal_unwind_halt_new_risk_sec", 0.0),
+        allow_zero=True,
+    )
+    _require_positive(
         "runtime.expiry_boundary_epsilon_sec",
         cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0),
         allow_zero=True,
@@ -1356,6 +1362,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
     held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
+    terminal_unwind_halt_new_risk_sec = float(
+        cfg["runtime"].get("terminal_unwind_halt_new_risk_sec", 0.0) or 0.0
+    )
     runtime_expiry_boundary_epsilon_sec = float(cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0) or 0.0)
     dust_shares_epsilon = float(cfg["risk"].get("position_dust_shares_epsilon", 0.0) or 0.0)
     dust_notional_usd_epsilon = float(cfg["risk"].get("position_dust_notional_usd_epsilon", 0.0) or 0.0)
@@ -1396,6 +1405,14 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     ):
         raise ValueError(
             "runtime.held_preexpiry_reduce_only_sec must be >= risk.min_sec_to_expiry_for_new_exposure"
+        )
+    if (
+        terminal_unwind_halt_new_risk_sec > 0.0
+        and held_preexpiry_reduce_only_sec > 0.0
+        and terminal_unwind_halt_new_risk_sec - 1e-9 > held_preexpiry_reduce_only_sec
+    ):
+        raise ValueError(
+            "runtime.terminal_unwind_halt_new_risk_sec must be <= runtime.held_preexpiry_reduce_only_sec"
         )
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):

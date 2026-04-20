@@ -62,6 +62,7 @@ class ExecutionStackTests(unittest.TestCase):
             places=9,
         )
         self.assertAlmostEqual(float(runtime.get("held_preexpiry_reduce_only_sec") or 0.0), 90.0, places=9)
+        self.assertAlmostEqual(float(runtime.get("terminal_unwind_halt_new_risk_sec") or 0.0), 60.0, places=9)
         self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 45.0, places=9)
         execution_quality = dict(strategy.get("execution_quality") or {})
         self.assertAlmostEqual(
@@ -108,6 +109,45 @@ class ExecutionStackTests(unittest.TestCase):
         cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 45.0
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
+
+    def test_config_rejects_terminal_unwind_halt_window_above_preexpiry_window(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["runtime"]["held_preexpiry_reduce_only_sec"] = 45.0
+        cfg["runtime"]["terminal_unwind_halt_new_risk_sec"] = 60.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_financial_posture_enters_halt_new_risk_in_terminal_unwind_window(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.risk = type("RiskStub", (), {"kill_switch": False})()
+        runner._valuation_hard_degraded = False
+        runner.terminal_unwind_halt_new_risk_sec = 60.0
+        runner.risk_min_order_size_shares = 1.0
+
+        posture = runner._resolve_financial_posture_class(
+            stage_info_by_token={
+                "tok1": {
+                    "reduce_only_recovery_active": True,
+                    "sec_to_expiry": 40.0,
+                    "reduce_only_net_shares": 10.0,
+                    "reduce_only_open_order_present": False,
+                }
+            }
+        )
+        self.assertEqual(posture, "HALT_NEW_RISK")
+
+        preexpiry_only = runner._resolve_financial_posture_class(
+            stage_info_by_token={
+                "tok1": {
+                    "reduce_only_recovery_active": True,
+                    "sec_to_expiry": 75.0,
+                    "reduce_only_net_shares": 10.0,
+                    "reduce_only_open_order_present": False,
+                }
+            }
+        )
+        self.assertEqual(preexpiry_only, "PREEXPIRY_REDUCE_ONLY")
 
     def test_config_rejects_unbounded_recovery_relaxation_knobs(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)

@@ -492,8 +492,27 @@ class RiskEngine:
             side=str(intent.side or ""),
             size=float(intent.size),
         )
+        financial_posture_class = str(context.get("financial_posture_class") or "UNKNOWN").strip().upper()
         reduce_only_recovery_active = bool(context.get("reduce_only_recovery_active", False))
         reduce_only_recovery_priority = bool(reduce_only_recovery_active and pure_risk_reducing_intent)
+        if financial_posture_class == "HALT_NEW_RISK" and (not pure_risk_reducing_intent):
+            return RiskDecision(
+                False,
+                "terminal_unwind_halt_new_risk_blocked",
+                (
+                    f"net_shares={float(pos.net_shares):.9f}:size={float(intent.size):.9f}:"
+                    f"side={str(intent.side or '').upper()}"
+                ),
+                basis={
+                    "risk_authority": "terminal_unwind_halt_new_risk",
+                    "financial_posture_class": str(financial_posture_class),
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+                    "sec_to_expiry": self._safe_float(context.get("sec_to_expiry")),
+                    "terminal_unwind_halt_new_risk_active": True,
+                },
+            )
         order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
         hard_limit = (
             int(order_capacity.get("orders_limit") or 0)

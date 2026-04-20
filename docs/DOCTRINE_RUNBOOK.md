@@ -130,6 +130,10 @@ Required observability surfaces:
   - pre-expiry reduce-only recovery activation is explicit and bounded by:
     - `runtime.held_preexpiry_reduce_only_sec` (default `90.0`)
     - activation requires held exposure (`non-flat` or `open-order`) and `sec_to_expiry <= held_preexpiry_reduce_only_sec`
+    - terminal unwind priority can elevate posture to `HALT_NEW_RISK` when:
+      - `runtime.terminal_unwind_halt_new_risk_sec` (default `60.0`) is reached
+      - at least one held recovery token remains meaningful (`|net_shares| >= risk.min_order_size`) or has open-order lifecycle obligations
+      - in this posture, risk-increasing intents are blocked globally while pure reduction/flattening remains allowed
     - expired-grace and pre-expiry recovery share the same canonical payload:
       - `reduce_only_recovery_active`
       - `reduce_only_side`
@@ -149,6 +153,7 @@ Required observability surfaces:
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`
     - `runtime.held_book_not_found_force_refresh_interval_sec = 45.0`
     - `runtime.held_preexpiry_reduce_only_sec = 90.0`
+    - `runtime.terminal_unwind_halt_new_risk_sec = 60.0`
   - transition/anomaly truth surfaces are explicit:
     - `valuation_hard_degraded_enter_count`
     - `valuation_hard_degraded_clear_count`
