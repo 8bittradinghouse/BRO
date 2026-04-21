@@ -30,7 +30,7 @@ from scripts.websocket_reliability_gate import run_gate as run_websocket_reliabi
 def _f(value: Any, default: float) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -40,7 +40,7 @@ def _f(value: Any, default: float) -> float:
 def _i(value: Any, default: int) -> int:
     try:
         return int(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
@@ -356,6 +356,20 @@ def run_gate(
     min_taker_bonus_submits = _f(soak_cfg.get("min_taker_bonus_submits"), 0.0)
     min_taker_bonus_fills = _f(soak_cfg.get("min_taker_bonus_fills"), 0.0)
     max_taker_bonus_fill_rate = _f(soak_cfg.get("max_taker_bonus_fill_rate"), 1.0)
+    max_preexpiry_404_anomaly_count = _f(soak_cfg.get("max_preexpiry_404_anomaly_count"), 0.0)
+    max_lifecycle_context_mismatch_count = _f(soak_cfg.get("max_lifecycle_context_mismatch_count"), 0.0)
+    max_lifecycle_context_missing_sec_to_expiry_count = _f(
+        soak_cfg.get("max_lifecycle_context_missing_sec_to_expiry_count"),
+        0.0,
+    )
+    max_valuation_hard_degraded_unrecovered_count = _f(
+        soak_cfg.get("max_valuation_hard_degraded_unrecovered_count"),
+        1_000_000.0,
+    )
+    max_held_unpriceable_unrecovered_count = _f(
+        soak_cfg.get("max_held_unpriceable_unrecovered_count"),
+        1_000_000.0,
+    )
     max_book_updates_rest_ratio = _f(ws_cfg.get("max_book_updates_rest_ratio"), 1.0)
     min_book_updates_ws_delta = _f(ws_cfg.get("min_book_updates_ws_delta"), 0.0)
     min_book_updates_total_delta = _f(ws_cfg.get("min_book_updates_total_delta"), 0.0)
@@ -364,6 +378,7 @@ def run_gate(
     errors = _f(report.get("error_rows"), 0.0)
     paths = dict(report.get("execution_paths", {}) or {})
     market_data_source = dict(report.get("market_data_source", {}) or {})
+    valuation_truth = dict(report.get("valuation_truth", {}) or {})
     maker_submits = _f(paths.get("maker_submits"), 0.0)
     maker_fill_rate = _f(paths.get("maker_fill_rate"), 0.0)
     taker_bonus_submits = _f(paths.get("taker_bonus_submits"), 0.0)
@@ -373,6 +388,30 @@ def run_gate(
     book_updates_rest_delta = _f(market_data_source.get("book_updates_rest_delta"), 0.0)
     book_updates_total_delta = _f(market_data_source.get("book_updates_total_delta"), 0.0)
     book_updates_rest_ratio = _f(market_data_source.get("book_updates_rest_ratio"), 0.0)
+    preexpiry_404_anomaly_count = _f(valuation_truth.get("preexpiry_404_anomaly_count"), 0.0)
+    lifecycle_context_mismatch_count = _f(valuation_truth.get("lifecycle_context_mismatch_count"), 0.0)
+    lifecycle_context_missing_sec_to_expiry_count = _f(
+        valuation_truth.get("lifecycle_context_missing_sec_to_expiry_count"),
+        0.0,
+    )
+    preexpiry_emergency_taker_attempt_count = _f(
+        valuation_truth.get("preexpiry_emergency_taker_attempt_count"),
+        0.0,
+    )
+    preexpiry_emergency_taker_fill_count = _f(valuation_truth.get("preexpiry_emergency_taker_fill_count"), 0.0)
+    preexpiry_emergency_taker_block_count = _f(valuation_truth.get("preexpiry_emergency_taker_block_count"), 0.0)
+    valuation_hard_degraded_enter_count = _f(valuation_truth.get("valuation_hard_degraded_enter_count"), 0.0)
+    valuation_hard_degraded_clear_count = _f(valuation_truth.get("valuation_hard_degraded_clear_count"), 0.0)
+    held_unpriceable_started_count = _f(valuation_truth.get("held_unpriceable_started_count"), 0.0)
+    held_unpriceable_recovered_count = _f(valuation_truth.get("held_unpriceable_recovered_count"), 0.0)
+    valuation_hard_degraded_unrecovered_count = max(
+        0.0,
+        valuation_hard_degraded_enter_count - valuation_hard_degraded_clear_count,
+    )
+    held_unpriceable_unrecovered_count = max(
+        0.0,
+        held_unpriceable_started_count - held_unpriceable_recovered_count,
+    )
 
     # Explicit, machine-verifiable maker opportunity policy.
     maker_enforcement_cfg = dict(soak_cfg.get("maker_submit_enforcement", {}) or {})
@@ -504,6 +543,159 @@ def run_gate(
             threshold=max_errors,
             passed=errors_pass,
             note=f"maximum error rows eps={error_max_eps:.6f}",
+        )
+    )
+    preexpiry_404_count_max_eps = _metric_epsilon(
+        "preexpiry_404_anomaly_count",
+        kind="max",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    preexpiry_404_count_pass = _passes_max(
+        preexpiry_404_anomaly_count,
+        max_preexpiry_404_anomaly_count,
+        preexpiry_404_count_max_eps,
+    )
+    if not preexpiry_404_count_pass:
+        findings.append(
+            "soak_preexpiry_404_anomaly_count_too_high:"
+            + f"{preexpiry_404_anomaly_count:.6f}>max:{max_preexpiry_404_anomaly_count:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_preexpiry_404_anomaly_count",
+            level="hard_fail",
+            metric="preexpiry_404_anomaly_count",
+            comparator="max",
+            value=preexpiry_404_anomaly_count,
+            threshold=max_preexpiry_404_anomaly_count,
+            passed=preexpiry_404_count_pass,
+            note=f"pre-expiry 404 anomaly budget eps={preexpiry_404_count_max_eps:.6f}",
+        )
+    )
+    lifecycle_mismatch_max_eps = _metric_epsilon(
+        "lifecycle_context_mismatch_count",
+        kind="max",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    lifecycle_mismatch_pass = _passes_max(
+        lifecycle_context_mismatch_count,
+        max_lifecycle_context_mismatch_count,
+        lifecycle_mismatch_max_eps,
+    )
+    if not lifecycle_mismatch_pass:
+        findings.append(
+            "soak_lifecycle_context_mismatch_count_too_high:"
+            + f"{lifecycle_context_mismatch_count:.6f}>max:{max_lifecycle_context_mismatch_count:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_lifecycle_context_mismatch_count",
+            level="hard_fail",
+            metric="lifecycle_context_mismatch_count",
+            comparator="max",
+            value=lifecycle_context_mismatch_count,
+            threshold=max_lifecycle_context_mismatch_count,
+            passed=lifecycle_mismatch_pass,
+            note=f"lifecycle context coherence budget eps={lifecycle_mismatch_max_eps:.6f}",
+        )
+    )
+    lifecycle_missing_max_eps = _metric_epsilon(
+        "lifecycle_context_missing_sec_to_expiry_count",
+        kind="max",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    lifecycle_missing_pass = _passes_max(
+        lifecycle_context_missing_sec_to_expiry_count,
+        max_lifecycle_context_missing_sec_to_expiry_count,
+        lifecycle_missing_max_eps,
+    )
+    if not lifecycle_missing_pass:
+        findings.append(
+            "soak_lifecycle_context_missing_sec_to_expiry_count_too_high:"
+            + f"{lifecycle_context_missing_sec_to_expiry_count:.6f}>max:{max_lifecycle_context_missing_sec_to_expiry_count:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_lifecycle_context_missing_sec_to_expiry_count",
+            level="hard_fail",
+            metric="lifecycle_context_missing_sec_to_expiry_count",
+            comparator="max",
+            value=lifecycle_context_missing_sec_to_expiry_count,
+            threshold=max_lifecycle_context_missing_sec_to_expiry_count,
+            passed=lifecycle_missing_pass,
+            note=f"explicit sec_to_expiry coherence budget eps={lifecycle_missing_max_eps:.6f}",
+        )
+    )
+    hard_degraded_unrecovered_max_eps = _metric_epsilon(
+        "valuation_hard_degraded_unrecovered_count",
+        kind="max",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    hard_degraded_unrecovered_pass = _passes_max(
+        valuation_hard_degraded_unrecovered_count,
+        max_valuation_hard_degraded_unrecovered_count,
+        hard_degraded_unrecovered_max_eps,
+    )
+    if not hard_degraded_unrecovered_pass:
+        findings.append(
+            "soak_valuation_hard_degraded_unrecovered_count_too_high:"
+            + f"{valuation_hard_degraded_unrecovered_count:.6f}>max:{max_valuation_hard_degraded_unrecovered_count:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_valuation_hard_degraded_unrecovered_count",
+            level="hard_fail",
+            metric="valuation_hard_degraded_unrecovered_count",
+            comparator="max",
+            value=valuation_hard_degraded_unrecovered_count,
+            threshold=max_valuation_hard_degraded_unrecovered_count,
+            passed=hard_degraded_unrecovered_pass,
+            note=(
+                f"enter_count={valuation_hard_degraded_enter_count:.6f} "
+                + f"clear_count={valuation_hard_degraded_clear_count:.6f} "
+                + f"eps={hard_degraded_unrecovered_max_eps:.6f}"
+            ),
+        )
+    )
+    held_unpriceable_unrecovered_max_eps = _metric_epsilon(
+        "held_unpriceable_unrecovered_count",
+        kind="max",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    held_unpriceable_unrecovered_pass = _passes_max(
+        held_unpriceable_unrecovered_count,
+        max_held_unpriceable_unrecovered_count,
+        held_unpriceable_unrecovered_max_eps,
+    )
+    if not held_unpriceable_unrecovered_pass:
+        findings.append(
+            "soak_held_unpriceable_unrecovered_count_too_high:"
+            + f"{held_unpriceable_unrecovered_count:.6f}>max:{max_held_unpriceable_unrecovered_count:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_held_unpriceable_unrecovered_count",
+            level="hard_fail",
+            metric="held_unpriceable_unrecovered_count",
+            comparator="max",
+            value=held_unpriceable_unrecovered_count,
+            threshold=max_held_unpriceable_unrecovered_count,
+            passed=held_unpriceable_unrecovered_pass,
+            note=(
+                f"started_count={held_unpriceable_started_count:.6f} "
+                + f"recovered_count={held_unpriceable_recovered_count:.6f} "
+                + f"eps={held_unpriceable_unrecovered_max_eps:.6f}"
+            ),
         )
     )
     maker_submits_min_eps = _metric_epsilon(
@@ -745,6 +937,7 @@ def run_gate(
                 "websocket_reliability_gate findings",
                 "readiness required stage",
                 "soak duration/uptime/error rows",
+                "valuation/lifecycle counter coherence and anomaly budgets",
                 "active-target meaningful participation when targets are present",
                 "market-data source realism ratios",
                 "maker/taker bonus execution-path minimums",
@@ -792,6 +985,18 @@ def run_gate(
             "book_updates_rest_delta": book_updates_rest_delta,
             "book_updates_total_delta": book_updates_total_delta,
             "book_updates_rest_ratio": book_updates_rest_ratio,
+            "preexpiry_404_anomaly_count": preexpiry_404_anomaly_count,
+            "lifecycle_context_mismatch_count": lifecycle_context_mismatch_count,
+            "lifecycle_context_missing_sec_to_expiry_count": lifecycle_context_missing_sec_to_expiry_count,
+            "preexpiry_emergency_taker_attempt_count": preexpiry_emergency_taker_attempt_count,
+            "preexpiry_emergency_taker_fill_count": preexpiry_emergency_taker_fill_count,
+            "preexpiry_emergency_taker_block_count": preexpiry_emergency_taker_block_count,
+            "valuation_hard_degraded_enter_count": valuation_hard_degraded_enter_count,
+            "valuation_hard_degraded_clear_count": valuation_hard_degraded_clear_count,
+            "held_unpriceable_started_count": held_unpriceable_started_count,
+            "held_unpriceable_recovered_count": held_unpriceable_recovered_count,
+            "valuation_hard_degraded_unrecovered_count": valuation_hard_degraded_unrecovered_count,
+            "held_unpriceable_unrecovered_count": held_unpriceable_unrecovered_count,
             "report_max_lines_per_file": report_tail,
             "runtime_classification": runtime_classification_name,
             "runtime_promotion_eligible": runtime_promotion_eligible,
@@ -809,6 +1014,13 @@ def run_gate(
                 "min_default": default_min_eps,
                 "max_default": default_max_eps,
                 "metric_overrides": metric_eps_cfg,
+            },
+            "valuation_counter_limits": {
+                "max_preexpiry_404_anomaly_count": max_preexpiry_404_anomaly_count,
+                "max_lifecycle_context_mismatch_count": max_lifecycle_context_mismatch_count,
+                "max_lifecycle_context_missing_sec_to_expiry_count": max_lifecycle_context_missing_sec_to_expiry_count,
+                "max_valuation_hard_degraded_unrecovered_count": max_valuation_hard_degraded_unrecovered_count,
+                "max_held_unpriceable_unrecovered_count": max_held_unpriceable_unrecovered_count,
             },
             "readiness_required_stage_failure_causes": sorted(set(readiness_required_stage_failure_causes)),
             "maker_submit_enforcement": {

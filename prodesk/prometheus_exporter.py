@@ -50,7 +50,7 @@ class PrometheusExporter:
                 registry=self._registry,
             )
             self._server = start_http_server(port=self.port, addr=self.host, registry=self._registry)
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise PrometheusExporterError(f"failed to start metrics server on {self.host}:{self.port}: {exc}") from exc
         self._is_started = True
 
@@ -72,7 +72,7 @@ class PrometheusExporter:
         if self._server is not None and hasattr(self._server, "shutdown"):
             try:
                 self._server.shutdown()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
         self._server = None
         self._registry = None

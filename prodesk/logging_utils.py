@@ -12,6 +12,12 @@ from typing import Any, Dict, Optional
 
 from .common import utc_now
 
+LOG_FLUSH_FSYNC_EXCEPTIONS = (
+    OSError,
+    RuntimeError,
+    ValueError,
+)
+
 
 _SENSITIVE_EXACT_KEYS = {
     "secret",
@@ -149,7 +155,7 @@ class DailyJsonlWriter:
         self._pending.clear()
         self._fh.flush()
         if self.fsync_on_flush:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*LOG_FLUSH_FSYNC_EXCEPTIONS):
                 fileno = self._fh.fileno()
                 if fileno >= 0:
                     os.fsync(fileno)
@@ -228,7 +234,7 @@ def configure_console_logging(level: int = logging.INFO) -> None:
                 if record.args:
                     args = record.args if isinstance(record.args, tuple) else (record.args,)
                     record.args = tuple(redact_sensitive(arg) for arg in args)
-            except Exception:
+            except (KeyError, TypeError, ValueError):
                 return True
             return True
 

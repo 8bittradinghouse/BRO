@@ -86,7 +86,7 @@ def _load_json(path: Path) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "missing"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return None, f"parse_error:{exc}"
     if not isinstance(payload, dict):
         return None, "invalid_root:not_object"

@@ -42,7 +42,7 @@ def run_drill(*, backup_dir: pathlib.Path, require_state: bool, require_manifest
 
     try:
         expected = hash_path.read_text(encoding="utf-8").strip().splitlines()[0].split()[0].lower()
-    except Exception as exc:
+    except (OSError, UnicodeError, IndexError, ValueError) as exc:
         findings.append(f"bundle_hash_invalid:{hash_path.name}:{exc.__class__.__name__}")
         return {"ok": False, "finding_count": len(findings), "findings": findings, "bundle": str(latest)}
 

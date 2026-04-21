@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import json
 import pathlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
-def _load_manifest(log_dir: pathlib.Path, run_id: Optional[str]) -> Dict[str, Any]:
+def _load_manifest(log_dir: pathlib.Path, run_id: Optional[str]) -> Tuple[Dict[str, Any], bool, str]:
     target = str(run_id or "").strip()
     if not target:
-        return {}
+        return {}, False, "run_id_missing"
     exact = log_dir / f"run_manifest_{target}.json"
     if not exact.exists():
-        return {}
+        return {}, False, "manifest_missing"
     try:
         payload = json.loads(exact.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+        return {}, True, f"manifest_invalid_json:{exc.__class__.__name__}"
+    if not isinstance(payload, dict):
+        return {}, True, "manifest_invalid_root"
+    return payload, True, ""
 
 
 def resolve_latest_run_id(log_dir: pathlib.Path) -> str:
@@ -33,7 +35,7 @@ def resolve_run_id(*, log_dir: pathlib.Path, run_id: Optional[str]) -> Optional[
 
 
 def build_artifact_identity(*, log_dir: pathlib.Path, run_id: Optional[str]) -> Dict[str, Any]:
-    manifest = _load_manifest(log_dir.resolve(), run_id)
+    manifest, manifest_present, manifest_load_error = _load_manifest(log_dir.resolve(), run_id)
     config = manifest.get("config") if isinstance(manifest.get("config"), dict) else {}
     profile = config.get("profile") if isinstance(config.get("profile"), dict) else {}
     runtime_identity = (
@@ -53,6 +55,8 @@ def build_artifact_identity(*, log_dir: pathlib.Path, run_id: Optional[str]) -> 
         "docker_image_hash": str(runtime_identity.get("docker_image_hash") or ""),
         "config_source_path": str(manifest.get("config_source_path") or ""),
         "config_source_sha256": str(manifest.get("config_source_sha256") or ""),
+        "manifest_present": bool(manifest_present),
+        "manifest_load_error": str(manifest_load_error or ""),
     }
 
 

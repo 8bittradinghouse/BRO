@@ -506,6 +506,20 @@ class RiskEngine:
             if not lifecycle_context_missing_reason:
                 lifecycle_context_missing_reason = "reduce_only_recovery_active_with_normal_financial_posture"
         reduce_only_recovery_priority = bool(reduce_only_recovery_active and pure_risk_reducing_intent)
+        context_stage = str(context.get("stage") or "").strip().upper() or "UNKNOWN"
+        context_submission_lane = str(context.get("submission_lane") or "").strip().lower() or "unknown"
+        early_basis_base: Dict[str, Any] = {
+            "submission_lane": str(context_submission_lane),
+            "stage": str(context_stage),
+            "financial_posture_class": str(financial_posture_class),
+            "sec_to_expiry": sec_to_expiry,
+            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+            "lifecycle_context_present": bool(lifecycle_context_present),
+            "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
+            "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
+            "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
+        }
         if lifecycle_context_mismatch and (not pure_risk_reducing_intent):
             return RiskDecision(
                 False,
@@ -515,16 +529,9 @@ class RiskEngine:
                     "reduce_only_recovery_active is incompatible with NORMAL posture"
                 ),
                 basis={
+                    **early_basis_base,
                     "risk_authority": "lifecycle_context",
-                    "financial_posture_class": str(financial_posture_class),
-                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
-                    "sec_to_expiry": sec_to_expiry,
-                    "lifecycle_context_present": bool(lifecycle_context_present),
-                    "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
-                    "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
-                    "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
                 },
             )
         if financial_posture_class == "HALT_NEW_RISK" and (not pure_risk_reducing_intent):
@@ -536,17 +543,10 @@ class RiskEngine:
                     f"side={str(intent.side or '').upper()}"
                 ),
                 basis={
+                    **early_basis_base,
                     "risk_authority": "terminal_unwind_halt_new_risk",
-                    "financial_posture_class": str(financial_posture_class),
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
-                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
-                    "sec_to_expiry": sec_to_expiry,
                     "terminal_unwind_halt_new_risk_active": True,
-                    "lifecycle_context_present": bool(lifecycle_context_present),
-                    "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
-                    "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
-                    "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
                 },
             )
         order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
@@ -564,9 +564,8 @@ class RiskEngine:
                     f">=limit={int(hard_limit)}"
                 ),
                 basis={
+                    **early_basis_base,
                     "risk_authority": "order_rate",
-                    "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-                    "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
                     "order_rate_limit_basis": {
                         "orders_limit": int(order_capacity.get("orders_limit") or 0),
@@ -588,14 +587,14 @@ class RiskEngine:
                     False,
                     "open_orders_token_cap",
                     "too many open orders for token",
-                    basis={"risk_authority": "open_orders_token_cap"},
+                    basis={**early_basis_base, "risk_authority": "open_orders_token_cap"},
                 )
             if open_orders_total >= int(self.cfg["max_total_open_orders"]):
                 return RiskDecision(
                     False,
                     "open_orders_global_cap",
                     "too many global open orders",
-                    basis={"risk_authority": "open_orders_global_cap"},
+                    basis={**early_basis_base, "risk_authority": "open_orders_global_cap"},
                 )
 
         min_order_size = float(self.cfg["min_order_size"])
@@ -616,26 +615,61 @@ class RiskEngine:
             and (float(intent.size) * float(intent.price) + 1e-9) >= reduce_only_terminal_min_notional_usd
         )
         if float(intent.size) < min_order_size and (not terminal_reduce_only_notional_exemption):
-            return RiskDecision(False, "size_too_small", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
+            return RiskDecision(
+                False,
+                "size_too_small",
+                f"size={intent.size}",
+                basis={**early_basis_base, "risk_authority": "size_bounds"},
+            )
         if intent.size > float(self.cfg["max_order_size"]):
-            return RiskDecision(False, "size_too_large", f"size={intent.size}", basis={"risk_authority": "size_bounds"})
+            return RiskDecision(
+                False,
+                "size_too_large",
+                f"size={intent.size}",
+                basis={**early_basis_base, "risk_authority": "size_bounds"},
+            )
 
         if not (0.0 < intent.price < 1.0):
-            return RiskDecision(False, "invalid_price", f"price={intent.price}", basis={"risk_authority": "price_bounds"})
+            return RiskDecision(
+                False,
+                "invalid_price",
+                f"price={intent.price}",
+                basis={**early_basis_base, "risk_authority": "price_bounds"},
+            )
 
         ts = parse_ts(top.ts_utc)
         if ts is None:
-            return RiskDecision(False, "bad_book_timestamp", top.ts_utc, basis={"risk_authority": "book_freshness"})
+            return RiskDecision(
+                False,
+                "bad_book_timestamp",
+                top.ts_utc,
+                basis={**early_basis_base, "risk_authority": "book_freshness"},
+            )
         age = (self._utc_now() - ts).total_seconds()
         max_future_skew = float(self.cfg.get("max_book_future_skew_sec", 2.0))
         if age < -max_future_skew:
-            return RiskDecision(False, "future_book_timestamp", f"age_sec={age:.3f}", basis={"risk_authority": "book_freshness"})
+            return RiskDecision(
+                False,
+                "future_book_timestamp",
+                f"age_sec={age:.3f}",
+                basis={**early_basis_base, "risk_authority": "book_freshness"},
+            )
         if age > float(self.cfg["max_book_age_sec"]):
-            return RiskDecision(False, "stale_book", f"age_sec={age:.3f}", basis={"risk_authority": "book_freshness"})
+            return RiskDecision(
+                False,
+                "stale_book",
+                f"age_sec={age:.3f}",
+                basis={**early_basis_base, "risk_authority": "book_freshness"},
+            )
 
         if top.best_bid_price is not None and top.best_ask_price is not None:
             if top.best_bid_price > top.best_ask_price and not bool(self.cfg.get("allow_crossed_quotes", False)):
-                return RiskDecision(False, "crossed_market", "bid > ask", basis={"risk_authority": "market_sanity"})
+                return RiskDecision(
+                    False,
+                    "crossed_market",
+                    "bid > ask",
+                    basis={**early_basis_base, "risk_authority": "market_sanity"},
+                )
 
         effective_multiplier, dynamic_scaling_basis = self._resolve_dynamic_scaling(risk_context=context)
         max_abs_position_base = float(self.cfg["max_abs_position_shares"])
@@ -644,9 +678,9 @@ class RiskEngine:
         max_notional_effective = max(1e-9, max_notional_base * float(effective_multiplier))
         basis_base: Dict[str, Any] = {
             "risk_authority": "risk_engine_v2",
-            "submission_lane": str(context.get("submission_lane") or "unknown"),
-            "stage": str(context.get("stage") or "unknown"),
-            "financial_posture_class": str(context.get("financial_posture_class") or "UNKNOWN"),
+            "submission_lane": str(context_submission_lane),
+            "stage": str(context_stage),
+            "financial_posture_class": str(financial_posture_class),
             "sec_to_expiry": sec_to_expiry,
             "min_sec_to_expiry_for_new_exposure": self._safe_float(
                 self.cfg.get("min_sec_to_expiry_for_new_exposure")

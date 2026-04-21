@@ -33,11 +33,19 @@ class RunContractTests(unittest.TestCase):
                 status_path=str(root / "status_2026-03-18.jsonl"),
                 events_path=str(root / "events_2026-03-18.jsonl"),
                 errors_path=str(root / "errors_2026-03-18.jsonl"),
+                git_commit="deadbeef",
+                config_fingerprint_sha256="a" * 64,
+                code_fingerprint_sha256="b" * 64,
+                code_fingerprint_file_count=55,
             )
             out_path = root / "run_contract_rid-1.json"
             write_run_contract(out_path, payload, allow_open=False)
             loaded = load_run_contract(out_path, allow_open=False)
             self.assertEqual(str(loaded.get("run_id")), "rid-1")
+            self.assertEqual(str(loaded.get("git_commit")), "deadbeef")
+            self.assertEqual(str(loaded.get("config_fingerprint_sha256")), "a" * 64)
+            self.assertEqual(str(loaded.get("code_fingerprint_sha256")), "b" * 64)
+            self.assertEqual(int(loaded.get("code_fingerprint_file_count")), 55)
 
     def test_open_contract_requires_allow_open(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

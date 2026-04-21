@@ -1087,6 +1087,69 @@ class EdgeTruthAuditTests(unittest.TestCase):
             findings = "\n".join(str(x) for x in out.get("findings", []))
             self.assertNotIn("action_with_invalid_edge_inputs:fair_probability_missing", findings)
 
+    def test_edge_truth_audit_allows_recovery_action_with_missing_market_probability(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            run_id = "rid-recovery-missing-market"
+            events_path = self._write_event_rows(
+                log_dir,
+                [
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "t1",
+                        "timestamp_utc": "2026-03-22T00:00:00Z",
+                        "stage": "SNIPER_PRIMARY",
+                        "time_remaining_sec": 22.0,
+                        "fair_probability": 0.77,
+                        "market_probability": None,
+                        "edge_value": None,
+                        "oracle_tick_age_sec": 0.1,
+                        "latency_state": "armed",
+                        "maker_allowed": True,
+                        "taker_allowed": True,
+                        "reduce_only_recovery_active": True,
+                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                        "action_taken": "taker",
+                        "block_reason": None,
+                        "submitted": True,
+                        "filled": True,
+                        "result": None,
+                        "evaluation_scope": "taker",
+                        "cycle_index": 22,
+                        "order_id": "ord-recovery-missing-market",
+                    }
+                ],
+            )
+            status_path = self._write_status_rows(
+                log_dir,
+                [
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:02Z",
+                        "runtime_state": "active",
+                        "target_count": 1,
+                    }
+                ],
+            )
+            run_contract_path = self._write_contract(
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            out = run_audit(
+                log_dir=log_dir,
+                run_id=run_id,
+                config_path=self._config_path(),
+                run_contract_path=run_contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+            )
+            self.assertTrue(bool(out.get("ok")))
+            findings = "\n".join(str(x) for x in out.get("findings", []))
+            self.assertNotIn("action_with_invalid_edge_inputs:market_probability_missing", findings)
+
     def test_edge_truth_audit_allows_standdown_only_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)

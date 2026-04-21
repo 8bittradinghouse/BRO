@@ -133,7 +133,7 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
 def _safe_float(value: Any) -> Optional[float]:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if out != out:
         return None
@@ -232,7 +232,7 @@ def run_audit(
                 run_contract_path_override=run_contract_path,
                 allow_open=(normalized_phase == "validate_active"),
             )
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             findings.append(str(exc))
             contract = None
         if isinstance(contract, dict):

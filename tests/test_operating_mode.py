@@ -80,6 +80,50 @@ class OperatingModeTests(unittest.TestCase):
             )
         self.assertEqual(snap.state, MODE_NORMAL)
 
+    def test_single_stale_reject_does_not_escalate_without_min_evidence(self):
+        ctrl = OperatingModeController(self._cfg())
+        snap = ctrl.observe_cycle(
+            risk_rejects=1,
+            stale_rejects=1,
+            outage_cycle=False,
+            disarmed_cycle=False,
+            error_cycle=False,
+        )
+        self.assertEqual(snap.state, MODE_NORMAL)
+        self.assertAlmostEqual(snap.stale_reject_ratio, 1.0, places=9)
+        self.assertEqual(snap.risk_reject_count, 1)
+        self.assertEqual(snap.stale_reject_count, 1)
+
+    def test_stale_ratio_severe_triggers_when_min_evidence_is_met(self):
+        cfg = self._cfg()
+        cfg["caution_min_stale_reject_count"] = 1
+        cfg["caution_min_risk_reject_count"] = 1
+        cfg["maker_only_min_stale_reject_count"] = 2
+        cfg["maker_only_min_risk_reject_count"] = 2
+        ctrl = OperatingModeController(cfg)
+        snap = ctrl.observe_cycle(
+            risk_rejects=2,
+            stale_rejects=2,
+            outage_cycle=False,
+            disarmed_cycle=False,
+            error_cycle=False,
+        )
+        self.assertEqual(snap.state, MODE_MAKER_ONLY)
+
+    def test_non_stale_severe_signals_still_escalate_with_sparse_rejects(self):
+        cfg = self._cfg()
+        cfg["maker_only_min_stale_reject_count"] = 999
+        cfg["maker_only_min_risk_reject_count"] = 999
+        ctrl = OperatingModeController(cfg)
+        snap = ctrl.observe_cycle(
+            risk_rejects=0,
+            stale_rejects=0,
+            outage_cycle=True,
+            disarmed_cycle=False,
+            error_cycle=False,
+        )
+        self.assertEqual(snap.state, MODE_MAKER_ONLY)
+
 
 if __name__ == "__main__":
     unittest.main()

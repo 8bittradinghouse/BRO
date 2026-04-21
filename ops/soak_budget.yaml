@@ -63,6 +63,12 @@ soak:
   min_duration_minutes: 10
   min_quote_uptime_ratio: 0.05
   max_error_rows: 0
+  max_preexpiry_404_anomaly_count: 0
+  max_lifecycle_context_mismatch_count: 0
+  max_lifecycle_context_missing_sec_to_expiry_count: 0
+  # Keep default non-blocking until we collect a wider run distribution.
+  max_valuation_hard_degraded_unrecovered_count: 1000000
+  max_held_unpriceable_unrecovered_count: 1000000
   min_maker_submits: 50
   maker_submit_enforcement:
     mode: opportunity_aware

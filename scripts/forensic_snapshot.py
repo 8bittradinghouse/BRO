@@ -37,7 +37,7 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
 def _to_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
@@ -60,7 +60,7 @@ def _load_run_rows(paths: list[pathlib.Path], run_id: str) -> list[Dict[str, Any
                     if target and str(row.get("run_id") or "").strip() != target:
                         continue
                     out.append(row)
-        except Exception:
+        except (OSError, UnicodeError):
             continue
     return out
 

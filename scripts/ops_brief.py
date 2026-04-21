@@ -16,7 +16,7 @@ from scripts.ops_snapshot import run_snapshot
 def _safe_float(v: Any) -> float:
     try:
         return float(v)
-    except Exception:
+    except (TypeError, ValueError):
         return 0.0
 
 

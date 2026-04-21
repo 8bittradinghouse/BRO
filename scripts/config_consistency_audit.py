@@ -46,7 +46,7 @@ def _load_effective_config(path: pathlib.Path) -> Dict[str, Any]:
         loaded = load_execution_config(resolved)
         if isinstance(loaded, dict):
             return loaded
-    except Exception:
+    except (OSError, ValueError, TypeError, RuntimeError):
         pass
     payload = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):

@@ -47,11 +47,11 @@ def _load_rows_from_slice(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
                     continue
                 try:
                     row = json.loads(text)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 if isinstance(row, dict):
                     yield row
-    except Exception:
+    except OSError:
         return
 
 
@@ -122,7 +122,7 @@ def _validate_time_policy(rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], L
             continue
         try:
             skew_tolerance_ms = float(payload.get("skew_tolerance_ms"))
-        except Exception:
+        except (TypeError, ValueError):
             invalid_rows += 1
             continue
         if skew_tolerance_ms < 0:
@@ -210,11 +210,11 @@ def _event_domain_audit(
             decision_before_event_rows += 1
 
         if ts_source is not None and ts_receive is not None:
-            # Bootstrap subscribe ticks can carry backfilled source timestamps;
-            # keep them observable but do not treat them as live skew violations.
+            # Chainlink feed ticks can carry source-time semantics that differ from
+            # local receive-time semantics; keep them observable but do not treat
+            # them as transport clock-skew violations in this audit.
             event_type = str(row.get("event_type") or "").strip().lower()
-            msg_type = str(row.get("msg_type") or "").strip().lower()
-            if event_type == "chainlink_tick" and msg_type == "subscribe":
+            if event_type == "chainlink_tick":
                 cross_domain_skew_exempt_rows += 1
                 continue
             cross_domain_skew_checked_rows += 1
@@ -251,7 +251,7 @@ def _event_domain_audit(
         "invalid_decision_ts_rows": int(invalid_decision_ts_rows),
         "ts_event_mismatch_rows": int(ts_event_mismatch_rows),
         "decision_before_event_rows": int(decision_before_event_rows),
-        "cross_domain_skew_exemption_policy": "chainlink_tick_msg_type_subscribe",
+        "cross_domain_skew_exemption_policy": "chainlink_tick",
         "cross_domain_skew_checked_rows": int(cross_domain_skew_checked_rows),
         "cross_domain_skew_exempt_rows": int(cross_domain_skew_exempt_rows),
         "cross_domain_skew_exceeded_rows": int(cross_domain_skew_exceeded_rows),
@@ -305,7 +305,7 @@ def run_audit(
                 run_contract_path_override=run_contract_path,
                 allow_open=(normalized_phase == "validate_active"),
             )
-        except Exception as exc:
+        except ValueError as exc:
             findings.append(str(exc))
             contract = None
         if isinstance(contract, dict):

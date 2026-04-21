@@ -38,7 +38,7 @@ def parse_ts(value: Any) -> Optional[dt.datetime]:
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -181,13 +181,13 @@ def _venue_snapshot(cfg: Dict[str, Any], *, date_str: str) -> Dict[str, Any]:
         }
     except GatewayError as exc:
         return {"available": False, "reason": f"gateway_error:{exc}", "fills": 0.0, "open_orders": 0.0}
-    except Exception as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return {"available": False, "reason": f"venue_snapshot_failed:{exc}", "fills": 0.0, "open_orders": 0.0}
     finally:
         if gateway is not None:
             try:
                 gateway.close()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
 
 

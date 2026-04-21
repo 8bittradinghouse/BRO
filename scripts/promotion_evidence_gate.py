@@ -18,7 +18,7 @@ import yaml
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default

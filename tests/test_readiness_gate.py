@@ -347,6 +347,48 @@ class ReadinessGateTests(unittest.TestCase):
             self.assertEqual(result.get("suppression_summary", {}).get("primary_suppression_cause"), "none")
             self.assertEqual(result.get("suppression_summary", {}).get("execution_starvation_mode"), "none")
 
+    def test_readiness_gate_surfaces_lifecycle_context_missing_metric(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-lifecycle-missing"
+            policy_path = root / "policy.yaml"
+            policy_payload = {
+                "stage_order": ["paper"],
+                "stages": {
+                    "paper": {
+                        "max_lifecycle_context_missing_sec_to_expiry_count": 0,
+                    }
+                },
+            }
+            policy_path.write_text(yaml.safe_dump(policy_payload), encoding="utf-8")
+            policy = _load_policy(policy_path)
+
+            fake_report = {
+                "status_rows": 2,
+                "error_rows": 0,
+                "quote_uptime_ratio": 1.0,
+                "reject_reason_distribution": {},
+                "execution_quality": {"capture_minus_adverse": 0.0},
+                "runtime_classification": {
+                    "classification": "VALID_ACTIVE",
+                    "promotion_eligible": True,
+                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                },
+                "valuation_truth": {
+                    "lifecycle_context_missing_sec_to_expiry_count": 1.0,
+                },
+            }
+
+            with mock.patch("scripts.readiness_gate.build_report", return_value=fake_report):
+                result = run_readiness_gate(log_dir=root, policy=policy, run_id=run_id)
+
+            self.assertIsNone(result["highest_passing_stage"])
+            self.assertEqual(result["blocking_stage"], "paper")
+            self.assertEqual(
+                result["metrics"].get("lifecycle_context_missing_sec_to_expiry_count"),
+                1.0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

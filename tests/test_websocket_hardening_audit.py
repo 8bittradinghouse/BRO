@@ -124,13 +124,21 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
                 {
                     "ts_utc": "2026-01-01T00:01:00.000Z",
                     "run_id": run_id,
-                    "book_feed": {"connected": False, "reconnects": 50, "last_msg_age_sec": 30},
+                    "book_feed": {
+                        "enabled": True,
+                        "connected": False,
+                        "reconnects": 50,
+                        "last_msg_age_sec": 30,
+                        "thread_alive": False,
+                    },
                     "chainlink": {
+                        "enabled": True,
                         "connected": False,
                         "reconnects": 50,
                         "last_tick_age_sec": 40,
                         "queue_size": 20000,
                         "dropped_ticks": 10,
+                        "thread_alive": False,
                         "ordering_policy": self._ordering_policy_payload(),
                         "ordering_classification_counts": self._ordering_class_counts(
                             ordered=2,
@@ -155,6 +163,8 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
         self.assertIn("websocket_evidence_chainlink_reconnects_per_hour_too_high", text)
         self.assertIn("websocket_evidence_chainlink_dropped_ticks_too_high", text)
         self.assertIn("websocket_evidence_chainlink_queue_size_too_high", text)
+        self.assertIn("websocket_evidence_book_feed_thread_dead_rows", text)
+        self.assertIn("websocket_evidence_chainlink_thread_dead_rows", text)
         self.assertIn("BRO-2201", result.get("error_codes", []))
 
     def test_audit_supports_run_contract_bounded_replay(self):

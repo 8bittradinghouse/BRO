@@ -18,6 +18,7 @@ Harden and complete the Bro trading system to near pro-desk engineering quality 
 - High rigor on every change.
 - Test-backed implementation as work progresses.
 - Deterministic gates over ad hoc judgment.
+- Cross-system triage must use `docs/BRO_SYSTEM_COMPARISON_TABLE.md` + `docs/BRO_DIAGNOSTIC_TEMPLATE.md` before mutating fixes.
 - Keep operator visibility high with concise, periodic progress updates.
 - Teach-through-reporting: explain what changed, why, and what evidence passed/failed.
 

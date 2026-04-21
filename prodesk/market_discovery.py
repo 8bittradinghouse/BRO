@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from .common import first_non_none, parse_float, parse_ts, utc_iso
+from .http_session import build_hardened_session
 
 
 _DATE_ONLY_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -211,8 +212,7 @@ class MarketDiscovery:
         self.timeout_sec = float(disc.get("timeout_sec", md_cfg.get("timeout_sec", 8)))
         self.max_retries = int(disc.get("max_retries", md_cfg.get("max_retries", 2)))
 
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "polymarket-bro-executor/0.1"})
+        self.session = build_hardened_session(user_agent="polymarket-bro-executor/0.1")
 
     def close(self) -> None:
         self.session.close()

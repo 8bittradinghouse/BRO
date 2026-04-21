@@ -71,6 +71,7 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "taker_price_unavailable",
     "reduce_only_recovery_size_cap_below_min_order_size",
     "reduce_only_recovery_no_reducing_side",
+    "reduce_only_recovery_waiting_for_maker_exit",
     "reduce_only_recovery_size_cap_unavailable",
     "reduce_only_recovery_touch_price_unavailable",
     "taker_submit_rejected",
@@ -139,7 +140,7 @@ def _parse_prob(value: Any) -> Optional[float]:
         return None
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if not math.isfinite(out):
         return None
@@ -153,7 +154,7 @@ def _parse_nonnegative(value: Any) -> Optional[float]:
         return None
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if not math.isfinite(out):
         return None

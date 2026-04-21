@@ -141,6 +141,64 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertIn("protected_no_trade_explanation", soak_report)
             self.assertIn("control_authority_clarity", soak_report)
             self.assertIn("protection_path_trigger_chain", soak_report)
+            self.assertIn("preexpiry_404_anomaly_count", soak_report)
+            self.assertIn("lifecycle_context_mismatch_count", soak_report)
+            self.assertIn("lifecycle_context_missing_sec_to_expiry_count", soak_report)
+            self.assertIn("valuation_counter_limits", soak_report)
+
+    def test_soak_gate_fails_when_lifecycle_context_mismatch_count_exceeds_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            status_path = log_dir / "status_2099-01-01.jsonl"
+            status_rows = [json.loads(line) for line in status_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            status_rows[-1]["lifecycle_context_mismatch_count"] = 1
+            status_rows[-1]["lifecycle_context_missing_sec_to_expiry_count"] = 0
+            status_rows[-1]["preexpiry_404_anomaly_count"] = 0
+            status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
+
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {"min_status_rows": 1, "max_order_capacity_used_ratio": 1.0, "max_cancel_capacity_used_ratio": 1.0},
+                        "websocket": {
+                            "min_status_rows": 1,
+                            "max_book_feed_down_ratio": 1.0,
+                            "max_chainlink_down_ratio": 1.0,
+                            "max_book_feed_reconnects_per_hour": 1000000.0,
+                            "max_chainlink_reconnects_per_hour": 1000000.0,
+                            "max_book_feed_last_msg_age_sec": 1000000.0,
+                            "max_chainlink_last_tick_age_sec": 1000000.0,
+                            "max_chainlink_dropped_ticks": 1000000.0,
+                            "max_chainlink_queue_size": 1000000.0,
+                        },
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.5,
+                            "max_error_rows": 0,
+                            "max_lifecycle_context_mismatch_count": 0,
+                            "max_lifecycle_context_missing_sec_to_expiry_count": 0,
+                            "max_preexpiry_404_anomaly_count": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertFalse(result["ok"])
+            self.assertTrue(
+                any("soak_lifecycle_context_mismatch_count_too_high:" in finding for finding in result.get("findings", [])),
+                msg=result.get("findings", []),
+            )
 
     def test_soak_gate_fails_when_rest_fallback_ratio_exceeds_budget(self):
         with tempfile.TemporaryDirectory() as td:

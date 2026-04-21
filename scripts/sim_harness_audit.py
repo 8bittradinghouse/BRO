@@ -125,7 +125,7 @@ def run_audit(*, config_path: pathlib.Path, steps: int, dt_sec: float) -> Dict[s
             else:
                 try:
                     payload = json.loads(p.read_text(encoding="utf-8"))
-                except Exception:
+                except (OSError, json.JSONDecodeError):
                     findings.append(f"invalid_json:{rel}")
                     continue
                 if not str(payload.get("config_fingerprint_sha256", "")).strip():

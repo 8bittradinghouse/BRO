@@ -1,0 +1,1621 @@
+{
+  "counts_by_current_status": {
+    "LINE_CHANGED": 7,
+    "RESOLVED_STALE": 100
+  },
+  "counts_by_orange_retriage_class": {
+    "O-RESOLVED": 107
+  },
+  "generated_utc": "2026-04-21T19:25:40.230256+00:00",
+  "items": [
+    {
+      "candidate_id": "C-001",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 138,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-001"
+    },
+    {
+      "candidate_id": "C-002",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 826,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-002"
+    },
+    {
+      "candidate_id": "C-003",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2175,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-003"
+    },
+    {
+      "candidate_id": "C-004",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2270,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-004"
+    },
+    {
+      "candidate_id": "C-005",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3559,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-005"
+    },
+    {
+      "candidate_id": "C-006",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3570,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-006"
+    },
+    {
+      "candidate_id": "C-007",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4795,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-007"
+    },
+    {
+      "candidate_id": "C-008",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5113,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-008"
+    },
+    {
+      "candidate_id": "C-009",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5128,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-009"
+    },
+    {
+      "candidate_id": "C-010",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5187,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-010"
+    },
+    {
+      "candidate_id": "C-011",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5217,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-011"
+    },
+    {
+      "candidate_id": "C-012",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5248,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-012"
+    },
+    {
+      "candidate_id": "C-013",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5287,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-013"
+    },
+    {
+      "candidate_id": "C-014",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5339,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-014"
+    },
+    {
+      "candidate_id": "C-015",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6443,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-015"
+    },
+    {
+      "candidate_id": "C-016",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6659,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-016"
+    },
+    {
+      "candidate_id": "C-017",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6675,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-017"
+    },
+    {
+      "candidate_id": "C-018",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6947,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-018"
+    },
+    {
+      "candidate_id": "C-019",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 7010,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-019"
+    },
+    {
+      "candidate_id": "C-020",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 125,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-020"
+    },
+    {
+      "candidate_id": "C-021",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 349,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-021"
+    },
+    {
+      "candidate_id": "C-022",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1064,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-022"
+    },
+    {
+      "candidate_id": "C-023",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1125,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(Exception):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-023"
+    },
+    {
+      "candidate_id": "C-024",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2079,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(ValueError):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-024"
+    },
+    {
+      "candidate_id": "C-025",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2100,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(ValueError):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-025"
+    },
+    {
+      "candidate_id": "C-026",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2117,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(ValueError):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-026"
+    },
+    {
+      "candidate_id": "C-027",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2142,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(ValueError):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-027"
+    },
+    {
+      "candidate_id": "C-028",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2184,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "text": "with suppress(ValueError):",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-028"
+    },
+    {
+      "candidate_id": "C-029",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/tx_manager.py",
+      "line": 104,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-029"
+    },
+    {
+      "candidate_id": "C-030",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/tx_manager.py",
+      "line": 120,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-030"
+    },
+    {
+      "candidate_id": "C-031",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 229,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-031"
+    },
+    {
+      "candidate_id": "C-032",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 803,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-032"
+    },
+    {
+      "candidate_id": "C-033",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 822,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-033"
+    },
+    {
+      "candidate_id": "C-034",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 1051,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-034"
+    },
+    {
+      "candidate_id": "C-035",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 133,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-035"
+    },
+    {
+      "candidate_id": "C-036",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 164,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-036"
+    },
+    {
+      "candidate_id": "C-037",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 206,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-037"
+    },
+    {
+      "candidate_id": "C-038",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 248,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-038"
+    },
+    {
+      "candidate_id": "C-039",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 290,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "proc = subprocess.run(",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-039"
+    },
+    {
+      "candidate_id": "C-040",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 324,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-040"
+    },
+    {
+      "candidate_id": "C-041",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 328,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-041"
+    },
+    {
+      "candidate_id": "C-042",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 360,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-042"
+    },
+    {
+      "candidate_id": "C-043",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 611,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "return subprocess.run(",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-043"
+    },
+    {
+      "candidate_id": "C-044",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 816,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-044"
+    },
+    {
+      "candidate_id": "C-045",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 825,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-045"
+    },
+    {
+      "candidate_id": "C-046",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 901,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-046"
+    },
+    {
+      "candidate_id": "C-047",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1050,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "proc = subprocess.run(",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-047"
+    },
+    {
+      "candidate_id": "C-048",
+      "current_status": "LINE_CHANGED",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1230,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "line moved/changed from snapshot",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "proc = subprocess.run(",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-048"
+    },
+    {
+      "candidate_id": "C-049",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1380,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-049"
+    },
+    {
+      "candidate_id": "C-050",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 19,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "result = subprocess.run(cmd, check=False)",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-050"
+    },
+    {
+      "candidate_id": "C-051",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 56,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "text": "editable = subprocess.run([py, \"-m\", \"pip\", \"install\", \"-e\", \".\"], check=False)",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-051"
+    },
+    {
+      "candidate_id": "C-052",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 19,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-052"
+    },
+    {
+      "candidate_id": "C-053",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 44,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-053"
+    },
+    {
+      "candidate_id": "C-054",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/prestart_gate.py",
+      "line": 23,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-054"
+    },
+    {
+      "candidate_id": "C-055",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/readiness_gate.py",
+      "line": 98,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-055"
+    },
+    {
+      "candidate_id": "C-056",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/readiness_gate.py",
+      "line": 130,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-056"
+    },
+    {
+      "candidate_id": "C-057",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 47,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-057"
+    },
+    {
+      "candidate_id": "C-058",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 59,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-058"
+    },
+    {
+      "candidate_id": "C-059",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 67,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-059"
+    },
+    {
+      "candidate_id": "C-060",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 83,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-060"
+    },
+    {
+      "candidate_id": "C-061",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 87,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-061"
+    },
+    {
+      "candidate_id": "C-062",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 138,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-062"
+    },
+    {
+      "candidate_id": "C-063",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 147,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-063"
+    },
+    {
+      "candidate_id": "C-064",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 211,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-064"
+    },
+    {
+      "candidate_id": "C-065",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/soak_hardening_gate.py",
+      "line": 33,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-065"
+    },
+    {
+      "candidate_id": "C-066",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/soak_hardening_gate.py",
+      "line": 43,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-066"
+    },
+    {
+      "candidate_id": "C-067",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 31,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-067"
+    },
+    {
+      "candidate_id": "C-068",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 41,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-068"
+    },
+    {
+      "candidate_id": "C-069",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 134,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-069"
+    },
+    {
+      "candidate_id": "C-070",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 153,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-070"
+    },
+    {
+      "candidate_id": "C-071",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 157,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-071"
+    },
+    {
+      "candidate_id": "C-072",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 533,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "ORANGE_CANDIDATE",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-072"
+    },
+    {
+      "candidate_id": "C-084",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 56,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-073"
+    },
+    {
+      "candidate_id": "C-087",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 85,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-074"
+    },
+    {
+      "candidate_id": "C-088",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/artifact_identity.py",
+      "line": 17,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-075"
+    },
+    {
+      "candidate_id": "C-090",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 199,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-076"
+    },
+    {
+      "candidate_id": "C-091",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 266,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-077"
+    },
+    {
+      "candidate_id": "C-093",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 135,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-078"
+    },
+    {
+      "candidate_id": "C-094",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 154,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-079"
+    },
+    {
+      "candidate_id": "C-095",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 399,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-080"
+    },
+    {
+      "candidate_id": "C-096",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 441,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-081"
+    },
+    {
+      "candidate_id": "C-097",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 456,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-082"
+    },
+    {
+      "candidate_id": "C-099",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 177,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-083"
+    },
+    {
+      "candidate_id": "C-100",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 223,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-084"
+    },
+    {
+      "candidate_id": "C-137",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 35,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-085"
+    },
+    {
+      "candidate_id": "C-138",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 45,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-086"
+    },
+    {
+      "candidate_id": "C-139",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 89,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-087"
+    },
+    {
+      "candidate_id": "C-140",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 94,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-088"
+    },
+    {
+      "candidate_id": "C-141",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 109,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-089"
+    },
+    {
+      "candidate_id": "C-142",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 120,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-090"
+    },
+    {
+      "candidate_id": "C-143",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 126,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-091"
+    },
+    {
+      "candidate_id": "C-144",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 132,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-092"
+    },
+    {
+      "candidate_id": "C-145",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 151,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-093"
+    },
+    {
+      "candidate_id": "C-146",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 207,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-094"
+    },
+    {
+      "candidate_id": "C-148",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 248,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-095"
+    },
+    {
+      "candidate_id": "C-150",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 272,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-096"
+    },
+    {
+      "candidate_id": "C-153",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "line": 115,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-097"
+    },
+    {
+      "candidate_id": "C-163",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/prodesk/state_store.py",
+      "line": 46,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-098"
+    },
+    {
+      "candidate_id": "C-173",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 66,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-099"
+    },
+    {
+      "candidate_id": "C-174",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 95,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-100"
+    },
+    {
+      "candidate_id": "C-185",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 54,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-101"
+    },
+    {
+      "candidate_id": "C-186",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 121,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-102"
+    },
+    {
+      "candidate_id": "C-202",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/ops_brief.py",
+      "line": 19,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-103"
+    },
+    {
+      "candidate_id": "C-203",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/ops_snapshot.py",
+      "line": 21,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-104"
+    },
+    {
+      "candidate_id": "C-204",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 218,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-105"
+    },
+    {
+      "candidate_id": "C-205",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 300,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-106"
+    },
+    {
+      "candidate_id": "C-206",
+      "current_status": "RESOLVED_STALE",
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 764,
+      "orange_retriage_class": "O-RESOLVED",
+      "retriage_reason": "snippet no longer present",
+      "severity": "YELLOW",
+      "tags": [
+        "broad_exception"
+      ],
+      "text": "except Exception as exc:",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-107"
+    }
+  ],
+  "orange_total": 107,
+  "present_actionable_count": 0,
+  "present_actionable_top_files": [],
+  "source_candidates": "/home/odah/bro/base/docs/BRO_MONEY_HARNESS_TRIAGE_V2_20260420.json"
+}

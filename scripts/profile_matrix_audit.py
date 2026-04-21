@@ -44,7 +44,7 @@ def run_audit(*, profile_paths: List[pathlib.Path]) -> Dict[str, Any]:
         profile_label = cfg_path.name
         try:
             cfg = load_execution_config(cfg_path)
-        except Exception as exc:  # pragma: no cover - exercised by unit test through run_audit
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:  # pragma: no cover - exercised by unit test through run_audit
             error = f"{profile_label}:load_error:{exc.__class__.__name__}:{exc}"
             findings.append(error)
             load_errors.append(error)

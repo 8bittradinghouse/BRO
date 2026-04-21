@@ -469,7 +469,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             self.assertEqual(domain["cross_domain_skew_checked_rows"], 0)
             self.assertEqual(domain["cross_domain_skew_exceeded_rows"], 0)
 
-    def test_audit_fails_cross_domain_skew_for_chainlink_update(self):
+    def test_audit_exempts_cross_domain_skew_for_chainlink_update(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = json.loads(json.dumps(DEFAULT_EXECUTION_CONFIG))
@@ -517,6 +517,88 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             stop_ts = now.isoformat().replace("+00:00", "Z")
             contract_payload = build_run_contract(
                 session_id="sid-update-skew",
+                run_id="r1",
+                phase="validate_postrun",
+                session_type="paper_canonical",
+                authority_level="authoritative",
+                allowed_actions=[CAPABILITY_VALIDATE_POSTRUN],
+                manifest_path=(log_dir / "run_manifest_r1.json"),
+                log_root=log_dir,
+                state_root=root,
+                start_ts=start_ts,
+                stop_ts=stop_ts,
+                evidence_slice_start_ts=start_ts,
+                evidence_slice_end_ts=stop_ts,
+                status_path=str(status_path),
+                events_path=str(events_path),
+                errors_path="",
+                status_slice_path=str(status_path),
+                events_slice_path=str(events_path),
+            )
+            run_contract_path = log_dir / "run_contract_r1.json"
+            write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            result = run_audit(
+                config_path=cfg_path,
+                max_allowed_skew_sec=2.5,
+                max_status_age_sec=30.0,
+                min_status_rows=2,
+                run_id="r1",
+                run_contract_path=run_contract_path,
+            )
+            self.assertTrue(result["ok"], msg=result["findings"])
+            domain = result["event_timestamp_domain_audit"]
+            self.assertEqual(domain["cross_domain_skew_exempt_rows"], 1)
+            self.assertEqual(domain["cross_domain_skew_checked_rows"], 0)
+            self.assertEqual(domain["cross_domain_skew_exceeded_rows"], 0)
+
+    def test_audit_fails_cross_domain_skew_for_non_chainlink_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = json.loads(json.dumps(DEFAULT_EXECUTION_CONFIG))
+            cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+            cfg["storage"]["log_dir"] = str(root / "logs")
+            cfg["preflight"]["check_clock_sync"] = True
+            cfg["preflight"]["max_clock_skew_sec"] = 2.5
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg_path = root / "cfg.yaml"
+            cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+            log_dir = Path(cfg["storage"]["log_dir"])
+            log_dir.mkdir(parents=True, exist_ok=True)
+            now = dt.datetime.now(dt.timezone.utc)
+            status_rows = [
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=3)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=2)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+            ]
+            status_path = log_dir / "status_2099-01-01.jsonl"
+            status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
+            event_rows = [
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "r1",
+                    "msg_type": "evaluate",
+                    "ts_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_event_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_receive_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_source_utc": (now - dt.timedelta(seconds=61)).isoformat().replace("+00:00", "Z"),
+                    "ts_decision_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                }
+            ]
+            events_path = log_dir / "events_2099-01-01.jsonl"
+            events_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+
+            start_ts = (now - dt.timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+            stop_ts = now.isoformat().replace("+00:00", "Z")
+            contract_payload = build_run_contract(
+                session_id="sid-non-chainlink-skew",
                 run_id="r1",
                 phase="validate_postrun",
                 session_type="paper_canonical",

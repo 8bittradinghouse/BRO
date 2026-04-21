@@ -63,7 +63,7 @@ def _tail_jsonl(path: pathlib.Path, max_lines: int) -> List[Dict[str, Any]]:
                     continue
                 if isinstance(row, dict):
                     out.append(row)
-    except Exception:
+    except OSError:
         return out
     return out
 
@@ -92,7 +92,7 @@ def _resolve_run_id(log_dir: pathlib.Path, *, explicit_run_id: str, auto_from_ma
         try:
             raw = path.read_text(encoding="utf-8", errors="ignore")
             payload = json.loads(raw)
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             continue
         if isinstance(payload, dict):
             value = str(payload.get("run_id") or "").strip()

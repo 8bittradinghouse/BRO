@@ -132,7 +132,7 @@ def _path_within(path: pathlib.Path, root: pathlib.Path) -> bool:
     try:
         path.resolve().relative_to(root.resolve())
         return True
-    except Exception:
+    except (ValueError, OSError):
         return False
 
 
@@ -151,7 +151,7 @@ def _resolve_mapped_path(*, raw: str, log_dir: pathlib.Path) -> pathlib.Path:
 def _load_context_payload(path: pathlib.Path) -> Dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
         raise ValueError(f"context_file_invalid_json:{exc.__class__.__name__}") from exc
     if not isinstance(payload, dict):
         raise ValueError("context_file_invalid_root")
@@ -396,7 +396,7 @@ def resolve_authority_decision(request: AuthorityRequest) -> AuthorityDecision:
 
     try:
         session_phase = normalize_session_phase(session_phase)
-    except Exception:
+    except ValueError:
         return _deny(
             reason_code="session_phase_invalid",
             reason_detail=session_phase or "missing",
@@ -438,7 +438,7 @@ def resolve_authority_decision(request: AuthorityRequest) -> AuthorityDecision:
 
     try:
         from prodesk.run_contract import contract_allows_action, load_run_contract
-    except Exception as exc:
+    except ImportError as exc:
         return _deny(
             reason_code="run_contract_module_import_failed",
             reason_detail=exc.__class__.__name__,
@@ -453,7 +453,7 @@ def resolve_authority_decision(request: AuthorityRequest) -> AuthorityDecision:
 
     try:
         contract = load_run_contract(run_contract_path, allow_open=bool(request.allow_open_contract))
-    except Exception as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         return _deny(
             reason_code="run_contract_invalid",
             reason_detail=str(exc),

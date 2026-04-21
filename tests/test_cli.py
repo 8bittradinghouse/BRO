@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,7 +29,7 @@ class BroCtlTests(unittest.TestCase):
             repo_root = Path(td).resolve()
             calls = []
 
-            def _fake_run(cmd, check=False, cwd=None):  # noqa: ANN001
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
                 calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
                 return mock.Mock(returncode=0)
 
@@ -54,7 +55,7 @@ class BroCtlTests(unittest.TestCase):
             repo_root = Path(td).resolve()
             calls = []
 
-            def _fake_run(cmd, check=False, cwd=None):  # noqa: ANN001
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
                 calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
                 return mock.Mock(returncode=0)
 
@@ -76,7 +77,7 @@ class BroCtlTests(unittest.TestCase):
             repo_root = Path(td).resolve()
             calls = []
 
-            def _fake_run(cmd, check=False, cwd=None):  # noqa: ANN001
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
                 calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
                 return mock.Mock(returncode=0)
 
@@ -99,7 +100,7 @@ class BroCtlTests(unittest.TestCase):
             repo_root = Path(td).resolve()
             calls = []
 
-            def _fake_run(cmd, check=False, cwd=None):  # noqa: ANN001
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
                 calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
                 return mock.Mock(returncode=0)
 
@@ -118,7 +119,7 @@ class BroCtlTests(unittest.TestCase):
             repo_root = Path(td).resolve()
             calls = []
 
-            def _fake_run(cmd, check=False, cwd=None):  # noqa: ANN001
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
                 calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
                 return mock.Mock(returncode=2)
 
@@ -158,6 +159,20 @@ class BroCtlTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as ex:
                     cli.main()
             self.assertIn("paper setup lock is required but disabled", str(ex.exception))
+
+    def test_subprocess_timeout_exits_with_124(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td).resolve()
+
+            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout if timeout is not None else 1.0)
+
+            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
+                "subprocess.run", side_effect=_fake_run
+            ), mock.patch("sys.argv", ["broctl", "prestart"]):
+                with self.assertRaises(SystemExit) as ex:
+                    cli.main()
+                self.assertEqual(ex.exception.code, 124)
 
 
 class ProfilePathResolutionTests(unittest.TestCase):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -13,10 +14,31 @@ import tempfile
 import datetime as dt
 import yaml
 
+DEFAULT_CI_GATE_STEP_TIMEOUT_SEC = 1800.0
+DEFAULT_CI_GATE_PIP_TIMEOUT_SEC = 1800.0
+
+
+def _timeout_from_env(name: str, default: float) -> float:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return float(default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+    if value <= 0.0:
+        return float(default)
+    return float(value)
+
 
 def run_step(name: str, cmd: list[str]) -> None:
-    print(f"[ci_gate] step={name} cmd={' '.join(cmd)}")
-    result = subprocess.run(cmd, check=False)
+    timeout_sec = _timeout_from_env("BRO_CI_GATE_STEP_TIMEOUT_SEC", DEFAULT_CI_GATE_STEP_TIMEOUT_SEC)
+    print(f"[ci_gate] step={name} timeout_sec={timeout_sec:.1f} cmd={' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, check=False, timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        print(f"[ci_gate] step_timeout={name} timeout_sec={timeout_sec:.1f}")
+        raise SystemExit(124)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -52,8 +74,13 @@ def main() -> None:
     py = sys.executable
     log_dir = str(args.readiness_log_dir).strip()
 
-    print(f"[ci_gate] step=editable_install cmd={py} -m pip install -e .")
-    editable = subprocess.run([py, "-m", "pip", "install", "-e", "."], check=False)
+    pip_timeout_sec = _timeout_from_env("BRO_CI_GATE_PIP_TIMEOUT_SEC", DEFAULT_CI_GATE_PIP_TIMEOUT_SEC)
+    print(f"[ci_gate] step=editable_install timeout_sec={pip_timeout_sec:.1f} cmd={py} -m pip install -e .")
+    try:
+        editable = subprocess.run([py, "-m", "pip", "install", "-e", "."], check=False, timeout=pip_timeout_sec)
+    except subprocess.TimeoutExpired:
+        print(f"[ci_gate] step_timeout=editable_install timeout_sec={pip_timeout_sec:.1f}")
+        raise SystemExit(124)
     if editable.returncode != 0:
         run_step(
             "editable_install_user",
@@ -67,6 +94,7 @@ def main() -> None:
     )
     run_step("prestart_gate", [py, "scripts/prestart_gate.py", "--config", args.config, "--allow-kill-switch", "--allow-guard-file"])
     run_step("runtime_hardening_audit", [py, "scripts/runtime_hardening_audit.py"])
+    run_step("money_harness_exception_audit", [py, "scripts/money_harness_exception_audit.py", "--repo-root", "."])
     run_step("websocket_hardening_audit", [py, "scripts/websocket_hardening_audit.py", "--config", args.config])
     run_step("alert_profile_audit", [py, "scripts/alert_profile_audit.py", "--config", args.config])
     run_step("profile_matrix_audit", [py, "scripts/profile_matrix_audit.py"])

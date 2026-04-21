@@ -162,7 +162,7 @@ def run_audit(
                         noise_class = _is_noise_member(normalized)
                         if noise_class is not None:
                             report["noise_hits"].append({"member": normalized, "noise_class": noise_class})
-            except Exception as exc:
+            except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
                 findings.append(f"zip_scan_failed:{resolved.name}:{exc.__class__.__name__}")
             if report["noise_hits"]:
                 findings.append(f"zip_noise_present:{resolved.name}:count={len(report['noise_hits'])}")

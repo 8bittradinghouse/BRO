@@ -2,7 +2,7 @@ import dataclasses
 import unittest
 from unittest import mock
 
-from prodesk.gateway import BaseGateway, GatewayError
+from prodesk.gateway import BaseGateway, GatewayError, PostOnlyRejectError
 from prodesk.models import FillEvent, LiveOrder, OrderIntent
 from prodesk.tx_manager import TransactionManager
 from prodesk.wallet.wallet_reservations import WalletReservations
@@ -183,6 +183,11 @@ class _UnavailablePendingTxTruthSource(_StaticTruthSource):
         )
 
 
+class _FailingTruthSource(_StaticTruthSource):
+    def wallet_snapshot(self) -> WalletSnapshot:
+        raise RuntimeError("simulated canonical wallet source failure")
+
+
 class _SpoofedLocalNonceTruthSource(_StaticTruthSource):
     def nonce_snapshot(self) -> NonceSnapshot:
         return NonceSnapshot(
@@ -230,6 +235,49 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertTrue(auth.allowed)
         self.assertEqual(auth.action, "reduce")
         self.assertAlmostEqual(auth.approved_size, 5.0)
+
+    def test_paper_wallet_notional_tolerance_does_not_false_reduce_at_low_price(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "max_notional_per_order_usdc": 0.9999998,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+                "reconcile_tolerance_usdc": 1e-6,
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        # Requested notional=1.0; approved notional is only 2e-7 USDC lower (inside tolerance),
+        # but share delta is 2e-6 at this low price. Reduction verdict must use notional-scaled tolerance.
+        intent = OrderIntent(token_id="tok", side="BUY", price=0.1, size=10.0)
+        auth = wallet.authorize_intent(intent)
+        self.assertTrue(auth.allowed)
+        self.assertEqual(auth.action, "approve")
+        self.assertAlmostEqual(auth.approved_size, 9.999998, places=9)
+
+    def test_paper_wallet_allows_tiny_share_when_notional_exceeds_tolerance(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "max_notional_per_order_usdc": 2e-6,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+                "reconcile_tolerance_usdc": 1e-6,
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        # Tiny approved share is valid here because approved notional (2e-6) is above tolerance (1e-6).
+        intent = OrderIntent(token_id="tok", side="BUY", price=1_000_000.0, size=1.0)
+        auth = wallet.authorize_intent(intent)
+        self.assertTrue(auth.allowed)
+        self.assertEqual(auth.action, "reduce")
+        self.assertGreater(auth.approved_size, 0.0)
 
     def test_live_wallet_fails_closed_on_chain_identity_mismatch(self) -> None:
         wallet = LiveWalletDoctrine(
@@ -671,6 +719,116 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertEqual(float(snap.get("order_lock_usdc", 0.0) or 0.0), 0.0)
         self.assertGreaterEqual(float(snap.get("locked_usdc", 0.0) or 0.0), 0.0)
 
+    def test_wallet_confirm_submission_missing_order_id_does_not_consume_pending_lock(self) -> None:
+        reservations = WalletReservations()
+        lock_id = reservations.create_pending(9.0)
+        pending_before = float(reservations.snapshot().get("pending_lock_usdc", 0.0) or 0.0)
+        ok, reason = reservations.confirm_submission(lock_id=lock_id, order_id="", order_open=True)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "wallet_order_id_missing_for_open_lock")
+        pending_after = float(reservations.snapshot().get("pending_lock_usdc", 0.0) or 0.0)
+        self.assertAlmostEqual(pending_after, pending_before, places=9)
+        self.assertIn(lock_id, reservations.pending_locks)
+
+    def test_wallet_event_logger_exception_is_non_blocking(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+
+        def _failing_logger(_event_type: str, _payload: dict) -> None:
+            raise ValueError("logger sink unavailable")
+
+        wallet.register_event_logger(_failing_logger)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=5.0))
+        self.assertTrue(auth.allowed)
+        self.assertIn(auth.action, {"approve", "reduce"})
+        status = wallet.status()
+        self.assertGreaterEqual(int(status.get("event_emit_failure_count") or 0), 1)
+        self.assertIn("ValueError", str(status.get("event_emit_last_error") or ""))
+        self.assertTrue(bool(str(status.get("event_emit_last_error_ts_utc") or "").strip()))
+
+    def test_wallet_pending_provider_exception_surfaces_unhealthy_local_snapshot(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+
+        def _failing_provider() -> dict:
+            raise RuntimeError("simulated pending provider failure")
+
+        wallet.register_pending_tx_provider(_failing_provider)
+        reconcile = wallet.reconcile(pre_execution=True)
+        self.assertTrue(reconcile.healthy)
+        status = wallet.status()
+        local_pending = (
+            status.get("local_tx_lifecycle_state", {})
+            .get("pending_tx_snapshot", {})
+        )
+        self.assertFalse(bool(local_pending.get("healthy")))
+        self.assertIn("pending_tx_provider_error", str(local_pending.get("detail") or ""))
+
+    def test_wallet_nonce_provider_exception_surfaces_unhealthy_local_snapshot(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+
+        def _failing_provider() -> dict:
+            raise RuntimeError("simulated nonce provider failure")
+
+        wallet.register_pending_tx_provider(_failing_provider)
+        reconcile = wallet.reconcile(pre_execution=True)
+        self.assertTrue(reconcile.healthy)
+        status = wallet.status()
+        local_nonce = (
+            status.get("local_tx_lifecycle_state", {})
+            .get("nonce_snapshot", {})
+        )
+        self.assertFalse(bool(local_nonce.get("healthy")))
+        self.assertIn("nonce_provider_error", str(local_nonce.get("detail") or ""))
+
+    def test_live_wallet_truth_source_exception_is_fail_closed(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+            },
+            truth_source=_FailingTruthSource(chain_id=137),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "wallet_startup_authority_not_ready")
+        self.assertEqual(wallet.status().get("last_reconcile_result", {}).get("reason"), "live_wallet_truth_unavailable")
+
 
 class TransactionManagerBoundaryTests(unittest.TestCase):
     def test_submit_requires_wallet_authorization(self) -> None:
@@ -796,6 +954,82 @@ class TransactionManagerBoundaryTests(unittest.TestCase):
         snap = tx.lifecycle_snapshot()
         self.assertEqual(snap["cid-1"]["state"], "canceled")
         self.assertEqual(snap["cid-2"]["state"], "open")
+
+    def test_submit_records_generic_exception_class(self) -> None:
+        class _SubmitExceptionGateway(_DummyGateway):
+            def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
+                raise RuntimeError("submit runtime boom")
+
+        tx = TransactionManager(_SubmitExceptionGateway())
+        intent = OrderIntent(token_id="tok", side="BUY", price=0.5, size=10.0)
+        auth = WalletAuthorization(
+            allowed=True,
+            action="approve",
+            approved_size=10.0,
+            lock_id="lock-1",
+            authorization_id="lock-1",
+            reason="ok",
+        )
+        with self.assertRaises(RuntimeError):
+            tx.submit_order(intent, client_order_id="cid-1", wallet_authorization=auth)
+        snap = tx.lifecycle_snapshot()["cid-1"]
+        self.assertEqual(snap["state"], "submit_failed")
+        self.assertEqual(snap["failure_class"], "submit_exception")
+        self.assertIn("submit runtime boom", str(snap.get("failure_detail") or ""))
+        pending = tx.pending_tx_snapshot()
+        self.assertFalse(bool(pending.get("healthy")))
+        self.assertEqual(int(pending.get("critical_failure_count") or 0), 1)
+        self.assertIn("submit_exception", list(pending.get("failure_classes") or []))
+
+    def test_cancel_records_generic_exception_class(self) -> None:
+        class _CancelExceptionGateway(_DummyGateway):
+            def cancel_order(self, order_id: str) -> bool:
+                raise RuntimeError("cancel runtime boom")
+
+        tx = TransactionManager(_CancelExceptionGateway())
+        intent = OrderIntent(token_id="tok", side="BUY", price=0.5, size=10.0)
+        auth = WalletAuthorization(
+            allowed=True,
+            action="approve",
+            approved_size=10.0,
+            lock_id="lock-1",
+            authorization_id="lock-1",
+            reason="ok",
+        )
+        order = tx.submit_order(intent, client_order_id="cid-1", wallet_authorization=auth)
+        with self.assertRaises(RuntimeError):
+            tx.cancel_order(order.order_id)
+        snap = tx.lifecycle_snapshot()["cid-1"]
+        self.assertEqual(snap["state"], "cancel_failed")
+        self.assertEqual(snap["failure_class"], "cancel_exception")
+        self.assertIn("cancel runtime boom", str(snap.get("failure_detail") or ""))
+        pending = tx.pending_tx_snapshot()
+        self.assertFalse(bool(pending.get("healthy")))
+        self.assertEqual(int(pending.get("critical_failure_count") or 0), 1)
+        self.assertIn("cancel_exception", list(pending.get("failure_classes") or []))
+
+    def test_post_only_reject_does_not_mark_local_lifecycle_unhealthy(self) -> None:
+        class _PostOnlyRejectGateway(_DummyGateway):
+            def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
+                raise PostOnlyRejectError("post-only would cross")
+
+        tx = TransactionManager(_PostOnlyRejectGateway())
+        intent = OrderIntent(token_id="tok", side="BUY", price=0.5, size=10.0)
+        auth = WalletAuthorization(
+            allowed=True,
+            action="approve",
+            approved_size=10.0,
+            lock_id="lock-1",
+            authorization_id="lock-1",
+            reason="ok",
+        )
+        with self.assertRaises(PostOnlyRejectError):
+            tx.submit_order(intent, client_order_id="cid-1", wallet_authorization=auth)
+        pending = tx.pending_tx_snapshot()
+        self.assertTrue(bool(pending.get("healthy")))
+        self.assertEqual(int(pending.get("failure_count") or 0), 1)
+        self.assertEqual(int(pending.get("critical_failure_count") or 0), 0)
+        self.assertIn("post_only_reject", list(pending.get("failure_classes") or []))
 
 
 if __name__ == "__main__":

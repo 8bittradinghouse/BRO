@@ -10,6 +10,17 @@ from .wallet.wallet_types import AUTHORITY_CLASS_LOCAL, TRUTH_DOMAIN_LOCAL_TX_LI
 from .wallet_doctrine import WalletAuthorization
 
 
+GATEWAY_CALL_EXCEPTIONS = (
+    GatewayError,
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
+
+
 @dataclasses.dataclass
 class TxLifecycleRecord:
     client_order_id: str
@@ -101,7 +112,7 @@ class TransactionManager:
 
         try:
             order = self._gateway.place_order(intent, client_order_id=cid)
-        except Exception as exc:
+        except GATEWAY_CALL_EXCEPTIONS as exc:
             record.failure_class = self._classify_submit_error(exc)
             record.failure_detail = str(exc)
             self._set_state(record, "submit_failed")
@@ -117,7 +128,7 @@ class TransactionManager:
         client_id = self._client_by_order_id.get(str(order_id or "").strip())
         try:
             ok = self._gateway.cancel_order(order_id)
-        except Exception as exc:
+        except GATEWAY_CALL_EXCEPTIONS as exc:
             if client_id:
                 record = self._records_by_client.get(client_id)
                 if record is not None:
@@ -224,19 +235,41 @@ class TransactionManager:
             for record in self._records_by_client.values()
             if record.state in {"authorized", "submitting", "submitted", "open", "partial"}
         ]
+        failure_records = [
+            record
+            for record in self._records_by_client.values()
+            if record.state in {"submit_failed", "cancel_failed"}
+        ]
+        critical_failure_records = [
+            record
+            for record in failure_records
+            if record.failure_class in {"submit_exception", "gateway_error", "cancel_exception", "cancel_gateway_error"}
+        ]
+        failure_classes = sorted({str(record.failure_class or "unknown") for record in failure_records})
         pending_nonces = sorted({int(record.reserved_nonce) for record in pending if int(record.reserved_nonce) > 0})
         current_nonce = int(self._next_nonce) if self._next_nonce > 0 else None
+        healthy = len(critical_failure_records) == 0
+        detail = (
+            "tx_lifecycle_ok"
+            if healthy
+            else "tx_lifecycle_critical_failures:"
+            + f"count={len(critical_failure_records)}:"
+            + f"classes={','.join(failure_classes) or 'unknown'}"
+        )
         return {
             "pending_count": len(pending),
             "order_ids": [str(record.order_id) for record in pending if record.order_id],
             "client_order_ids": [record.client_order_id for record in pending],
             "pending_nonces": pending_nonces,
             "current_nonce": current_nonce,
-            "healthy": True,
+            "healthy": bool(healthy),
             "source": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "truth_domain": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "authority_class": AUTHORITY_CLASS_LOCAL,
-            "detail": "",
+            "detail": str(detail),
+            "failure_count": int(len(failure_records)),
+            "critical_failure_count": int(len(critical_failure_records)),
+            "failure_classes": list(failure_classes),
         }
 
     def nonce_snapshot(self) -> Dict[str, Any]:
@@ -244,11 +277,11 @@ class TransactionManager:
         return {
             "current_nonce": pending.get("current_nonce"),
             "pending_nonces": pending.get("pending_nonces", []),
-            "healthy": True,
+            "healthy": bool(pending.get("healthy", False)),
             "source": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "truth_domain": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "authority_class": AUTHORITY_CLASS_LOCAL,
-            "detail": "",
+            "detail": str(pending.get("detail") or ""),
         }
 
     def lifecycle_snapshot(self) -> Dict[str, Dict[str, Any]]:

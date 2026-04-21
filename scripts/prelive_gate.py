@@ -66,7 +66,7 @@ def _manifest_findings(
         return findings
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         findings.append(f"run_manifest_invalid_json:{manifest.name}:{exc.__class__.__name__}")
         return findings
     if not isinstance(payload, dict):
@@ -119,7 +119,7 @@ def _backup_bundle_findings(backup_dir: pathlib.Path, *, max_age_hours: float) -
     try:
         line = hash_path.read_text(encoding="utf-8").strip().splitlines()[0]
         expected = line.split()[0].strip().lower()
-    except Exception as exc:
+    except (OSError, UnicodeError, IndexError, ValueError) as exc:
         findings.append(f"backup_bundle_hash_invalid:{hash_path.name}:{exc.__class__.__name__}")
         return findings
 
@@ -152,13 +152,13 @@ def _wallet_env_findings(cfg: Dict[str, Any]) -> list[str]:
     if pk_value:
         try:
             _normalize_private_key(pk_value)
-        except Exception as exc:
+        except (TypeError, ValueError) as exc:
             source = str(source_meta.get("private_key_source", pk_env))
             findings.append(f"invalid_private_key:{source}:{exc}")
     if funder_value:
         try:
             _normalize_evm_address(funder_value)
-        except Exception as exc:
+        except (TypeError, ValueError) as exc:
             source = str(source_meta.get("funder_source", funder_env))
             findings.append(f"invalid_funder:{source}:{exc}")
 

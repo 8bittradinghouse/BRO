@@ -77,6 +77,10 @@ def build_run_contract(
     status_slice_path: str = "",
     events_slice_path: str = "",
     errors_slice_path: str = "",
+    git_commit: str = "",
+    config_fingerprint_sha256: str = "",
+    code_fingerprint_sha256: str = "",
+    code_fingerprint_file_count: Any = "",
 ) -> Dict[str, Any]:
     return {
         "schema_version": int(RUN_CONTRACT_SCHEMA_VERSION),
@@ -99,6 +103,16 @@ def build_run_contract(
         "status_slice_path": str(status_slice_path or "").strip(),
         "events_slice_path": str(events_slice_path or "").strip(),
         "errors_slice_path": str(errors_slice_path or "").strip(),
+        "git_commit": str(git_commit or "").strip(),
+        "config_fingerprint_sha256": str(config_fingerprint_sha256 or "").strip(),
+        "code_fingerprint_sha256": str(code_fingerprint_sha256 or "").strip(),
+        "code_fingerprint_file_count": (
+            int(code_fingerprint_file_count)
+            if isinstance(code_fingerprint_file_count, (int, float, str))
+            and str(code_fingerprint_file_count).strip()
+            and str(code_fingerprint_file_count).strip().lstrip("-").isdigit()
+            else ""
+        ),
     }
 
 
@@ -112,7 +126,7 @@ def validate_run_contract(payload: Dict[str, Any], *, allow_open: bool = False) 
         _ensure_text(payload, key)
     try:
         payload["phase"] = normalize_session_phase(str(payload.get("phase") or ""))
-    except Exception as exc:
+    except ValueError as exc:
         raise ValueError(f"run_contract_phase_invalid:{payload.get('phase')!r}") from exc
     authority_level = str(payload.get("authority_level") or "").strip().lower()
     if authority_level not in RUN_CONTRACT_AUTHORITY_LEVELS:

@@ -1,0 +1,2555 @@
+{
+  "generated_utc": "2026-04-20T21:30:00Z",
+  "classification_rule": "ORANGE_CANDIDATE if tags include broad_exception OR suppressed_exception OR subprocess_without_timeout; else YELLOW",
+  "counts": {
+    "orange_candidate": 107,
+    "yellow": 105,
+    "total": 212
+  },
+  "items": [
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 138,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-001",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-001"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 826,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-002",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-002"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2175,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-003",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-003"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2270,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-004",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-004"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3559,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-005",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-005"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3570,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-006",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-006"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4795,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-007",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-007"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5113,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-008",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-008"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5128,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-009",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-009"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5187,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-010",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-010"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5217,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-011",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-011"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5248,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-012",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-012"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5287,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-013",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-013"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5339,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-014",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-014"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6443,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-015",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-015"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6659,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-016",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-016"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6675,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-017",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-017"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 6947,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-018",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-018"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 7010,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-019",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-019"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 125,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-020",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-020"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 349,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-021",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-021"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1064,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-022",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-022"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1125,
+      "text": "with suppress(Exception):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-023",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-023"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2079,
+      "text": "with suppress(ValueError):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-024",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-024"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2100,
+      "text": "with suppress(ValueError):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-025",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-025"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2117,
+      "text": "with suppress(ValueError):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-026",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-026"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2142,
+      "text": "with suppress(ValueError):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-027",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-027"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 2184,
+      "text": "with suppress(ValueError):",
+      "tags": [
+        "suppressed_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-028",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-028"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/tx_manager.py",
+      "line": 104,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-029",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-029"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/tx_manager.py",
+      "line": 120,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-030",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-030"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 229,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-031",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-031"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 803,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-032",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-032"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 822,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-033",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-033"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 1051,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-034",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-034"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 133,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-035",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-035"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 164,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-036",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-036"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 206,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-037",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-037"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 248,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-038",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-038"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 290,
+      "text": "proc = subprocess.run(",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-039",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-039"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 324,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-040",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-040"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 328,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-041",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-041"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 360,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-042",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-042"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 611,
+      "text": "return subprocess.run(",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-043",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-043"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 816,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-044",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-044"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 825,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-045",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-045"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 901,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-046",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-046"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1050,
+      "text": "proc = subprocess.run(",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-047",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-047"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1230,
+      "text": "proc = subprocess.run(",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-048",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-048"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 1380,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-049",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-049"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 19,
+      "text": "result = subprocess.run(cmd, check=False)",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-050",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-050"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 56,
+      "text": "editable = subprocess.run([py, \"-m\", \"pip\", \"install\", \"-e\", \".\"], check=False)",
+      "tags": [
+        "subprocess_without_timeout"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-051",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-051"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 19,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-052",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-052"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 44,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-053",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-053"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/prestart_gate.py",
+      "line": 23,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-054",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-054"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/readiness_gate.py",
+      "line": 98,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-055",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-055"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/readiness_gate.py",
+      "line": 130,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-056",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-056"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 47,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-057",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-057"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 59,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-058",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-058"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 67,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-059",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-059"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 83,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-060",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-060"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 87,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-061",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-061"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 138,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-062",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-062"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 147,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-063",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-063"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/run_integrity_audit.py",
+      "line": 211,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-064",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-064"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/soak_hardening_gate.py",
+      "line": 33,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-065",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-065"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/soak_hardening_gate.py",
+      "line": 43,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-066",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-066"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 31,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-067",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-067"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 41,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-068",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-068"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 134,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-069",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-069"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 153,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-070",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-070"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 157,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-071",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-071"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 533,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "ORANGE_CANDIDATE",
+      "candidate_id": "C-072",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-072"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 56,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-084",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-073"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 85,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-087",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-074"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/artifact_identity.py",
+      "line": 17,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-088",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-075"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 199,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-090",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-076"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 266,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-091",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-077"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 135,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-093",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-078"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 154,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-094",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-079"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 399,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-095",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-080"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 441,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-096",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-081"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 456,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-097",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-082"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 177,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-099",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-083"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 223,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-100",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-084"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 35,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-137",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-085"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 45,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-138",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-086"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 89,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-139",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-087"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 94,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-140",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-088"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 109,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-141",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-089"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 120,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-142",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-090"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 126,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-143",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-091"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 132,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-144",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-092"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 151,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-145",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-093"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 207,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-146",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-094"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 248,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-148",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-095"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 272,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-150",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-096"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "line": 115,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-153",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-097"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/state_store.py",
+      "line": 46,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-163",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-098"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 66,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-173",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-099"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 95,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-174",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-100"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 54,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-185",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-101"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 121,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-186",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-102"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ops_brief.py",
+      "line": 19,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-202",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-103"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ops_snapshot.py",
+      "line": 21,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-203",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-104"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 218,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-204",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-105"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 300,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-205",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-106"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 764,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-206",
+      "triage_class": "ORANGE_CANDIDATE",
+      "triage_id": "T-107"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2682,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-073",
+      "triage_class": "YELLOW",
+      "triage_id": "T-108"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2851,
+      "text": "verdict = \"pass\" if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED} else \"fail\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-074",
+      "triage_class": "YELLOW",
+      "triage_id": "T-109"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2973,
+      "text": "return True, tick_age_sec, \"\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-075",
+      "triage_class": "YELLOW",
+      "triage_id": "T-110"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3494,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-076",
+      "triage_class": "YELLOW",
+      "triage_id": "T-111"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4273,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-077",
+      "triage_class": "YELLOW",
+      "triage_id": "T-112"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4491,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-078",
+      "triage_class": "YELLOW",
+      "triage_id": "T-113"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4683,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-079",
+      "triage_class": "YELLOW",
+      "triage_id": "T-114"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5216,
+      "text": "return True, reason[:240]",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-080",
+      "triage_class": "YELLOW",
+      "triage_id": "T-115"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5288,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-081",
+      "triage_class": "YELLOW",
+      "triage_id": "T-116"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5940,
+      "text": "if str(info.get(\"doctrine_gate_verdict\", \"fail\")) != \"pass\":",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-082",
+      "triage_class": "YELLOW",
+      "triage_id": "T-117"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 30,
+      "text": "self.session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-083",
+      "triage_class": "YELLOW",
+      "triage_id": "T-118"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 64,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-085",
+      "triage_class": "YELLOW",
+      "triage_id": "T-119"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 84,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-086",
+      "triage_class": "YELLOW",
+      "triage_id": "T-120"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 63,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-089",
+      "triage_class": "YELLOW",
+      "triage_id": "T-121"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 134,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-092",
+      "triage_class": "YELLOW",
+      "triage_id": "T-122"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 32,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-098",
+      "triage_class": "YELLOW",
+      "triage_id": "T-123"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 370,
+      "text": "return True, \"same_source_ts_revision\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-101",
+      "triage_class": "YELLOW",
+      "triage_id": "T-124"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 371,
+      "text": "return True, \"newer_source_ts\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-102",
+      "triage_class": "YELLOW",
+      "triage_id": "T-125"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 376,
+      "text": "return True, \"timestamp_upgrade\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-103",
+      "triage_class": "YELLOW",
+      "triage_id": "T-126"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 383,
+      "text": "return True, \"same_receive_monotonic_revision\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-104",
+      "triage_class": "YELLOW",
+      "triage_id": "T-127"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 384,
+      "text": "return True, \"newer_receive_monotonic\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-105",
+      "triage_class": "YELLOW",
+      "triage_id": "T-128"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 431,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-106",
+      "triage_class": "YELLOW",
+      "triage_id": "T-129"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 437,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-107",
+      "triage_class": "YELLOW",
+      "triage_id": "T-130"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 15,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-108",
+      "triage_class": "YELLOW",
+      "triage_id": "T-131"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 19,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-109",
+      "triage_class": "YELLOW",
+      "triage_id": "T-132"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 140,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-110",
+      "triage_class": "YELLOW",
+      "triage_id": "T-133"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 381,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-111",
+      "triage_class": "YELLOW",
+      "triage_id": "T-134"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 763,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-112",
+      "triage_class": "YELLOW",
+      "triage_id": "T-135"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/latency_verifier.py",
+      "line": 192,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-113",
+      "triage_class": "YELLOW",
+      "triage_id": "T-136"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 56,
+      "text": "session: requests.Session,",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-114",
+      "triage_class": "YELLOW",
+      "triage_id": "T-137"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 66,
+      "text": "except requests.RequestException:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-115",
+      "triage_class": "YELLOW",
+      "triage_id": "T-138"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 105,
+      "text": "self._sessions: List[requests.Session] = []",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-116",
+      "triage_class": "YELLOW",
+      "triage_id": "T-139"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 108,
+      "text": "def _session(self) -> requests.Session:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-117",
+      "triage_class": "YELLOW",
+      "triage_id": "T-140"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 111,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-118",
+      "triage_class": "YELLOW",
+      "triage_id": "T-141"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 34,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-119",
+      "triage_class": "YELLOW",
+      "triage_id": "T-142"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 125,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-120",
+      "triage_class": "YELLOW",
+      "triage_id": "T-143"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 132,
+      "text": "session: requests.Session,",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-121",
+      "triage_class": "YELLOW",
+      "triage_id": "T-144"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 142,
+      "text": "except requests.RequestException:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-122",
+      "triage_class": "YELLOW",
+      "triage_id": "T-145"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 214,
+      "text": "self.session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-123",
+      "triage_class": "YELLOW",
+      "triage_id": "T-146"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 230,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-124",
+      "triage_class": "YELLOW",
+      "triage_id": "T-147"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 234,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-125",
+      "triage_class": "YELLOW",
+      "triage_id": "T-148"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 284,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-126",
+      "triage_class": "YELLOW",
+      "triage_id": "T-149"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 287,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-127",
+      "triage_class": "YELLOW",
+      "triage_id": "T-150"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 304,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-128",
+      "triage_class": "YELLOW",
+      "triage_id": "T-151"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 317,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-129",
+      "triage_class": "YELLOW",
+      "triage_id": "T-152"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 319,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-130",
+      "triage_class": "YELLOW",
+      "triage_id": "T-153"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 322,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-131",
+      "triage_class": "YELLOW",
+      "triage_id": "T-154"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 413,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-132",
+      "triage_class": "YELLOW",
+      "triage_id": "T-155"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 415,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-133",
+      "triage_class": "YELLOW",
+      "triage_id": "T-156"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1246,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-134",
+      "triage_class": "YELLOW",
+      "triage_id": "T-157"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1452,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-135",
+      "triage_class": "YELLOW",
+      "triage_id": "T-158"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1542,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-136",
+      "triage_class": "YELLOW",
+      "triage_id": "T-159"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 241,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-147",
+      "triage_class": "YELLOW",
+      "triage_id": "T-160"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 258,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-149",
+      "triage_class": "YELLOW",
+      "triage_id": "T-161"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/risk.py",
+      "line": 150,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-151",
+      "triage_class": "YELLOW",
+      "triage_id": "T-162"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/risk.py",
+      "line": 383,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-152",
+      "triage_class": "YELLOW",
+      "triage_id": "T-163"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "line": 264,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-154",
+      "triage_class": "YELLOW",
+      "triage_id": "T-164"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 92,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-155",
+      "triage_class": "YELLOW",
+      "triage_id": "T-165"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 128,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-156",
+      "triage_class": "YELLOW",
+      "triage_id": "T-166"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 145,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-157",
+      "triage_class": "YELLOW",
+      "triage_id": "T-167"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 127,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-158",
+      "triage_class": "YELLOW",
+      "triage_id": "T-168"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 129,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-159",
+      "triage_class": "YELLOW",
+      "triage_id": "T-169"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 131,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-160",
+      "triage_class": "YELLOW",
+      "triage_id": "T-170"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 185,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-161",
+      "triage_class": "YELLOW",
+      "triage_id": "T-171"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 217,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-162",
+      "triage_class": "YELLOW",
+      "triage_id": "T-172"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/state_store.py",
+      "line": 47,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-164",
+      "triage_class": "YELLOW",
+      "triage_id": "T-173"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 715,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-165",
+      "triage_class": "YELLOW",
+      "triage_id": "T-174"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 68,
+      "text": "return True, \"wallet_lock_id_idempotent_completed\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-166",
+      "triage_class": "YELLOW",
+      "triage_id": "T-175"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 72,
+      "text": "return True, \"wallet_lock_id_idempotent_order_exists\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-167",
+      "triage_class": "YELLOW",
+      "triage_id": "T-176"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 82,
+      "text": "return True, \"ok\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-168",
+      "triage_class": "YELLOW",
+      "triage_id": "T-177"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 304,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-169",
+      "triage_class": "YELLOW",
+      "triage_id": "T-178"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 311,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-170",
+      "triage_class": "YELLOW",
+      "triage_id": "T-179"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 458,
+      "text": "status = \"pass\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-171",
+      "triage_class": "YELLOW",
+      "triage_id": "T-180"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 468,
+      "text": "raise SystemExit(\"readiness_gate fixture did not pass any stage\")",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-172",
+      "triage_class": "YELLOW",
+      "triage_id": "T-181"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 241,
+      "text": "return True, \"status_missing\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-175",
+      "triage_class": "YELLOW",
+      "triage_id": "T-182"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 247,
+      "text": "return True, \"status_ts_invalid\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-176",
+      "triage_class": "YELLOW",
+      "triage_id": "T-183"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 263,
+      "text": "return True, \"status_stale\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-177",
+      "triage_class": "YELLOW",
+      "triage_id": "T-184"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 274,
+      "text": "return True, \"kill_switch_engaged\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-178",
+      "triage_class": "YELLOW",
+      "triage_id": "T-185"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 279,
+      "text": "return True, \"operating_mode_degraded\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-179",
+      "triage_class": "YELLOW",
+      "triage_id": "T-186"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 282,
+      "text": "return True, \"error_burst\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-180",
+      "triage_class": "YELLOW",
+      "triage_id": "T-187"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 310,
+      "text": "return True, \"chainlink_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-181",
+      "triage_class": "YELLOW",
+      "triage_id": "T-188"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 313,
+      "text": "return True, \"chainlink_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-182",
+      "triage_class": "YELLOW",
+      "triage_id": "T-189"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 331,
+      "text": "return True, \"book_feed_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-183",
+      "triage_class": "YELLOW",
+      "triage_id": "T-190"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 334,
+      "text": "return True, \"book_feed_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-184",
+      "triage_class": "YELLOW",
+      "triage_id": "T-191"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 136,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-187",
+      "triage_class": "YELLOW",
+      "triage_id": "T-192"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 145,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-188",
+      "triage_class": "YELLOW",
+      "triage_id": "T-193"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 148,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-189",
+      "triage_class": "YELLOW",
+      "triage_id": "T-194"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 153,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-190",
+      "triage_class": "YELLOW",
+      "triage_id": "T-195"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 156,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-191",
+      "triage_class": "YELLOW",
+      "triage_id": "T-196"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 159,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-192",
+      "triage_class": "YELLOW",
+      "triage_id": "T-197"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 162,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-193",
+      "triage_class": "YELLOW",
+      "triage_id": "T-198"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 165,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-194",
+      "triage_class": "YELLOW",
+      "triage_id": "T-199"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 168,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-195",
+      "triage_class": "YELLOW",
+      "triage_id": "T-200"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 175,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-196",
+      "triage_class": "YELLOW",
+      "triage_id": "T-201"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 180,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-197",
+      "triage_class": "YELLOW",
+      "triage_id": "T-202"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 183,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-198",
+      "triage_class": "YELLOW",
+      "triage_id": "T-203"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 200,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-199",
+      "triage_class": "YELLOW",
+      "triage_id": "T-204"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 203,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-200",
+      "triage_class": "YELLOW",
+      "triage_id": "T-205"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 1842,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-201",
+      "triage_class": "YELLOW",
+      "triage_id": "T-206"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 1516,
+      "text": "horizon_consistency_check = \"pass\" if len(horizon_findings) == 0 else \"fail\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-207",
+      "triage_class": "YELLOW",
+      "triage_id": "T-207"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 236,
+      "text": "note=\"must pass with breach ratio check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-208",
+      "triage_class": "YELLOW",
+      "triage_id": "T-208"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 248,
+      "text": "note=\"must pass with breach rows check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-209",
+      "triage_class": "YELLOW",
+      "triage_id": "T-209"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 284,
+      "text": "note=\"must pass with breach ratio check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-210",
+      "triage_class": "YELLOW",
+      "triage_id": "T-210"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 296,
+      "text": "note=\"must pass with breach rows check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-211",
+      "triage_class": "YELLOW",
+      "triage_id": "T-211"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 75,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-212",
+      "triage_class": "YELLOW",
+      "triage_id": "T-212"
+    }
+  ]
+}

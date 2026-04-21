@@ -12,6 +12,7 @@ from .common import utc_now
 from .gateway import _normalize_evm_address, _normalize_private_key
 from .market_discovery import MarketDiscovery
 from .market_data import RestBookClient
+from .http_session import build_hardened_session
 from .paths import validate_runtime_write_paths
 from .secrets import SecretLoadError, load_auth_secrets
 from .security import run_security_checks
@@ -32,7 +33,7 @@ def run_preflight_checks(
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         state_path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
+    except OSError as exc:
         findings.append(f"storage_paths_not_writable: {exc}")
 
     runtime_cfg = cfg.get("runtime", {})
@@ -42,7 +43,7 @@ def run_preflight_checks(
         guard_stop_path = pathlib.Path(guard_stop_file_raw).resolve()
         try:
             guard_stop_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:
+        except OSError as exc:
             findings.append(f"guard_stop_path_not_writable:{exc}")
         if guard_stop_path.exists() and guard_stop_path.is_dir():
             findings.append("guard_stop_path_is_directory")
@@ -86,12 +87,12 @@ def run_preflight_checks(
             else:
                 try:
                     _normalize_private_key(private_key)
-                except Exception as exc:
+                except ValueError as exc:
                     source = str(source_meta.get("private_key_source", "private_key"))
                     findings.append(f"invalid_private_key:{source}:{exc}")
                 try:
                     _normalize_evm_address(funder)
-                except Exception as exc:
+                except ValueError as exc:
                     source = str(source_meta.get("funder_source", "funder"))
                     findings.append(f"invalid_funder:{source}:{exc}")
 
@@ -106,7 +107,7 @@ def run_preflight_checks(
     if state_path.exists():
         try:
             load_state(state_path)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             findings.append(f"state_file_invalid:{exc}")
 
     findings.extend(run_security_checks(cfg, mode=mode))
@@ -117,19 +118,19 @@ def run_preflight_checks(
     if bool(chainlink_cfg.get("enabled", False)):
         try:
             import websockets  # noqa: F401
-        except Exception:
+        except ImportError:
             findings.append("chainlink_websockets_dependency_missing")
     md_ws_cfg = cfg.get("market_data", {}).get("ws", {})
     if bool(md_ws_cfg.get("enabled", False)):
         try:
             import websockets  # noqa: F401
-        except Exception:
+        except ImportError:
             findings.append("market_data_ws_dependency_missing")
     metrics_cfg = cfg.get("metrics", {})
     if bool(metrics_cfg.get("enabled", False)):
         try:
             import prometheus_client  # noqa: F401
-        except Exception:
+        except ImportError:
             findings.append("prometheus_dependency_missing")
     alerts_cfg = cfg.get("alerts", {})
     if bool(alerts_cfg.get("enabled", False)):
@@ -148,7 +149,7 @@ def run_preflight_checks(
         discovery = MarketDiscovery(cfg)
         try:
             result = discovery.discover()
-        except Exception as exc:
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError, requests.RequestException) as exc:
             findings.append(f"discovery_failed:{exc}")
             result = None
         finally:
@@ -204,7 +205,7 @@ def _check_market_data(cfg: Dict[str, Any], token_ids: List[str]) -> int:
         for token_id in token_ids:
             try:
                 top, _ = client.fetch_book(token_id)
-            except Exception:
+            except (OSError, RuntimeError, ValueError, requests.RequestException):
                 failures += 1
                 continue
             if top.best_bid_price is None and top.best_ask_price is None:
@@ -238,14 +239,17 @@ def _endpoint_health_failures(urls: List[str], *, timeout_sec: float) -> List[st
     failed: List[str] = []
     if not urls:
         return failed
-    session = requests.Session()
+    session = build_hardened_session(
+        user_agent="polymarket-bro-preflight/0.1",
+        total_retries=0,
+    )
     try:
         for url in urls:
             try:
                 resp = session.get(url, timeout=timeout_sec)
                 if resp.status_code >= 500:
                     failed.append(f"{url}:http_{resp.status_code}")
-            except Exception as exc:
+            except (requests.RequestException, RuntimeError) as exc:
                 failed.append(f"{url}:{exc.__class__.__name__}")
     finally:
         session.close()
@@ -255,7 +259,10 @@ def _endpoint_health_failures(urls: List[str], *, timeout_sec: float) -> List[st
 def _clock_skew_seconds(*, base_url: str, timeout_sec: float) -> float | None:
     if not base_url:
         return None
-    session = requests.Session()
+    session = build_hardened_session(
+        user_agent="polymarket-bro-preflight/0.1",
+        total_retries=0,
+    )
     try:
         resp = session.get(base_url, timeout=timeout_sec)
         date_header = resp.headers.get("Date")
@@ -269,7 +276,7 @@ def _clock_skew_seconds(*, base_url: str, timeout_sec: float) -> float | None:
         exchange_now = parsed.astimezone(dt.timezone.utc)
         local_now = utc_now()
         return float((local_now - exchange_now).total_seconds())
-    except Exception:
+    except (requests.RequestException, RuntimeError, TypeError, ValueError, OverflowError):
         return None
     finally:
         session.close()

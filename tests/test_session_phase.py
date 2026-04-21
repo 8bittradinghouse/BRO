@@ -19,7 +19,7 @@ class SessionPhaseTests(unittest.TestCase):
         surface = validation_surface_for_phase("validate_active")
         self.assertIn("run_integrity_audit", surface.get("legal_validations", []))
         self.assertIn("websocket_reliability_gate", surface.get("actionable_failures", []))
-        self.assertIn("nightly_soak_report", surface.get("informational_failures", []))
+        self.assertIn("nightly_soak_report", surface.get("actionable_failures", []))
 
     def test_validation_surface_exposes_postrun_websocket_hardening(self) -> None:
         surface = validation_surface_for_phase("validate_postrun")

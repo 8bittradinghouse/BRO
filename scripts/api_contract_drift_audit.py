@@ -38,7 +38,7 @@ def _extract_chainlink_payload(sample: Any) -> Dict[str, Any]:
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
-        except Exception:
+        except json.JSONDecodeError:
             payload = None
     payload_obj = _as_dict(payload)
     if payload_obj:
@@ -61,7 +61,7 @@ def _extract_book_payload(sample: Any) -> Dict[str, Any]:
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
-        except Exception:
+        except json.JSONDecodeError:
             payload = None
     payload_obj = _as_dict(payload)
     if payload_obj:
@@ -95,7 +95,7 @@ def _require_numeric(
 ) -> None:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         findings.append(f"api_contract_type_mismatch:{sample_name}:{field_name}:numeric")
         return
     if out != out:

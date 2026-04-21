@@ -16,7 +16,7 @@ from prodesk.config import load_execution_config
 def _f(v: Any) -> Optional[float]:
     try:
         out = float(v)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if out != out:
         return None

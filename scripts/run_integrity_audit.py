@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from prodesk.artifact_identity import candidate_run_log_dirs
 from prodesk.error_codes import summarize_error_codes
+from prodesk.jsonl_utils import tail_lines as jsonl_tail_lines
 from prodesk.run_contract import (
     apply_contract_bounds,
     resolve_run_contract,
@@ -44,7 +45,7 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
         text = text[:-1] + "+00:00"
     try:
         out = dt.datetime.fromisoformat(text)
-    except Exception:
+    except ValueError:
         return None
     if out.tzinfo is None:
         out = out.replace(tzinfo=dt.timezone.utc)
@@ -53,18 +54,19 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
 
 def _read_tail_jsonl(paths: List[pathlib.Path], tail_lines: int) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    limit = max(0, int(tail_lines))
     for path in paths:
         try:
-            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception:
+            lines = jsonl_tail_lines(path, limit=limit)
+        except OSError:
             continue
-        for text in lines[-max(0, int(tail_lines)):]:
+        for text in lines:
             text = text.strip()
             if not text:
                 continue
             try:
                 payload = json.loads(text)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             if isinstance(payload, dict):
                 rows.append(payload)
@@ -80,12 +82,92 @@ def _iter_jsonl_rows(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
                     continue
                 try:
                     payload = json.loads(text)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 if isinstance(payload, dict):
                     yield payload
-    except Exception:
+    except OSError:
         return
+
+
+def _count_jsonl_parse_errors(paths: List[pathlib.Path], *, tail_lines: Optional[int] = None) -> int:
+    parse_errors = 0
+    scan_tail = tail_lines is not None and int(tail_lines) > 0
+    for path in paths:
+        if scan_tail:
+            try:
+                source = jsonl_tail_lines(path, limit=int(tail_lines))
+            except OSError:
+                continue
+            iterator = source
+        else:
+            try:
+                fh = path.open("r", encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            iterator = fh
+        for line in iterator:
+            text = str(line).strip()
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                parse_errors += 1
+                continue
+            if not isinstance(payload, dict):
+                parse_errors += 1
+        if not scan_tail:
+            fh.close()
+    return int(parse_errors)
+
+
+def _count_jsonl_parse_error_details(
+    paths: List[pathlib.Path], *, tail_lines: Optional[int] = None
+) -> Dict[str, int]:
+    details: Dict[str, int] = {}
+    scan_tail = tail_lines is not None and int(tail_lines) > 0
+    for path in paths:
+        path_errors = 0
+        if scan_tail:
+            try:
+                source = jsonl_tail_lines(path, limit=int(tail_lines))
+            except OSError:
+                continue
+            iterator = source
+        else:
+            try:
+                fh = path.open("r", encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            iterator = fh
+        for line in iterator:
+            text = str(line).strip()
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                path_errors += 1
+                continue
+            if not isinstance(payload, dict):
+                path_errors += 1
+        if not scan_tail:
+            fh.close()
+        if path_errors > 0:
+            details[str(path)] = int(path_errors)
+    return details
+
+
+def _unreadable_paths(paths: List[pathlib.Path]) -> List[pathlib.Path]:
+    unreadable: List[pathlib.Path] = []
+    for path in paths:
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as fh:
+                fh.read(0)
+        except OSError:
+            unreadable.append(path)
+    return unreadable
 
 
 def _read_run_scoped_rows(
@@ -135,7 +217,7 @@ def _scan_fill_events_for_run(paths: List[pathlib.Path], run_id: str) -> List[Di
                         continue
                     try:
                         row = json.loads(text)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     if not isinstance(row, dict):
                         continue
@@ -144,7 +226,7 @@ def _scan_fill_events_for_run(paths: List[pathlib.Path], run_id: str) -> List[Di
                     if str(row.get("event_type") or row.get("type") or "") != "fill":
                         continue
                     out.append(row)
-        except Exception:
+        except OSError:
             continue
     return out
 
@@ -208,7 +290,7 @@ def run_audit(
             if isinstance(payload, dict):
                 manifest_payload = payload
             manifest_run_id = str(manifest_payload.get("run_id") or "").strip()
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, UnicodeError) as exc:
             findings.append(f"run_manifest_invalid_json:{exc.__class__.__name__}")
     run_contract = resolve_run_contract(
         log_dir=resolved,
@@ -222,6 +304,8 @@ def run_audit(
     status_files = [status_manifest_path] if status_manifest_path is not None else sorted(resolved.glob("status_*.jsonl"))[-2:]
     event_files = [events_manifest_path] if events_manifest_path is not None else sorted(resolved.glob("events_*.jsonl"))
     error_files = sorted(resolved.glob("errors_*.jsonl"))
+    status_slice = None
+    events_slice = None
     if run_contract is not None:
         status_slice = run_contract_slice_path(run_contract, stream="status")
         events_slice = run_contract_slice_path(run_contract, stream="events")
@@ -236,19 +320,94 @@ def run_audit(
         findings.append("status_files_missing")
         if context_hints["candidate_log_dirs_for_run"]:
             warnings.append("status_files_missing_in_selected_log_dir")
+    status_unreadable = _unreadable_paths(status_files)
+    event_unreadable = _unreadable_paths(event_files)
+    error_unreadable = _unreadable_paths(error_files)
+    if status_unreadable:
+        msg = (
+            f"status_files_unreadable:{len(status_unreadable)}:"
+            + ",".join(str(path) for path in status_unreadable)
+        )
+        if normalized_phase == "validate_active":
+            warnings.append(f"{msg}:phase=validate_active")
+        else:
+            findings.append(msg)
+    if event_unreadable:
+        msg = (
+            f"event_files_unreadable:{len(event_unreadable)}:"
+            + ",".join(str(path) for path in event_unreadable)
+        )
+        if normalized_phase == "validate_active":
+            warnings.append(f"{msg}:phase=validate_active")
+        else:
+            findings.append(msg)
+    if error_unreadable:
+        warnings.append(
+            "error_files_unreadable:"
+            + f"{len(error_unreadable)}:"
+            + ",".join(str(path) for path in error_unreadable)
+        )
+
+    # During validate_active, open contracts have no deterministic slice paths yet.
+    # In that phase we intentionally scope to recent tails to avoid scanning full-day
+    # logs (hundreds of MB) that can stall short-run post-validation.
+    tail_scoped_active_contract = (
+        normalized_phase == "validate_active"
+        and run_contract is not None
+        and status_slice is None
+        and events_slice is None
+    )
+    status_contract_for_read = None if tail_scoped_active_contract else run_contract
+    events_contract_for_read = None if tail_scoped_active_contract else run_contract
 
     status_rows = _read_run_scoped_rows(
         paths=status_files,
         run_id=target_run_id,
-        contract=run_contract,
+        contract=status_contract_for_read,
         tail_lines=int(status_tail_lines),
     )
     event_rows = _read_run_scoped_rows(
-        paths=event_files[-2:] if run_contract is None else event_files,
+        paths=event_files[-2:] if events_contract_for_read is None else event_files,
         run_id=target_run_id,
-        contract=run_contract,
+        contract=events_contract_for_read,
         tail_lines=int(event_tail_lines),
     )
+    status_parse_tail = int(status_tail_lines) if (normalized_phase == "validate_active" or status_contract_for_read is None) else None
+    event_parse_tail = int(event_tail_lines) if (normalized_phase == "validate_active" or events_contract_for_read is None) else None
+    status_parse_error_count = _count_jsonl_parse_errors(
+        status_files,
+        tail_lines=status_parse_tail,
+    )
+    status_parse_error_details = _count_jsonl_parse_error_details(
+        status_files,
+        tail_lines=status_parse_tail,
+    )
+    event_parse_error_count = _count_jsonl_parse_errors(
+        event_files[-2:] if event_parse_tail is not None else event_files,
+        tail_lines=event_parse_tail,
+    )
+    event_parse_error_details = _count_jsonl_parse_error_details(
+        event_files[-2:] if event_parse_tail is not None else event_files,
+        tail_lines=event_parse_tail,
+    )
+    if status_parse_error_count > 0:
+        msg = f"status_json_parse_errors:{status_parse_error_count}"
+        if normalized_phase == "validate_active":
+            warnings.append(f"{msg}:phase=validate_active")
+        else:
+            findings.append(msg)
+        warnings.append(
+            "status_json_parse_error_paths:" + json.dumps(status_parse_error_details, sort_keys=True)
+        )
+    if event_parse_error_count > 0:
+        msg = f"events_json_parse_errors:{event_parse_error_count}"
+        if normalized_phase == "validate_active":
+            warnings.append(f"{msg}:phase=validate_active")
+        else:
+            findings.append(msg)
+        warnings.append(
+            "events_json_parse_error_paths:" + json.dumps(event_parse_error_details, sort_keys=True)
+        )
 
     if len(status_rows) < int(min_status_rows):
         findings.append(f"status_rows_below_min:{len(status_rows)}<min:{int(min_status_rows)}")
@@ -284,7 +443,14 @@ def run_audit(
         else:
             warnings.append(f"{missing_msg}:phase={normalized_phase}")
     else:
-        age_sec = max(0.0, (dt.datetime.now(dt.timezone.utc) - latest_status_ts).total_seconds())
+        age_reference_ts = dt.datetime.now(dt.timezone.utc)
+        if normalized_phase == "validate_postrun" and isinstance(run_contract, dict):
+            contract_end = _parse_ts(run_contract.get("evidence_slice_end_ts"))
+            if contract_end is None:
+                contract_end = _parse_ts(run_contract.get("stop_ts"))
+            if contract_end is not None:
+                age_reference_ts = contract_end
+        age_sec = max(0.0, (age_reference_ts - latest_status_ts).total_seconds())
         if age_sec > float(max_status_age_sec):
             stale_msg = f"latest_status_stale:{age_sec:.1f}>max:{float(max_status_age_sec):.1f}"
             if normalized_phase == "validate_active":
@@ -352,8 +518,15 @@ def run_audit(
         if docker_image_hash and not DOCKER_IMAGE_HASH_RE.match(docker_image_hash):
             findings.append("run_manifest_runtime_identity_invalid_image_hash:docker_image_hash")
 
-    fill_events = _scan_fill_events_for_run(event_files, target_run_id)
-    if run_contract is not None:
+    if tail_scoped_active_contract:
+        fill_events = [
+            row
+            for row in event_rows
+            if str(row.get("event_type") or row.get("type") or "") == "fill"
+        ]
+    else:
+        fill_events = _scan_fill_events_for_run(event_files, target_run_id)
+    if run_contract is not None and not tail_scoped_active_contract:
         fill_events = apply_contract_bounds(fill_events, run_contract)
     fill_ids = [str(row.get("trade_id") or "").strip() for row in fill_events if str(row.get("trade_id") or "").strip()]
     duplicate_fill_ids = len(fill_ids) - len(set(fill_ids))
@@ -379,7 +552,12 @@ def run_audit(
     if status_fill_counter is not None and status_fill_counter != len(fill_events):
         mismatch_msg = f"fill_count_mismatch:events={len(fill_events)}:status_counter={status_fill_counter}"
         if normalized_phase == "validate_active":
-            warnings.append(f"{mismatch_msg}:phase=validate_active")
+            if tail_scoped_active_contract:
+                warnings.append(
+                    f"fill_count_check_tail_scoped:events_tail={len(fill_events)}:status_counter={status_fill_counter}"
+                )
+            else:
+                warnings.append(f"{mismatch_msg}:phase=validate_active")
         else:
             fills_after_latest_status = 0
             if latest_status_ts is not None:
@@ -411,6 +589,13 @@ def run_audit(
         "run_contract_path": str(run_contract.get("_path", "")) if isinstance(run_contract, dict) else "",
         "status_row_count": len(status_rows),
         "event_row_count": len(event_rows),
+        "status_json_parse_error_count": int(status_parse_error_count),
+        "events_json_parse_error_count": int(event_parse_error_count),
+        "status_json_parse_error_paths": dict(sorted(status_parse_error_details.items())),
+        "events_json_parse_error_paths": dict(sorted(event_parse_error_details.items())),
+        "status_unreadable_count": int(len(status_unreadable)),
+        "event_unreadable_count": int(len(event_unreadable)),
+        "error_unreadable_count": int(len(error_unreadable)),
         "cancel_all_event_count": len(cancel_all_events),
         "fill_event_count": len(fill_events),
         "duplicate_fill_trade_id_count": duplicate_fill_ids,

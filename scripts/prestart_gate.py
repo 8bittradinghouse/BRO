@@ -7,35 +7,52 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from prodesk.config import _load_raw_with_extends
+from yaml import YAMLError
+
+from prodesk.config import load_execution_config
 
 
-def _latest_status_row(log_dir: pathlib.Path) -> Optional[Dict[str, Any]]:
+def _latest_status_row(log_dir: pathlib.Path) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     files = sorted(log_dir.glob("status_*.jsonl"))
     if not files:
-        return None
+        return None, []
+    warnings: List[str] = []
     for path in reversed(files[-3:]):
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 lines = [line.strip() for line in fh if line.strip()]
-        except Exception:
+        except OSError as exc:
+            warnings.append(f"status_file_read_error:{path}:{exc.__class__.__name__}")
             continue
         for text in reversed(lines[-500:]):
             try:
                 row = json.loads(text)
             except json.JSONDecodeError:
+                warnings.append(f"status_row_parse_error:{path}")
                 continue
             if isinstance(row, dict):
-                return row
-    return None
+                return row, warnings
+    return None, warnings
 
 
 def run_gate(*, config_path: pathlib.Path, allow_kill_switch: bool, allow_guard_file: bool) -> Dict[str, Any]:
-    cfg, _ = _load_raw_with_extends(config_path.resolve())
-    if not isinstance(cfg, dict):
-        raise ValueError("config root must be a mapping")
+    config_resolved = config_path.resolve()
+    try:
+        cfg = load_execution_config(config_resolved)
+    except (OSError, ValueError, TypeError, RuntimeError, YAMLError) as exc:
+        findings = [f"config_load_error:{exc.__class__.__name__}:{exc}"]
+        return {
+            "config_path": str(config_resolved),
+            "log_dir": "",
+            "guard_stop_file": "",
+            "finding_count": len(findings),
+            "findings": findings,
+            "warning_count": 0,
+            "warnings": [],
+            "ok": False,
+        }
     cfg_dir = config_path.resolve().parent
     storage = cfg.get("storage", {}) if isinstance(cfg.get("storage", {}), dict) else {}
     runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime", {}), dict) else {}
@@ -56,6 +73,7 @@ def run_gate(*, config_path: pathlib.Path, allow_kill_switch: bool, allow_guard_
         guard_file = None
 
     findings: list[str] = []
+    warnings: list[str] = []
     guard_candidates: list[pathlib.Path] = []
     if guard_file is not None:
         guard_candidates.append(guard_file)
@@ -68,7 +86,8 @@ def run_gate(*, config_path: pathlib.Path, allow_kill_switch: bool, allow_guard_
                 findings.append(f"guard_stop_file_present:{candidate}")
                 break
 
-    row = _latest_status_row(log_dir)
+    row, status_warnings = _latest_status_row(log_dir)
+    warnings.extend(status_warnings)
     if row is not None and bool(row.get("kill_switch", False)) and not allow_kill_switch:
         reason = str(row.get("kill_reason") or "")
         findings.append(f"latest_status_kill_switch_true:{reason}")
@@ -79,6 +98,8 @@ def run_gate(*, config_path: pathlib.Path, allow_kill_switch: bool, allow_guard_
         "guard_stop_file": str(guard_file) if guard_file is not None else "",
         "finding_count": len(findings),
         "findings": findings,
+        "warning_count": len(warnings),
+        "warnings": warnings,
         "ok": len(findings) == 0,
     }
 

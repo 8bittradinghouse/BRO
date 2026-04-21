@@ -19,7 +19,7 @@ from prodesk.error_codes import summarize_error_codes
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -29,7 +29,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _load_json(path: pathlib.Path) -> Dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -44,7 +44,7 @@ def _load_policy(path: pathlib.Path) -> Dict[str, Any]:
 def _report_key(path: pathlib.Path) -> Tuple[float, str]:
     try:
         mt = path.stat().st_mtime
-    except Exception:
+    except OSError:
         mt = 0.0
     return (mt, str(path))
 
@@ -103,7 +103,7 @@ def run_gate(*, reports_root: pathlib.Path, policy_path: pathlib.Path) -> Dict[s
         duration_total += dur
         try:
             recency_ts.append(item["root"].stat().st_mtime)
-        except Exception:
+        except OSError:
             pass
         details.append(
             {

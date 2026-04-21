@@ -43,7 +43,7 @@ def run_audit(*, drills_dir: pathlib.Path, max_age_days: float = 7.0) -> Dict[st
     for path in files:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError):
             findings.append(f"invalid_json:{path.name}")
             continue
         if not isinstance(payload, dict):

@@ -282,6 +282,8 @@ class ChainlinkFeedTests(unittest.TestCase):
             self.assertIn(key, class_counts)
         self.assertGreaterEqual(int(class_counts.get("ordered", 0)), 1)
         self.assertGreaterEqual(int(class_counts.get("out_of_order", 0)), 1)
+        self.assertIn("thread_alive", status)
+        self.assertFalse(bool(status["thread_alive"]))
 
 
 if __name__ == "__main__":

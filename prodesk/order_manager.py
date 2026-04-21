@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-from contextlib import suppress
 import datetime as dt
 import hashlib
 import logging
@@ -11,7 +10,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 from .common import parse_float, parse_ts, utc_iso, utc_now
 from .execution_quality import ExecutionQualityModel
-from .gateway import BaseGateway, PostOnlyRejectError
+from .gateway import BaseGateway, GatewayError, PostOnlyRejectError
 from .logging_utils import EventLogger
 from .models import BookTop, FillEvent, LiveOrder, OrderIntent, Position
 from .risk import RiskEngine
@@ -24,6 +23,15 @@ from .wallet_doctrine import WalletDoctrineBase, create_wallet_doctrine
 LOG = logging.getLogger("prodesk.order_manager")
 PAPER_TRADE_ID_RE = re.compile(r"^paper-trade-[0-9a-f]{12}-[1-9][0-9]*$")
 ORDER_RESIDUAL_EXPOSURE_EPSILON = 1e-9
+ORDER_TRANSPORT_EXCEPTIONS = (
+    GatewayError,
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 TERMINAL_ORDER_ACK_STATUSES = {
     "CANCELED",
     "CANCELLED",
@@ -322,6 +330,29 @@ class OrderManager:
             return True
         return False
 
+    def _remove_token_order_if_present(
+        self,
+        token_orders: List[LiveOrder],
+        order: LiveOrder,
+        *,
+        remove_reason: str,
+    ) -> bool:
+        if order in token_orders:
+            token_orders.remove(order)
+            return True
+        self.telemetry.incr("token_order_local_remove_miss")
+        self.events.log_event(
+            "token_order_local_remove_miss",
+            {
+                "ts_utc": utc_iso(),
+                "token_id": order.token_id,
+                "order_id": order.order_id,
+                "side": order.side,
+                "remove_reason": str(remove_reason or "").strip().lower() or "unknown",
+            },
+        )
+        return False
+
     def _cancel_order(self, order: LiveOrder, reason: str) -> bool:
         if self.risk.remaining_cancel_capacity(self.cancel_rate_soft_limit_pct) <= 0:
             self.telemetry.incr("cancel_soft_throttle_skips")
@@ -343,10 +374,9 @@ class OrderManager:
             )
             return False
 
-        self.risk.on_order_canceled()
         try:
             ok = self.tx_manager.cancel_order(order.order_id)
-        except Exception as exc:
+        except ORDER_TRANSPORT_EXCEPTIONS as exc:
             self.telemetry.incr("cancel_failures")
             self.events.log_error(
                 {
@@ -360,6 +390,7 @@ class OrderManager:
             )
             return False
         if ok:
+            self.risk.on_order_canceled()
             self.wallet.release_order_lock(order.order_id)
             self.telemetry.incr("orders_canceled")
             self.events.log_event(
@@ -494,11 +525,34 @@ class OrderManager:
         )
         reduce_only_min_order_size_raw = risk_context_payload.get("reduce_only_min_order_size_shares")
         reduce_only_min_order_size_shares = parse_float(reduce_only_min_order_size_raw)
+        reduce_only_dynamic_size_cap_source = ""
+        pos_for_priority = self.risk.positions.get(intent.token_id)
+        net_shares_for_priority = float(getattr(pos_for_priority, "net_shares", 0.0) or 0.0)
+        intent_side_upper = str(intent.side or "").strip().upper()
+        if reduce_only_recovery_active:
+            dynamic_reduce_only_cap = 0.0
+            if net_shares_for_priority > 1e-9 and intent_side_upper == "SELL":
+                dynamic_reduce_only_cap = abs(float(net_shares_for_priority))
+            elif net_shares_for_priority < -1e-9 and intent_side_upper == "BUY":
+                dynamic_reduce_only_cap = abs(float(net_shares_for_priority))
+            if dynamic_reduce_only_cap <= 1e-9:
+                reduce_only_size_cap = 0.0
+                reduce_only_dynamic_size_cap_source = "live_position_flat_or_wrong_side"
+            elif not isinstance(reduce_only_size_cap, (int, float)) or float(reduce_only_size_cap) <= 0.0:
+                reduce_only_size_cap = float(dynamic_reduce_only_cap)
+                reduce_only_dynamic_size_cap_source = "live_position_cap_fallback"
+            elif float(reduce_only_size_cap) > (float(dynamic_reduce_only_cap) + 1e-9):
+                reduce_only_size_cap = float(dynamic_reduce_only_cap)
+                reduce_only_dynamic_size_cap_source = "live_position_cap_clamp"
+            if reduce_only_dynamic_size_cap_source:
+                risk_context_payload["reduce_only_dynamic_size_cap_source"] = str(
+                    reduce_only_dynamic_size_cap_source
+                )
+                risk_context_payload["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
+                risk_context_payload["reduce_only_net_shares_live"] = float(net_shares_for_priority)
         reduce_only_size_for_priority = float(intent.size)
         if isinstance(reduce_only_size_cap, (int, float)) and float(reduce_only_size_cap) > 0.0:
             reduce_only_size_for_priority = min(float(reduce_only_size_for_priority), float(reduce_only_size_cap))
-        pos_for_priority = self.risk.positions.get(intent.token_id)
-        net_shares_for_priority = float(getattr(pos_for_priority, "net_shares", 0.0) or 0.0)
         reduce_only_recovery_priority = bool(
             reduce_only_recovery_active
             and RiskEngine._is_pure_risk_reducing_intent(
@@ -614,6 +668,21 @@ class OrderManager:
                     },
                 )
 
+        if reduce_only_recovery_active and (
+            not isinstance(reduce_only_size_cap, (int, float)) or float(reduce_only_size_cap) <= 1e-9
+        ):
+            return _local_reject(
+                "reduce_only_recovery_size_cap_unavailable",
+                detail=f"net_shares={float(net_shares_for_priority):.9f}:side={intent_side_upper}",
+                extra={
+                    "financial_posture_class": str(financial_posture_class),
+                    "reduce_only_recovery_active": True,
+                    "reduce_only_size_cap_shares": float(reduce_only_size_cap or 0.0),
+                    "reduce_only_net_shares_live": float(net_shares_for_priority),
+                    "reduce_only_dynamic_size_cap_source": str(reduce_only_dynamic_size_cap_source or ""),
+                },
+            )
+
         resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
             intent,
             top,
@@ -679,6 +748,7 @@ class OrderManager:
 
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
+            risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
             event_stage_raw = str(intent.stage or "").strip().upper()
             stage_source = "intent" if event_stage_raw else "unknown"
             stage_unknown_reason = None if event_stage_raw else "missing_intent_and_risk_context_stage"
@@ -689,6 +759,14 @@ class OrderManager:
                     stage_source = "risk_context"
                     stage_unknown_reason = None
             event_stage = event_stage_raw or "UNKNOWN"
+            event_financial_posture_class = str(
+                risk_context_payload.get("financial_posture_class") or "UNKNOWN"
+            ).strip().upper()
+            event_sec_to_expiry = (
+                float(risk_context_payload["sec_to_expiry"])
+                if isinstance(risk_context_payload.get("sec_to_expiry"), (int, float))
+                else None
+            )
             self.events.log_event(
                 "risk_reject",
                 {
@@ -701,8 +779,18 @@ class OrderManager:
                     "stage": event_stage,
                     "stage_source": stage_source,
                     "stage_unknown_reason": stage_unknown_reason,
+                    "financial_posture_class": event_financial_posture_class,
+                    "sec_to_expiry": event_sec_to_expiry,
                     "reason": "size_notional_bounds",
                     "detail": f"mode={self.sizing_mode}",
+                    "risk_decision_basis": {
+                        "risk_authority": "sizing_pre_risk",
+                        "submission_lane": lane,
+                        "stage": event_stage,
+                        "financial_posture_class": event_financial_posture_class,
+                        "sec_to_expiry": event_sec_to_expiry,
+                        "lifecycle_context_present": bool(event_sec_to_expiry is not None),
+                    },
                     "size_resolution": size_resolution,
                 },
             )
@@ -1024,6 +1112,76 @@ class OrderManager:
                 "lock_id": wallet_auth.lock_id,
             },
         )
+        if float(intent_authorized.size) + 1e-9 < float(intent_sized.size):
+            post_wallet_context = dict(risk_context_payload)
+            post_wallet_context["post_wallet_authorization_resize"] = True
+            post_wallet_context["requested_size_before_wallet"] = float(intent_sized.size)
+            post_wallet_context["approved_size_after_wallet"] = float(intent_authorized.size)
+            post_wallet_decision = self.risk.validate_order(
+                intent_authorized,
+                top,
+                open_orders_for_token,
+                open_orders_total,
+                open_orders_all=open_orders_all,
+                reference_mid_by_token=reference_mid_by_token,
+                risk_context=post_wallet_context,
+            )
+            if not post_wallet_decision.allowed:
+                released = self._cleanup_failed_submission(
+                    wallet_lock_id=wallet_auth.lock_id,
+                    submission_lane=lane,
+                    cleanup_reason="post_wallet_risk_reject",
+                    release_submission_reservation=False,
+                )
+                risk_basis = post_wallet_decision.basis if isinstance(post_wallet_decision.basis, dict) else None
+                intent_stage = str(intent_authorized.stage or "").strip().upper()
+                basis_stage = (
+                    str((risk_basis or {}).get("stage") or "").strip().upper()
+                    if isinstance(risk_basis, dict)
+                    else ""
+                )
+                if intent_stage:
+                    event_stage = intent_stage
+                    stage_source = "intent"
+                    stage_unknown_reason = None
+                elif basis_stage:
+                    event_stage = basis_stage
+                    stage_source = "risk_decision_basis"
+                    stage_unknown_reason = None
+                else:
+                    event_stage = "UNKNOWN"
+                    stage_source = "unknown"
+                    stage_unknown_reason = "missing_intent_and_basis_stage"
+                self.telemetry.incr("risk_rejects")
+                self.telemetry.incr(f"risk_reject_{post_wallet_decision.reason}")
+                self.events.log_event(
+                    "risk_reject",
+                    {
+                        "ts_utc": utc_iso(),
+                        "token_id": intent_authorized.token_id,
+                        "side": intent_authorized.side,
+                        "price": intent_authorized.price,
+                        "size": intent_authorized.size,
+                        "requested_size_before_wallet": float(intent_sized.size),
+                        "submission_lane": lane,
+                        "stage": event_stage,
+                        "stage_source": stage_source,
+                        "stage_unknown_reason": stage_unknown_reason,
+                        "reason": post_wallet_decision.reason,
+                        "detail": post_wallet_decision.detail,
+                        "risk_decision_basis": risk_basis,
+                        "post_wallet_authorization_revalidate": True,
+                        "submission_reserved_released": bool(released),
+                    },
+                )
+                return _local_reject(
+                    f"risk_reject_{post_wallet_decision.reason}",
+                    detail=f"{post_wallet_decision.reason}:{post_wallet_decision.detail}",
+                    extra={
+                        "risk_decision_basis": risk_basis,
+                        "post_wallet_authorization_revalidate": True,
+                    },
+                )
 
         client_order_id = self._next_client_order_id(intent_authorized.token_id, intent_authorized.side)
         self.risk.reserve_order_submission()
@@ -1061,7 +1219,7 @@ class OrderManager:
                 },
             )
             return None, "post_only_reject"
-        except Exception as exc:
+        except ORDER_TRANSPORT_EXCEPTIONS as exc:
             released = self._cleanup_failed_submission(
                 wallet_lock_id=wallet_auth.lock_id,
                 submission_lane=lane,
@@ -1122,13 +1280,50 @@ class OrderManager:
             self.telemetry.incr("wallet_halts")
             self.risk.set_kill_switch(f"wallet_halt:{self.wallet.halt_reason() or 'confirm_submission_failed'}")
             if order_open:
-                with suppress(Exception):
+                try:
                     self.tx_manager.cancel_order(order.order_id)
+                except ORDER_TRANSPORT_EXCEPTIONS as exc:
+                    self.telemetry.incr("wallet_confirm_submission_cancel_failures")
+                    self.events.log_error(
+                        {
+                            "ts_utc": utc_iso(),
+                            "component": "order_manager",
+                            "action": "wallet_confirm_submission_cancel",
+                            "order_id": order.order_id,
+                            "token_id": intent_authorized.token_id,
+                            "side": intent_authorized.side,
+                            "submission_lane": lane,
+                            "error": str(exc),
+                        }
+                    )
             return None, "wallet_confirm_submission_failed"
 
         self.telemetry.incr("orders_submitted")
         competitiveness_payload = (
             dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        )
+        risk_basis_event = decision.basis if isinstance(decision.basis, dict) else {}
+        intent_stage_raw = str(intent_authorized.stage or "").strip().upper()
+        basis_stage_raw = str(risk_basis_event.get("stage") or "").strip().upper()
+        if intent_stage_raw:
+            event_stage = intent_stage_raw
+            stage_source = "intent"
+            stage_unknown_reason = None
+        elif basis_stage_raw:
+            event_stage = basis_stage_raw
+            stage_source = "risk_decision_basis"
+            stage_unknown_reason = None
+        else:
+            event_stage = "UNKNOWN"
+            stage_source = "unknown"
+            stage_unknown_reason = "missing_intent_and_basis_stage"
+        event_financial_posture_class = str(
+            risk_basis_event.get("financial_posture_class") or "UNKNOWN"
+        ).strip().upper()
+        event_sec_to_expiry = (
+            float(risk_basis_event["sec_to_expiry"])
+            if isinstance(risk_basis_event.get("sec_to_expiry"), (int, float))
+            else None
         )
         size_resolution_payload = dict(size_resolution)
         if competitiveness_payload:
@@ -1150,11 +1345,15 @@ class OrderManager:
                 "submission_lane": lane,
                 "submission_reject_class": None,
                 "submission_state": "accepted",
-                "risk_decision_basis": (decision.basis if isinstance(decision.basis, dict) else None),
+                "risk_decision_basis": risk_basis_event,
                 "tif": intent_authorized.tif,
                 "post_only": intent_authorized.post_only,
                 "reason": intent_authorized.reason,
-                "stage": intent_authorized.stage,
+                "stage": event_stage,
+                "stage_source": stage_source,
+                "stage_unknown_reason": stage_unknown_reason,
+                "financial_posture_class": event_financial_posture_class,
+                "sec_to_expiry": event_sec_to_expiry,
                 "market_id": intent_authorized.market_id,
                 "window_id": intent_authorized.window_id,
                 "reason_code": intent_authorized.reason_code,
@@ -1408,10 +1607,38 @@ class OrderManager:
                 self.maker_competitive_min_notional_usd > 0.0
                 and rounded_notional + 1e-9 < self.maker_competitive_min_notional_usd
             ):
-                details["size_decision_reasons"].append("maker_hard_min_notional_failed_after_rounding")
-                details["resolved_shares"] = None
-                details["resolved_notional_usd"] = None
-                return None, details
+                # Floor-rounding can undershoot a hard maker notional floor by a small
+                # step fraction. Try one deterministic step-up before rejecting.
+                share_step = max(1e-9, float(self.sizing_share_step))
+                min_notional_exact_shares = float(self.maker_competitive_min_notional_usd) / float(price)
+                min_required_units = int(math.ceil(max(0.0, min_notional_exact_shares - 1e-12) / share_step))
+                rounded_up = float(min_required_units) * share_step
+                rounded_up = min(float(rounded_up), float(self.strategy_max_order_size))
+                rounded_up_notional = float(rounded_up) * float(price)
+                can_step_up = bool(
+                    rounded_up > float(rounded) + 1e-12
+                    and rounded_up_notional + 1e-9 >= float(self.maker_competitive_min_notional_usd)
+                    and rounded_up_notional <= float(self.sizing_max_usd) + 1e-9
+                    and (
+                        self.maker_competitive_max_shares <= 0.0
+                        or rounded_up <= float(self.maker_competitive_max_shares) + 1e-9
+                    )
+                    and (
+                        self.maker_competitive_max_notional_usd <= 0.0
+                        or rounded_up_notional <= float(self.maker_competitive_max_notional_usd) + 1e-9
+                    )
+                )
+                if can_step_up:
+                    rounded = float(rounded_up)
+                    rounded_notional = float(rounded_up_notional)
+                    details["rounded_shares"] = float(rounded)
+                    details["rounded_notional_usd"] = float(rounded_notional)
+                    details["size_decision_reasons"].append("maker_hard_min_notional_roundup_to_step")
+                else:
+                    details["size_decision_reasons"].append("maker_hard_min_notional_failed_after_rounding")
+                    details["resolved_shares"] = None
+                    details["resolved_notional_usd"] = None
+                    return None, details
             if (
                 self.maker_competitive_max_notional_usd > 0.0
                 and rounded_notional - 1e-9 > self.maker_competitive_max_notional_usd
@@ -2076,8 +2303,11 @@ class OrderManager:
                         if self._cancel_order(order, "no_desired_quote"):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
-                            with suppress(ValueError):
-                                token_orders.remove(order)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="no_desired_quote",
+                            )
                     continue
 
                 primary: Optional[LiveOrder] = side_orders[0] if side_orders else None
@@ -2097,25 +2327,11 @@ class OrderManager:
                         if self._cancel_order(order, "one_sided_mode_disallow_side"):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
-                            with suppress(ValueError):
-                                token_orders.remove(order)
-                    continue
-
-                if (
-                    reduce_only_recovery_active
-                    and reduce_only_size_cap_below_min_order_size
-                    and side == reduce_only_side
-                ):
-                    _record_maker_no_submission_reason(token_id, "reduce_only_recovery_size_cap_below_min_order_size")
-                    for order in side_orders:
-                        if actions >= max_actions:
-                            _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
-                            break
-                        if self._cancel_order(order, "reduce_only_recovery_size_cap_below_min_order_size"):
-                            actions += 1
-                            open_orders_total = max(0, open_orders_total - 1)
-                            with suppress(ValueError):
-                                token_orders.remove(order)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="one_sided_mode_disallow_side",
+                            )
                     continue
 
                 replace_needed = (
@@ -2139,8 +2355,11 @@ class OrderManager:
                         if self._cancel_order(order, "replace_quote"):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
-                            with suppress(ValueError):
-                                token_orders.remove(order)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="replace_quote",
+                            )
                         else:
                             cancel_failed = True
                             _record_maker_no_submission_reason(token_id, "replace_cancel_unavailable")
@@ -2148,6 +2367,10 @@ class OrderManager:
                         break
                     risk_context_payload = dict(token_competitiveness_context) if isinstance(token_competitiveness_context, dict) else {}
                     risk_context_payload.setdefault("submission_lane", "maker")
+                    risk_context_payload.setdefault(
+                        "stage",
+                        str(desired_intent.stage or "").strip().upper() or "UNKNOWN",
+                    )
                     risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
                     if isinstance(realized_vol, (int, float)):
                         risk_context_payload["realized_volatility"] = float(realized_vol)
@@ -2181,8 +2404,11 @@ class OrderManager:
                         if self._cancel_order(order, "extra_same_side_order"):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
-                            with suppress(ValueError):
-                                token_orders.remove(order)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="extra_same_side_order",
+                            )
 
         self.telemetry.incr("cycles")
         open_orders_after = max(0, int(open_orders_total))

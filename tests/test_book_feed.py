@@ -107,6 +107,8 @@ class MarketBookFeedTests(unittest.TestCase):
         self.assertFalse(status["connected"])
         self.assertIsNotNone(status["last_transport_msg_age_sec"])
         self.assertIsNone(status["last_msg_age_sec"])
+        self.assertIn("thread_alive", status)
+        self.assertFalse(bool(status["thread_alive"]))
 
 
 if __name__ == "__main__":

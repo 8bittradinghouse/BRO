@@ -1,9 +1,11 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from scripts.harness_qualify import _load_policy, run_gate
+from scripts.harness_qualify import _load_policy, _run_sim_harness_audit_subprocess, run_gate
 
 
 class HarnessQualifyTests(unittest.TestCase):
@@ -98,6 +100,20 @@ class HarnessQualifyTests(unittest.TestCase):
                 force_skip_fault_drill=True,
             )
         self.assertTrue(result["ok"])
+
+    def test_sim_harness_subprocess_timeout_is_reason_coded_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td).resolve()
+            with mock.patch(
+                "scripts.harness_qualify.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["sim_harness_audit.py"], timeout=1.0),
+            ):
+                result = _run_sim_harness_audit_subprocess(
+                    sim_config_path=Path("configs/profiles/paper_universal.yaml"),
+                    repo_root=repo_root,
+                )
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(str(x).startswith("sim_harness_audit_timeout:") for x in result["findings"]))
 
 
 if __name__ == "__main__":

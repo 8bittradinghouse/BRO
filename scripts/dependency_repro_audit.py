@@ -98,7 +98,7 @@ def _pyproject_dependency_findings(pyproject_path: pathlib.Path, requirements_pa
     req_pins = _parse_requirements_pins(requirements_path)
     try:
         payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         return [f"pyproject_invalid_toml:{exc.__class__.__name__}"]
     project = payload.get("project", {})
     deps = project.get("dependencies", [])
@@ -130,7 +130,7 @@ def _pyproject_dependency_findings(pyproject_path: pathlib.Path, requirements_pa
 def _relative_to_root(path: pathlib.Path, root: pathlib.Path) -> str:
     try:
         return str(path.resolve().relative_to(root.resolve()))
-    except Exception:
+    except (OSError, ValueError):
         return str(path.resolve())
 
 
@@ -187,7 +187,7 @@ def run_audit(
         else:
             try:
                 existing = json.loads(lock_manifest_path.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, UnicodeError, json.JSONDecodeError):
                 findings.append(f"lock_manifest_invalid_json:{_relative_to_root(lock_manifest_path, repo_root)}")
                 existing = {}
             if isinstance(existing, dict):

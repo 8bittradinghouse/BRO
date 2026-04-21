@@ -16,6 +16,15 @@ try:
 except ImportError:  # pragma: no cover
     websockets = None  # type: ignore[assignment]
 
+_BOOK_FEED_WS_EXCEPTIONS: Tuple[type[BaseException], ...] = ()
+if websockets is not None:  # pragma: no cover - import shape depends on installed websockets version
+    try:
+        from websockets.exceptions import WebSocketException
+
+        _BOOK_FEED_WS_EXCEPTIONS = (WebSocketException,)
+    except (ImportError, AttributeError, TypeError):
+        _BOOK_FEED_WS_EXCEPTIONS = ()
+
 
 def _parse_json_list(value: Any) -> List[Any]:
     if value is None:
@@ -61,6 +70,19 @@ def _best_level(levels: Any, is_bid: bool) -> Tuple[Optional[float], Optional[fl
 
 class MarketBookFeedError(RuntimeError):
     pass
+
+
+BOOK_FEED_LOOP_EXCEPTIONS = (
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    json.JSONDecodeError,
+    asyncio.TimeoutError,
+    *_BOOK_FEED_WS_EXCEPTIONS,
+)
 
 
 @dataclasses.dataclass
@@ -164,6 +186,7 @@ class MarketBookFeed:
             cached_books = len(self._latest_by_token)
             last_error = self._last_error
             primed = self._primed
+            thread_alive = bool(self._thread is not None and self._thread.is_alive())
         transport_age_sec = (time.monotonic() - last_transport_msg) if last_transport_msg is not None else None
         age_sec = (time.monotonic() - last_msg) if last_msg is not None else None
         return {
@@ -180,6 +203,7 @@ class MarketBookFeed:
             "cached_books": cached_books,
             "last_error": last_error,
             "primed": primed,
+            "thread_alive": thread_alive,
         }
 
     def snapshot_books(self, *, max_age_sec: Optional[float] = None) -> Dict[str, BookTop]:
@@ -196,7 +220,7 @@ class MarketBookFeed:
     def _thread_main(self) -> None:
         try:
             asyncio.run(self._run_loop())
-        except Exception as exc:
+        except BOOK_FEED_LOOP_EXCEPTIONS as exc:
             with self._lock:
                 self._connected = False
                 self._last_error = f"fatal:{exc}"
@@ -263,7 +287,7 @@ class MarketBookFeed:
                         except json.JSONDecodeError:
                             continue
                         self._handle_message_obj(parsed, now_mono)
-            except Exception as exc:
+            except BOOK_FEED_LOOP_EXCEPTIONS as exc:
                 if self._stop_event.is_set():
                     break
                 self._record_reconnect(error=str(exc))

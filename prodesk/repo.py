@@ -41,7 +41,7 @@ def current_git_commit(repo_root: pathlib.Path) -> str:
             text=True,
             timeout=2.0,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return ""
     return out.strip()
 
@@ -57,6 +57,6 @@ def current_git_dirty(repo_root: pathlib.Path) -> bool:
             text=True,
             timeout=2.0,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return False
     return bool(out.strip())

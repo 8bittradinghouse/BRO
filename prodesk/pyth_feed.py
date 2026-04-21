@@ -115,7 +115,7 @@ class PythFeed:
             with_exception = ""
             try:
                 detail = exc.read(256).decode("utf-8", errors="ignore").strip()
-            except Exception as read_exc:  # pragma: no cover - best effort only
+            except (OSError, UnicodeError, ValueError) as read_exc:  # pragma: no cover - best effort only
                 with_exception = f" body_read_error={read_exc}"
             self._connected = False
             self._latest = None
@@ -123,7 +123,7 @@ class PythFeed:
             detail_suffix = f": {detail}" if detail else ""
             self._last_error = f"HTTP Error {exc.code}{detail_suffix}{with_exception}"
             self._errors += 1
-        except Exception as exc:
+        except (urllib.error.URLError, OSError, ValueError, TypeError, RuntimeError) as exc:
             self._connected = False
             self._latest = None
             self._last_http_status = None

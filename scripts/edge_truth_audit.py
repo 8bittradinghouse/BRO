@@ -93,7 +93,7 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if not math.isfinite(out):
         return None
@@ -221,7 +221,7 @@ def _coerce_int(value: Any) -> Optional[int]:
     if text.lstrip("-").isdigit():
         try:
             return int(text)
-        except Exception:
+        except (TypeError, ValueError):
             return None
     return None
 
@@ -315,7 +315,7 @@ def run_audit(
                 run_contract_path=run_contract_path,
                 max_lines_per_file=max_lines_per_file,
             )
-        except Exception as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             findings.append(str(exc))
             all_rows = []
             contract = {}
@@ -483,15 +483,16 @@ def run_audit(
             findings.append(f"{row_prefix}_action_requires_maker_allowed_true")
         if action == EDGE_ACTION_TAKER and taker_allowed is not True:
             findings.append(f"{row_prefix}_action_requires_taker_allowed_true")
-        allow_recovery_missing_fair_probability = (
+        allow_recovery_missing_probability_input = (
             action != EDGE_ACTION_NONE
             and bool(reduce_only_recovery_active)
-            and str(validation.reason_code or "").strip().lower() == "fair_probability_missing"
+            and str(validation.reason_code or "").strip().lower()
+            in {"fair_probability_missing", "market_probability_missing"}
         )
         if (
             (not validation.valid)
             and action != EDGE_ACTION_NONE
-            and (not allow_recovery_missing_fair_probability)
+            and (not allow_recovery_missing_probability_input)
         ):
             findings.append(f"{row_prefix}_action_with_invalid_edge_inputs:{validation.reason_code}")
 

@@ -263,7 +263,7 @@ run_id = str(sys.argv[3]).strip()
 log_dir = pathlib.Path(str(sys.argv[4])).expanduser().resolve()
 try:
     uuid.UUID(run_id)
-except Exception:
+except ValueError:
     print(f"run_id_invalid:{run_id!r}")
     raise SystemExit(2)
 decision = resolve_authority_decision(
@@ -298,7 +298,7 @@ try:
         text=True,
         timeout=2.0,
     ).strip()
-except Exception:
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
     out = ""
 print(out)
 PY
@@ -322,7 +322,7 @@ try:
         timeout=2.0,
     )
     print("1" if out.strip() else "0")
-except Exception:
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
     print("0")
 PY
 )"; then
@@ -345,7 +345,27 @@ else
   echo "[deploy] skipping image build via --no-build (non-canonical fast path)"
 fi
 
-BRO_MAKER_IMAGE_REF="$(docker compose config --images | awk '/-bro-maker$/ {print; exit}')"
+# Resolve image identities with bounded retry so transient compose failures do
+# not surface as silent shell exit 255 from command substitution.
+COMPOSE_IMAGES_OUTPUT=""
+COMPOSE_IMAGES_RC=0
+for attempt in 1 2 3; do
+  set +e
+  COMPOSE_IMAGES_OUTPUT="$(docker compose config --images 2>&1)"
+  COMPOSE_IMAGES_RC=$?
+  set -e
+  if [[ "${COMPOSE_IMAGES_RC}" -eq 0 ]]; then
+    break
+  fi
+  echo "[deploy] docker compose config --images failed attempt ${attempt}/3 rc=${COMPOSE_IMAGES_RC}" >&2
+  echo "${COMPOSE_IMAGES_OUTPUT}" >&2
+  sleep 1
+done
+if [[ "${COMPOSE_IMAGES_RC}" -ne 0 ]]; then
+  echo "deploy_image_identity_lookup_failed:docker_compose_config_images_exit_${COMPOSE_IMAGES_RC}" >&2
+  exit 2
+fi
+BRO_MAKER_IMAGE_REF="$(printf '%s\n' "${COMPOSE_IMAGES_OUTPUT}" | awk '/-bro-maker$/ {print; exit}')"
 if [[ -z "${BRO_MAKER_IMAGE_REF}" ]]; then
   echo "deploy_image_identity_missing:bro-maker-image-ref" >&2
   exit 2
@@ -386,7 +406,7 @@ MANIFEST_WAIT_SEC="$("${PY_BIN}" - <<'PY' "${WAIT_SEC}"
 import sys
 try:
     wait = float(sys.argv[1])
-except Exception:
+except (TypeError, ValueError):
     wait = 25.0
 print(int(max(15.0, wait + 20.0)))
 PY

@@ -25,7 +25,7 @@ def _load_from_file(*, path_raw: Any, label: str) -> str:
         raise SecretLoadError(f"file path missing for {label}")
     try:
         value = path.read_text(encoding="utf-8").strip()
-    except Exception as exc:
+    except (OSError, UnicodeError) as exc:
         raise SecretLoadError(f"failed to read file for {label}: {path}: {exc.__class__.__name__}") from exc
     if not value:
         raise SecretLoadError(f"empty file secret for {label}: {path}")
@@ -44,7 +44,7 @@ def _load_from_manager(*, source: Dict[str, Any], label: str) -> str:
     timeout_sec = max(0.5, float(source.get("timeout_sec", 5.0)))
     try:
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout_sec)
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         raise SecretLoadError(f"manager command failed for {label}: {exc.__class__.__name__}") from exc
     if proc.returncode != 0:
         raise SecretLoadError(f"manager command non-zero for {label}: rc={proc.returncode}")

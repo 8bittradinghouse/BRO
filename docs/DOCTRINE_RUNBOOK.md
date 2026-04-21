@@ -1,5 +1,16 @@
 # BRO Doctrine Runbook (Canonical vs Degraded)
 
+## Canonical System Mapping + Diagnostic Kernel (Required Reading)
+- Doctrine-critical operator references:
+  - [`BRO System Comparison Table`](BRO_SYSTEM_COMPARISON_TABLE.md)
+  - [`BRO Fixed Diagnostic Template`](BRO_DIAGNOSTIC_TEMPLATE.md)
+- Usage rule:
+  - use the comparison table to map symptom -> subsystem -> harness -> connector box before any fix.
+  - use the diagnostic template for every cross-system triage pass.
+  - keep diagnosis run-anchored with lineage tuple (`run_id`, `git_commit`, `config_fingerprint`, `code_fingerprint`).
+- Drift rule:
+  - these docs are operator/engineering control aids; they do not change runtime behavior by themselves.
+
 ## Modes
 - `doctrine.mode=canonical`:
   - fail-closed on missing expiry/threshold/side/fair/oracle freshness
@@ -163,6 +174,7 @@ Required observability surfaces:
     - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`
     - `runtime.held_book_not_found_force_refresh_interval_sec = 45.0`
     - `runtime.held_preexpiry_reduce_only_sec = 90.0`
+    - `runtime.preexpiry_emergency_taker_window_sec = 60.0`
     - `runtime.terminal_unwind_halt_new_risk_sec = 60.0`
   - transition/anomaly truth surfaces are explicit:
     - `valuation_hard_degraded_enter_count`

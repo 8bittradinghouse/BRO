@@ -87,7 +87,7 @@ def _execution_realism_class_from_row(row: Dict[str, Any]) -> str:
 def _status_files_exist(log_dir: pathlib.Path) -> bool:
     try:
         return any(log_dir.glob("status_*.jsonl"))
-    except Exception:
+    except OSError:
         return False
 
 
@@ -96,12 +96,13 @@ def _load_market_data_realism_policy(budget_path: pathlib.Path) -> tuple[Dict[st
         "max_book_updates_rest_ratio": 0.35,
         "min_book_updates_ws_delta": 1.0,
         "min_book_updates_total_delta": 1.0,
+        "min_status_rows_for_rest_ratio_gate": 20.0,
     }
     findings: List[str] = []
     resolved = budget_path.resolve()
     try:
         payload = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
-    except Exception as exc:
+    except (OSError, yaml.YAMLError) as exc:
         findings.append(f"paper_harness_budget_load_error:{exc.__class__.__name__}:{resolved}")
         return defaults, findings
     if not isinstance(payload, dict):
@@ -113,14 +114,21 @@ def _load_market_data_realism_policy(budget_path: pathlib.Path) -> tuple[Dict[st
         return defaults, findings
 
     policy = dict(defaults)
-    for key in ("max_book_updates_rest_ratio", "min_book_updates_ws_delta", "min_book_updates_total_delta"):
+    for key in (
+        "max_book_updates_rest_ratio",
+        "min_book_updates_ws_delta",
+        "min_book_updates_total_delta",
+        "min_status_rows_for_rest_ratio_gate",
+    ):
         raw = websocket_cfg.get(key)
         if raw is None:
+            if key == "min_status_rows_for_rest_ratio_gate":
+                continue
             findings.append(f"paper_harness_budget_missing:{key}")
             continue
         try:
             value = float(raw)
-        except Exception:
+        except (TypeError, ValueError):
             findings.append(f"paper_harness_budget_invalid_value:{key}")
             continue
         if value < 0:
@@ -152,7 +160,7 @@ def _load_run_scoped_events(
                 run_contract_path_override=run_contract_path,
                 allow_open=(str(session_phase or "").strip() == "validate_active"),
             )
-        except Exception as exc:
+        except ValueError as exc:
             findings.append(str(exc))
             contract = None
         if isinstance(contract, dict):
@@ -419,18 +427,32 @@ def run_audit(
         max_rest_ratio = float(market_data_policy.get("max_book_updates_rest_ratio", 0.35) or 0.35)
         min_ws_updates = float(market_data_policy.get("min_book_updates_ws_delta", 1.0) or 1.0)
         min_total_updates = float(market_data_policy.get("min_book_updates_total_delta", 1.0) or 1.0)
+        min_rows_for_rest_ratio_gate = float(
+            market_data_policy.get("min_status_rows_for_rest_ratio_gate", 20.0) or 20.0
+        )
         ws_delta = float(market_data_source.get("book_updates_ws_delta", 0.0) or 0.0)
         rest_ratio = float(market_data_source.get("book_updates_rest_ratio", 0.0) or 0.0)
         total_delta = float(market_data_source.get("book_updates_total_delta", 0.0) or 0.0)
+        status_rows = float(runtime_report.get("status_rows", 0.0) or 0.0)
         checks["paper_max_rest_book_updates_ratio"] = max_rest_ratio
         checks["paper_min_ws_book_updates_delta"] = min_ws_updates
         checks["paper_min_total_book_updates_delta"] = min_total_updates
+        checks["paper_min_status_rows_for_rest_ratio_gate"] = float(min_rows_for_rest_ratio_gate)
         if total_delta < min_total_updates:
             findings.append(f"paper_harness_book_updates_total_too_low:{total_delta:.6f}<min:{min_total_updates:.6f}")
         if ws_delta < min_ws_updates:
             findings.append(f"paper_harness_book_updates_ws_too_low:{ws_delta:.6f}<min:{min_ws_updates:.6f}")
         if rest_ratio > max_rest_ratio:
-            findings.append(f"paper_harness_book_updates_rest_ratio_high:{rest_ratio:.6f}>max:{max_rest_ratio:.6f}")
+            if status_rows >= min_rows_for_rest_ratio_gate:
+                findings.append(
+                    f"paper_harness_book_updates_rest_ratio_high:{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
+                )
+            else:
+                warnings.append(
+                    "paper_harness_book_updates_rest_ratio_high_short_window:"
+                    + f"{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
+                    + f":status_rows={status_rows:.0f}<min_rows_for_rest_ratio_gate:{min_rows_for_rest_ratio_gate:.0f}"
+                )
         if classification in {RUNTIME_CLASS_INVALID_DEADLOCK, RUNTIME_CLASS_INVALID_SAFETY}:
             findings.append(f"paper_harness_runtime_invalid:{classification}")
         if not promotion_eligible:

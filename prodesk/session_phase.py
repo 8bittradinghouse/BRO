@@ -62,10 +62,9 @@ PHASE_VALIDATION_SURFACE: Dict[str, Dict[str, List[str]]] = {
         "actionable_failures": [
             "run_integrity_audit",
             "websocket_reliability_gate",
-        ],
-        "informational_failures": [
             "nightly_soak_report",
         ],
+        "informational_failures": [],
     },
     "stop": {
         "legal_validations": [],

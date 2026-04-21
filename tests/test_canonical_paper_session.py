@@ -4,15 +4,23 @@ import datetime as dt
 import json
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
+from prodesk.canonical_authority import CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS
+from prodesk.run_contract import load_run_contract
 from scripts.canonical_paper_session import (
     _compute_active_timing,
     _load_manifest_for_run_with_timeout,
     _observe_manifest_for_run_id,
     _stream_source_paths_for_window,
     build_parser,
+    build_run_contract,
+    run_contract_path,
     summarize_postrun_validation,
+    utc_iso,
+    SessionContext,
+    SessionRunner,
 )
 
 
@@ -32,19 +40,45 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
         self._write_json(report_dir / "guardian_profile_audit_replay.json", {"ok": True})
         self._write_json(
             report_dir / "readiness_gate.json",
-            {"highest_passing_stage": "paper", "blocking_stage": "pilot_live", "run_id_filter": run_id},
+            {
+                "highest_passing_stage": "paper",
+                "blocking_stage": "pilot_live",
+                "recommended_next_stage": "paper",
+                "run_id_filter": run_id,
+            },
         )
         self._write_json(
             report_dir / "readiness_gate_replay.json",
-            {"highest_passing_stage": "paper", "blocking_stage": "pilot_live", "run_id_filter": run_id},
+            {
+                "highest_passing_stage": "paper",
+                "blocking_stage": "pilot_live",
+                "recommended_next_stage": "paper",
+                "run_id_filter": run_id,
+            },
         )
         self._write_json(
             report_dir / "nightly_soak_report.json",
-            {"runtime_classification": {"classification": "VALID_ACTIVE", "promotion_eligible": True}},
+            {
+                "runtime_classification": {"classification": "VALID_ACTIVE", "promotion_eligible": True},
+                "run_commit_lineage": {
+                    "run_id": run_id,
+                    "git_commit": "f" * 40,
+                    "config_fingerprint_sha256": "1" * 64,
+                    "code_fingerprint_sha256": "2" * 64,
+                },
+            },
         )
         self._write_json(
             report_dir / "nightly_soak_report_replay.json",
-            {"runtime_classification": {"classification": "VALID_ACTIVE", "promotion_eligible": True}},
+            {
+                "runtime_classification": {"classification": "VALID_ACTIVE", "promotion_eligible": True},
+                "run_commit_lineage": {
+                    "run_id": run_id,
+                    "git_commit": "f" * 40,
+                    "config_fingerprint_sha256": "1" * 64,
+                    "code_fingerprint_sha256": "2" * 64,
+                },
+            },
         )
         self._write_json(report_dir / "edge_truth_audit.json", {"ok": True, "run_id": run_id})
         self._write_json(report_dir / "edge_truth_audit_replay.json", {"ok": True, "run_id": run_id})
@@ -124,6 +158,12 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
             self._write_minimal_reports(report_dir, "rid-pass", overall_exit_code=0)
             summary = summarize_postrun_validation(run_id="rid-pass", report_dir=report_dir, script_exit_code=0)
             self.assertEqual(summary.get("status"), "pass")
+            self.assertEqual(str(summary.get("runtime_classification") or ""), "VALID_ACTIVE")
+            self.assertTrue(bool(summary.get("promotion_eligible")))
+            self.assertEqual(str(summary.get("highest_passing_stage") or ""), "paper")
+            self.assertEqual(str(summary.get("blocking_stage") or ""), "pilot_live")
+            self.assertEqual(str(summary.get("recommended_next_stage") or ""), "paper")
+            self.assertEqual(str((summary.get("run_commit_lineage") or {}).get("git_commit") or ""), "f" * 40)
             self.assertTrue(bool(summary.get("reports_complete")))
             self.assertFalse(bool(summary.get("execution_error")))
             self.assertTrue(bool(summary.get("gate_passed")))
@@ -139,6 +179,22 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
             self.assertFalse(bool(summary.get("execution_error")))
             self.assertTrue(bool(summary.get("policy_failed")))
             self.assertTrue(bool(summary.get("summary_exit_matches")))
+
+    def test_postrun_summary_normalizes_missing_highest_stage_to_none(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            report_dir = Path(td) / "reports" / "rid-stage-none"
+            self._write_minimal_reports(report_dir, "rid-stage-none", overall_exit_code=2)
+            for readiness_name in ("readiness_gate.json", "readiness_gate_replay.json"):
+                readiness_path = report_dir / readiness_name
+                readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+                readiness["highest_passing_stage"] = None
+                readiness["blocking_stage"] = "paper"
+                readiness["recommended_next_stage"] = "paper"
+                readiness_path.write_text(json.dumps(readiness, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            summary = summarize_postrun_validation(run_id="rid-stage-none", report_dir=report_dir, script_exit_code=2)
+            self.assertEqual(str(summary.get("highest_passing_stage") or ""), "none")
+            self.assertEqual(str(summary.get("blocking_stage") or ""), "paper")
+            self.assertEqual(str(summary.get("recommended_next_stage") or ""), "paper")
 
     def test_postrun_summary_marks_execution_error_when_reports_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -299,6 +355,141 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
     def test_build_parser_supports_no_build_fast_path(self) -> None:
         args = build_parser().parse_args(["--no-build"])
         self.assertFalse(bool(args.build_images))
+
+    def test_runner_failure_path_closes_open_run_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            run_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=session_id,
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+
+            ctx.run_manifest_path = (ctx.log_dir / f"run_manifest_{run_id}.json").resolve()
+            ctx.run_contract_path = run_contract_path(log_dir=ctx.log_dir, run_id=run_id)
+            start_ts = utc_iso()
+            open_contract = build_run_contract(
+                session_id=session_id,
+                run_id=run_id,
+                phase="active",
+                session_type="paper_canonical",
+                authority_level="authoritative",
+                allowed_actions=list(CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
+                manifest_path=ctx.run_manifest_path,
+                log_root=ctx.log_dir,
+                state_root=ctx.state_path.parent,
+                start_ts=start_ts,
+                stop_ts="",
+                evidence_slice_start_ts=start_ts,
+                evidence_slice_end_ts="",
+                status_path=str(ctx.log_dir / f"status_{dt.datetime.now(dt.timezone.utc).date().isoformat()}.jsonl"),
+                events_path=str(ctx.log_dir / f"events_{dt.datetime.now(dt.timezone.utc).date().isoformat()}.jsonl"),
+                errors_path="",
+            )
+            from prodesk.run_contract import write_run_contract  # local import to avoid expanding module import list
+
+            write_run_contract(ctx.run_contract_path, open_contract, allow_open=True)
+            ctx.run_contract_payload = dict(open_contract)
+            ctx.current_phase = "active"
+            runner._write_state()
+
+            runner.phase_preflight = lambda: None
+            runner.phase_start = lambda: None
+            runner.phase_active = lambda: (_ for _ in ()).throw(RuntimeError("forced_active_failure"))
+
+            with self.assertRaises(RuntimeError):
+                runner.run()
+
+            closed = load_run_contract(ctx.run_contract_path, allow_open=False)
+            self.assertTrue(bool(str(closed.get("stop_ts") or "").strip()))
+            self.assertTrue(bool(str(closed.get("evidence_slice_end_ts") or "").strip()))
+            failure_finalize_path = ctx.report_root / "failure_finalize.json"
+            self.assertTrue(failure_finalize_path.exists())
+            failure_finalize = json.loads(failure_finalize_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(failure_finalize.get("error_type") or ""), "RuntimeError")
+            self.assertIn("forced_active_failure", str(failure_finalize.get("error_message") or ""))
+            self.assertTrue(bool(str(failure_finalize.get("traceback_path") or "").strip()))
+            self.assertGreaterEqual(float(failure_finalize.get("closeout_elapsed_sec") or 0.0), 0.0)
+
+    def test_runner_failure_path_closes_open_run_contract_on_keyboard_interrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            run_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=session_id,
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+            ctx.run_manifest_path = (ctx.log_dir / f"run_manifest_{run_id}.json").resolve()
+            ctx.run_contract_path = run_contract_path(log_dir=ctx.log_dir, run_id=run_id)
+            start_ts = utc_iso()
+            open_contract = build_run_contract(
+                session_id=session_id,
+                run_id=run_id,
+                phase="active",
+                session_type="paper_canonical",
+                authority_level="authoritative",
+                allowed_actions=list(CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
+                manifest_path=ctx.run_manifest_path,
+                log_root=ctx.log_dir,
+                state_root=ctx.state_path.parent,
+                start_ts=start_ts,
+                stop_ts="",
+                evidence_slice_start_ts=start_ts,
+                evidence_slice_end_ts="",
+                status_path=str(ctx.log_dir / f"status_{dt.datetime.now(dt.timezone.utc).date().isoformat()}.jsonl"),
+                events_path=str(ctx.log_dir / f"events_{dt.datetime.now(dt.timezone.utc).date().isoformat()}.jsonl"),
+                errors_path="",
+            )
+            from prodesk.run_contract import write_run_contract  # local import to avoid expanding module import list
+
+            write_run_contract(ctx.run_contract_path, open_contract, allow_open=True)
+            ctx.run_contract_payload = dict(open_contract)
+            ctx.current_phase = "active"
+            runner._write_state()
+
+            runner.phase_preflight = lambda: None
+            runner.phase_start = lambda: None
+            runner.phase_active = lambda: (_ for _ in ()).throw(KeyboardInterrupt())
+
+            with self.assertRaises(KeyboardInterrupt):
+                runner.run()
+
+            closed = load_run_contract(ctx.run_contract_path, allow_open=False)
+            self.assertTrue(bool(str(closed.get("stop_ts") or "").strip()))
+            failure_finalize = json.loads((ctx.report_root / "failure_finalize.json").read_text(encoding="utf-8"))
+            self.assertEqual(str(failure_finalize.get("error_type") or ""), "KeyboardInterrupt")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
@@ -16,11 +17,26 @@ CANONICAL_PAPER_CONFIG = "configs/profiles/paper_universal.yaml"
 CANONICAL_PAPER_LOG_DIR = "./logs_exec/paper_universal"
 CANONICAL_PAPER_PROFILE_NAME = "paper_universal"
 CANONICAL_PAPER_SESSION_SCRIPT = "scripts/canonical_paper_session.sh"
+BROCTL_SUBPROCESS_TIMEOUT_SEC = max(30.0, float(os.getenv("BROCTL_SUBPROCESS_TIMEOUT_SEC", "1800")))
 
 
 def _run(cmd: List[str], *, cwd: pathlib.Path) -> int:
     print(f"[broctl] exec: {' '.join(cmd)}")
-    return subprocess.run(cmd, check=False, cwd=str(cwd)).returncode
+    try:
+        return subprocess.run(
+            cmd,
+            check=False,
+            cwd=str(cwd),
+            timeout=float(BROCTL_SUBPROCESS_TIMEOUT_SEC),
+        ).returncode
+    except subprocess.TimeoutExpired:
+        print(
+            "[broctl] timeout: "
+            + " ".join(cmd)
+            + f" exceeded {float(BROCTL_SUBPROCESS_TIMEOUT_SEC):.1f}s",
+            file=sys.stderr,
+        )
+        return 124
 
 
 def _normalize_extra_args(values: List[str]) -> List[str]:
@@ -123,7 +139,7 @@ def _assert_paper_setup_lock(repo_root: pathlib.Path, *, extra: List[str], defau
     config_path = _resolve_path(repo_root, config_raw)
     try:
         cfg = load_execution_config(config_path)
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         raise SystemExit(f"[broctl] failed loading config for setup lock check: {config_path} ({exc})") from exc
     mode_override = (_extract_option_value(extra, "--mode") or "").strip().lower()
     mode = mode_override or str(cfg.get("mode", "")).strip().lower()

@@ -34,11 +34,12 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: a4441860bfe5f8da697a222f3130b1885b13025671042706475daf4efc158304
+  paper_expected_config_fingerprint_sha256: a46c8c7c15cb7de36331abedc4f0e444e8c6c63e311cb2aa223b26fc383a54de
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
   held_preexpiry_reduce_only_sec: 90.0
+  preexpiry_emergency_taker_window_sec: 60.0
   terminal_unwind_halt_new_risk_sec: 60.0
   dust_classifier_enforce_enabled: true
 

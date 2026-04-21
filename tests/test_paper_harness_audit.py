@@ -215,6 +215,20 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
             (root / "events_2099-01-01.jsonl").write_text("", encoding="utf-8")
             (root / "errors_2099-01-01.jsonl").write_text("", encoding="utf-8")
+            budget_path = root / "budget.yaml"
+            budget_path.write_text(
+                "\n".join(
+                    [
+                        "websocket:",
+                        "  max_book_updates_rest_ratio: 0.35",
+                        "  min_book_updates_ws_delta: 1",
+                        "  min_book_updates_total_delta: 1",
+                        "  min_status_rows_for_rest_ratio_gate: 1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             result = run_audit(
                 config_path=Path("configs/profiles/paper_universal.yaml"),
@@ -223,6 +237,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 skip_run_integrity=False,
                 min_status_rows=1,
                 max_status_age_sec=3153600000.0,
+                budget_path=budget_path,
             )
             self.assertFalse(result["ok"])
             self.assertTrue(
@@ -296,6 +311,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "  max_book_updates_rest_ratio: 0.20",
                         "  min_book_updates_ws_delta: 1",
                         "  min_book_updates_total_delta: 1",
+                        "  min_status_rows_for_rest_ratio_gate: 1",
                     ]
                 )
                 + "\n",
@@ -315,6 +331,86 @@ class PaperHarnessAuditTests(unittest.TestCase):
             self.assertTrue(
                 any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
+            )
+
+    def test_paper_harness_audit_downgrades_high_rest_ratio_to_warning_for_short_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "audit-short-window-rest-warning"
+            (root / f"run_manifest_{run_id}.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "manifest_schema_version": 2,
+                        "profile_name": "paper_universal",
+                        "git_commit": "deadbeef",
+                        "config_fingerprint_sha256": "a" * 64,
+                        "status_path": str((root / "status_2099-01-01.jsonl").resolve()),
+                        "events_path": str((root / "events_2099-01-01.jsonl").resolve()),
+                        "start_ts": "2099-01-01T00:00:00.000Z",
+                        "mode": "paper",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "status_2099-01-01.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:00Z",
+                                "runtime_state": "active",
+                                "active_targets_present": True,
+                                "book_feed_required": True,
+                                "kill_switch": False,
+                                "gauge.open_orders": 1,
+                                "counter.book_updates": 10.0,
+                                "counter.book_updates_ws": 1.0,
+                                "counter.book_updates_rest": 9.0,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:30:00Z",
+                                "runtime_state": "active",
+                                "active_targets_present": True,
+                                "book_feed_required": True,
+                                "kill_switch": False,
+                                "gauge.open_orders": 1,
+                                "counter.book_updates": 20.0,
+                                "counter.book_updates_ws": 2.0,
+                                "counter.book_updates_rest": 18.0,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "events_2099-01-01.jsonl").write_text("", encoding="utf-8")
+            (root / "errors_2099-01-01.jsonl").write_text("", encoding="utf-8")
+
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id=run_id,
+                skip_run_integrity=False,
+                min_status_rows=1,
+                max_status_age_sec=3153600000.0,
+            )
+            self.assertTrue(result["ok"], msg=result.get("findings", []))
+            self.assertFalse(
+                any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
+                msg=result.get("findings", []),
+            )
+            self.assertTrue(
+                any(
+                    "paper_harness_book_updates_rest_ratio_high_short_window:" in warning
+                    for warning in result.get("warnings", [])
+                ),
+                msg=result.get("warnings", []),
             )
 
     def test_paper_harness_audit_surfaces_decision_input_counts_and_blocks_emulated_actions(self):

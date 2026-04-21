@@ -51,7 +51,7 @@ def _load_run_manifest(log_dir: pathlib.Path, run_id: Optional[str]) -> Dict[str
         return {}
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError, UnicodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -118,7 +118,7 @@ def _select_run_scoped_files(*, log_dir: pathlib.Path, prefix: str, run_id: Opti
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -880,7 +880,10 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
     }
 
 
-def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _valuation_truth_stats(
+    status_rows: List[Dict[str, Any]],
+    event_rows: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     degraded_rows = 0.0
     hard_degraded_rows = 0.0
     pnl_degraded_rows = 0.0
@@ -1037,6 +1040,46 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                 preexpiry_emergency_taker_block_reasons_run_max.get(reason_name, 0.0),
                 _safe_float(count),
             )
+    # Fallback signal path: when status-row counters are unavailable/truncated,
+    # derive emergency unwind counters and block reasons directly from events.
+    if event_rows:
+        event_attempt_count = 0.0
+        event_fill_count = 0.0
+        event_block_count = 0.0
+        event_block_reasons: Counter[str] = Counter()
+        for evt in event_rows:
+            if str(evt.get("event_type") or "").strip() != "preexpiry_emergency_taker_unwind":
+                continue
+            event_attempt_count += 1.0
+            outcome = str(evt.get("outcome") or "").strip().lower()
+            if outcome == "filled":
+                event_fill_count += 1.0
+            elif outcome == "blocked":
+                event_block_count += 1.0
+                reason_name = (
+                    str(
+                        evt.get("blocked_reason")
+                        or evt.get("taker_submit_reject_reason")
+                        or evt.get("reason")
+                        or evt.get("outcome_reason")
+                        or "unknown"
+                    )
+                    .strip()
+                    .lower()
+                )
+                if reason_name.startswith("blocked_"):
+                    reason_name = reason_name[len("blocked_") :]
+                if not reason_name:
+                    reason_name = "unknown"
+                event_block_reasons[reason_name] += 1
+        preexpiry_emergency_taker_attempt_count = max(preexpiry_emergency_taker_attempt_count, event_attempt_count)
+        preexpiry_emergency_taker_fill_count = max(preexpiry_emergency_taker_fill_count, event_fill_count)
+        preexpiry_emergency_taker_block_count = max(preexpiry_emergency_taker_block_count, event_block_count)
+        for reason_name, reason_count in event_block_reasons.items():
+            preexpiry_emergency_taker_block_reasons_run_max[reason_name] = max(
+                preexpiry_emergency_taker_block_reasons_run_max.get(reason_name, 0.0),
+                float(reason_count),
+            )
     for row in reversed(status_rows):
         if "valuation_degraded" in row:
             latest = dict(row)
@@ -1180,6 +1223,9 @@ def _valuation_truth_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "held_unpriceable_cause_counts_run": dict(sorted(held_unpriceable_cause_counts_run.items(), key=lambda kv: kv[0])),
         "held_unpriceable_cause_counts_latest": dict(latest.get("held_unpriceable_cause_counts") or {}),
         "preexpiry_emergency_taker_block_reasons_run_max": dict(
+            sorted(preexpiry_emergency_taker_block_reasons_run_max.items(), key=lambda kv: kv[0])
+        ),
+        "preexpiry_emergency_taker_block_reason_counts": dict(
             sorted(preexpiry_emergency_taker_block_reasons_run_max.items(), key=lambda kv: kv[0])
         ),
         "valuation_source_counts_latest": {
@@ -1434,6 +1480,7 @@ def _resolve_starvation_mode(
     order_submit_total: float,
     fill_total: float,
     runtime_classification: Dict[str, Any],
+    edge_truth: Dict[str, Any],
     kill_switch_events: float,
     safe_stop_transitions: float,
     maker_only_transitions: float,
@@ -1472,10 +1519,38 @@ def _resolve_starvation_mode(
         mode = "readiness_hold"
         explanation = "non_promotable_no_participation_with_zero_submits"
     else:
-        mode = "unknown"
-        explanation = "suppression_detected_without_unique_mode"
+        block_dist_raw = edge_truth.get("block_reason_distribution")
+        block_dist = block_dist_raw if isinstance(block_dist_raw, dict) else {}
+        top_block_reason = ""
+        top_block_count = 0.0
+        for reason, raw_count in block_dist.items():
+            count = _safe_float(raw_count)
+            if count <= top_block_count:
+                continue
+            top_block_reason = str(reason or "").strip()
+            top_block_count = float(count)
+        inferred_mode = {
+            "stage_disallow_taker": "stage_policy_gate",
+            "latency_not_armed": "latency_gate",
+            "fair_probability_missing": "probability_gate",
+            "taker_requires_ws_book_source": "book_source_gate",
+            "maker_timing_gate_closed": "maker_timing_gate",
+            "token_lag_not_verified_for_maker": "lag_verification_gate",
+            "quote_quality_skip_queue_depth": "maker_quality_gate",
+            "quote_quality_skip_fill_probability": "maker_quality_gate",
+            "sizing_reject": "maker_sizing_gate",
+        }.get(top_block_reason, "")
+        if inferred_mode:
+            mode = inferred_mode
+            explanation = (
+                "suppression_inferred_from_block_reason:"
+                + f"{top_block_reason}:count={top_block_count:.0f}"
+            )
+        else:
+            mode = "unknown"
+            explanation = "suppression_detected_without_unique_mode"
 
-    return {
+    result = {
         "suppression_dominated_run": suppressed,
         "execution_starvation_mode": mode,
         "protected_no_trade_explanation": explanation,
@@ -1485,6 +1560,18 @@ def _resolve_starvation_mode(
         "runtime_contributing_suppression_causes": sorted(set(contributing)),
         "runtime_ambiguous_suppression_cause": ambiguous,
     }
+    if "suppression_inferred_from_block_reason:" in explanation:
+        parts = explanation.split(":")
+        inferred_reason = parts[1] if len(parts) > 1 else ""
+        inferred_count = 0.0
+        if len(parts) > 2 and parts[2].startswith("count="):
+            inferred_count = _safe_float(parts[2].split("=", 1)[1])
+        result["inferred_suppression_reason"] = inferred_reason
+        result["inferred_suppression_reason_count"] = float(inferred_count)
+    else:
+        result["inferred_suppression_reason"] = ""
+        result["inferred_suppression_reason_count"] = 0.0
+    return result
 
 
 def _first_event(events: List[Dict[str, Any]], event_type: str) -> Dict[str, Any]:
@@ -1551,6 +1638,8 @@ def _protection_path_trigger_chain(
         "runtime_ambiguous_suppression_cause": bool(runtime_classification.get("ambiguous_suppression_cause", False)),
         "final_execution_starvation_mode": str(starvation.get("execution_starvation_mode") or "unknown"),
         "final_protected_no_trade_explanation": str(starvation.get("protected_no_trade_explanation") or ""),
+        "inferred_suppression_reason": str(starvation.get("inferred_suppression_reason") or ""),
+        "inferred_suppression_reason_count": float(_safe_float(starvation.get("inferred_suppression_reason_count"))),
     }
 
 
@@ -2485,7 +2574,7 @@ def build_report(
     taker_competitiveness = _taker_competitiveness_stats(events)
     risk_competitiveness = _risk_competitiveness_stats(events)
     wallet_authority = _wallet_authority_stats(status, events)
-    valuation_truth = _valuation_truth_stats(status)
+    valuation_truth = _valuation_truth_stats(status, events)
     secondary_oracle_pyth = _secondary_oracle_pyth_stats(status)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
@@ -2523,6 +2612,7 @@ def build_report(
         order_submit_total=order_submit_total,
         fill_total=fill_total,
         runtime_classification=runtime_classification,
+        edge_truth=edge_truth,
         kill_switch_events=kill_switch_events,
         safe_stop_transitions=safe_stop_transitions,
         maker_only_transitions=maker_only_transitions,
@@ -2619,6 +2709,8 @@ def build_report(
         "suppression_dominated_run": bool(starvation.get("suppression_dominated_run", False)),
         "execution_starvation_mode": str(starvation.get("execution_starvation_mode") or "unknown"),
         "protected_no_trade_explanation": str(starvation.get("protected_no_trade_explanation") or ""),
+        "inferred_suppression_reason": str(starvation.get("inferred_suppression_reason") or ""),
+        "inferred_suppression_reason_count": float(_safe_float(starvation.get("inferred_suppression_reason_count"))),
         "control_authority_clarity": control_authority,
         "protection_path_trigger_chain": protection_path_trigger_chain,
         "latest_operating_mode_state": latest_operating_mode_state,
@@ -2838,6 +2930,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         f"primary_suppression_cause={primary_suppression_cause}",
         f"suppression_dominated_run={1 if suppression_dominated_run else 0}",
         f"execution_starvation_mode={starvation_mode}",
+        (
+            "inferred_suppression_reason="
+            + str(report.get("inferred_suppression_reason") or "none")
+            + f":count={int(_safe_float(report.get('inferred_suppression_reason_count')))}"
+        ),
         f"mode_transition_count={len(mode_transitions)}",
     ]
     if mode_transitions:

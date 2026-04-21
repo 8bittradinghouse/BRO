@@ -71,11 +71,12 @@ class WalletReservations:
             if oid_existing and oid_existing in self.order_locks:
                 return True, "wallet_lock_id_idempotent_order_exists"
             return False, f"wallet_lock_id_unknown:{key}"
-        lock_notional = self._clamp_non_negative(self.pending_locks.pop(key))
+        oid = str(order_id or "").strip()
         if order_open:
-            oid = str(order_id or "").strip()
             if not oid:
                 return False, "wallet_order_id_missing_for_open_lock"
+        lock_notional = self._clamp_non_negative(self.pending_locks.pop(key))
+        if order_open:
             self.order_locks[oid] = self._clamp_non_negative(self.order_locks.get(oid, 0.0) + lock_notional)
         self.completed_locks.add(key)
         self._normalize_and_assert()

@@ -36,6 +36,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "max_age_days": 7.0,
     },
 }
+SIM_HARNESS_AUDIT_TIMEOUT_SEC = 180.0
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +67,23 @@ def _run_sim_harness_audit_subprocess(*, sim_config_path: pathlib.Path, repo_roo
         "--dt-sec",
         "1.0",
     ]
-    proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, check=False)
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=float(SIM_HARNESS_AUDIT_TIMEOUT_SEC),
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "finding_count": 1,
+            "findings": [f"sim_harness_audit_timeout:timeout_sec={float(SIM_HARNESS_AUDIT_TIMEOUT_SEC):.1f}"],
+            "warning_count": 0,
+            "warnings": [],
+        }
     output = (proc.stdout or "").strip()
     if not output:
         output = (proc.stderr or "").strip()
@@ -81,14 +98,14 @@ def _run_sim_harness_audit_subprocess(*, sim_config_path: pathlib.Path, repo_roo
     payload: Dict[str, Any]
     try:
         payload = json.loads(output)
-    except Exception:
+    except json.JSONDecodeError:
         # Fallback: tolerate surrounding non-JSON lines.
         start = output.find("{")
         end = output.rfind("}")
         if start >= 0 and end > start:
             try:
                 payload = json.loads(output[start : end + 1])
-            except Exception:
+            except json.JSONDecodeError:
                 payload = {
                     "ok": False,
                     "finding_count": 1,

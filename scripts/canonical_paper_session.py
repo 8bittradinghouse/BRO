@@ -11,6 +11,7 @@ import os
 import pathlib
 import subprocess
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -35,6 +36,10 @@ CANONICAL_STATE_PATH = (ROOT_DIR / "data/paper_universal/state.json").resolve()
 CANONICAL_GUARDIAN_CONTEXT_PATH = (ROOT_DIR / "logs_exec/paper_universal/guardian_session_context.json").resolve()
 CANONICAL_VALIDATION_SCRIPT = (ROOT_DIR / "scripts/canonical_paper_validation.sh").resolve()
 DEPLOY_SCRIPT = (ROOT_DIR / "scripts/deploy_paper_clean.sh").resolve()
+DOCKER_COMPOSE_PS_TIMEOUT_SEC = 30.0
+CANONICAL_CMD_TIMEOUT_SEC = 900.0
+CANONICAL_ACTIVE_VALIDATION_TIMEOUT_SEC = 300.0
+CANONICAL_POSTRUN_VALIDATION_TIMEOUT_SEC = 900.0
 
 
 def utc_now() -> dt.datetime:
@@ -130,7 +135,7 @@ def _to_container_logs_path(host_path: pathlib.Path) -> str:
     logs_root = (ROOT_DIR / "logs_exec").resolve()
     try:
         rel = host.relative_to(logs_root)
-    except Exception:
+    except ValueError:
         return str(host)
     return str(PurePosixPath("/logs") / PurePosixPath(*rel.parts))
 
@@ -161,7 +166,7 @@ def _observe_manifest_for_run_id(
         if manifest_path.exists():
             try:
                 payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception as exc:
+            except (json.JSONDecodeError, OSError, UnicodeError) as exc:
                 last_reason = f"manifest_invalid_json:{exc.__class__.__name__}"
                 time.sleep(0.5)
                 continue
@@ -203,7 +208,7 @@ def _load_manifest_for_run_with_timeout(*, log_dir: pathlib.Path, run_id: str, t
         if manifest_path.exists():
             try:
                 payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception as exc:
+            except (json.JSONDecodeError, OSError, UnicodeError) as exc:
                 last_reason = f"manifest_invalid_json:{exc.__class__.__name__}"
             else:
                 if not isinstance(payload, dict):
@@ -245,7 +250,7 @@ def _compute_workspace_code_fingerprint(root_dir: pathlib.Path) -> tuple[str, in
 def _load_manifest_for_run_optional(log_dir: pathlib.Path, run_id: str) -> Dict[str, Any]:
     try:
         return _load_manifest_for_run(log_dir, run_id)
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, OSError, RuntimeError):
         return {}
 
 
@@ -293,6 +298,7 @@ def _docker_compose_ps_lines() -> List[str]:
         text=True,
         capture_output=True,
         check=True,
+        timeout=float(DOCKER_COMPOSE_PS_TIMEOUT_SEC),
     )
     return [line.rstrip("\n") for line in str(proc.stdout or "").splitlines()]
 
@@ -321,11 +327,11 @@ def _stream_jsonl_rows(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
                     continue
                 try:
                     row = json.loads(text)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 if isinstance(row, dict):
                     yield row
-    except Exception:
+    except OSError:
         return
 
 
@@ -357,7 +363,7 @@ def _filter_rows_for_run(
 def _read_json_object(path: pathlib.Path) -> Optional[Dict[str, Any]]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError, UnicodeError):
         return None
     if not isinstance(raw, dict):
         return None
@@ -406,6 +412,36 @@ def summarize_postrun_validation(
             parse_error_reports.append(name)
             continue
         payloads[name] = parsed
+
+    runtime_classification = ""
+    promotion_eligible: Optional[bool] = None
+    highest_passing_stage = ""
+    blocking_stage = ""
+    recommended_next_stage = ""
+    run_commit_lineage: Dict[str, Any] = {}
+    nightly_payload = payloads.get("nightly_soak_report", {})
+    if isinstance(nightly_payload, dict):
+        runtime_payload = nightly_payload.get("runtime_classification")
+        if isinstance(runtime_payload, dict):
+            runtime_classification = str(runtime_payload.get("classification") or "").strip()
+            raw_promotion_eligible = runtime_payload.get("promotion_eligible")
+            if isinstance(raw_promotion_eligible, bool):
+                promotion_eligible = raw_promotion_eligible
+            else:
+                normalized = str(raw_promotion_eligible or "").strip().lower()
+                if normalized in {"true", "false"}:
+                    promotion_eligible = normalized == "true"
+        lineage_payload = nightly_payload.get("run_commit_lineage")
+        if isinstance(lineage_payload, dict):
+            run_commit_lineage = dict(lineage_payload)
+    readiness_payload = payloads.get("readiness_gate", {})
+    if isinstance(readiness_payload, dict):
+        raw_highest_stage = readiness_payload.get("highest_passing_stage")
+        highest_passing_stage = str(raw_highest_stage or "").strip()
+        if (not highest_passing_stage) and raw_highest_stage is None:
+            highest_passing_stage = "none"
+        blocking_stage = str(readiness_payload.get("blocking_stage") or "").strip()
+        recommended_next_stage = str(readiness_payload.get("recommended_next_stage") or "").strip()
 
     summary_payload = payloads.get("validation_summary", {})
     validator_exit_codes = summary_payload.get("validator_exit_codes")
@@ -465,6 +501,12 @@ def summarize_postrun_validation(
         "run_id": normalized_run_id,
         "report_dir": str(report_dir.resolve()),
         "status": status,
+        "runtime_classification": runtime_classification,
+        "promotion_eligible": promotion_eligible,
+        "highest_passing_stage": highest_passing_stage,
+        "blocking_stage": blocking_stage,
+        "recommended_next_stage": recommended_next_stage,
+        "run_commit_lineage": run_commit_lineage,
         "script_exit_code": int(script_exit_code),
         "known_policy_exit": bool(known_policy_exit),
         "execution_error": bool(execution_error),
@@ -604,21 +646,191 @@ class SessionRunner:
             labels = ",".join(str(c.get("name") or "unknown") for c in failing)
             raise RuntimeError(f"phase_exit_failed:{rec.phase}:{labels}")
 
-    def _run_cmd(self, args: List[str], *, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess[str]:
+    def _run_cmd(
+        self,
+        args: List[str],
+        *,
+        env: Optional[Dict[str, str]] = None,
+        timeout_sec: Optional[float] = None,
+    ) -> subprocess.CompletedProcess[str]:
         merged_env = dict(os.environ)
         if env:
             merged_env.update({str(k): str(v) for k, v in env.items()})
-        return subprocess.run(
-            args,
-            cwd=str(ROOT_DIR),
-            text=True,
-            capture_output=True,
-            check=True,
-            env=merged_env,
-        )
+        timeout_value = float(timeout_sec) if isinstance(timeout_sec, (int, float)) else float(CANONICAL_CMD_TIMEOUT_SEC)
+        try:
+            return subprocess.run(
+                args,
+                cwd=str(ROOT_DIR),
+                text=True,
+                capture_output=True,
+                check=True,
+                env=merged_env,
+                timeout=timeout_value,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "subprocess_timeout:"
+                + " ".join(str(x) for x in args)
+                + f":timeout_sec={timeout_value:.1f}"
+            ) from exc
 
     def _condition(self, name: str, passed: bool, detail: str) -> Dict[str, Any]:
         return {"name": name, "passed": bool(passed), "detail": str(detail)}
+
+    def _finalize_failure_closeout(self, failure: BaseException) -> None:
+        """Best-effort closeout so failed sessions do not leave open run contracts.
+
+        This path is intentionally defensive: any closeout sub-step failure is
+        recorded to disk and does not mask the original exception.
+        """
+        if not str(self.ctx.run_id or "").strip():
+            return
+        if not str(self.ctx.run_contract_path or "").strip():
+            self.ctx.run_contract_path = run_contract_path(log_dir=self.ctx.log_dir, run_id=self.ctx.run_id)
+
+        closeout_start_mono = time.monotonic()
+        failure_note: Dict[str, Any] = {
+            "ts_utc": utc_iso(),
+            "run_id": self.ctx.run_id,
+            "phase": self.ctx.current_phase,
+            "error_type": str(failure.__class__.__name__),
+            "error_message": str(failure),
+            "error": f"{failure.__class__.__name__}:{failure}",
+            "stack_shutdown_attempted": False,
+            "stack_shutdown_ok": False,
+            "run_contract_closeout_attempted": False,
+            "run_contract_closeout_ok": False,
+            "closeout_elapsed_sec": 0.0,
+        }
+        traceback_path = (self.ctx.report_root / "failure_finalize.traceback.log").resolve()
+        try:
+            traceback_path.write_text(
+                "".join(traceback.format_exception(type(failure), failure, failure.__traceback__)),
+                encoding="utf-8",
+            )
+            failure_note["traceback_path"] = str(traceback_path)
+        except OSError as exc:
+            failure_note["traceback_write_error"] = f"{exc.__class__.__name__}:{exc}"
+
+        # Freeze/stop the stack best-effort to avoid dangling runtime activity.
+        failure_note["stack_shutdown_attempted"] = True
+        try:
+            down_proc = subprocess.run(
+                ["docker", "compose", "down"],
+                cwd=str(ROOT_DIR),
+                text=True,
+                capture_output=True,
+                timeout=float(CANONICAL_CMD_TIMEOUT_SEC),
+            )
+            failure_note["stack_shutdown_ok"] = down_proc.returncode == 0
+            failure_note["stack_shutdown_exit_code"] = int(down_proc.returncode)
+            (self.ctx.report_root / "failure_finalize.docker_down.stdout.log").write_text(
+                str(down_proc.stdout or ""),
+                encoding="utf-8",
+            )
+            (self.ctx.report_root / "failure_finalize.docker_down.stderr.log").write_text(
+                str(down_proc.stderr or ""),
+                encoding="utf-8",
+            )
+        except subprocess.TimeoutExpired as exc:
+            failure_note["stack_shutdown_error"] = (
+                "TimeoutExpired:"
+                + f"timeout_sec={float(CANONICAL_CMD_TIMEOUT_SEC):.1f}"
+            )
+            (self.ctx.report_root / "failure_finalize.docker_down.stdout.log").write_text(
+                str(exc.stdout or ""),
+                encoding="utf-8",
+            )
+            (self.ctx.report_root / "failure_finalize.docker_down.stderr.log").write_text(
+                str(exc.stderr or ""),
+                encoding="utf-8",
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            failure_note["stack_shutdown_error"] = f"{exc.__class__.__name__}:{exc}"
+
+        # Close the run contract fail-closed even if phase_stop never ran.
+        failure_note["run_contract_closeout_attempted"] = True
+        try:
+            existing: Dict[str, Any] = {}
+            try:
+                existing = json.loads(self.ctx.run_contract_path.read_text(encoding="utf-8"))
+            except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeError):
+                existing = {}
+            if not isinstance(existing, dict):
+                existing = {}
+            start_ts = str(existing.get("start_ts") or self.ctx.run_contract_payload.get("start_ts") or "").strip()
+            if not start_ts:
+                start_ts = utc_iso()
+            stop_ts = utc_iso()
+            if parse_ts(stop_ts) is not None and parse_ts(start_ts) is not None and parse_ts(stop_ts) < parse_ts(start_ts):
+                stop_ts = start_ts
+            existing["phase"] = str(self.ctx.current_phase or "stop")
+            existing["stop_ts"] = stop_ts
+            existing["evidence_slice_end_ts"] = stop_ts
+            existing["start_ts"] = start_ts
+            existing["evidence_slice_start_ts"] = str(
+                existing.get("evidence_slice_start_ts") or start_ts
+            ).strip() or start_ts
+            existing["manifest_path"] = str(
+                pathlib.Path(str(existing.get("manifest_path") or self.ctx.run_manifest_path)).resolve()
+            )
+            existing["log_root"] = str(pathlib.Path(str(existing.get("log_root") or self.ctx.log_dir)).resolve())
+            existing["state_root"] = str(pathlib.Path(str(existing.get("state_root") or self.ctx.state_path.parent)).resolve())
+            existing["session_id"] = str(existing.get("session_id") or self.ctx.session_id)
+            existing["run_id"] = str(existing.get("run_id") or self.ctx.run_id)
+            existing["session_type"] = str(existing.get("session_type") or "paper_canonical")
+            existing["authority_level"] = str(
+                existing.get("authority_level") or self.ctx.run_contract_payload.get("authority_level") or "observational"
+            )
+            actions = existing.get("allowed_actions")
+            if not isinstance(actions, list) or len(actions) == 0:
+                existing["allowed_actions"] = list(CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS)
+            existing["status_path"] = str(
+                existing.get("status_path") or (self.ctx.log_dir / f"status_{utc_now().date().isoformat()}.jsonl")
+            )
+            existing["events_path"] = str(
+                existing.get("events_path") or (self.ctx.log_dir / f"events_{utc_now().date().isoformat()}.jsonl")
+            )
+            existing["errors_path"] = str(existing.get("errors_path") or "")
+            # Best-effort lineage enrichment from run manifest if available.
+            manifest_payload = _load_manifest_for_run_optional(self.ctx.log_dir, self.ctx.run_id)
+            if isinstance(manifest_payload, dict):
+                existing["git_commit"] = str(
+                    existing.get("git_commit")
+                    or manifest_payload.get("git_commit")
+                    or ""
+                ).strip()
+                existing["config_fingerprint_sha256"] = str(
+                    existing.get("config_fingerprint_sha256")
+                    or manifest_payload.get("config_fingerprint_sha256")
+                    or ""
+                ).strip()
+                existing["code_fingerprint_sha256"] = str(
+                    existing.get("code_fingerprint_sha256")
+                    or manifest_payload.get("code_fingerprint_sha256")
+                    or ""
+                ).strip()
+                raw_count = existing.get("code_fingerprint_file_count")
+                if not (isinstance(raw_count, int) and raw_count >= 0):
+                    try:
+                        observed_count = int(manifest_payload.get("code_fingerprint_file_count"))
+                    except (TypeError, ValueError):
+                        observed_count = None
+                    existing["code_fingerprint_file_count"] = (
+                        int(observed_count) if isinstance(observed_count, int) and observed_count >= 0 else ""
+                    )
+            write_run_contract(self.ctx.run_contract_path, existing, allow_open=False)
+            self.ctx.run_contract_payload = dict(existing)
+            failure_note["run_contract_closeout_ok"] = True
+        except (OSError, RuntimeError, ValueError) as exc:
+            failure_note["run_contract_closeout_error"] = f"{exc.__class__.__name__}:{exc}"
+
+        failure_note["closeout_elapsed_sec"] = round(max(0.0, time.monotonic() - closeout_start_mono), 3)
+        (self.ctx.report_root / "failure_finalize.json").write_text(
+            json.dumps(failure_note, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        self._write_state()
 
     def phase_preflight(self) -> None:
         entry = [
@@ -716,6 +928,10 @@ class SessionRunner:
             status_path=str(default_status_path),
             events_path=str(default_events_path),
             errors_path="",
+            git_commit="",
+            config_fingerprint_sha256="",
+            code_fingerprint_sha256="",
+            code_fingerprint_file_count="",
         )
         write_run_contract(self.ctx.run_contract_path, provisional_contract, allow_open=True)
         self.ctx.run_contract_payload = provisional_contract
@@ -813,7 +1029,7 @@ class SessionRunner:
                 timeout_sec=manifest_wait_sec,
             )
             manifest_evidence_available = True
-        except Exception as exc:
+        except RuntimeError as exc:
             manifest_payload = {}
             manifest_load_error = str(exc)
         manifest_code_hash = str(manifest_payload.get("code_fingerprint_sha256") or "").strip()
@@ -822,7 +1038,7 @@ class SessionRunner:
             raw_count = manifest_payload.get("code_fingerprint_file_count")
             if isinstance(raw_count, (int, float, str)) and str(raw_count).strip():
                 manifest_code_count = int(raw_count)
-        except Exception:
+        except (TypeError, ValueError):
             manifest_code_count = None
         workspace_code_hash, workspace_code_count = _compute_workspace_code_fingerprint(ROOT_DIR)
         fingerprint_match = bool(
@@ -898,7 +1114,7 @@ class SessionRunner:
             runtime_duration_min = float(runtime_cfg.get("duration_min")) if isinstance(runtime_cfg, dict) else 0.0
             if runtime_duration_min > 0:
                 runtime_duration_sec = max(0.0, runtime_duration_min * 60.0)
-        except Exception:
+        except (RuntimeError, OSError, json.JSONDecodeError, ValueError, TypeError):
             runtime_duration_sec = None
         effective_active_sec = requested_active_sec
         if runtime_duration_sec is not None and requested_active_sec >= runtime_duration_sec:
@@ -1042,24 +1258,41 @@ class SessionRunner:
                     "--out",
                     str(out_dir / "nightly_soak_report.json"),
                 ],
-                False,
+                True,
             ),
         ]
 
         for name, cmd, actionable in cmds:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(ROOT_DIR),
-                text=True,
-                capture_output=True,
-            )
+            timeout_note = ""
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(ROOT_DIR),
+                    text=True,
+                    capture_output=True,
+                    timeout=float(CANONICAL_ACTIVE_VALIDATION_TIMEOUT_SEC),
+                )
+            except subprocess.TimeoutExpired as exc:
+                proc = subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=124,
+                    stdout=str(exc.stdout or ""),
+                    stderr=str(exc.stderr or ""),
+                )
+                timeout_note = (
+                    f"subprocess_timeout:{name}:"
+                    + f"timeout_sec={float(CANONICAL_ACTIVE_VALIDATION_TIMEOUT_SEC):.1f}"
+                )
             (out_dir / f"{name}.stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
-            (out_dir / f"{name}.stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+            stderr_text = str(proc.stderr or "")
+            if timeout_note:
+                stderr_text = (stderr_text + "\n" if stderr_text else "") + timeout_note
+            (out_dir / f"{name}.stderr.log").write_text(stderr_text, encoding="utf-8")
             if actionable and proc.returncode != 0:
                 actionable_ok = False
 
         exit_conditions = [
-            self._condition("active_actionable_validations_passed", actionable_ok, "run_integrity+websocket"),
+            self._condition("active_actionable_validations_passed", actionable_ok, "run_integrity+websocket+nightly"),
         ]
         self._phase_exit(exit_conditions)
 
@@ -1183,6 +1416,16 @@ class SessionRunner:
             status_slice_path=str(status_slice),
             events_slice_path=str(events_slice),
             errors_slice_path=str(errors_slice),
+            git_commit=str(manifest.get("git_commit") or "").strip(),
+            config_fingerprint_sha256=str(manifest.get("config_fingerprint_sha256") or "").strip(),
+            code_fingerprint_sha256=str(manifest.get("code_fingerprint_sha256") or "").strip(),
+            code_fingerprint_file_count=(
+                int(manifest.get("code_fingerprint_file_count"))
+                if isinstance(manifest.get("code_fingerprint_file_count"), (int, float, str))
+                and str(manifest.get("code_fingerprint_file_count")).strip()
+                and str(manifest.get("code_fingerprint_file_count")).strip().lstrip("-").isdigit()
+                else ""
+            ),
         )
         write_run_contract(self.ctx.run_contract_path, contract, allow_open=False)
         self.ctx.run_contract_payload = contract
@@ -1227,14 +1470,31 @@ class SessionRunner:
             "--max-lines-per-file",
             str(int(self.ctx.max_lines_per_file)),
         ]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(ROOT_DIR),
-            text=True,
-            capture_output=True,
-        )
+        timeout_note = ""
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(ROOT_DIR),
+                text=True,
+                capture_output=True,
+                timeout=float(CANONICAL_POSTRUN_VALIDATION_TIMEOUT_SEC),
+            )
+        except subprocess.TimeoutExpired as exc:
+            proc = subprocess.CompletedProcess(
+                args=cmd,
+                returncode=124,
+                stdout=str(exc.stdout or ""),
+                stderr=str(exc.stderr or ""),
+            )
+            timeout_note = (
+                "subprocess_timeout:canonical_paper_validation"
+                + f":timeout_sec={float(CANONICAL_POSTRUN_VALIDATION_TIMEOUT_SEC):.1f}"
+            )
         (self.ctx.report_root / "validate_postrun.stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
-        (self.ctx.report_root / "validate_postrun.stderr.log").write_text(str(proc.stderr or ""), encoding="utf-8")
+        stderr_text = str(proc.stderr or "")
+        if timeout_note:
+            stderr_text = (stderr_text + "\n" if stderr_text else "") + timeout_note
+        (self.ctx.report_root / "validate_postrun.stderr.log").write_text(stderr_text, encoding="utf-8")
 
         report_dir = (self.ctx.log_dir / "reports" / self.ctx.run_id).resolve()
         postrun_validation = summarize_postrun_validation(
@@ -1243,6 +1503,18 @@ class SessionRunner:
             script_exit_code=proc.returncode,
         )
         self.ctx.postrun_validation = dict(postrun_validation)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        canonical_validation_path = (report_dir / "canonical_paper_validation.json").resolve()
+        canonical_validation_payload = {
+            "schema_version": 1,
+            "ts_utc": utc_iso(),
+            "session_phase": "validate_postrun",
+            **postrun_validation,
+        }
+        canonical_validation_path.write_text(
+            json.dumps(canonical_validation_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         self._write_state()
 
         exit_conditions = [
@@ -1323,14 +1595,18 @@ class SessionRunner:
         self._phase_exit(exit_conditions)
 
     def run(self) -> Dict[str, Any]:
-        self.phase_preflight()
-        self.phase_start()
-        self.phase_active()
-        self.phase_validate_active()
-        self.phase_stop()
-        self.phase_validate_postrun()
-        self.phase_archive_export()
-        self.phase_complete()
+        try:
+            self.phase_preflight()
+            self.phase_start()
+            self.phase_active()
+            self.phase_validate_active()
+            self.phase_stop()
+            self.phase_validate_postrun()
+            self.phase_archive_export()
+            self.phase_complete()
+        except BaseException as exc:
+            self._finalize_failure_closeout(exc)
+            raise
         return {
             "session_id": self.ctx.session_id,
             "run_id": self.ctx.run_id,
@@ -1377,7 +1653,7 @@ def main() -> None:
     run_id = str(args.run_id or "").strip() or str(uuid.uuid4())
     try:
         uuid.UUID(run_id)
-    except Exception as exc:
+    except ValueError as exc:
         raise SystemExit(f"invalid run_id (must be UUID): {run_id!r}") from exc
     ctx = SessionContext(
         session_id=session_id,

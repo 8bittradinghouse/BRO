@@ -4,16 +4,32 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
 
 from prodesk.repo import resolve_repo_root
 
+CI_VALIDATE_STEP_TIMEOUT_SEC = max(30.0, float(os.getenv("CI_VALIDATE_STEP_TIMEOUT_SEC", "1800")))
+
 
 def _run_step(name: str, cmd: list[str], *, cwd: pathlib.Path) -> None:
     print(f"[ci_validate] step={name} cmd={' '.join(cmd)}")
-    rc = subprocess.run(cmd, check=False, cwd=str(cwd)).returncode
+    try:
+        rc = subprocess.run(
+            cmd,
+            check=False,
+            cwd=str(cwd),
+            timeout=float(CI_VALIDATE_STEP_TIMEOUT_SEC),
+        ).returncode
+    except subprocess.TimeoutExpired:
+        print(
+            "[ci_validate] timeout:"
+            + f" step={name} timeout_sec={float(CI_VALIDATE_STEP_TIMEOUT_SEC):.1f}",
+            file=sys.stderr,
+        )
+        raise SystemExit(124)
     if rc != 0:
         raise SystemExit(rc)
 
@@ -21,7 +37,7 @@ def _run_step(name: str, cmd: list[str], *, cwd: pathlib.Path) -> None:
 def _has_status_logs(log_dir: pathlib.Path) -> bool:
     try:
         return any(log_dir.glob("status_*.jsonl"))
-    except Exception:
+    except OSError:
         return False
 
 
@@ -50,6 +66,11 @@ def main() -> None:
     _run_step(
         "runtime_hardening_audit",
         [py, str(repo_root / "scripts/runtime_hardening_audit.py"), "--compose", str(repo_root / "docker-compose.yml")],
+        cwd=repo_root,
+    )
+    _run_step(
+        "money_harness_exception_audit",
+        [py, str(repo_root / "scripts/money_harness_exception_audit.py"), "--repo-root", str(repo_root)],
         cwd=repo_root,
     )
     _run_step(

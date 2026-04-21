@@ -55,7 +55,7 @@ def _parse_numeric_or_env(value: Any) -> Optional[int]:
         return None
     try:
         return int(text)
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 
@@ -227,7 +227,7 @@ def _check_guardian_dependency(services: Dict[str, Any], findings: List[str]) ->
 def _probe_dir(path: pathlib.Path, label: str, findings: List[str], warnings: List[str]) -> None:
     try:
         path.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
+    except OSError as exc:
         findings.append(f"runtime_host_dir_mkdir_failed:{label}:{path}:{exc.__class__.__name__}")
         return
 
@@ -237,14 +237,14 @@ def _probe_dir(path: pathlib.Path, label: str, findings: List[str], warnings: Li
             findings.append(f"runtime_host_dir_world_writable:{label}:{path}:{oct(mode_bits)}")
         elif mode_bits & stat.S_IROTH:
             warnings.append(f"runtime_host_dir_world_readable:{label}:{path}:{oct(mode_bits)}")
-    except Exception as exc:
+    except OSError as exc:
         warnings.append(f"runtime_host_dir_stat_failed:{label}:{path}:{exc.__class__.__name__}")
 
     probe = path / ".bro_runtime_probe.tmp"
     try:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
-    except Exception as exc:
+    except OSError as exc:
         findings.append(f"runtime_host_dir_not_writable:{label}:{path}:{exc.__class__.__name__}")
 
 

@@ -16,7 +16,7 @@ from prodesk.reporting import decision_item
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -35,13 +35,17 @@ def _percentile(values: List[float], q: float) -> float:
 def _load_status_rows(log_dir: pathlib.Path, run_id: Optional[str]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for path in sorted(log_dir.glob("status_*.jsonl")):
-        for text in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for text in lines:
             line = text.strip()
             if not line:
                 continue
             try:
                 row = json.loads(line)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             if not isinstance(row, dict):
                 continue

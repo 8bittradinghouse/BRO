@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from .common import first_non_none, parse_float, utc_iso
+from .http_session import build_hardened_session
 from .models import BookTop
 
 
@@ -108,8 +109,7 @@ class RestBookClient:
     def _session(self) -> requests.Session:
         session = getattr(self._thread_local, "session", None)
         if session is None:
-            session = requests.Session()
-            session.headers.update({"User-Agent": "polymarket-bro-executor/0.1"})
+            session = build_hardened_session(user_agent="polymarket-bro-executor/0.1")
             self._thread_local.session = session
             with self._sessions_lock:
                 self._sessions.append(session)
@@ -122,7 +122,7 @@ class RestBookClient:
         for session in sessions:
             try:
                 session.close()
-            except Exception:
+            except (OSError, RuntimeError):
                 continue
 
     def fetch_book(self, token_id: str) -> Tuple[BookTop, Dict[str, Any]]:

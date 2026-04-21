@@ -215,7 +215,7 @@ def _format_ts(value: Optional[dt.datetime]) -> Optional[str]:
 def _safe_float(value: Any) -> Optional[float]:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if out != out:
         return None
@@ -297,7 +297,7 @@ def _load_policy(*, path: pathlib.Path) -> Tuple[Dict[str, Any], List[str]]:
     findings: List[str] = []
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
         return {}, [f"outcome_truth_policy_load_failed:{exc}"]
     if not isinstance(payload, dict):
         return {}, ["outcome_truth_policy_invalid_root"]
@@ -761,7 +761,7 @@ def run_audit(
                 run_contract_path=run_contract_path.resolve() if run_contract_path else None,
                 max_lines_per_file=max_lines_per_file,
             )
-        except Exception as exc:
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             findings.append(str(exc))
 
     events = [

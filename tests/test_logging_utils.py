@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from prodesk.logging_utils import DailyJsonlWriter, EventLogger, redact_sensitive
@@ -37,6 +38,19 @@ class LoggingUtilsTests(unittest.TestCase):
             with writer.current_path.open("r", encoding="utf-8") as fh:  # type: ignore[union-attr]
                 rows = [line for line in fh if line.strip()]
             self.assertEqual(len(rows), 1)
+
+    def test_writer_fsync_error_is_non_fatal(self):
+        with tempfile.TemporaryDirectory() as td:
+            writer = DailyJsonlWriter(Path(td), "events", fsync_on_flush=True)
+            try:
+                with mock.patch("prodesk.logging_utils.os.fsync", side_effect=OSError("fsync unavailable")):
+                    writer.write({"k": 1})
+                    writer.close()
+                with writer.current_path.open("r", encoding="utf-8") as fh:  # type: ignore[union-attr]
+                    rows = [line for line in fh if line.strip()]
+                self.assertEqual(len(rows), 1)
+            finally:
+                writer.close()
 
     def test_event_logger_applies_default_fields_without_overwriting_payload(self):
         with tempfile.TemporaryDirectory() as td:

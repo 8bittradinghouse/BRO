@@ -16,6 +16,15 @@ try:
 except ImportError:  # pragma: no cover
     websockets = None  # type: ignore[assignment]
 
+_CHAINLINK_WS_EXCEPTIONS: tuple[type[BaseException], ...] = ()
+if websockets is not None:  # pragma: no cover - import shape depends on installed websockets version
+    try:
+        from websockets.exceptions import WebSocketException
+
+        _CHAINLINK_WS_EXCEPTIONS = (WebSocketException,)
+    except (ImportError, AttributeError, TypeError):
+        _CHAINLINK_WS_EXCEPTIONS = ()
+
 
 @dataclasses.dataclass
 class ChainlinkTick:
@@ -30,6 +39,19 @@ class ChainlinkTick:
 
 class ChainlinkFeedError(RuntimeError):
     pass
+
+
+CHAINLINK_LOOP_EXCEPTIONS = (
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    json.JSONDecodeError,
+    asyncio.TimeoutError,
+    *_CHAINLINK_WS_EXCEPTIONS,
+)
 
 
 class ChainlinkFeed:
@@ -120,6 +142,7 @@ class ChainlinkFeed:
             missing_source_ts_dropped = self._missing_source_ts_dropped_ticks
             ordering_decision_counts = dict(self._ordering_decision_counts)
             ordering_class_counts = dict(self._ordering_class_counts)
+            thread_alive = bool(self._thread is not None and self._thread.is_alive())
         age_sec = (time.monotonic() - last) if last is not None else None
         return {
             "enabled": self.enabled,
@@ -138,6 +161,7 @@ class ChainlinkFeed:
             "ordering_decision_counts": ordering_decision_counts,
             "ordering_classification_counts": ordering_class_counts,
             "last_error": last_error,
+            "thread_alive": thread_alive,
         }
 
     @staticmethod
@@ -174,7 +198,7 @@ class ChainlinkFeed:
     def _thread_main(self) -> None:
         try:
             asyncio.run(self._run_loop())
-        except Exception as exc:
+        except CHAINLINK_LOOP_EXCEPTIONS as exc:
             # The executor loop handles missing ticks through telemetry and logging.
             with self._lock:
                 self._connected = False
@@ -220,7 +244,7 @@ class ChainlinkFeed:
                         except json.JSONDecodeError:
                             continue
                         self._handle_message_obj(obj, received_monotonic=time.monotonic())
-            except Exception as exc:
+            except CHAINLINK_LOOP_EXCEPTIONS as exc:
                 if self._stop_event.is_set():
                     break
                 with self._lock:

@@ -18,7 +18,7 @@ from scripts.run_integrity_audit import run_audit as run_run_integrity_audit
 def _safe_run(cmd: list[str]) -> Dict[str, Any]:
     try:
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=10)
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"ok": False, "returncode": None, "stdout": "", "stderr": str(exc)}
     return {
         "ok": proc.returncode == 0,

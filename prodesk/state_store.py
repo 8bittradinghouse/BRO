@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 import tempfile
 from typing import Any, Dict
+
+LOG = logging.getLogger(__name__)
+_DIR_FSYNC_WARNING_EMITTED = False
 
 
 def load_state(path: pathlib.Path) -> Dict[str, Any]:
@@ -27,6 +31,7 @@ def load_state(path: pathlib.Path) -> Dict[str, Any]:
 
 
 def save_state(path: pathlib.Path, data: Dict[str, Any]) -> None:
+    global _DIR_FSYNC_WARNING_EMITTED
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=".state_", suffix=".json", dir=str(path.parent))
     tmp_path = pathlib.Path(tmp_name)
@@ -43,8 +48,10 @@ def save_state(path: pathlib.Path, data: Dict[str, Any]) -> None:
                 os.fsync(dir_fd)
             finally:
                 os.close(dir_fd)
-        except Exception:
-            pass
+        except OSError as exc:
+            if not _DIR_FSYNC_WARNING_EMITTED:
+                LOG.warning("state_store_dir_fsync_failed:%s", exc.__class__.__name__)
+                _DIR_FSYNC_WARNING_EMITTED = True
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

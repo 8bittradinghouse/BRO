@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import urllib.error
 import urllib.request
 from typing import Any, Dict
 
@@ -58,7 +59,7 @@ def main() -> None:
                 if int(resp.status) >= 400:
                     raise SystemExit(1)
             return
-        except Exception:
+        except (OSError, TimeoutError, ValueError, urllib.error.URLError):
             raise SystemExit(1)
 
     storage_cfg = cfg.get("storage", {}) if isinstance(cfg, dict) else {}

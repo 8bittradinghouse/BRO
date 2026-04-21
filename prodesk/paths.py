@@ -220,7 +220,7 @@ def validate_runtime_write_paths(cfg: Dict[str, Any]) -> List[str]:
         path = pathlib.Path(path_text).resolve()
         try:
             path.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:
+        except OSError as exc:
             findings.append(
                 f"path_not_writable:{label}:{path}:mkdir_failed:{exc}; use mounted /logs or /data paths"
             )
@@ -229,7 +229,7 @@ def validate_runtime_write_paths(cfg: Dict[str, Any]) -> List[str]:
         try:
             probe.write_text("probe", encoding="utf-8")
             probe.unlink(missing_ok=True)
-        except Exception as exc:
+        except OSError as exc:
             findings.append(
                 f"path_not_writable:{label}:{path}:write_failed:{exc}; use mounted /logs or /data paths"
             )

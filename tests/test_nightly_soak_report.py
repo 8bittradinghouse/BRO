@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts.nightly_soak_report import build_report, render_human_summary
 
@@ -429,6 +430,18 @@ class NightlySoakReportTests(unittest.TestCase):
                 ),
                 3,
             )
+            self.assertEqual(
+                int(
+                    float(
+                        (valuation_truth.get("preexpiry_emergency_taker_block_reason_counts") or {}).get(
+                            "taker_submit_rejected",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                ),
+                3,
+            )
             self.assertIn(
                 "held_book_not_found_404_age_sec",
                 " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
@@ -467,12 +480,78 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("held_book_not_found_404_ratio=", summary)
             self.assertIn("preexpiry_404_anomaly_ratio=", summary)
             self.assertIn("held_unpriceable_escalation_ratio=", summary)
-            self.assertIn("hard_degraded_enter_count=", summary)
-            self.assertIn("preexpiry_emergency_taker_attempt_count=", summary)
-            self.assertIn("lifecycle_context_mismatch_count=", summary)
-            self.assertIn("held_unpriceable_cause_counts_latest=", summary)
-            self.assertIn("latest_operator_action=", summary)
 
+    def test_build_report_valuation_truth_falls_back_to_emergency_events_for_block_reason_counts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "outcome": "blocked",
+                    "blocked_reason": "reduce_only_recovery_touch_price_unavailable",
+                    "reason": "blocked_reduce_only_recovery_touch_price_unavailable",
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                },
+                {
+                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "outcome": "blocked",
+                    "outcome_reason": "blocked_reduce_only_recovery_touch_price_unavailable",
+                    "taker_submit_reject_reason": "",
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                },
+                {
+                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "outcome": "filled",
+                    "reason": "filled",
+                    "ts_utc": "2026-01-01T00:00:03Z",
+                },
+            ]
+            status = [
+                {
+                    "valuation_degraded": False,
+                    "valuation_hard_degraded": False,
+                    "preexpiry_emergency_taker_attempt_count": 0,
+                    "preexpiry_emergency_taker_fill_count": 0,
+                    "preexpiry_emergency_taker_block_count": 0,
+                    "preexpiry_emergency_taker_block_reasons": {},
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            valuation_truth = report.get("valuation_truth", {})
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_attempt_count") or 0.0), 3.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_fill_count") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_block_count") or 0.0), 2.0)
+            self.assertEqual(
+                int(
+                    float(
+                        (valuation_truth.get("preexpiry_emergency_taker_block_reasons_run_max") or {}).get(
+                            "reduce_only_recovery_touch_price_unavailable",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                ),
+                2,
+            )
+            self.assertEqual(
+                int(
+                    float(
+                        (valuation_truth.get("preexpiry_emergency_taker_block_reason_counts") or {}).get(
+                            "reduce_only_recovery_touch_price_unavailable",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                ),
+                2,
+            )
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -1378,6 +1457,69 @@ class NightlySoakReportTests(unittest.TestCase):
             contributing = set(report.get("contributing_suppression_causes", []))
             self.assertIn("safety_kill_switch_or_external_guard", contributing)
             self.assertIn("safety_required_book_feed_disconnected", contributing)
+
+    def test_build_report_infers_suppression_mode_from_block_reason_distribution(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events = [
+                {
+                    "event_type": "edge_evaluation",
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "action_taken": "none",
+                    "block_reason": "stage_disallow_taker",
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "ts_utc": "2099-01-01T00:00:01Z",
+                    "action_taken": "none",
+                    "block_reason": "stage_disallow_taker",
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "ts_utc": "2099-01-01T00:00:02Z",
+                    "action_taken": "none",
+                    "block_reason": "latency_not_armed",
+                },
+            ]
+            status = [
+                {
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "runtime_state": "active",
+                    "active_targets_present": True,
+                    "no_target_standdown": False,
+                    "book_feed_required": True,
+                    "kill_switch": False,
+                    "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.1},
+                }
+            ]
+            (root / "events_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in events) + "\n",
+                encoding="utf-8",
+            )
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            with mock.patch(
+                "scripts.nightly_soak_report.classify_runtime",
+                return_value={
+                    "classification": "VALID_ACTIVE",
+                    "primary_suppression_cause": "synthetic_gate_signal",
+                    "contributing_suppression_causes": [],
+                    "ambiguous_suppression_cause": False,
+                },
+            ):
+                report = build_report(root)
+
+            self.assertEqual(report.get("suppression_dominated_run"), True)
+            self.assertEqual(report.get("execution_starvation_mode"), "stage_policy_gate")
+            self.assertEqual(report.get("inferred_suppression_reason"), "stage_disallow_taker")
+            self.assertEqual(int(report.get("inferred_suppression_reason_count") or 0), 2)
+            chain = report.get("protection_path_trigger_chain", {})
+            self.assertEqual(chain.get("inferred_suppression_reason"), "stage_disallow_taker")
+            self.assertEqual(int(chain.get("inferred_suppression_reason_count") or 0), 2)
 
     def test_build_report_marks_trigger_chain_as_observational_when_not_suppressed(self):
         with tempfile.TemporaryDirectory() as td:

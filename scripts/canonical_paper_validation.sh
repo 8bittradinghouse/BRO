@@ -450,7 +450,7 @@ import os
 raw = os.environ.get("EDGE_TRUTH_DETERMINISM_JSON", "")
 try:
     payload = json.loads(raw)
-except Exception:
+except json.JSONDecodeError:
     print("false")
     raise SystemExit(0)
 print("true" if bool(payload.get("determinism_ok", False)) else "false")
@@ -484,7 +484,7 @@ import os
 raw = os.environ.get("NON_EDGE_DETERMINISM_JSON", "")
 try:
     payload = json.loads(raw)
-except Exception:
+except json.JSONDecodeError:
     print("false")
     raise SystemExit(0)
 print("true" if bool(payload.get("determinism_ok", False)) else "false")
@@ -513,13 +513,13 @@ payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 def _as_int(value, default=0):
     try:
         return int(value)
-    except Exception:
+    except (TypeError, ValueError):
         return int(default)
 
 def _as_float(value, default=0.0):
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return float(default)
 
 out = {

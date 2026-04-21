@@ -1,0 +1,1977 @@
+{
+  "generated_utc": "2026-04-21T19:22:19.356319Z",
+  "source_candidates": "/home/odah/bro/base/docs/BRO_MONEY_HARNESS_CANDIDATES_20260420.json",
+  "yellow_total": 140,
+  "counts_by_current_status": {
+    "LINE_CHANGED": 81,
+    "PRESENT": 52,
+    "RESOLVED_STALE": 7
+  },
+  "counts_by_y0_class": {
+    "Y-RESOLVED": 88,
+    "Y-INTENTIONAL": 52
+  },
+  "present_actionable_count": 0,
+  "items": [
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2682,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-073",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return \"unknown\"",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2851,
+      "text": "verdict = \"pass\" if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED} else \"fail\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-074",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "}",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 2973,
+      "text": "return True, tick_age_sec, \"\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-075",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "\"token_id\": token_id,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 3494,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-076",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "evaluation_scope=EDGE_EVAL_SCOPE_MAKER,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4273,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-077",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return {",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4491,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-078",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "\"lifecycle_context_present\": bool(lifecycle_context_present),",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 4683,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-079",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "and isinstance(sec, float)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5216,
+      "text": "return True, reason[:240]",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-080",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "}",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5288,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-081",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "self._validate_run_manifest_payload(payload, context=\"end\")",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/executor.py",
+      "line": 5940,
+      "text": "if str(info.get(\"doctrine_gate_verdict\", \"fail\")) != \"pass\":",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-082",
+      "current_file": "/home/odah/bro/base/executor.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": ")",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 30,
+      "text": "self.session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-083",
+      "current_file": "/home/odah/bro/base/prodesk/alerts.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "self._last_sent_by_key: Dict[str, float] = {}",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 56,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-084",
+      "current_file": "/home/odah/bro/base/prodesk/alerts.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except requests.RequestException as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 64,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-085",
+      "current_file": "/home/odah/bro/base/prodesk/alerts.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 84,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-086",
+      "current_file": "/home/odah/bro/base/prodesk/alerts.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/alerts.py",
+      "line": 85,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-087",
+      "current_file": "/home/odah/bro/base/prodesk/alerts.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except requests.RequestException as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/artifact_identity.py",
+      "line": 17,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-088",
+      "current_file": "/home/odah/bro/base/prodesk/artifact_identity.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (json.JSONDecodeError, OSError, UnicodeError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 63,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-089",
+      "current_file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "continue",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 199,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-090",
+      "current_file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "\"reconnects_steady\": reconnects_steady,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "line": 266,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-091",
+      "current_file": "/home/odah/bro/base/prodesk/book_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "with self._lock:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 134,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-092",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 135,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-093",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (ValueError, OSError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 154,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-094",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (json.JSONDecodeError, OSError, UnicodeError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 399,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-095",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except ValueError:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 441,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-096",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except ImportError as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "line": 456,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-097",
+      "current_file": "/home/odah/bro/base/prodesk/canonical_authority.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (OSError, ValueError, json.JSONDecodeError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 32,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-098",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "price: float",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 177,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-099",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "right = \"usd\"",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 223,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-100",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "backoff = self.reconnect_backoff_initial_sec",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 370,
+      "text": "return True, \"same_source_ts_revision\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-101",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "received_ts_utc=utc_iso(),",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 371,
+      "text": "return True, \"newer_source_ts\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-102",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "received_monotonic=received_monotonic,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 376,
+      "text": "return True, \"timestamp_upgrade\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-103",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 383,
+      "text": "return True, \"same_receive_monotonic_revision\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-104",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 384,
+      "text": "return True, \"newer_receive_monotonic\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-105",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "def _ordering_decision(self, *, latest: ChainlinkTick, incoming: ChainlinkTick) -> tuple[bool, str]:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 431,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-106",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "self._latest_by_symbol[tick.symbol] = tick",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "line": 437,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-107",
+      "current_file": "/home/odah/bro/base/prodesk/chainlink_feed.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 15,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-108",
+      "current_file": "/home/odah/bro/base/prodesk/gateway.py",
+      "current_status": "PRESENT",
+      "current_line_text": "pass",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 19,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-109",
+      "current_file": "/home/odah/bro/base/prodesk/gateway.py",
+      "current_status": "PRESENT",
+      "current_line_text": "pass",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 140,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-110",
+      "current_file": "/home/odah/bro/base/prodesk/gateway.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 381,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-111",
+      "current_file": "/home/odah/bro/base/prodesk/gateway.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/gateway.py",
+      "line": 763,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-112",
+      "current_file": "/home/odah/bro/base/prodesk/gateway.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/latency_verifier.py",
+      "line": 192,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-113",
+      "current_file": "/home/odah/bro/base/prodesk/latency_verifier.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 56,
+      "text": "session: requests.Session,",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-114",
+      "current_file": "/home/odah/bro/base/prodesk/market_data.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "def _http_get_json(",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 66,
+      "text": "except requests.RequestException:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-115",
+      "current_file": "/home/odah/bro/base/prodesk/market_data.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "resp = session.get(url, params=params, timeout=timeout_sec)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 105,
+      "text": "self._sessions: List[requests.Session] = []",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-116",
+      "current_file": "/home/odah/bro/base/prodesk/market_data.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "self._thread_local = threading.local()",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 108,
+      "text": "def _session(self) -> requests.Session:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-117",
+      "current_file": "/home/odah/bro/base/prodesk/market_data.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_data.py",
+      "line": 111,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-118",
+      "current_file": "/home/odah/bro/base/prodesk/market_data.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "if session is None:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 34,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-119",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except json.JSONDecodeError:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 125,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-120",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "if text in {\"true\", \"1\", \"yes\", \"enabled\", \"on\"}:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 132,
+      "text": "session: requests.Session,",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-121",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "def _http_get_json(",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 142,
+      "text": "except requests.RequestException:",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-122",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "resp = session.get(url, params=params, timeout=timeout_sec)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 214,
+      "text": "self.session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-123",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 230,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-124",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 234,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-125",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 284,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-126",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 287,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-127",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "line": 304,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-128",
+      "current_file": "/home/odah/bro/base/prodesk/market_discovery.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 317,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-129",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "ts = parse_ts(order.created_ts_utc)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 319,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-130",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return None",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 322,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-131",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "def _needs_replace(self, order: LiveOrder, intent: OrderIntent, *, requote_delta: Optional[float] = None) -> bool:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 413,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-132",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "\"component\": \"order_manager\",",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 415,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-133",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "\"order_id\": order.order_id,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1246,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-134",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "remaining_size = self._extract_remaining_size(order)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1452,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-135",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return 1.0, \"disabled\"",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "line": 1542,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-136",
+      "current_file": "/home/odah/bro/base/prodesk/order_manager.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "details[\"maker_depth_target_ratio_applied\"] = float(depth_target_ratio)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 35,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-137",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "state_path.parent.mkdir(parents=True, exist_ok=True)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 45,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-138",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "guard_stop_path.parent.mkdir(parents=True, exist_ok=True)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 89,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-139",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "_normalize_private_key(private_key)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 94,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-140",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "_normalize_evm_address(funder)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 109,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-141",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "load_state(state_path)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 120,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-142",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "import websockets  # noqa: F401",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 126,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-143",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "import websockets  # noqa: F401",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 132,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-144",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "import prometheus_client  # noqa: F401",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 151,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-145",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "result = discovery.discover()",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 207,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-146",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "top, _ = client.fetch_book(token_id)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 241,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-147",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return failed",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 248,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-148",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "try:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 258,
+      "text": "session = requests.Session()",
+      "tags": [
+        "network_without_timeout_literal"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-149",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/preflight.py",
+      "line": 272,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-150",
+      "current_file": "/home/odah/bro/base/prodesk/preflight.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "if parsed is None:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/risk.py",
+      "line": 150,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-151",
+      "current_file": "/home/odah/bro/base/prodesk/risk.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/risk.py",
+      "line": 383,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-152",
+      "current_file": "/home/odah/bro/base/prodesk/risk.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "line": 115,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-153",
+      "current_file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "),",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "line": 264,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-154",
+      "current_file": "/home/odah/bro/base/prodesk/run_contract.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "if not path.exists():",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 92,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-155",
+      "current_file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 128,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-156",
+      "current_file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "line": 145,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-157",
+      "current_file": "/home/odah/bro/base/prodesk/runtime_semantics.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 127,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-158",
+      "current_file": "/home/odah/bro/base/prodesk/security.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 129,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-159",
+      "current_file": "/home/odah/bro/base/prodesk/security.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 131,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-160",
+      "current_file": "/home/odah/bro/base/prodesk/security.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 185,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-161",
+      "current_file": "/home/odah/bro/base/prodesk/security.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/security.py",
+      "line": 217,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-162",
+      "current_file": "/home/odah/bro/base/prodesk/security.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/state_store.py",
+      "line": 46,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-163",
+      "current_file": "/home/odah/bro/base/prodesk/state_store.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "dir_fd = os.open(str(path.parent), os.O_RDONLY)",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/state_store.py",
+      "line": 47,
+      "text": "pass",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-164",
+      "current_file": "/home/odah/bro/base/prodesk/state_store.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "try:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "line": 715,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-165",
+      "current_file": "/home/odah/bro/base/prodesk/wallet/wallet_controller.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "approved_size=approved_size,",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 68,
+      "text": "return True, \"wallet_lock_id_idempotent_completed\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-166",
+      "current_file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"wallet_lock_id_idempotent_completed\"",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 72,
+      "text": "return True, \"wallet_lock_id_idempotent_order_exists\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-167",
+      "current_file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"wallet_lock_id_idempotent_order_exists\"",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "line": 82,
+      "text": "return True, \"ok\"",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-168",
+      "current_file": "/home/odah/bro/base/prodesk/wallet/wallet_reservations.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "self._normalize_and_assert()",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 304,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-169",
+      "current_file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "current_status": "RESOLVED_STALE",
+      "current_line_text": "",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 311,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-170",
+      "current_file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "return False",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "line": 458,
+      "text": "status = \"pass\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-171",
+      "current_file": "/home/odah/bro/base/scripts/canonical_paper_session.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "summary_determinism_text = str(summary_determinism_flag or \"\").strip().lower()",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "line": 468,
+      "text": "raise SystemExit(\"readiness_gate fixture did not pass any stage\")",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-172",
+      "current_file": "/home/odah/bro/base/scripts/ci_gate.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "(readiness_dir / f\"run_manifest_{readiness_run_id}.json\").write_text(",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 66,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-173",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except OSError:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 95,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-174",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (json.JSONDecodeError, OSError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 241,
+      "text": "return True, \"status_missing\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-175",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"status_missing\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 247,
+      "text": "return True, \"status_ts_invalid\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-176",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"status_ts_invalid\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 263,
+      "text": "return True, \"status_stale\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-177",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"status_stale\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 274,
+      "text": "return True, \"kill_switch_engaged\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-178",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"kill_switch_engaged\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 279,
+      "text": "return True, \"operating_mode_degraded\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-179",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"operating_mode_degraded\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 282,
+      "text": "return True, \"error_burst\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-180",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"error_burst\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 310,
+      "text": "return True, \"chainlink_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-181",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"chainlink_disconnected\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 313,
+      "text": "return True, \"chainlink_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-182",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"chainlink_disconnected\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 331,
+      "text": "return True, \"book_feed_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-183",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"book_feed_disconnected\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "line": 334,
+      "text": "return True, \"book_feed_disconnected\", details",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-184",
+      "current_file": "/home/odah/bro/base/scripts/guardian_watchdog.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True, \"book_feed_disconnected\", details",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 54,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-185",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (json.JSONDecodeError, OSError, UnicodeError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 121,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-186",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (TypeError, ValueError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 136,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-187",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 145,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-188",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 148,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-189",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 153,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-190",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 156,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-191",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 159,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-192",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 162,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-193",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 165,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-194",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 168,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-195",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 175,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-196",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 180,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-197",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 183,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-198",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 200,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-199",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 203,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-200",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "line": 1842,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-201",
+      "current_file": "/home/odah/bro/base/scripts/nightly_soak_report.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "fill_stage_distribution = Counter()",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ops_brief.py",
+      "line": 19,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-202",
+      "current_file": "/home/odah/bro/base/scripts/ops_brief.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (TypeError, ValueError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/ops_snapshot.py",
+      "line": 21,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-203",
+      "current_file": "/home/odah/bro/base/scripts/ops_snapshot.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (OSError, ValueError, subprocess.SubprocessError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 218,
+      "text": "except Exception:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-204",
+      "current_file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (TypeError, ValueError):",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 300,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-205",
+      "current_file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (json.JSONDecodeError, OSError, UnicodeError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 764,
+      "text": "except Exception as exc:",
+      "tags": [
+        "broad_exception"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-206",
+      "current_file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "except (OSError, ValueError, json.JSONDecodeError) as exc:",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "line": 1516,
+      "text": "horizon_consistency_check = \"pass\" if len(horizon_findings) == 0 else \"fail\"",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-207",
+      "current_file": "/home/odah/bro/base/scripts/outcome_truth_audit.py",
+      "current_status": "PRESENT",
+      "current_line_text": "horizon_consistency_check = \"pass\" if len(horizon_findings) == 0 else \"fail\"",
+      "y0_class": "Y-INTENTIONAL"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 236,
+      "text": "note=\"must pass with breach ratio check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-208",
+      "current_file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "comparator=\"max\",",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 248,
+      "text": "note=\"must pass with breach rows check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-209",
+      "current_file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "comparator=\"max\",",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 284,
+      "text": "note=\"must pass with breach ratio check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-210",
+      "current_file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "comparator=\"max\",",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "line": 296,
+      "text": "note=\"must pass with breach rows check\",",
+      "tags": [
+        "pass_path"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-211",
+      "current_file": "/home/odah/bro/base/scripts/performance_budget_gate.py",
+      "current_status": "LINE_CHANGED",
+      "current_line_text": "comparator=\"max\",",
+      "y0_class": "Y-RESOLVED"
+    },
+    {
+      "file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "line": 75,
+      "text": "return True",
+      "tags": [
+        "return_true"
+      ],
+      "severity": "YELLOW",
+      "candidate_id": "C-212",
+      "current_file": "/home/odah/bro/base/scripts/websocket_reliability_gate.py",
+      "current_status": "PRESENT",
+      "current_line_text": "return True",
+      "y0_class": "Y-INTENTIONAL"
+    }
+  ]
+}

@@ -22,7 +22,7 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
         text = text[:-1] + "+00:00"
     try:
         out = dt.datetime.fromisoformat(text)
-    except Exception:
+    except ValueError:
         return None
     if out.tzinfo is None:
         out = out.replace(tzinfo=dt.timezone.utc)
@@ -32,7 +32,7 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
 def _safe_float(value: Any) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return 0.0
     if out != out:
         return 0.0
@@ -44,7 +44,7 @@ def _load_jsonl(paths: List[pathlib.Path]) -> List[Dict[str, Any]]:
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception:
+        except (OSError, UnicodeError):
             continue
         for text in lines:
             text = text.strip()
@@ -52,7 +52,7 @@ def _load_jsonl(paths: List[pathlib.Path]) -> List[Dict[str, Any]]:
                 continue
             try:
                 payload = json.loads(text)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             if isinstance(payload, dict):
                 rows.append(payload)

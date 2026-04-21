@@ -25,7 +25,7 @@ ORDERING_CLASS_REQUIRED_KEYS = ("ordered", "out_of_order", "duplicate", "revisio
 def _safe_float(value: Any) -> Optional[float]:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if out != out:
         return None
@@ -119,11 +119,11 @@ def _load_rows_from_slice(path: pathlib.Path) -> List[Dict[str, Any]]:
                     continue
                 try:
                     row = json.loads(text)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 if isinstance(row, dict):
                     rows.append(row)
-    except Exception:
+    except OSError:
         return []
     return rows
 
@@ -165,7 +165,7 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 def _safe_nonnegative_int(value: Any) -> Optional[int]:
     try:
         out = int(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if out < 0:
         return None
@@ -235,7 +235,7 @@ def run_audit(
         max_queue_i = None
         try:
             max_queue_i = int(max_queue)
-        except Exception:
+        except (TypeError, ValueError):
             pass
         if max_queue_i is None or max_queue_i < 1000:
             findings.append(f"chainlink:max_queue_size_too_low_or_invalid:{max_queue!r}")
@@ -260,7 +260,7 @@ def run_audit(
                 run_contract_path_override=run_contract_path,
                 allow_open=(normalized_phase == "validate_active"),
             )
-        except Exception as exc:
+        except ValueError as exc:
             findings.append(str(exc))
             contract = None
         if isinstance(contract, dict):
@@ -314,6 +314,8 @@ def run_audit(
             max_chain_age = 0.0
             max_chain_queue_size = 0.0
             max_chain_dropped_ticks = 0.0
+            book_thread_dead_rows = 0
+            chainlink_thread_dead_rows = 0
             ordering_policy_specs: Dict[str, int] = {}
             ordering_policy_missing_rows = 0
             ordering_policy_invalid_rows = 0
@@ -335,6 +337,8 @@ def run_audit(
                 age_chain = _safe_float(chain_status.get("last_tick_age_sec"))
                 qsize_chain = _safe_float(chain_status.get("queue_size"))
                 dropped_chain = _safe_float(chain_status.get("dropped_ticks"))
+                book_thread_alive = _as_bool(book.get("thread_alive"), default=True)
+                chainlink_thread_alive = _as_bool(chain_status.get("thread_alive"), default=True)
                 if reconnect_book is not None:
                     max_book_reconnects = max(max_book_reconnects, reconnect_book)
                 if reconnect_chain is not None:
@@ -347,6 +351,10 @@ def run_audit(
                     max_chain_queue_size = max(max_chain_queue_size, qsize_chain)
                 if dropped_chain is not None:
                     max_chain_dropped_ticks = max(max_chain_dropped_ticks, dropped_chain)
+                if bool(book.get("enabled", False)) and (not bool(book_thread_alive)):
+                    book_thread_dead_rows += 1
+                if bool(chain_status.get("enabled", False)) and (not bool(chainlink_thread_alive)):
+                    chainlink_thread_dead_rows += 1
                 ordering_policy_raw = chain_status.get("ordering_policy")
                 if ordering_policy_raw is None:
                     ordering_policy_missing_rows += 1
@@ -398,6 +406,8 @@ def run_audit(
                     "chainlink_last_tick_age_max_sec": max_chain_age,
                     "chainlink_queue_size_max": max_chain_queue_size,
                     "chainlink_dropped_ticks_max": max_chain_dropped_ticks,
+                    "book_feed_thread_dead_rows": int(book_thread_dead_rows),
+                    "chainlink_thread_dead_rows": int(chainlink_thread_dead_rows),
                     "ordering_policy_required_keys": list(ORDERING_POLICY_REQUIRED_KEYS),
                     "ordering_policy_observed_specs": [json.loads(text) for text in sorted(ordering_policy_specs.keys())],
                     "ordering_policy_missing_rows": int(ordering_policy_missing_rows),
@@ -457,6 +467,10 @@ def run_audit(
                     "websocket_evidence_chainlink_queue_size_too_high:"
                     + f"{max_chain_queue_size:.6f}>max:{max_chain_queue_size_allowed:.6f}"
                 )
+            if book_thread_dead_rows > 0:
+                findings.append(f"websocket_evidence_book_feed_thread_dead_rows:{int(book_thread_dead_rows)}")
+            if chainlink_thread_dead_rows > 0:
+                findings.append(f"websocket_evidence_chainlink_thread_dead_rows:{int(chainlink_thread_dead_rows)}")
             if ordering_policy_missing_rows > 0:
                 findings.append(
                     f"websocket_ordering_policy_missing_rows:{int(ordering_policy_missing_rows)}"

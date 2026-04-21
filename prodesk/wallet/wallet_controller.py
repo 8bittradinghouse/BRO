@@ -37,6 +37,18 @@ from .wallet_types import (
 )
 
 
+WALLET_TRUTH_EXCEPTIONS = (
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    KeyError,
+    AttributeError,
+)
+
+
 class WalletDoctrineBase(ABC):
     """Capital authority contract for BRO wallet doctrine.
 
@@ -172,6 +184,9 @@ class WalletDoctrineBase(ABC):
         self._reservation_mismatch_delta_usdc = 0.0
         self._reservation_mismatch_detail = ""
         self._last_emitted_reservation_mismatch_delta_usdc = 0.0
+        self._event_emit_failure_count = 0
+        self._event_emit_last_error = ""
+        self._event_emit_last_error_ts_utc = ""
 
     def register_nonce_authority(self, authority_tag: str) -> None:
         self._nonce_authority_registered = str(authority_tag or "").strip().lower()
@@ -226,8 +241,11 @@ class WalletDoctrineBase(ABC):
             return
         try:
             self._event_logger(str(event_type), dict(payload))
-        except Exception:
+        except Exception as exc:
             # Wallet authority must remain functional even if telemetry emission fails.
+            self._event_emit_failure_count = int(self._event_emit_failure_count) + 1
+            self._event_emit_last_error = f"{exc.__class__.__name__}:{exc}"
+            self._event_emit_last_error_ts_utc = utc_iso()
             return
 
     def _evaluate_reservation_mismatch(self, *, context: str) -> None:
@@ -397,6 +415,9 @@ class WalletDoctrineBase(ABC):
             "reservation_mismatch_candidate": bool(self._reservation_mismatch_candidate),
             "reservation_mismatch_delta_usdc": float(self._reservation_mismatch_delta_usdc),
             "reservation_mismatch_detail": str(self._reservation_mismatch_detail),
+            "event_emit_failure_count": int(self._event_emit_failure_count),
+            "event_emit_last_error": str(self._event_emit_last_error),
+            "event_emit_last_error_ts_utc": str(self._event_emit_last_error_ts_utc),
             "net_usdc_outflow": self._net_usdc_outflow,
             "deployable_usdc": self._deployable_usdc(),
             "min_pol_gas_reserve": self._min_pol_gas_reserve,
@@ -646,7 +667,8 @@ class WalletDoctrineBase(ABC):
                 )
 
         approved_size = approved_notional / price if price > 0 else 0.0
-        if approved_size <= self._reconcile_tolerance_usdc:
+        approved_size_tolerance = self._reconcile_tolerance_usdc / price if price > 0 else self._reconcile_tolerance_usdc
+        if approved_size <= approved_size_tolerance:
             return WalletAuthorization(
                 allowed=False,
                 action="reject",
@@ -686,7 +708,7 @@ class WalletDoctrineBase(ABC):
                 detail=detail,
                 halt=(action == "halt"),
             )
-        reduced = approved_size + self._reconcile_tolerance_usdc < requested_size
+        reduced = approved_size + approved_size_tolerance < requested_size
         return WalletAuthorization(
             allowed=True,
             action="reduce" if reduced else "approve",
@@ -800,7 +822,7 @@ class WalletDoctrineBase(ABC):
             return None
         try:
             payload = provider() or {}
-        except Exception as exc:
+        except WALLET_TRUTH_EXCEPTIONS as exc:
             return NonceSnapshot(
                 current_nonce=None,
                 pending_nonces=tuple(),
@@ -819,7 +841,7 @@ class WalletDoctrineBase(ABC):
             return None
         try:
             payload = provider() or {}
-        except Exception as exc:
+        except WALLET_TRUTH_EXCEPTIONS as exc:
             return PendingTxSnapshot(
                 pending_count=0,
                 order_ids=tuple(),
@@ -1048,7 +1070,7 @@ class LiveWalletDoctrine(WalletDoctrineBase):
                     authority_class=AUTHORITY_CLASS_LOCAL,
                 )
             )
-        except Exception as exc:
+        except WALLET_TRUTH_EXCEPTIONS as exc:
             return ReconciliationResult(
                 healthy=False,
                 action="halt",

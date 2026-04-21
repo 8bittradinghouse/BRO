@@ -136,7 +136,7 @@ def run_audit(*, repo_root: Path = REPO_ROOT) -> Dict[str, object]:
 
     try:
         phrase_map = _load_phrase_source(repo_root)
-    except Exception as exc:  # pragma: no cover - covered via tests through run_audit result
+    except (OSError, ValueError, RuntimeError) as exc:  # pragma: no cover - covered via tests through run_audit result
         return {
             "ok": False,
             "errors": [f"phrase_source_load_failed:{exc}"],
@@ -191,7 +191,7 @@ def run_audit(*, repo_root: Path = REPO_ROOT) -> Dict[str, object]:
                     )
                     .strip()
                 )
-            except Exception:
+            except (OSError, subprocess.SubprocessError):
                 errors.append(f"current_baseline_declared_tag_not_resolvable:{declared_tag}")
             else:
                 if tag_commit != declared_commit:
@@ -229,7 +229,7 @@ def run_audit(*, repo_root: Path = REPO_ROOT) -> Dict[str, object]:
             continue
         try:
             segment = _function_source_segment(path, guard.function_name)
-        except Exception as exc:
+        except (OSError, SyntaxError, ValueError) as exc:
             errors.append(f"guard_function_missing:{guard.path}:{guard.function_name}:{exc}")
             continue
         for pattern in guard.forbidden_patterns:

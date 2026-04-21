@@ -34,6 +34,13 @@ class OperatingModeController:
         self.window_cycles = max(5, int(cfg.get("window_cycles", 40)))
         self.caution_stale_reject_ratio = clamp(float(cfg.get("caution_stale_reject_ratio", 0.35)), 0.0, 1.0)
         self.maker_only_stale_reject_ratio = clamp(float(cfg.get("maker_only_stale_reject_ratio", 0.55)), 0.0, 1.0)
+        # Require minimum stale/risk evidence before stale-reject ratios can drive
+        # operating-mode escalation. This avoids thin-sample ratio spikes (e.g. 1/1)
+        # from prematurely latching safe-stop.
+        self.caution_min_stale_reject_count = max(1, int(cfg.get("caution_min_stale_reject_count", 2)))
+        self.caution_min_risk_reject_count = max(1, int(cfg.get("caution_min_risk_reject_count", 4)))
+        self.maker_only_min_stale_reject_count = max(1, int(cfg.get("maker_only_min_stale_reject_count", 3)))
+        self.maker_only_min_risk_reject_count = max(1, int(cfg.get("maker_only_min_risk_reject_count", 8)))
         self.caution_outage_ratio = clamp(float(cfg.get("caution_outage_ratio", 0.20)), 0.0, 1.0)
         self.maker_only_outage_ratio = clamp(float(cfg.get("maker_only_outage_ratio", 0.40)), 0.0, 1.0)
         self.caution_disarmed_ratio = clamp(float(cfg.get("caution_disarmed_ratio", 0.50)), 0.0, 1.0)
@@ -123,15 +130,23 @@ class OperatingModeController:
         sample_count = int(metrics["sample_count"])
         risk_reject_count = int(sum(row["risk_rejects"] for row in self._history))
         stale_reject_count = int(sum(row["stale_rejects"] for row in self._history))
+        caution_stale_ratio_eligible = (
+            risk_reject_count >= self.caution_min_risk_reject_count
+            and stale_reject_count >= self.caution_min_stale_reject_count
+        )
+        maker_only_stale_ratio_eligible = (
+            risk_reject_count >= self.maker_only_min_risk_reject_count
+            and stale_reject_count >= self.maker_only_min_stale_reject_count
+        )
 
         severe = (
-            stale_ratio >= self.maker_only_stale_reject_ratio
+            (maker_only_stale_ratio_eligible and stale_ratio >= self.maker_only_stale_reject_ratio)
             or outage_ratio >= self.maker_only_outage_ratio
             or disarmed_ratio >= self.maker_only_disarmed_ratio
             or error_ratio >= self.maker_only_error_ratio
         )
         moderate = (
-            stale_ratio >= self.caution_stale_reject_ratio
+            (caution_stale_ratio_eligible and stale_ratio >= self.caution_stale_reject_ratio)
             or outage_ratio >= self.caution_outage_ratio
             or disarmed_ratio >= self.caution_disarmed_ratio
             or error_ratio >= self.caution_error_ratio

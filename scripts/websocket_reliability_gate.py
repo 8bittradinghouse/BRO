@@ -28,7 +28,7 @@ DEFAULT_MAX_LINES_PER_FILE = 200000
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:
         return default
@@ -38,7 +38,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _coerce_float(value: Any) -> Optional[float]:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return None
     if not math.isfinite(out):
         return None
@@ -131,7 +131,7 @@ def _load_status_rows(
                 continue
             try:
                 row = json.loads(line)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             if not isinstance(row, dict):
                 continue
@@ -150,11 +150,11 @@ def _load_rows_from_slice(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
                     continue
                 try:
                     row = json.loads(text)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 if isinstance(row, dict):
                     yield row
-    except Exception:
+    except OSError:
         return
 
 
@@ -530,7 +530,7 @@ def main() -> None:
     def _cfg_int(key: str, fallback: int) -> int:
         try:
             return int(budget_cfg.get(key))
-        except Exception:
+        except (TypeError, ValueError):
             return fallback
 
     result = run_gate(

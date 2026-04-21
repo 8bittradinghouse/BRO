@@ -62,6 +62,16 @@ KNOWN_METRICS = {
     "maker_reference_bounded_fallback_action_activity",
     "maker_market_reference_fallback_bid_count",
     "maker_market_reference_fallback_ask_count",
+    "preexpiry_404_anomaly_count",
+    "lifecycle_context_mismatch_count",
+    "lifecycle_context_missing_sec_to_expiry_count",
+    "preexpiry_emergency_taker_attempt_count",
+    "preexpiry_emergency_taker_fill_count",
+    "preexpiry_emergency_taker_block_count",
+    "valuation_hard_degraded_enter_count",
+    "valuation_hard_degraded_clear_count",
+    "held_unpriceable_started_count",
+    "held_unpriceable_recovered_count",
 }
 
 
@@ -95,7 +105,7 @@ def _validate_stage_criteria(stage_name: str, criteria: Dict[str, Any]) -> None:
             raise ValueError(f"unknown metric {metric_name!r} in stage {stage_name!r}; known={known}")
         try:
             float(threshold_raw)
-        except Exception as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"non-numeric threshold for {key!r} in stage {stage_name!r}: {threshold_raw!r}"
             ) from exc
@@ -127,7 +137,7 @@ def _load_policy(path: pathlib.Path) -> Dict[str, Any]:
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         out = float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
     if out != out:  # NaN
         return default
@@ -187,6 +197,9 @@ def _collect_derived_metrics(
     runtime_metrics = runtime_classification.get("metrics", {})
     if not isinstance(runtime_metrics, dict):
         runtime_metrics = {}
+    valuation_truth = report.get("valuation_truth", {})
+    if not isinstance(valuation_truth, dict):
+        valuation_truth = {}
     runtime_class_name = str(runtime_classification.get("classification") or "").strip().upper()
     runtime_promotion_eligible = bool(runtime_classification.get("promotion_eligible", False))
     runtime_primary_suppression_cause = str(
@@ -251,6 +264,32 @@ def _collect_derived_metrics(
         ),
         "maker_market_reference_fallback_ask_count": _safe_float(
             report.get("maker_market_reference_fallback_ask_count")
+        ),
+        "preexpiry_404_anomaly_count": _safe_float(valuation_truth.get("preexpiry_404_anomaly_count")),
+        "lifecycle_context_mismatch_count": _safe_float(valuation_truth.get("lifecycle_context_mismatch_count")),
+        "lifecycle_context_missing_sec_to_expiry_count": _safe_float(
+            valuation_truth.get("lifecycle_context_missing_sec_to_expiry_count")
+        ),
+        "preexpiry_emergency_taker_attempt_count": _safe_float(
+            valuation_truth.get("preexpiry_emergency_taker_attempt_count")
+        ),
+        "preexpiry_emergency_taker_fill_count": _safe_float(
+            valuation_truth.get("preexpiry_emergency_taker_fill_count")
+        ),
+        "preexpiry_emergency_taker_block_count": _safe_float(
+            valuation_truth.get("preexpiry_emergency_taker_block_count")
+        ),
+        "valuation_hard_degraded_enter_count": _safe_float(
+            valuation_truth.get("valuation_hard_degraded_enter_count")
+        ),
+        "valuation_hard_degraded_clear_count": _safe_float(
+            valuation_truth.get("valuation_hard_degraded_clear_count")
+        ),
+        "held_unpriceable_started_count": _safe_float(
+            valuation_truth.get("held_unpriceable_started_count")
+        ),
+        "held_unpriceable_recovered_count": _safe_float(
+            valuation_truth.get("held_unpriceable_recovered_count")
         ),
         "runtime_classification_name": runtime_class_name,
         "runtime_primary_suppression_cause": runtime_primary_suppression_cause,

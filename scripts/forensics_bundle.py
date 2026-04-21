@@ -57,7 +57,7 @@ def _read_tail_filtered(
                 continue
             try:
                 row = json.loads(text)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             if not isinstance(row, dict):
                 continue

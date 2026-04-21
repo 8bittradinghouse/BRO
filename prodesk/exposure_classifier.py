@@ -120,7 +120,7 @@ def classify_exposure_fail_closed(
         )
         if out.exposure_class in EXPOSURE_CLASS_VALUES:
             return out
-    except Exception:
+    except (ArithmeticError, OverflowError, TypeError, ValueError):
         pass
     # Fail closed: anything uncertain remains meaningful exposure.
     return ExposureClassification(

@@ -78,7 +78,7 @@ contract_path = log_dir / f"run_contract_{run_id}.json"
 if contract_path.exists():
     try:
         payload = json.loads(contract_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         payload = {}
     slice_path = str(payload.get("status_slice_path") or "").strip()
     status_path = str(payload.get("status_path") or "").strip()

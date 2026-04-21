@@ -120,6 +120,17 @@ RUN_MANIFEST_REQUIRED_FIELDS = (
     "config_fingerprint_sha256",
     "code_fingerprint_sha256",
 )
+EXECUTION_RUNTIME_EXCEPTIONS = (
+    MarketBookFeedError,
+    ChainlinkFeedError,
+    GatewayError,
+    OSError,
+    TimeoutError,
+    ConnectionError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 
 class ExecutionRunner:
@@ -135,7 +146,7 @@ class ExecutionRunner:
         if explicit_run_id:
             try:
                 uuid.UUID(explicit_run_id)
-            except Exception as exc:
+            except ValueError as exc:
                 raise ValueError(f"invalid BRO_RUN_ID (must be UUID): {explicit_run_id!r}") from exc
         canonical_session_call = str(os.getenv("BRO_CANONICAL_SESSION_CALL", "0")).strip() == "1"
         paper_mode = str(self.cfg.get("mode", "")).strip().lower() == "paper"
@@ -823,7 +834,7 @@ class ExecutionRunner:
     def _load_state_safe(self) -> Dict[str, Any]:
         try:
             return load_state(self.state_path)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             self.events.log_error(
                 {
                     "ts_utc": utc_iso(),
@@ -1993,6 +2004,50 @@ class ExecutionRunner:
             bool(self._held_dust_enforced_this_cycle),
             int(self._held_dust_effective_hard_degraded_exempt_count),
         )
+        valuation_event_reason = ""
+        valuation_event_reason_source = "degraded_reasons_first"
+        if degraded_reasons:
+            valuation_event_reason = str(degraded_reasons[0]).strip()
+        elif bool(degraded):
+            valuation_event_reason = "valuation_degraded_unspecified"
+            valuation_event_reason_source = "degraded_fallback_unspecified"
+        else:
+            valuation_event_reason = "valuation_not_degraded"
+            valuation_event_reason_source = "not_degraded_default"
+        valuation_event_token_id: Optional[str] = None
+        if held_unpriceable_escalation_token_ids:
+            valuation_event_token_id = str(held_unpriceable_escalation_token_ids[0]).strip() or None
+        elif held_unpriceable_token_ids:
+            valuation_event_token_id = str(held_unpriceable_token_ids[0]).strip() or None
+        elif hard_degraded_meaningful_token_ids:
+            valuation_event_token_id = str(hard_degraded_meaningful_token_ids[0]).strip() or None
+        elif hard_degraded_token_ids:
+            valuation_event_token_id = str(hard_degraded_token_ids[0]).strip() or None
+        else:
+            position_tokens = [str(x).strip() for x in list(valuation_state.get("position_tokens", [])) if str(x).strip()]
+            if position_tokens:
+                valuation_event_token_id = position_tokens[0]
+        valuation_event_token_source = (
+            "held_unpriceable_escalation_token"
+            if held_unpriceable_escalation_token_ids
+            else (
+                "held_unpriceable_token"
+                if held_unpriceable_token_ids
+                else (
+                    "hard_degraded_meaningful_token"
+                    if hard_degraded_meaningful_token_ids
+                    else (
+                        "hard_degraded_token"
+                        if hard_degraded_token_ids
+                        else (
+                            "position_token"
+                            if valuation_event_token_id is not None
+                            else "none"
+                        )
+                    )
+                )
+            )
+        )
         if signature != self._last_valuation_event_signature:
             self._last_valuation_event_signature = signature
             self.events.log_event(
@@ -2001,6 +2056,10 @@ class ExecutionRunner:
                     "ts_utc": utc_iso(),
                     "run_id": self.run_id,
                     "phase": str(phase or "unknown"),
+                    "reason": str(valuation_event_reason),
+                    "reason_source": str(valuation_event_reason_source),
+                    "token_id": (str(valuation_event_token_id) if valuation_event_token_id is not None else None),
+                    "token_id_source": str(valuation_event_token_source),
                     "valuation_degraded": bool(degraded),
                     "valuation_hard_degraded": bool(hard_degraded),
                     "pnl_degraded": bool(degraded),
@@ -2172,7 +2231,7 @@ class ExecutionRunner:
             }
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
-        except Exception as exc:
+        except (OSError, TypeError, ValueError) as exc:
             self.events.log_error(
                 {
                     "ts_utc": utc_iso(),
@@ -2267,7 +2326,7 @@ class ExecutionRunner:
                 status = str(payload.get("status", "")).strip().lower()
                 mismatch = 1.0 if status in {"mismatch", "failed", "error"} else 0.0
             self._cached_reconcile_mismatch_ratio = max(0.0, min(1.0, float(mismatch)))
-        except Exception as exc:
+        except (OSError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as exc:
             self.telemetry.incr("reconcile_status_read_errors")
             self.events.log_error(
                 {
@@ -3556,7 +3615,7 @@ class ExecutionRunner:
             for token_id in token_ids:
                 try:
                     books_by_token[token_id] = _fetch_one(token_id)
-                except Exception as exc:
+                except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                     errors_by_token[token_id] = str(exc)
             return books_by_token, errors_by_token
 
@@ -3567,7 +3626,7 @@ class ExecutionRunner:
             token_id = future_by_token[future]
             try:
                 books_by_token[token_id] = future.result()
-            except Exception as exc:
+            except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                 errors_by_token[token_id] = str(exc)
         return books_by_token, errors_by_token
 
@@ -3697,6 +3756,19 @@ class ExecutionRunner:
                 reduce_only_recovery_active
                 and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active)
             )
+            recovery_financial_posture_class = (
+                str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper()
+                or FINANCIAL_POSTURE_NORMAL
+            )
+            if reduce_only_recovery_active and recovery_financial_posture_class not in {
+                FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY,
+                FINANCIAL_POSTURE_HALT_NEW_RISK,
+            }:
+                recovery_financial_posture_class = (
+                    FINANCIAL_POSTURE_HALT_NEW_RISK
+                    if self._token_terminal_unwind_halt_new_risk_active(info)
+                    else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
+                )
             top = books.get(token_id)
             midpoint = top.midpoint if top is not None else None
             fair = fair_probability_by_token.get(token_id)
@@ -3773,9 +3845,7 @@ class ExecutionRunner:
                 block_reason = "edge_below_min"
             else:
                 if taker_recovery_override_active:
-                    if reduce_only_size_cap_below_min_order_size:
-                        block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
-                    elif reduce_only_side not in {"BUY", "SELL"}:
+                    if reduce_only_side not in {"BUY", "SELL"}:
                         block_reason = "reduce_only_recovery_no_reducing_side"
                     elif reduce_only_size_cap_shares <= 1e-9:
                         block_reason = "reduce_only_recovery_size_cap_unavailable"
@@ -4149,16 +4219,22 @@ class ExecutionRunner:
                         "token_id": token_id,
                         "stage": (str(stage or "").strip().upper() or "UNKNOWN"),
                         "sec_to_expiry": sec_to_expiry,
-                        "financial_posture_class": str(self._financial_posture_class),
+                        "financial_posture_class": str(recovery_financial_posture_class),
                         "preexpiry_emergency_taker_window_sec": float(self.preexpiry_emergency_taker_window_sec),
                         "maker_submitted_for_token": bool(maker_submitted_for_token),
                         "maker_no_submission_reason": str(maker_no_submission_reason or ""),
                         "maker_reduce_only_exit_blocked": bool(maker_reduce_only_exit_blocked),
                         "outcome": emergency_outcome,
+                        "reason": emergency_outcome_reason,
                         "outcome_reason": emergency_outcome_reason,
+                        "blocked_reason": (emergency_block_reason if emergency_outcome == "blocked" else None),
                         "submitted": bool(was_submitted),
                         "filled": bool(was_filled),
-                        "taker_submit_reject_reason": str(taker_submit_reject_reason or ""),
+                        "taker_submit_reject_reason": (
+                            str(taker_submit_reject_reason).strip().lower()
+                            if str(taker_submit_reject_reason or "").strip()
+                            else None
+                        ),
                     },
                 )
 
@@ -4204,7 +4280,7 @@ class ExecutionRunner:
 
     def _open_order_token_ids(self) -> set[str]:
         out: set[str] = set()
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
             for order in self.tx_manager.get_open_orders():
                 token_id = str(getattr(order, "token_id", "") or "").strip()
                 if token_id:
@@ -4780,7 +4856,25 @@ class ExecutionRunner:
         }
 
     def _sync_book_feed_watch_tokens(self) -> None:
-        self.book_feed.update_token_ids(self._valuation_watch_token_ids())
+        watch_token_ids = self._valuation_watch_token_ids()
+        previous_watch_token_ids = list(getattr(self, "_last_book_feed_watch_token_ids", []))
+        changed = watch_token_ids != previous_watch_token_ids
+        self.book_feed.update_token_ids(watch_token_ids)
+        if not changed:
+            return
+        self._last_book_feed_watch_token_ids = list(watch_token_ids)
+        self._reset_ws_slo_bootstrap(reason="book_feed_watch_tokens_updated")
+        self.events.log_event(
+            "book_feed_watch_tokens_updated",
+            {
+                "ts_utc": utc_iso(),
+                "run_id": self.run_id,
+                "old_token_count": int(len(previous_watch_token_ids)),
+                "new_token_count": int(len(watch_token_ids)),
+                "old_token_ids": list(previous_watch_token_ids),
+                "new_token_ids": list(watch_token_ids),
+            },
+        )
 
     def _refresh_targets(self, *, force: bool = False) -> None:
         if not self.discovery.enabled:
@@ -4792,7 +4886,7 @@ class ExecutionRunner:
 
         try:
             result = self.discovery.discover()
-        except Exception as exc:
+        except EXECUTION_RUNTIME_EXCEPTIONS as exc:
             self.telemetry.incr("target_discovery_errors")
             self.events.log_error(
                 {
@@ -5110,7 +5204,7 @@ class ExecutionRunner:
             config_source_path = str(self.config_source_path)
             try:
                 config_source_sha256 = hashlib.sha256(self.config_source_path.read_bytes()).hexdigest()
-            except Exception:
+            except OSError:
                 config_source_sha256 = ""
         env_hints = {
             "BRO_CONFIG_PATH": os.environ.get("BRO_CONFIG_PATH", ""),
@@ -5125,7 +5219,7 @@ class ExecutionRunner:
         if dependency_lock_path.exists():
             try:
                 dependency_lock_sha256 = hashlib.sha256(dependency_lock_path.read_bytes()).hexdigest()
-            except Exception:
+            except OSError:
                 dependency_lock_sha256 = ""
         runtime_identity = {
             "profile_name": self.profile_name,
@@ -5184,7 +5278,7 @@ class ExecutionRunner:
             return
         try:
             payload = json.loads(self.run_manifest_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             return
         if not isinstance(payload, dict):
             return
@@ -5214,7 +5308,7 @@ class ExecutionRunner:
                         reason = text
                         break
             return True, reason[:240]
-        except Exception as exc:
+        except OSError as exc:
             self.telemetry.incr("external_guard_errors")
             now_mono = time.monotonic()
             if (now_mono - self._external_guard_last_error_log_mono) >= self._external_guard_error_log_interval_sec:
@@ -5245,7 +5339,7 @@ class ExecutionRunner:
                     "path": str(self.guard_stop_file),
                 },
             )
-        except Exception as exc:
+        except OSError as exc:
             self.telemetry.incr("external_guard_errors")
             self.events.log_error(
                 {
@@ -5284,7 +5378,7 @@ class ExecutionRunner:
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
                 signal.signal(sig, lambda *_args: self.request_stop())
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 pass
 
     def run(self, duration_min: Optional[float]) -> None:
@@ -5336,7 +5430,7 @@ class ExecutionRunner:
         try:
             try:
                 self._write_run_manifest()
-            except Exception as exc:
+            except (OSError, TypeError, ValueError) as exc:
                 self.telemetry.incr("run_manifest_write_errors")
                 self.events.log_error(
                     {
@@ -5353,7 +5447,9 @@ class ExecutionRunner:
             self._refresh_targets(force=True)
             self.chainlink.start()
             self.pyth.start()
-            self.book_feed.start(self._valuation_watch_token_ids())
+            watch_token_ids = self._valuation_watch_token_ids()
+            self._last_book_feed_watch_token_ids = list(watch_token_ids)
+            self.book_feed.start(watch_token_ids)
             self.prometheus.start()
             while not self.stop_requested:
                 if stop_after_sec is not None and (time.monotonic() - started) >= stop_after_sec:
@@ -6440,7 +6536,7 @@ class ExecutionRunner:
                         if not loss_check.allowed:
                             self.risk.set_kill_switch(f"{loss_check.reason}:{loss_check.detail}")
                         self.consecutive_failures = 0
-                    except Exception as exc:
+                    except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                         self.telemetry.set_gauge("quote_active", 0.0)
                         self.consecutive_failures += 1
                         cycle_had_error = True
@@ -6656,7 +6752,7 @@ class ExecutionRunner:
                             reason=self.risk.kill_reason,
                             telemetry_counter="kill_switch_cancel_all_calls",
                         )
-                    except Exception as exc:
+                    except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                         self.events.log_error(
                             {
                                 "ts_utc": utc_iso(),
@@ -6672,7 +6768,7 @@ class ExecutionRunner:
                     state_io_started = time.monotonic()
                     try:
                         self._dump_state()
-                    except Exception as exc:
+                    except (OSError, TypeError, ValueError) as exc:
                         self.telemetry.incr("state_save_errors")
                         now_mono = time.monotonic()
                         if (now_mono - self._state_save_last_error_log_mono) >= self._state_save_error_log_interval_sec:
@@ -6944,7 +7040,7 @@ class ExecutionRunner:
                         reason="runner_shutdown",
                         telemetry_counter="shutdown_cancel_all_calls",
                     )
-                except Exception as exc:
+                except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                     self.events.log_error(
                         {
                             "ts_utc": utc_iso(),
@@ -6954,32 +7050,32 @@ class ExecutionRunner:
                         }
                     )
 
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._dump_state()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._write_run_manifest_end()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.log_event("runner_stop", {"ts_utc": utc_iso(), "run_id": self.run_id})
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.close()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.book_client.close()
             if self._rest_fetch_pool is not None:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                     self._rest_fetch_pool.shutdown(wait=False, cancel_futures=True)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.tx_manager.close()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.discovery.close()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.book_feed.stop()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.chainlink.stop()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.pyth.stop()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.prometheus.stop()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.alerts.close()
 
 
@@ -7007,7 +7103,7 @@ def enforce_operator_entry_policy(*, mode: str, config: Optional[Dict[str, Any]]
         )
     try:
         uuid.UUID(run_id)
-    except Exception as exc:
+    except ValueError as exc:
         raise SystemExit(
             f"canonical run_id invalid (must be UUID): {run_id!r}; "
             "use ./scripts/canonical_paper_session.sh"

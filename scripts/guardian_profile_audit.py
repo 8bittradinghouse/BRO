@@ -84,7 +84,7 @@ def run_audit(*, compose_path: pathlib.Path) -> Dict[str, Any]:
             return default
         try:
             return float(text)
-        except Exception:
+        except (TypeError, ValueError):
             return -1.0
 
     startup_grace = _f(startup_grace_raw, 90.0)
