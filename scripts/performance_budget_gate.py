@@ -119,6 +119,19 @@ def run_gate(
     rss_vals = [_safe_float(r.get("gauge.process_rss_mb"), default=-1.0) for r in rows]
     rss_vals = [x for x in rss_vals if x >= 0]
     rss_max = max(rss_vals) if rss_vals else 0.0
+    cpu_vals = [_safe_float(r.get("gauge.process_cpu_percent"), default=-1.0) for r in rows]
+    cpu_vals = [x for x in cpu_vals if x >= 0]
+    cpu_max = max(cpu_vals) if cpu_vals else 0.0
+    cpu_p95 = _percentile(cpu_vals, 0.95) if cpu_vals else 0.0
+    load1_vals = [_safe_float(r.get("gauge.system_load1"), default=-1.0) for r in rows]
+    load1_vals = [x for x in load1_vals if x >= 0]
+    load1_max = max(load1_vals) if load1_vals else 0.0
+    mem_available_vals = [_safe_float(r.get("gauge.system_mem_available_mb"), default=-1.0) for r in rows]
+    mem_available_vals = [x for x in mem_available_vals if x >= 0]
+    mem_available_min = min(mem_available_vals) if mem_available_vals else 0.0
+    swap_used_vals = [_safe_float(r.get("gauge.system_swap_used_mb"), default=-1.0) for r in rows]
+    swap_used_vals = [x for x in swap_used_vals if x >= 0]
+    swap_used_max = max(swap_used_vals) if swap_used_vals else 0.0
 
     order_used = [_safe_float(r.get("gauge.orders_used_60s"), default=0.0) for r in rows]
     order_limit = [_safe_float(r.get("gauge.orders_limit_60s"), default=0.0) for r in rows]
@@ -412,6 +425,11 @@ def run_gate(
             "cycle_latency_p95_ms": cycle_p95,
             "cycle_latency_max_ms": cycle_max,
             "process_rss_mb_max": rss_max,
+            "process_cpu_percent_p95": cpu_p95,
+            "process_cpu_percent_max": cpu_max,
+            "system_load1_max": load1_max,
+            "system_mem_available_mb_min": mem_available_min,
+            "system_swap_used_mb_max": swap_used_max,
             "order_capacity_used_ratio_max": order_ratio,
             "order_capacity_breach_rows": order_breach_rows,
             "order_capacity_breach_ratio": order_breach_ratio,

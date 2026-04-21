@@ -279,6 +279,81 @@ def _status_activity_diagnostics(status_rows: List[Dict[str, Any]]) -> Dict[str,
     }
 
 
+def _runtime_resource_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _row_metric(row: Dict[str, Any], key: str) -> Optional[float]:
+        runtime_resource = row.get("runtime_resource")
+        if isinstance(runtime_resource, dict):
+            nested = _safe_float(runtime_resource.get(key), default=float("nan"))
+            if nested == nested:
+                return nested
+        direct = _safe_float(row.get(f"gauge.{key}"), default=float("nan"))
+        if direct != direct:
+            return None
+        return direct
+
+    cpu_vals: List[float] = []
+    cpu_norm_vals: List[float] = []
+    rss_vals: List[float] = []
+    load1_vals: List[float] = []
+    load5_vals: List[float] = []
+    load15_vals: List[float] = []
+    mem_avail_vals: List[float] = []
+    mem_avail_ratio_vals: List[float] = []
+    swap_used_vals: List[float] = []
+    swap_used_ratio_vals: List[float] = []
+
+    for row in status_rows:
+        cpu = _row_metric(row, "process_cpu_percent")
+        if isinstance(cpu, float):
+            cpu_vals.append(cpu)
+        cpu_norm = _row_metric(row, "process_cpu_percent_normalized")
+        if isinstance(cpu_norm, float):
+            cpu_norm_vals.append(cpu_norm)
+        rss = _row_metric(row, "process_rss_mb")
+        if isinstance(rss, float):
+            rss_vals.append(rss)
+        load1 = _row_metric(row, "system_load1")
+        if isinstance(load1, float):
+            load1_vals.append(load1)
+        load5 = _row_metric(row, "system_load5")
+        if isinstance(load5, float):
+            load5_vals.append(load5)
+        load15 = _row_metric(row, "system_load15")
+        if isinstance(load15, float):
+            load15_vals.append(load15)
+        mem_avail = _row_metric(row, "system_mem_available_mb")
+        if isinstance(mem_avail, float):
+            mem_avail_vals.append(mem_avail)
+        mem_avail_ratio = _row_metric(row, "system_mem_available_ratio")
+        if isinstance(mem_avail_ratio, float):
+            mem_avail_ratio_vals.append(mem_avail_ratio)
+        swap_used = _row_metric(row, "system_swap_used_mb")
+        if isinstance(swap_used, float):
+            swap_used_vals.append(swap_used)
+        swap_used_ratio = _row_metric(row, "system_swap_used_ratio")
+        if isinstance(swap_used_ratio, float):
+            swap_used_ratio_vals.append(swap_used_ratio)
+
+    return {
+        "resource_status_rows": float(len(status_rows)),
+        "process_cpu_percent_p95": _percentile(cpu_vals, 0.95),
+        "process_cpu_percent_max": max(cpu_vals) if cpu_vals else 0.0,
+        "process_cpu_percent_normalized_p95": _percentile(cpu_norm_vals, 0.95),
+        "process_cpu_percent_normalized_max": max(cpu_norm_vals) if cpu_norm_vals else 0.0,
+        "process_rss_mb_p95": _percentile(rss_vals, 0.95),
+        "process_rss_mb_max": max(rss_vals) if rss_vals else 0.0,
+        "system_load1_p95": _percentile(load1_vals, 0.95),
+        "system_load1_max": max(load1_vals) if load1_vals else 0.0,
+        "system_load5_p95": _percentile(load5_vals, 0.95),
+        "system_load15_p95": _percentile(load15_vals, 0.95),
+        "system_mem_available_mb_min": min(mem_avail_vals) if mem_avail_vals else 0.0,
+        "system_mem_available_mb_p50": _percentile(mem_avail_vals, 0.50),
+        "system_mem_available_ratio_min": min(mem_avail_ratio_vals) if mem_avail_ratio_vals else 0.0,
+        "system_swap_used_mb_max": max(swap_used_vals) if swap_used_vals else 0.0,
+        "system_swap_used_ratio_max": max(swap_used_ratio_vals) if swap_used_ratio_vals else 0.0,
+    }
+
+
 def _quote_uptime_ratio(status_rows: List[Dict[str, Any]]) -> float:
     if not status_rows:
         return 0.0
@@ -2595,6 +2670,7 @@ def build_report(
     mode_timeline = _mode_transition_timeline(events)
     pickoff = _pickoff_indicator(events)
     runtime_classification = classify_runtime(status_rows=status, events=events)
+    runtime_resource = _runtime_resource_stats(status)
     control_authority = _control_authority_clarity(status)
     market_data_source = _market_data_source_stats(status)
     kill_switch_events = float(
@@ -2722,6 +2798,7 @@ def build_report(
         "taker_stage_net_breakout": taker_stage_net_breakout,
         "edge_activation_quality_by_regime": edge_quality,
         "runtime_classification": runtime_classification,
+        "runtime_resource": runtime_resource,
     }
 
 

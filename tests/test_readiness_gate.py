@@ -148,6 +148,56 @@ class ReadinessGateTests(unittest.TestCase):
             self.assertEqual(result["blocking_stage"], "paper")
             self.assertEqual(result["recommended_next_stage"], "paper")
 
+    def test_runtime_resource_metric_can_drive_stage_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-resource"
+            (root / f"run_manifest_{run_id}.json").write_text(
+                json.dumps({"run_id": run_id, "manifest_schema_version": 2}),
+                encoding="utf-8",
+            )
+            (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "run_id": run_id,
+                                "gauge.open_orders": 0,
+                                "gauge.operating_mode_state": 0.0,
+                                "gauge.process_cpu_percent": 10.0,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "run_id": run_id,
+                                "gauge.open_orders": 0,
+                                "gauge.operating_mode_state": 0.0,
+                                "gauge.process_cpu_percent": 45.0,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            policy_path = root / "policy.yaml"
+            policy_payload = {
+                "stage_order": ["paper"],
+                "stages": {
+                    "paper": {
+                        "min_status_rows": 1,
+                        "max_resource_process_cpu_percent_max": 30,
+                    }
+                },
+            }
+            policy_path.write_text(yaml.safe_dump(policy_payload), encoding="utf-8")
+            policy = _load_policy(policy_path)
+            result = run_readiness_gate(log_dir=root, policy=policy, run_id=run_id)
+            self.assertIsNone(result["highest_passing_stage"])
+            self.assertEqual(result["blocking_stage"], "paper")
+
     def test_run_id_filter_avoids_cross_run_contamination(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

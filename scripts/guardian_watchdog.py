@@ -215,6 +215,44 @@ def recent_error_rows(
     return out
 
 
+def _runtime_resource_from_status_row(status_row: Dict[str, Any]) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    nested = status_row.get("runtime_resource")
+    if isinstance(nested, dict):
+        for key, value in nested.items():
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if numeric == numeric:
+                out[str(key)] = numeric
+    fallback_metric_names = (
+        "process_cpu_percent",
+        "process_cpu_percent_normalized",
+        "process_rss_mb",
+        "system_load1",
+        "system_load5",
+        "system_load15",
+        "system_mem_total_mb",
+        "system_mem_available_mb",
+        "system_mem_available_ratio",
+        "system_swap_total_mb",
+        "system_swap_used_mb",
+        "system_swap_used_ratio",
+    )
+    for key in fallback_metric_names:
+        if key in out:
+            continue
+        raw = status_row.get(f"gauge.{key}")
+        try:
+            numeric = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if numeric == numeric:
+            out[key] = numeric
+    return out
+
+
 def evaluate_guard(
     *,
     status_row: Optional[Dict[str, Any]],
@@ -250,6 +288,9 @@ def evaluate_guard(
     status_age = max(0.0, (now_utc - status_ts).total_seconds())
     details["status_age_sec"] = status_age
     details["status_ts_utc"] = utc_iso(status_ts)
+    resource_metrics = _runtime_resource_from_status_row(status_row)
+    if resource_metrics:
+        details["runtime_resource"] = resource_metrics
 
     if status_age > max_status_age_sec:
         # Ignore stale rows from prior runs during startup grace.

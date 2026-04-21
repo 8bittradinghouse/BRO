@@ -216,6 +216,43 @@ class GuardianWatchdogTests(unittest.TestCase):
         self.assertFalse(arm)
         self.assertEqual(reason, "")
 
+    def test_evaluate_guard_includes_runtime_resource_snapshot_in_details(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        status = {
+            "ts_utc": _utc_iso(now),
+            "kill_switch": False,
+            "gauge.operating_mode_state": 0.0,
+            "runtime_resource": {
+                "process_cpu_percent": 21.5,
+                "system_load1": 0.75,
+            },
+            "gauge.process_rss_mb": 256.0,
+        }
+        arm, reason, details = evaluate_guard(
+            status_row=status,
+            now_utc=now,
+            guardian_started_utc=now,
+            startup_elapsed_sec=10.0,
+            startup_grace_sec=30.0,
+            max_status_age_sec=60.0,
+            recent_error_count=0,
+            max_errors_in_window=10,
+            mode_trigger_level=3.0,
+            trigger_on_kill_switch=True,
+            require_chainlink_connected=False,
+            require_book_feed_connected=False,
+            chainlink_disconnect_min_age_sec=20.0,
+            book_feed_disconnect_min_age_sec=20.0,
+        )
+        self.assertFalse(arm)
+        self.assertEqual(reason, "")
+        resource = details.get("runtime_resource")
+        self.assertIsInstance(resource, dict)
+        self.assertAlmostEqual(float(resource.get("process_cpu_percent", 0.0)), 21.5, places=6)
+        self.assertAlmostEqual(float(resource.get("system_load1", 0.0)), 0.75, places=6)
+        # Fallback gauge extraction remains available when nested snapshot omits it.
+        self.assertAlmostEqual(float(resource.get("process_rss_mb", 0.0)), 256.0, places=6)
+
     def test_evaluate_guard_chainlink_disconnect_arms_after_min_age(self):
         now = dt.datetime.now(dt.timezone.utc)
         status = {

@@ -47,6 +47,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("mode_transitions", report)
             self.assertIn("pickoff_indicator", report)
             self.assertIn("runtime_classification", report)
+            self.assertIn("runtime_resource", report)
             self.assertIn("primary_suppression_cause", report)
             self.assertIn("contributing_suppression_causes", report)
             self.assertIn("suppression_dominated_run", report)
@@ -56,6 +57,45 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("protection_path_trigger_chain", report)
             self.assertGreaterEqual(report["execution_paths"].get("maker_submits", 0.0), 0.0)
             self.assertEqual(report["edge_truth"].get("rows_total"), 0.0)
+
+    def test_build_report_includes_runtime_resource_stats(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events_path.write_text("", encoding="utf-8")
+            status_rows = [
+                {
+                    "run_id": "rid-res",
+                    "gauge.process_cpu_percent": 10.0,
+                    "gauge.process_rss_mb": 200.0,
+                    "gauge.system_load1": 0.4,
+                    "gauge.system_mem_available_mb": 1200.0,
+                    "gauge.system_mem_available_ratio": 0.60,
+                    "gauge.system_swap_used_mb": 50.0,
+                },
+                {
+                    "run_id": "rid-res",
+                    "runtime_resource": {
+                        "process_cpu_percent": 40.0,
+                        "process_rss_mb": 260.0,
+                        "system_load1": 0.9,
+                        "system_mem_available_mb": 900.0,
+                        "system_mem_available_ratio": 0.45,
+                        "system_swap_used_mb": 90.0,
+                    },
+                },
+            ]
+            status_path.write_text("\n".join(json.dumps(x) for x in status_rows) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+            report = build_report(root, run_id="rid-res")
+            resources = report.get("runtime_resource", {})
+            self.assertEqual(float(resources.get("resource_status_rows", 0.0)), 2.0)
+            self.assertGreaterEqual(float(resources.get("process_cpu_percent_p95", 0.0)), 10.0)
+            self.assertAlmostEqual(float(resources.get("process_cpu_percent_max", 0.0)), 40.0, places=6)
+            self.assertAlmostEqual(float(resources.get("process_rss_mb_max", 0.0)), 260.0, places=6)
+            self.assertAlmostEqual(float(resources.get("system_load1_max", 0.0)), 0.9, places=6)
 
     def test_build_report_includes_taker_stage_net_breakout(self):
         with tempfile.TemporaryDirectory() as td:

@@ -72,6 +72,20 @@ KNOWN_METRICS = {
     "valuation_hard_degraded_clear_count",
     "held_unpriceable_started_count",
     "held_unpriceable_recovered_count",
+    "resource_status_rows",
+    "resource_process_cpu_percent_p95",
+    "resource_process_cpu_percent_max",
+    "resource_process_cpu_percent_normalized_p95",
+    "resource_process_cpu_percent_normalized_max",
+    "resource_process_rss_mb_max",
+    "resource_system_load1_p95",
+    "resource_system_load1_max",
+    "resource_system_load5_p95",
+    "resource_system_load15_p95",
+    "resource_system_mem_available_mb_min",
+    "resource_system_mem_available_ratio_min",
+    "resource_system_swap_used_mb_max",
+    "resource_system_swap_used_ratio_max",
 }
 
 
@@ -200,6 +214,9 @@ def _collect_derived_metrics(
     valuation_truth = report.get("valuation_truth", {})
     if not isinstance(valuation_truth, dict):
         valuation_truth = {}
+    runtime_resource = report.get("runtime_resource", {})
+    if not isinstance(runtime_resource, dict):
+        runtime_resource = {}
     runtime_class_name = str(runtime_classification.get("classification") or "").strip().upper()
     runtime_promotion_eligible = bool(runtime_classification.get("promotion_eligible", False))
     runtime_primary_suppression_cause = str(
@@ -290,6 +307,28 @@ def _collect_derived_metrics(
         ),
         "held_unpriceable_recovered_count": _safe_float(
             valuation_truth.get("held_unpriceable_recovered_count")
+        ),
+        "resource_status_rows": _safe_float(runtime_resource.get("resource_status_rows")),
+        "resource_process_cpu_percent_p95": _safe_float(runtime_resource.get("process_cpu_percent_p95")),
+        "resource_process_cpu_percent_max": _safe_float(runtime_resource.get("process_cpu_percent_max")),
+        "resource_process_cpu_percent_normalized_p95": _safe_float(
+            runtime_resource.get("process_cpu_percent_normalized_p95")
+        ),
+        "resource_process_cpu_percent_normalized_max": _safe_float(
+            runtime_resource.get("process_cpu_percent_normalized_max")
+        ),
+        "resource_process_rss_mb_max": _safe_float(runtime_resource.get("process_rss_mb_max")),
+        "resource_system_load1_p95": _safe_float(runtime_resource.get("system_load1_p95")),
+        "resource_system_load1_max": _safe_float(runtime_resource.get("system_load1_max")),
+        "resource_system_load5_p95": _safe_float(runtime_resource.get("system_load5_p95")),
+        "resource_system_load15_p95": _safe_float(runtime_resource.get("system_load15_p95")),
+        "resource_system_mem_available_mb_min": _safe_float(runtime_resource.get("system_mem_available_mb_min")),
+        "resource_system_mem_available_ratio_min": _safe_float(
+            runtime_resource.get("system_mem_available_ratio_min")
+        ),
+        "resource_system_swap_used_mb_max": _safe_float(runtime_resource.get("system_swap_used_mb_max")),
+        "resource_system_swap_used_ratio_max": _safe_float(
+            runtime_resource.get("system_swap_used_ratio_max")
         ),
         "runtime_classification_name": runtime_class_name,
         "runtime_primary_suppression_cause": runtime_primary_suppression_cause,

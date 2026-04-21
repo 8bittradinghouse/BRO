@@ -184,6 +184,14 @@ class ExecutionRunner:
         )
         self.alerts = AlertNotifier(self.cfg["alerts"])
         self.telemetry = Telemetry()
+        proc_times = os.times()
+        self._last_process_cpu_total_sec = max(
+            0.0,
+            float(getattr(proc_times, "user", 0.0)) + float(getattr(proc_times, "system", 0.0)),
+        )
+        self._last_process_cpu_sample_mono = time.monotonic()
+        self._resource_metrics_error_log_interval_sec = 60.0
+        self._resource_metrics_last_error_log_mono = 0.0
         self.token_ids = [str(x) for x in self.cfg["targets"]["token_ids"]]
         self._base_runtime_poll_interval_sec = float(self.cfg["runtime"]["poll_interval_sec"])
         self._base_runtime_actions_per_cycle = int(self.cfg["runtime"]["max_actions_per_cycle"])
@@ -1093,6 +1101,116 @@ class ExecutionRunner:
     @staticmethod
     def _effective_risk_rejects(risk_rejects_delta: int, kill_switch_rejects_delta: int) -> int:
         return max(0, int(risk_rejects_delta) - max(0, int(kill_switch_rejects_delta)))
+
+    @staticmethod
+    def _read_proc_meminfo_kb() -> Dict[str, float]:
+        path = pathlib.Path("/proc/meminfo")
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            return {}
+        out: Dict[str, float] = {}
+        for line in lines:
+            if ":" not in line:
+                continue
+            key, raw = line.split(":", 1)
+            tokens = str(raw).strip().split()
+            if not tokens:
+                continue
+            try:
+                value = float(tokens[0])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                out[str(key).strip()] = value
+        return out
+
+    @staticmethod
+    def _runtime_resource_snapshot_from_telemetry(telemetry: Dict[str, Any]) -> Dict[str, float]:
+        out: Dict[str, float] = {}
+        metric_names = (
+            "process_cpu_percent",
+            "process_cpu_percent_normalized",
+            "process_rss_mb",
+            "system_load1",
+            "system_load5",
+            "system_load15",
+            "system_mem_total_mb",
+            "system_mem_available_mb",
+            "system_mem_available_ratio",
+            "system_swap_total_mb",
+            "system_swap_used_mb",
+            "system_swap_used_ratio",
+        )
+        for name in metric_names:
+            raw = telemetry.get(f"gauge.{name}")
+            value = parse_float(raw)
+            if value is None:
+                continue
+            if not math.isfinite(float(value)):
+                continue
+            out[name] = float(value)
+        return out
+
+    def _sample_runtime_resource_metrics(self) -> Dict[str, float]:
+        out: Dict[str, float] = {}
+        now_mono = time.monotonic()
+        proc_times = os.times()
+        proc_total_cpu_sec = max(
+            0.0,
+            float(getattr(proc_times, "user", 0.0)) + float(getattr(proc_times, "system", 0.0)),
+        )
+        elapsed = max(1e-6, now_mono - float(self._last_process_cpu_sample_mono))
+        cpu_delta = max(0.0, proc_total_cpu_sec - float(self._last_process_cpu_total_sec))
+        process_cpu_percent = max(0.0, min(10000.0, (cpu_delta / elapsed) * 100.0))
+        cpu_count = max(1.0, float(os.cpu_count() or 1.0))
+        process_cpu_percent_normalized = max(0.0, min(100.0, process_cpu_percent / cpu_count))
+        out["process_cpu_percent"] = float(process_cpu_percent)
+        out["process_cpu_percent_normalized"] = float(process_cpu_percent_normalized)
+        self._last_process_cpu_sample_mono = now_mono
+        self._last_process_cpu_total_sec = proc_total_cpu_sec
+
+        try:
+            load1, load5, load15 = os.getloadavg()
+            out["system_load1"] = max(0.0, float(load1))
+            out["system_load5"] = max(0.0, float(load5))
+            out["system_load15"] = max(0.0, float(load15))
+        except OSError as exc:
+            now = time.monotonic()
+            if (now - self._resource_metrics_last_error_log_mono) >= self._resource_metrics_error_log_interval_sec:
+                self._resource_metrics_last_error_log_mono = now
+                self.events.log_error(
+                    {
+                        "ts_utc": utc_iso(),
+                        "component": "runtime_resource",
+                        "action": "getloadavg",
+                        "error": str(exc),
+                    }
+                )
+
+        meminfo_kb = self._read_proc_meminfo_kb()
+        mem_total_kb = max(0.0, float(meminfo_kb.get("MemTotal", 0.0)))
+        mem_available_kb = max(
+            0.0,
+            float(meminfo_kb.get("MemAvailable", meminfo_kb.get("MemFree", 0.0))),
+        )
+        swap_total_kb = max(0.0, float(meminfo_kb.get("SwapTotal", 0.0)))
+        swap_free_kb = max(0.0, float(meminfo_kb.get("SwapFree", 0.0)))
+        swap_used_kb = max(0.0, swap_total_kb - swap_free_kb)
+        if mem_total_kb > 0.0:
+            out["system_mem_total_mb"] = float(mem_total_kb / 1024.0)
+            out["system_mem_available_mb"] = float(mem_available_kb / 1024.0)
+            out["system_mem_available_ratio"] = float(min(1.0, max(0.0, mem_available_kb / mem_total_kb)))
+        if swap_total_kb > 0.0:
+            out["system_swap_total_mb"] = float(swap_total_kb / 1024.0)
+            out["system_swap_used_mb"] = float(swap_used_kb / 1024.0)
+            out["system_swap_used_ratio"] = float(min(1.0, max(0.0, swap_used_kb / swap_total_kb)))
+        elif "SwapTotal" in meminfo_kb:
+            out["system_swap_total_mb"] = 0.0
+            out["system_swap_used_mb"] = 0.0
+            out["system_swap_used_ratio"] = 0.0
+
+        return out
 
     @staticmethod
     def _stale_auto_stop_eligible(
@@ -6735,6 +6853,19 @@ class ExecutionRunner:
                     self.risk.set_kill_switch(reason)
 
                 if self.risk.kill_switch and not self.last_kill_switch_state:
+                    runtime_resource_snapshot = self._runtime_resource_snapshot_from_telemetry(self.telemetry.snapshot())
+                    self.events.log_event(
+                        "risk_control_engaged",
+                        {
+                            "ts_utc": utc_iso(),
+                            "run_id": self.run_id,
+                            "control": "kill_switch",
+                            "reason": self.risk.kill_reason,
+                            "runtime_state": self._runtime_state,
+                            "financial_posture_class": str(self._financial_posture_class),
+                            "runtime_resource": runtime_resource_snapshot,
+                        },
+                    )
                     self.alerts.notify(
                         "critical",
                         f"{self.bot_name} kill switch engaged",
@@ -6804,6 +6935,7 @@ class ExecutionRunner:
                     wallet_contract = self.wallet.status_contract()
                     guard_active, guard_reason = self._read_external_guard_stop()
                     status_ts_utc = utc_iso()
+                    runtime_resource = self._runtime_resource_snapshot_from_telemetry(telemetry)
                     status_row = {
                         "bot_name": self.bot_name,
                         "ts_utc": status_ts_utc,
@@ -6973,6 +7105,7 @@ class ExecutionRunner:
                             "active": guard_active,
                             "reason": guard_reason if guard_active else "",
                         },
+                        "runtime_resource": dict(runtime_resource),
                         **telemetry,
                     }
                     self.events.log_status(status_row)
@@ -7020,6 +7153,9 @@ class ExecutionRunner:
                 cycle_elapsed = time.monotonic() - cycle_started
                 rss_kb = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
                 self.telemetry.set_gauge("process_rss_mb", rss_kb / 1024.0)
+                resource_metrics = self._sample_runtime_resource_metrics()
+                for metric_name, metric_value in resource_metrics.items():
+                    self.telemetry.set_gauge(metric_name, float(metric_value))
                 self.telemetry.set_gauge("cycle_latency_ms", cycle_elapsed * 1000.0)
                 cycle_latency_ms = cycle_elapsed * 1000.0
                 self.telemetry.set_gauge("cycle_span_market_data_ms", phase_market_data_ms)
