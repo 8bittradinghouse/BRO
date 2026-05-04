@@ -90,6 +90,7 @@ _PREFIX_CODE_RULES: List[tuple[str, str]] = [
     ("quote_uptime_ratio_too_low:", "BRO-1501"),
     ("error_rows_too_high:", "BRO-1502"),
     ("execution_quality_net_too_low:", "BRO-1503"),
+    ("soak_execution_quality_capture_minus_adverse_too_low:", "BRO-1503"),
     ("reconcile_mismatch_ratio_too_high:", "BRO-1504"),
     ("config_mode_not_live:", "BRO-1601"),
     ("parity_gap_quote_uptime:", "BRO-1701"),

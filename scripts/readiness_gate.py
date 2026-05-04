@@ -89,6 +89,75 @@ KNOWN_METRICS = {
 }
 
 
+def _passes_min(value: float, threshold: float, eps: float) -> bool:
+    return float(value) + max(0.0, float(eps)) >= float(threshold)
+
+
+def _passes_max(value: float, threshold: float, eps: float) -> bool:
+    return float(value) <= float(threshold) + max(0.0, float(eps))
+
+
+def _normalize_comparison_tolerance(raw: Any) -> Dict[str, Any]:
+    payload = raw if isinstance(raw, dict) else {}
+    min_default = max(0.0, _safe_float(payload.get("min_default"), 0.0))
+    max_default = max(0.0, _safe_float(payload.get("max_default"), 0.0))
+    raw_metrics = payload.get("metrics", {})
+    if raw_metrics is None:
+        raw_metrics = {}
+    if not isinstance(raw_metrics, dict):
+        raise ValueError("comparison_tolerance.metrics must be a mapping when provided")
+    metrics: Dict[str, Any] = {}
+    for metric_raw, override_raw in raw_metrics.items():
+        metric_name = str(metric_raw).strip()
+        if metric_name not in KNOWN_METRICS:
+            known = ",".join(sorted(KNOWN_METRICS))
+            raise ValueError(
+                f"unknown comparison_tolerance metric {metric_name!r}; known={known}"
+            )
+        if isinstance(override_raw, dict):
+            metrics[metric_name] = {
+                "min_eps": max(0.0, _safe_float(override_raw.get("min_eps"), min_default)),
+                "max_eps": max(0.0, _safe_float(override_raw.get("max_eps"), max_default)),
+            }
+        elif isinstance(override_raw, (int, float)):
+            both = max(0.0, float(override_raw))
+            metrics[metric_name] = {"min_eps": both, "max_eps": both}
+        else:
+            raise ValueError(
+                f"comparison_tolerance override for {metric_name!r} must be numeric or a mapping"
+            )
+    return {
+        "min_default": min_default,
+        "max_default": max_default,
+        "metrics": metrics,
+    }
+
+
+def _comparison_tolerance_payload(policy: Dict[str, Any]) -> Dict[str, Any]:
+    payload = policy.get("comparison_tolerance", {})
+    if isinstance(payload, dict):
+        return payload
+    return _normalize_comparison_tolerance(payload)
+
+
+def _metric_epsilon(
+    metric: str,
+    *,
+    kind: str,
+    comparison_cfg: Dict[str, Any],
+) -> float:
+    default_min_eps = max(0.0, _safe_float(comparison_cfg.get("min_default"), 0.0))
+    default_max_eps = max(0.0, _safe_float(comparison_cfg.get("max_default"), 0.0))
+    metric_eps_cfg = comparison_cfg.get("metrics", {})
+    if not isinstance(metric_eps_cfg, dict):
+        metric_eps_cfg = {}
+    payload = metric_eps_cfg.get(str(metric or "").strip())
+    if isinstance(payload, dict):
+        key = "min_eps" if kind == "min" else "max_eps"
+        return max(0.0, _safe_float(payload.get(key), default_min_eps if kind == "min" else default_max_eps))
+    return max(0.0, default_min_eps if kind == "min" else default_max_eps)
+
+
 def _resolve_effective_log_dir(log_dir: pathlib.Path) -> pathlib.Path:
     raw = str(log_dir or "").strip()
     if raw == "/logs" or raw.startswith("/logs/"):
@@ -145,7 +214,8 @@ def _load_policy(path: pathlib.Path) -> Dict[str, Any]:
         if not isinstance(raw_criteria, dict):
             raise ValueError(f"stage {stage_name!r} criteria must be a mapping")
         _validate_stage_criteria(str(stage_name), raw_criteria)
-    return {"stage_order": stage_order, "stages": stages}
+    comparison_tolerance = _normalize_comparison_tolerance(raw.get("comparison_tolerance", {}))
+    return {"stage_order": stage_order, "stages": stages, "comparison_tolerance": comparison_tolerance}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -341,7 +411,13 @@ def _collect_derived_metrics(
     return metrics
 
 
-def _evaluate_stage(metrics: Dict[str, float], criteria: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+def _evaluate_stage(
+    metrics: Dict[str, float],
+    criteria: Dict[str, Any],
+    *,
+    comparison_cfg: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, List[Dict[str, Any]]]:
+    effective_comparison_cfg = comparison_cfg if isinstance(comparison_cfg, dict) else {}
     checks: List[Dict[str, Any]] = []
     stage_pass = True
     for key, threshold_raw in criteria.items():
@@ -349,14 +425,17 @@ def _evaluate_stage(metrics: Dict[str, float], criteria: Dict[str, Any]) -> Tupl
 
         metric = metrics.get(metric_name)
         threshold = _safe_float(threshold_raw)
+        epsilon = 0.0
         if metric is None:
             passed = False
             metric_val = None
         elif rule == "min":
-            passed = float(metric) >= threshold
+            epsilon = _metric_epsilon(metric_name, kind="min", comparison_cfg=effective_comparison_cfg)
+            passed = _passes_min(float(metric), threshold, epsilon)
             metric_val = float(metric)
         elif rule == "max":
-            passed = float(metric) <= threshold
+            epsilon = _metric_epsilon(metric_name, kind="max", comparison_cfg=effective_comparison_cfg)
+            passed = _passes_max(float(metric), threshold, epsilon)
             metric_val = float(metric)
         else:
             passed = abs(float(metric) - threshold) <= 1e-12
@@ -367,8 +446,11 @@ def _evaluate_stage(metrics: Dict[str, float], criteria: Dict[str, Any]) -> Tupl
                 "criterion": str(key),
                 "metric": metric_name,
                 "rule": rule,
+                "comparator": rule,
                 "threshold": threshold,
                 "value": metric_val,
+                "epsilon": epsilon,
+                "tolerance_applied": bool(epsilon > 0.0),
                 "passed": passed,
             }
         )
@@ -443,6 +525,7 @@ def run_readiness_gate(
     }
     metrics["runtime_findings"] = list(runtime_findings)
     metrics["readiness_report_max_lines_per_file"] = float(lines_limit)
+    comparison_tolerance = _comparison_tolerance_payload(policy)
 
     stage_results: List[Dict[str, Any]] = []
     highest_passing_stage: Optional[str] = None
@@ -453,7 +536,7 @@ def run_readiness_gate(
     for stage in stage_order:
         raw_criteria = stage_cfg.get(stage) or {}
         criteria = raw_criteria if isinstance(raw_criteria, dict) else {}
-        passed, checks = _evaluate_stage(metrics, criteria)
+        passed, checks = _evaluate_stage(metrics, criteria, comparison_cfg=comparison_tolerance)
         if contiguous_passing and passed:
             highest_passing_stage = stage
         if contiguous_passing and (not passed):
@@ -483,6 +566,11 @@ def run_readiness_gate(
         "blocking_stage": blocking_stage,
         "recommended_next_stage": recommended_next_stage,
         "metrics": metrics,
+        "comparison_tolerance": {
+            "min_default": _safe_float(comparison_tolerance.get("min_default"), 0.0),
+            "max_default": _safe_float(comparison_tolerance.get("max_default"), 0.0),
+            "metric_overrides": dict(comparison_tolerance.get("metrics", {}) or {}),
+        },
         "suppression_summary": {
             "primary_suppression_cause": str(metrics.get("runtime_primary_suppression_cause") or "none"),
             "contributing_suppression_causes": list(metrics.get("runtime_contributing_suppression_causes") or []),
@@ -578,6 +666,21 @@ def main() -> None:
     print(f"safe_stop_transitions={int(metrics['safe_stop_transitions'])}")
     print(f"runtime_classification={metrics.get('runtime_classification_name', '')}")
     print(f"runtime_promotion_eligible={int(metrics.get('runtime_promotion_eligible', 0.0))}")
+    for stage_result in list(result.get("stage_results", []) or []):
+        stage_name = str(stage_result.get("stage") or "").strip()
+        for check in list(stage_result.get("checks", []) or []):
+            eps = _safe_float(check.get("epsilon"), 0.0)
+            if eps <= 0.0:
+                continue
+            print(
+                "tolerance_check="
+                + f"{stage_name}:{str(check.get('criterion') or '').strip()}:"
+                + f"value={_safe_float(check.get('value'), 0.0):.6f}:"
+                + f"threshold={_safe_float(check.get('threshold'), 0.0):.6f}:"
+                + f"epsilon={eps:.6f}:"
+                + f"comparator={str(check.get('comparator') or check.get('rule') or '').strip()}:"
+                + f"passed={int(bool(check.get('passed', False)))}"
+            )
 
 
 if __name__ == "__main__":

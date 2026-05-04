@@ -20,6 +20,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "profile_name": "test-profile",
                     "git_commit": "deadbeef",
                     "config_fingerprint_sha256": "a" * 64,
+                    "code_fingerprint_sha256": "b" * 64,
                     "status_path": str((log_dir / "status_2099-01-01.jsonl").resolve()),
                     "events_path": str((log_dir / "events_2099-01-01.jsonl").resolve()),
                     "start_ts": "2099-01-01T00:00:00.000Z",
@@ -145,6 +146,111 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertIn("lifecycle_context_mismatch_count", soak_report)
             self.assertIn("lifecycle_context_missing_sec_to_expiry_count", soak_report)
             self.assertIn("valuation_counter_limits", soak_report)
+
+    def test_soak_gate_allows_dust_exempted_unpriceable_residue(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            status_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "gauge.open_orders": 1,
+                    "gauge.cycle_latency_ms": 100.0,
+                    "gauge.process_rss_mb": 256.0,
+                    "gauge.orders_used_60s": 10.0,
+                    "gauge.orders_limit_60s": 100.0,
+                    "gauge.cancels_used_60s": 10.0,
+                    "gauge.cancels_limit_60s": 100.0,
+                    "gauge.latency_sampling_inactive_cycles": 1.0,
+                    "counter.book_updates": 11.0,
+                    "counter.book_updates_ws": 10.0,
+                    "counter.book_updates_rest": 1.0,
+                    "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
+                    "chainlink": {
+                        "connected": True,
+                        "reconnects": 0,
+                        "last_tick_age_sec": 0.5,
+                        "queue_size": 0,
+                        "dropped_ticks": 0,
+                    },
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:30:00Z",
+                    "gauge.open_orders": 0,
+                    "gauge.cycle_latency_ms": 120.0,
+                    "gauge.process_rss_mb": 260.0,
+                    "gauge.orders_used_60s": 12.0,
+                    "gauge.orders_limit_60s": 100.0,
+                    "gauge.cancels_used_60s": 14.0,
+                    "gauge.cancels_limit_60s": 100.0,
+                    "gauge.latency_sampling_inactive_cycles": 2.0,
+                    "counter.book_updates": 22.0,
+                    "counter.book_updates_ws": 20.0,
+                    "counter.book_updates_rest": 2.0,
+                    "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
+                    "chainlink": {
+                        "connected": True,
+                        "reconnects": 0,
+                        "last_tick_age_sec": 0.5,
+                        "queue_size": 0,
+                        "dropped_ticks": 0,
+                    },
+                    "valuation_degraded": True,
+                    "valuation_hard_degraded": False,
+                    "valuation_raw_hard_degraded": True,
+                    "held_unpriceable_started_count": 1,
+                    "held_unpriceable_recovered_count": 0,
+                    "held_unpriceable_token_count": 1,
+                    "held_unpriceable_token_ids": ["t1"],
+                    "dust_classifier_enforce_enabled": True,
+                    "held_dust_enforced_this_cycle": True,
+                    "held_dust_hard_degraded_exempt_count": 1,
+                    "held_dust_token_ids": ["t1"],
+                    "held_dust_count": 1,
+                    "held_dust_total_notional_upper_bound_usd": 0.01,
+                },
+            ]
+            (log_dir / "status_2099-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in status_rows) + "\n",
+                encoding="utf-8",
+            )
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {
+                            "min_status_rows": 1,
+                            "max_order_capacity_used_ratio": 1.0,
+                            "max_cancel_capacity_used_ratio": 1.0,
+                        },
+                        "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.5,
+                            "max_error_rows": 0,
+                            "max_held_unpriceable_unrecovered_count": 0,
+                            "max_book_updates_rest_ratio": 1.0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertTrue(result["ok"], msg=result["findings"])
+            self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_raw_count"], 1.0)
+            self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_dust_exempted_count"], 1.0)
+            self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_meaningful_count"], 0.0)
 
     def test_soak_gate_fails_when_lifecycle_context_mismatch_count_exceeds_budget(self):
         with tempfile.TemporaryDirectory() as td:
@@ -429,6 +535,89 @@ class SoakHardeningGateTests(unittest.TestCase):
                 msg=result.get("findings", []),
             )
 
+    def test_soak_gate_fails_when_execution_quality_breaches_floor(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            event_path = log_dir / "events_2099-01-01.jsonl"
+            event_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "event_type": "book_top",
+                    "token_id": "t1",
+                    "midpoint": 0.50,
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:01Z",
+                    "event_type": "order_submit",
+                    "order_id": "m1",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.80,
+                    "size": 1.0,
+                    "reason": "maker_quote",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:02Z",
+                    "event_type": "fill",
+                    "order_id": "m1",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.80,
+                    "size": 1.0,
+                },
+            ]
+            event_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "gate_mode": "reliability",
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {
+                            "min_status_rows": 1,
+                            "max_order_capacity_used_ratio": 1.0,
+                            "max_cancel_capacity_used_ratio": 1.0,
+                        },
+                        "websocket": {
+                            "min_status_rows": 1,
+                            "max_book_feed_down_ratio": 1.0,
+                            "max_chainlink_down_ratio": 1.0,
+                        },
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.5,
+                            "max_error_rows": 0,
+                            "min_execution_quality_capture_minus_adverse": -0.10,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertFalse(result["ok"])
+            self.assertIn("BRO-1503", result["error_codes"])
+            self.assertFalse(result["lanes"]["reliability"]["ok"])
+            self.assertTrue(
+                any(
+                    "soak_execution_quality_capture_minus_adverse_too_low:" in finding
+                    for finding in result.get("findings", [])
+                ),
+                msg=result.get("findings", []),
+            )
+
     def test_soak_gate_skips_maker_fill_rate_check_below_min_submit_sample(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -471,6 +660,89 @@ class SoakHardeningGateTests(unittest.TestCase):
 
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertTrue(result["ok"], msg=result.get("findings", []))
+
+    def test_soak_gate_prefers_decision_reference_execution_quality_when_available(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            event_path = log_dir / "events_2099-01-01.jsonl"
+            event_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "event_type": "book_top",
+                    "token_id": "t1",
+                    "midpoint": 0.60,
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:01Z",
+                    "event_type": "order_submit",
+                    "order_id": "t1",
+                    "token_id": "t1",
+                    "reason": "sniper_taker_chainlink",
+                    "side": "BUY",
+                    "decision_reference_midpoint": 0.90,
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:02Z",
+                    "event_type": "fill",
+                    "order_id": "t1",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.80,
+                    "size": 1.0,
+                },
+            ]
+            event_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "gate_mode": "reliability",
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {
+                            "min_status_rows": 1,
+                            "max_order_capacity_used_ratio": 1.0,
+                            "max_cancel_capacity_used_ratio": 1.0,
+                        },
+                        "websocket": {
+                            "min_status_rows": 1,
+                            "max_book_feed_down_ratio": 1.0,
+                            "max_chainlink_down_ratio": 1.0,
+                        },
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.5,
+                            "max_error_rows": 0,
+                            "min_execution_quality_capture_minus_adverse": -0.10,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            findings = result.get("findings", [])
+            self.assertFalse(
+                any("soak_execution_quality_capture_minus_adverse_too_low:" in finding for finding in findings),
+                msg=findings,
+            )
+            soak = result.get("soak_report", {})
+            self.assertEqual(
+                soak.get("execution_quality_capture_minus_adverse_source"),
+                "execution_quality_decision_reference_lane_attribution.total.immediate_capture_minus_adverse",
+            )
+            self.assertAlmostEqual(float(soak.get("execution_quality_capture_minus_adverse") or 0.0), 0.10, places=9)
             self.assertFalse(
                 any("soak_maker_fill_rate_too_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
@@ -493,6 +765,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-01-01.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-01-01.jsonl").resolve()),
                         "start_ts": "2099-01-01T00:00:00.000Z",
@@ -713,7 +986,17 @@ class SoakHardeningGateTests(unittest.TestCase):
             log_dir = self._write_fixture(root, run_id)
             policy = root / "policy.yaml"
             policy.write_text(
-                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1, "min_quote_uptime_ratio": 0.0}}}),
+                yaml.safe_dump(
+                    {
+                        "comparison_tolerance": {
+                            "metrics": {
+                                "quote_uptime_ratio": {"min_eps": 0.001},
+                            }
+                        },
+                        "stage_order": ["paper"],
+                        "stages": {"paper": {"min_status_rows": 1, "min_quote_uptime_ratio": 0.0}},
+                    }
+                ),
                 encoding="utf-8",
             )
             budget = root / "budget.yaml"
@@ -725,11 +1008,6 @@ class SoakHardeningGateTests(unittest.TestCase):
                         "performance": {"min_status_rows": 1, "max_order_capacity_used_ratio": 1.0, "max_cancel_capacity_used_ratio": 1.0},
                         "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
                         "readiness": {"policy": str(policy), "required_stage": "paper"},
-                        "comparison_tolerance": {
-                            "metrics": {
-                                "quote_uptime_ratio": {"min_eps": 0.001},
-                            }
-                        },
                         "soak": {
                             "min_duration_minutes": 20,
                             "min_quote_uptime_ratio": 1.0005,
@@ -744,6 +1022,10 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertIn("comparison_tolerance", result["soak_report"])
             self.assertEqual(
                 result["soak_report"]["comparison_tolerance"]["metric_overrides"]["quote_uptime_ratio"]["min_eps"],
+                0.001,
+            )
+            self.assertEqual(
+                result["readiness"]["comparison_tolerance"]["metric_overrides"]["quote_uptime_ratio"]["min_eps"],
                 0.001,
             )
 
@@ -820,6 +1102,69 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertFalse(maker_enforcement["applied"])
             self.assertEqual(maker_enforcement["reason"], "insufficient_actionable_opportunity_rows")
             self.assertTrue(maker_enforcement["opportunity_surface_ok"])
+            self.assertEqual(maker_enforcement["required_submits"], 0.0)
+            self.assertEqual(maker_enforcement["maker_rows_total"], 2.0)
+            self.assertEqual(maker_enforcement["maker_non_actionable_block_rows"], 2.0)
+            self.assertEqual(maker_enforcement["maker_actionable_opportunity_rows"], 0.0)
+
+    def test_soak_gate_default_opportunity_policy_excludes_invalid_maker_inputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            event_path = log_dir / "events_2099-01-01.jsonl"
+            event_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "market_probability_missing",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:01Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "time_remaining_sec_invalid",
+                },
+            ]
+            event_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1, "min_quote_uptime_ratio": 0.0}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "gate_mode": "reliability",
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {"min_status_rows": 1, "max_order_capacity_used_ratio": 1.0, "max_cancel_capacity_used_ratio": 1.0},
+                        "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.0,
+                            "max_error_rows": 0,
+                            "min_maker_submits": 1,
+                            "maker_submit_enforcement": {
+                                "mode": "opportunity_aware",
+                                "min_opportunity_rows": 1,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertTrue(result["ok"], msg=result["findings"])
+            self.assertFalse(any("soak_maker_submits_too_low:" in finding for finding in result["findings"]))
+            maker_enforcement = result["soak_report"]["maker_submit_enforcement"]
+            self.assertFalse(maker_enforcement["applied"])
             self.assertEqual(maker_enforcement["required_submits"], 0.0)
             self.assertEqual(maker_enforcement["maker_rows_total"], 2.0)
             self.assertEqual(maker_enforcement["maker_non_actionable_block_rows"], 2.0)

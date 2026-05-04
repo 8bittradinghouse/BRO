@@ -7,10 +7,6 @@ gate_mode: reliability
 comparison_tolerance:
   min_default: 0.0
   max_default: 0.0
-  metrics:
-    # Runtime ratio is sampled from discrete status rows; allow narrow tolerance.
-    quote_uptime_ratio:
-      min_eps: 0.0020
 
 integrity:
   min_status_rows: 20
@@ -66,9 +62,8 @@ soak:
   max_preexpiry_404_anomaly_count: 0
   max_lifecycle_context_mismatch_count: 0
   max_lifecycle_context_missing_sec_to_expiry_count: 0
-  # Keep default non-blocking until we collect a wider run distribution.
-  max_valuation_hard_degraded_unrecovered_count: 1000000
-  max_held_unpriceable_unrecovered_count: 1000000
+  max_valuation_hard_degraded_unrecovered_count: 0
+  max_held_unpriceable_unrecovered_count: 0
   min_maker_submits: 50
   maker_submit_enforcement:
     mode: opportunity_aware
@@ -78,6 +73,10 @@ soak:
       - maker_timing_gate_closed
       - token_lag_not_verified_for_maker
       - latency_not_armed
+      - latency_not_armed_for_maker
+      - fair_probability_missing
+      - market_probability_missing
+      - time_remaining_sec_invalid
       - fair_probability_unavailable
       - oracle_unavailable_or_stale
       - token_score_below_maker_min
@@ -94,3 +93,8 @@ soak:
   # Taker is intentionally aggressive; a full fill-rate can be valid.
   # Keep configurable, but default to non-blocking.
   max_taker_bonus_fill_rate: 1.0
+  # Paper may pass structural reliability while economics are clearly unsafe.
+  # Fail hard when immediate midpoint capture-minus-adverse is worse than the
+  # pilot-live promotion floor, so catastrophic taker/recovery bursts cannot hide
+  # behind green validator exits.
+  min_execution_quality_capture_minus_adverse: -10.0

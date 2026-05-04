@@ -18,6 +18,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
             "profile_name": "test-profile",
             "git_commit": "deadbeef",
             "config_fingerprint_sha256": "a" * 64,
+            "code_fingerprint_sha256": "b" * 64,
             "status_path": str((log_dir / "status_2026-03-07.jsonl").resolve()),
             "events_path": str((log_dir / "events_2026-03-07.jsonl").resolve()),
             "start_ts": "2026-03-07T00:00:00.000Z",
@@ -51,6 +52,85 @@ class RunIntegrityAuditTests(unittest.TestCase):
             )
         self.assertTrue(report["ok"], msg=str(report.get("findings")))
 
+    def test_run_integrity_fails_missing_top_level_code_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = self._write_fixture(root)
+            manifest_path = log_dir / "run_manifest_rid-1.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["code_fingerprint_sha256"] = ""
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            report = run_audit(
+                log_dir=log_dir,
+                run_id="rid-1",
+                min_status_rows=2,
+                status_tail_lines=100,
+                event_tail_lines=100,
+                max_status_age_sec=3600.0 * 24.0 * 365.0 * 100.0,
+            )
+        self.assertFalse(report["ok"])
+        self.assertIn("run_manifest_missing_field:code_fingerprint_sha256", report["findings"])
+
+    def test_run_integrity_fails_invalid_top_level_config_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = self._write_fixture(root)
+            manifest_path = log_dir / "run_manifest_rid-1.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["config_fingerprint_sha256"] = "not-a-sha"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            report = run_audit(
+                log_dir=log_dir,
+                run_id="rid-1",
+                min_status_rows=2,
+                status_tail_lines=100,
+                event_tail_lines=100,
+                max_status_age_sec=3600.0 * 24.0 * 365.0 * 100.0,
+            )
+        self.assertFalse(report["ok"])
+        self.assertIn("run_manifest_invalid_sha256:config_fingerprint_sha256", report["findings"])
+
+    def test_run_integrity_fails_invalid_top_level_code_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = self._write_fixture(root)
+            manifest_path = log_dir / "run_manifest_rid-1.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["code_fingerprint_sha256"] = "not-a-sha"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            report = run_audit(
+                log_dir=log_dir,
+                run_id="rid-1",
+                min_status_rows=2,
+                status_tail_lines=100,
+                event_tail_lines=100,
+                max_status_age_sec=3600.0 * 24.0 * 365.0 * 100.0,
+            )
+        self.assertFalse(report["ok"])
+        self.assertIn("run_manifest_invalid_sha256:code_fingerprint_sha256", report["findings"])
+
+    def test_run_integrity_warns_for_legacy_manifest_missing_or_invalid_lineage_hashes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = self._write_fixture(root)
+            manifest_path = log_dir / "run_manifest_rid-1.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["config_fingerprint_sha256"] = "bad"
+            manifest["code_fingerprint_sha256"] = ""
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            report = run_audit(
+                log_dir=log_dir,
+                run_id="rid-1",
+                min_status_rows=2,
+                status_tail_lines=100,
+                event_tail_lines=100,
+                max_status_age_sec=3600.0 * 24.0 * 365.0 * 100.0,
+                allow_legacy_manifest=True,
+            )
+        self.assertTrue(report["ok"], msg=str(report.get("findings")))
+        self.assertIn("run_manifest_invalid_sha256:config_fingerprint_sha256", report["warnings"])
+        self.assertIn("run_manifest_missing_field:code_fingerprint_sha256", report["warnings"])
+
     def test_run_integrity_fails_when_runtime_identity_present_but_docker_hash_missing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -63,6 +143,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                 "profile_name": "test-profile",
                 "git_commit": "deadbeef",
                 "config_fingerprint_sha256": "a" * 64,
+                "code_fingerprint_sha256": "b" * 64,
                 "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                 "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                 "start_ts": "2099-03-07T00:00:00.000Z",
@@ -131,6 +212,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -177,6 +259,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -230,6 +313,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -286,6 +370,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -352,6 +437,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                 "profile_name": "test-profile",
                 "git_commit": "deadbeef",
                 "config_fingerprint_sha256": "a" * 64,
+                "code_fingerprint_sha256": "b" * 64,
                 "status_path": str(status_file.resolve()),
                 "events_path": str(events_file.resolve()),
                 "start_ts": "2099-03-07T00:00:00.000Z",
@@ -428,6 +514,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                 "profile_name": "test-profile",
                 "git_commit": "deadbeef",
                 "config_fingerprint_sha256": "a" * 64,
+                "code_fingerprint_sha256": "b" * 64,
                 "status_path": str(status_file.resolve()),
                 "events_path": str(events_file.resolve()),
                 "start_ts": "2099-03-07T00:00:00.000Z",
@@ -516,6 +603,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -576,6 +664,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -643,6 +732,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -697,6 +787,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -750,6 +841,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2000-01-01.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2000-01-01.jsonl").resolve()),
                         "start_ts": "2000-01-01T00:00:00.000Z",
@@ -793,6 +885,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2000-01-01.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2000-01-01.jsonl").resolve()),
                         "start_ts": "2000-01-01T00:00:00.000Z",
@@ -848,6 +941,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str(status_path),
                         "events_path": str(events_path),
                         "start_ts": start_ts,
@@ -913,6 +1007,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -979,6 +1074,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((log_dir / "status_2099-03-07.jsonl").resolve()),
                         "events_path": str((log_dir / "events_2099-03-07.jsonl").resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",
@@ -1042,6 +1138,7 @@ class RunIntegrityAuditTests(unittest.TestCase):
                         "profile_name": "test-profile",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str(unreadable_status.resolve()),
                         "events_path": str(events_path.resolve()),
                         "start_ts": "2099-03-07T00:00:00.000Z",

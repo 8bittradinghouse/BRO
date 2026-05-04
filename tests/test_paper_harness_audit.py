@@ -3,6 +3,11 @@ import unittest
 from pathlib import Path
 import json
 
+from scripts.paper_harness_realism_contract import (
+    HARNESS_REALISM_BREAKDOWN_KEYS,
+    HARNESS_REALISM_GRADE_AUTHORITY,
+    HARNESS_REALISM_GRADE_SEMANTICS,
+)
 from scripts.paper_harness_audit import run_audit
 
 
@@ -30,6 +35,25 @@ class PaperHarnessAuditTests(unittest.TestCase):
         )
         self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
         self.assertEqual(result["finding_count"], 0)
+
+    def test_paper_harness_audit_skips_run_integrity_when_run_id_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "status_2099-01-01.jsonl").write_text(
+                json.dumps({"run_id": "rid-old", "ts_utc": "2099-01-01T00:00:00Z"}) + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id="",
+                skip_run_integrity=False,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+        self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
+        self.assertTrue(bool((result.get("checks") or {}).get("run_integrity", {}).get("skipped")))
+        self.assertIn("paper_harness_run_integrity_skipped_no_run_id", result.get("warnings", []))
 
     def test_paper_harness_audit_rejects_nonrealistic_overrides(self):
         with tempfile.TemporaryDirectory() as td:
@@ -102,6 +126,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "profile_name": "paper_universal",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((root / "status_2099-01-01.jsonl").resolve()),
                         "events_path": str((root / "events_2099-01-01.jsonl").resolve()),
                         "start_ts": "2099-01-01T00:00:00.000Z",
@@ -169,6 +194,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "profile_name": "paper_universal",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((root / "status_2099-01-01.jsonl").resolve()),
                         "events_path": str((root / "events_2099-01-01.jsonl").resolve()),
                         "start_ts": "2099-01-01T00:00:00.000Z",
@@ -257,6 +283,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "profile_name": "paper_universal",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((root / "status_2099-01-01.jsonl").resolve()),
                         "events_path": str((root / "events_2099-01-01.jsonl").resolve()),
                         "start_ts": "2099-01-01T00:00:00.000Z",
@@ -345,6 +372,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "profile_name": "paper_universal",
                         "git_commit": "deadbeef",
                         "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
                         "status_path": str((root / "status_2099-01-01.jsonl").resolve()),
                         "events_path": str((root / "events_2099-01-01.jsonl").resolve()),
                         "start_ts": "2099-01-01T00:00:00.000Z",
@@ -496,7 +524,89 @@ class PaperHarnessAuditTests(unittest.TestCase):
         self.assertEqual(realism_summary.get("maker_realism_class"), "bounded_approximation")
         self.assertEqual(realism_summary.get("taker_realism_class"), "bounded_approximation")
         self.assertGreaterEqual(int(result.get("harness_realism_grade", 0)), 80)
-        self.assertIn("harness_realism_grade_breakdown", result)
+        self.assertEqual(result.get("harness_realism_grade_semantics"), HARNESS_REALISM_GRADE_SEMANTICS)
+        self.assertEqual(result.get("harness_realism_grade_authority"), HARNESS_REALISM_GRADE_AUTHORITY)
+        self.assertEqual(checks.get("harness_realism_grade_semantics"), HARNESS_REALISM_GRADE_SEMANTICS)
+        self.assertEqual(checks.get("harness_realism_grade_authority"), HARNESS_REALISM_GRADE_AUTHORITY)
+        self.assertEqual(
+            tuple((result.get("harness_realism_grade_breakdown") or {}).keys()),
+            HARNESS_REALISM_BREAKDOWN_KEYS,
+        )
+
+    def test_paper_harness_audit_grade_is_descriptive_not_pass_fail(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = root / "paper_universal_descriptive_grade.yaml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "extends: /home/odah/bro/base/configs/profiles/paper_universal.yaml",
+                        "runtime:",
+                        "  paper_enforce_setup_lock: false",
+                        "  paper_queue_position_mode: not_modeled",
+                        "  paper_liquidity_tod_scaler_enabled: false",
+                        "  paper_chainlink_lag_emulation_enabled: false",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_audit(
+                config_path=cfg_path,
+                log_dir=None,
+                run_id="",
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+
+        self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
+        self.assertLess(int(result.get("harness_realism_grade", 0)), 80)
+        self.assertEqual(result.get("harness_realism_grade_semantics"), HARNESS_REALISM_GRADE_SEMANTICS)
+        self.assertEqual(result.get("harness_realism_grade_authority"), HARNESS_REALISM_GRADE_AUTHORITY)
+
+    def test_paper_harness_audit_surfaces_proving_lineage_from_run_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "audit-lineage"
+            (root / f"run_manifest_{run_id}.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "manifest_schema_version": 2,
+                        "config_fingerprint_sha256": "a" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
+                        "code_fingerprint_sha256": "b" * 64,
+                        "runtime_identity": {
+                            "git_commit": "deadbeef",
+                            "profile_name": "paper_universal",
+                        },
+                        "config": {"profile": {"name": "paper_universal"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id=run_id,
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+
+        self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
+        self.assertEqual(result.get("run_id"), run_id)
+        self.assertEqual(result.get("git_commit"), "deadbeef")
+        self.assertEqual(result.get("code_fingerprint_sha256"), "b" * 64)
+        self.assertTrue(bool(result.get("manifest_present")))
+        self.assertTrue(bool(result.get("proving_lineage_complete")))
+        lineage = result.get("checks", {}).get("paper_harness_proving_lineage", {})
+        self.assertEqual(lineage.get("run_id"), run_id)
+        self.assertEqual(lineage.get("git_commit"), "deadbeef")
+        self.assertEqual(lineage.get("config_fingerprint_sha256"), "a" * 64)
+        self.assertEqual(lineage.get("code_fingerprint_sha256"), "b" * 64)
 
     def test_paper_harness_audit_flags_missing_realism_disclosure_and_fill_policy(self):
         with tempfile.TemporaryDirectory() as td:
@@ -622,6 +732,41 @@ class PaperHarnessAuditTests(unittest.TestCase):
         self.assertEqual(claim_boundary.get("action_source_truth"), "authoritative")
         self.assertEqual(claim_boundary.get("source_truth"), "authoritative")
         self.assertEqual(claim_boundary.get("source_truth_semantics"), "legacy_alias_of_action_source_truth")
+
+    def test_paper_harness_audit_rejects_invalid_execution_realism_value(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "audit-invalid-realism-class"
+            (root / "events_2099-01-01.jsonl").write_text(
+                json.dumps(
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "ts_utc": "2099-01-01T00:00:00Z",
+                        "action_taken": "maker",
+                        "decision_input_source": "ws",
+                        "decision_input_emulated": False,
+                        "decision_input_data_class": "observed_live",
+                        "decision_input_type": "observed_live",
+                        "execution_realism_class": "authoritative",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id=run_id,
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "paper_harness_edge_execution_realism_class_invalid:1",
+            set(result.get("findings", [])),
+        )
 
 
 if __name__ == "__main__":

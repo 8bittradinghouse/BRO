@@ -285,6 +285,30 @@ class ChainlinkFeedTests(unittest.TestCase):
         self.assertIn("thread_alive", status)
         self.assertFalse(bool(status["thread_alive"]))
 
+    def test_get_first_at_or_after_returns_earliest_authoritative_tick(self):
+        feed = ChainlinkFeed({"enabled": True, "topic": "crypto_prices_chainlink", "symbols": ["btc/usd"]})
+        feed._handle_message_obj(
+            {"topic": "crypto_prices_chainlink", "payload": {"symbol": "btc/usd", "value": "64999", "timestamp": 1000}},
+            received_monotonic=100.0,
+        )
+        feed._handle_message_obj(
+            {"topic": "crypto_prices_chainlink", "payload": {"symbol": "btc/usd", "value": "65001", "timestamp": 3000}},
+            received_monotonic=101.0,
+        )
+        feed._handle_message_obj(
+            {"topic": "crypto_prices_chainlink", "payload": {"symbol": "btc/usd", "value": "65002", "timestamp": 3000}},
+            received_monotonic=102.0,
+        )
+        feed._handle_message_obj(
+            {"topic": "crypto_prices_chainlink", "payload": {"symbol": "btc/usd", "value": "65005", "timestamp": 5000}},
+            received_monotonic=103.0,
+        )
+        tick = feed.get_first_at_or_after("btc/usd", "1970-01-01T00:41:40.500Z")
+        self.assertIsNotNone(tick)
+        assert tick is not None
+        self.assertEqual(tick.source_ts_utc, "1970-01-01T00:50:00.000Z")
+        self.assertEqual(tick.price, 65002.0)
+
 
 if __name__ == "__main__":
     unittest.main()

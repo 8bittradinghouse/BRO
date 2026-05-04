@@ -73,6 +73,32 @@ def _parse_end_time(market: Dict[str, Any]) -> Optional[dt.datetime]:
     return None
 
 
+def _timestamp_like_numeric_matches_market_time(value: float, market: Dict[str, Any]) -> bool:
+    candidate = parse_float(value)
+    if candidate is None or candidate < 1_000_000_000.0:
+        return False
+    # Gamma can surface market-time epoch values in numeric fields that sound
+    # price-like. For BRO's binary price model those are poison, so reject them
+    # when they line up with known market time anchors.
+    for key in (
+        "endDate",
+        "end_date",
+        "end_time",
+        "expiration_time",
+        "endDateIso",
+        "startDate",
+        "start_date",
+        "start_time",
+        "startDateIso",
+    ):
+        ts = parse_ts(market.get(key))
+        if ts is None:
+            continue
+        if abs(float(candidate) - float(ts.timestamp())) <= 86400.0:
+            return True
+    return False
+
+
 def _parse_strike_price(market: Dict[str, Any]) -> Optional[float]:
     for key in (
         "strikePrice",
@@ -85,7 +111,7 @@ def _parse_strike_price(market: Dict[str, Any]) -> Optional[float]:
         "open_price",
     ):
         val = parse_float(market.get(key))
-        if val is not None and val > 0:
+        if val is not None and val > 0 and not _timestamp_like_numeric_matches_market_time(val, market):
             return val
     blob = _market_text_blob(market)
     # Capture values like "$98,420.50" or "98420.50".
@@ -93,7 +119,7 @@ def _parse_strike_price(market: Dict[str, Any]) -> Optional[float]:
     for raw in matches:
         cleaned = raw.replace(",", "")
         val = parse_float(cleaned)
-        if val is not None and val > 0:
+        if val is not None and val > 0 and not _timestamp_like_numeric_matches_market_time(val, market):
             return val
     return None
 
@@ -103,16 +129,30 @@ def _token_side_map_for_market(market: Dict[str, Any], token_ids: List[str]) -> 
         return {}
     outcomes = [str(x).strip().upper() for x in _parse_json_list(market.get("outcomes")) if str(x).strip()]
     side_map: Dict[str, str] = {}
+    outcome_to_side = {
+        "YES": "YES",
+        "NO": "NO",
+        "UP": "YES",
+        "DOWN": "NO",
+    }
     if len(outcomes) >= 2:
-        if outcomes[0] in {"YES", "NO"}:
-            side_map[token_ids[0]] = outcomes[0]
-        if outcomes[1] in {"YES", "NO"}:
-            side_map[token_ids[1]] = outcomes[1]
+        if outcomes[0] in outcome_to_side:
+            side_map[token_ids[0]] = outcome_to_side[outcomes[0]]
+        if outcomes[1] in outcome_to_side:
+            side_map[token_ids[1]] = outcome_to_side[outcomes[1]]
     if token_ids[0] not in side_map:
         side_map[token_ids[0]] = "YES"
     if token_ids[1] not in side_map:
         side_map[token_ids[1]] = "NO"
     return side_map
+
+
+def _parse_event_start_time(market: Dict[str, Any]) -> Optional[dt.datetime]:
+    for key in ("eventStartTime", "event_start_time", "windowStartTime", "window_start_time"):
+        ts = parse_ts(market.get(key))
+        if ts is not None:
+            return ts
+    return None
 
 
 def _parse_bool(value: Any) -> Optional[bool]:
@@ -174,6 +214,7 @@ class DiscoveryResult:
     token_expiry_utc_by_token: Dict[str, str] = field(default_factory=dict)
     token_side_by_token: Dict[str, str] = field(default_factory=dict)
     token_strike_by_token: Dict[str, float] = field(default_factory=dict)
+    token_open_anchor_utc_by_token: Dict[str, str] = field(default_factory=dict)
     token_market_key_by_token: Dict[str, str] = field(default_factory=dict)
 
 
@@ -410,6 +451,7 @@ class MarketDiscovery:
         token_expiry_utc_by_token: Dict[str, str] = {}
         token_side_by_token: Dict[str, str] = {}
         token_strike_by_token: Dict[str, float] = {}
+        token_open_anchor_utc_by_token: Dict[str, str] = {}
         token_market_key_by_token: Dict[str, str] = {}
         allowlist_rejected_pairs = 0
         seen_markets: set[str] = set()
@@ -436,6 +478,11 @@ class MarketDiscovery:
             side_map = _token_side_map_for_market(market, pair_ids)
             token_side_by_token.update(side_map)
             strike = _parse_strike_price(market)
+            event_start_dt = _parse_event_start_time(market)
+            if event_start_dt is not None:
+                event_start_utc = utc_iso(event_start_dt)
+                for token_id in pair_ids:
+                    token_open_anchor_utc_by_token[token_id] = event_start_utc
             strike_text = "na"
             if strike is not None:
                 for token_id in pair_ids:
@@ -466,6 +513,7 @@ class MarketDiscovery:
             token_expiry_utc_by_token=token_expiry_utc_by_token,
             token_side_by_token=token_side_by_token,
             token_strike_by_token=token_strike_by_token,
+            token_open_anchor_utc_by_token=token_open_anchor_utc_by_token,
             token_market_key_by_token=token_market_key_by_token,
         )
 

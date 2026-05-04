@@ -52,6 +52,19 @@ def _parse_ts(value: Any) -> Optional[dt.datetime]:
     return out.astimezone(dt.timezone.utc)
 
 
+def _record_manifest_lineage_issue(
+    *,
+    allow_legacy_manifest: bool,
+    findings: List[str],
+    warnings: List[str],
+    message: str,
+) -> None:
+    if allow_legacy_manifest:
+        warnings.append(message)
+    else:
+        findings.append(message)
+
+
 def _read_tail_jsonl(paths: List[pathlib.Path], tail_lines: int) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     limit = max(0, int(tail_lines))
@@ -483,12 +496,32 @@ def run_audit(
         if released_count > canceled_count:
             findings.append(f"cancel_all_lock_release_exceeds_canceled:{released_count}>{canceled_count}")
 
-    for key in ("profile_name", "git_commit", "config_fingerprint_sha256", "status_path", "events_path", "start_ts"):
+    for key in (
+        "profile_name",
+        "git_commit",
+        "config_fingerprint_sha256",
+        "code_fingerprint_sha256",
+        "status_path",
+        "events_path",
+        "start_ts",
+    ):
         if not str(manifest_payload.get(key) or "").strip():
-            if allow_legacy_manifest:
-                warnings.append(f"run_manifest_missing_field:{key}")
-            else:
-                findings.append(f"run_manifest_missing_field:{key}")
+            _record_manifest_lineage_issue(
+                allow_legacy_manifest=allow_legacy_manifest,
+                findings=findings,
+                warnings=warnings,
+                message=f"run_manifest_missing_field:{key}",
+            )
+
+    for key in ("config_fingerprint_sha256", "code_fingerprint_sha256"):
+        value = str(manifest_payload.get(key) or "").strip().lower()
+        if value and not SHA256_HEX_RE.match(value):
+            _record_manifest_lineage_issue(
+                allow_legacy_manifest=allow_legacy_manifest,
+                findings=findings,
+                warnings=warnings,
+                message=f"run_manifest_invalid_sha256:{key}",
+            )
 
     runtime_identity = manifest_payload.get("runtime_identity")
     if not isinstance(runtime_identity, dict):

@@ -40,6 +40,18 @@ OUTCOME_STATUSES = {
     OUTCOME_STATUS_UNKNOWN_MISSING_LINKAGE,
 }
 
+COMMITMENT_OUTCOME_STATUS_COMPLETE = "complete"
+COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_DATA = "unknown_missing_data"
+COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_EXPIRY_HORIZON = "unknown_missing_expiry_horizon"
+COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_COMMITMENT_REFERENCE = "unknown_missing_commitment_reference"
+
+COMMITMENT_OUTCOME_STATUSES = {
+    COMMITMENT_OUTCOME_STATUS_COMPLETE,
+    COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_DATA,
+    COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_EXPIRY_HORIZON,
+    COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_COMMITMENT_REFERENCE,
+}
+
 DECISION_QUALITY_CORRECT = "correct"
 DECISION_QUALITY_INCORRECT = "incorrect"
 DECISION_QUALITY_NEUTRAL = "neutral"
@@ -239,6 +251,24 @@ def _is_redacted_token(token_id: str) -> bool:
     return token_id == REDACTED_TOKEN_ID
 
 
+def _as_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1", "yes", "y"}:
+            return True
+        if text in {"false", "0", "no", "n"}:
+            return False
+    return None
+
+
+def _payload_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _submit_scope_hint(row: Dict[str, Any]) -> str:
     reason = str(row.get("reason") or "").strip().lower()
     execution_preference = str(row.get("execution_preference") or "").strip().lower()
@@ -251,6 +281,52 @@ def _submit_scope_hint(row: Dict[str, Any]) -> str:
     if execution_preference == "maker_preferred":
         return "maker"
     return ""
+
+
+def _is_recovery_submit(row: Dict[str, Any]) -> bool:
+    candidate_payloads = [
+        _payload_dict(row.get("taker_competitiveness")),
+        _payload_dict(_payload_dict(row.get("size_resolution")).get("taker_competitiveness")),
+        _payload_dict(row.get("risk_decision_basis")),
+        row,
+    ]
+    for payload in candidate_payloads:
+        if _as_bool(payload.get("reduce_only_recovery_active")) is True:
+            return True
+        if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
+            return True
+        if str(payload.get("reduce_only_recovery_reason") or "").strip():
+            return True
+    return False
+
+
+def _has_normal_taker_payload(row: Dict[str, Any]) -> bool:
+    comp = _payload_dict(row.get("taker_competitiveness"))
+    if not comp:
+        comp = _payload_dict(_payload_dict(row.get("size_resolution")).get("taker_competitiveness"))
+    return any(
+        key in comp
+        for key in (
+            "conviction_score",
+            "timing_window_class",
+            "multi_oracle_status",
+            "submit_capable_static",
+            "submit_capable_dynamic_predicted",
+        )
+    )
+
+
+def _submission_lane_truth(row: Dict[str, Any]) -> str:
+    scope = _submit_scope_hint(row)
+    if scope == "maker":
+        return "maker"
+    if scope == "taker":
+        if _is_recovery_submit(row):
+            return "reduce_only_recovery_taker"
+        if _has_normal_taker_payload(row):
+            return "normal_taker"
+        return "unknown_taker"
+    return "unknown"
 
 
 def _decision_reference_basis(source: str, status: str) -> str:
@@ -500,6 +576,329 @@ def _numeric_summary(values: Iterable[Optional[float]]) -> Dict[str, Optional[fl
         "max": float(ordered[-1]),
         "mean": float(sum(ordered) / len(ordered)),
         "p50": float(p50),
+    }
+
+
+def _numeric_sum(values: Iterable[Optional[float]]) -> float:
+    return float(sum(float(v) for v in values if isinstance(v, (int, float))))
+
+
+def _field_distribution(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    field: str,
+    values: Iterable[str],
+) -> Dict[str, int]:
+    return {
+        key: int(sum(1 for row in rows if str(row.get(field) or "") == key))
+        for key in sorted(set(str(value) for value in values))
+    }
+
+
+def _lane_outcome_truth(records: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    lanes = sorted({str(row.get("submission_lane_truth") or "unknown") for row in records})
+    output: Dict[str, Dict[str, Any]] = {}
+    for lane in lanes:
+        lane_rows = [row for row in records if str(row.get("submission_lane_truth") or "unknown") == lane]
+        filled_rows = [row for row in lane_rows if int(row.get("fill_count") or 0) > 0]
+        complete_rows = [
+            row for row in lane_rows if str(row.get("outcome_truth_status") or "") == OUTCOME_STATUS_COMPLETE
+        ]
+        filled_complete = [
+            row
+            for row in filled_rows
+            if str(row.get("outcome_truth_status") or "") == OUTCOME_STATUS_COMPLETE
+        ]
+        filled_complete_ratio = (
+            float(len(filled_complete)) / float(len(filled_rows)) if len(filled_rows) > 0 else 0.0
+        )
+        output[lane] = {
+            "total_outcome_records": int(len(lane_rows)),
+            "complete_outcome_records": int(len(complete_rows)),
+            "unknown_outcome_records": int(len(lane_rows) - len(complete_rows)),
+            "filled_total": int(len(filled_rows)),
+            "filled_complete": int(len(filled_complete)),
+            "filled_unknown": int(max(0, len(filled_rows) - len(filled_complete))),
+            "filled_complete_ratio": float(filled_complete_ratio),
+            "recovery_override_records": int(sum(1 for row in lane_rows if bool(row.get("recovery_override")))),
+            "outcome_truth_status_distribution": _field_distribution(
+                lane_rows,
+                field="outcome_truth_status",
+                values=OUTCOME_STATUSES,
+            ),
+            "record_claim_boundary_distribution": _field_distribution(
+                lane_rows,
+                field="record_claim_boundary_class",
+                values=RECORD_CLAIM_BOUNDARY_CLASSES,
+            ),
+            "decision_quality_distribution": _field_distribution(
+                lane_rows,
+                field="decision_quality",
+                values=DECISION_QUALITIES,
+            ),
+            "execution_quality_distribution": _field_distribution(
+                lane_rows,
+                field="execution_quality",
+                values=EXECUTION_QUALITIES,
+            ),
+            "combined_outcome_distribution": _field_distribution(
+                lane_rows,
+                field="combined_outcome_class",
+                values=COMBINED_CLASSES,
+            ),
+            "fill_notional_sum": _numeric_sum(row.get("fill_notional") for row in lane_rows),
+            "decision_component_x_size_sum": _numeric_sum(
+                row.get("decision_component_x_size") for row in lane_rows
+            ),
+            "execution_component_x_size_sum": _numeric_sum(
+                row.get("execution_component_x_size") for row in lane_rows
+            ),
+            "market_component_x_size_sum": _numeric_sum(row.get("market_component_x_size") for row in lane_rows),
+            "edge_realized_x_size_sum": _numeric_sum(row.get("edge_realized_x_size") for row in lane_rows),
+            "slippage_x_size_sum": _numeric_sum(row.get("slippage_x_size") for row in lane_rows),
+            "adverse_selection_x_size_sum": _numeric_sum(row.get("adverse_selection_x_size") for row in lane_rows),
+            "edge_expected_summary": _numeric_summary(row.get("edge_expected") for row in lane_rows),
+            "edge_realized_summary": _numeric_summary(row.get("edge_realized") for row in lane_rows),
+            "claim_boundary": {
+                "scope": "lane_outcome_truth_observational",
+                "interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+            },
+        }
+    return output
+
+
+def _extract_commitment_sec_to_expiry(submit: Dict[str, Any]) -> Optional[float]:
+    candidate_payloads = [
+        submit,
+        _payload_dict(submit.get("risk_decision_basis")),
+        _payload_dict(submit.get("taker_competitiveness")),
+        _payload_dict(_payload_dict(submit.get("size_resolution")).get("taker_competitiveness")),
+    ]
+    for payload in candidate_payloads:
+        value = _safe_positive_float(payload.get("sec_to_expiry"))
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _commitment_lane_outcome_truth(
+    *,
+    records: Sequence[Dict[str, Any]],
+    order_submit_by_id: Dict[str, Dict[str, Any]],
+    lookup_mid_with_ts_by_target_ref: Any,
+    lookup_mid_with_ts_by_token: Any,
+) -> Dict[str, Dict[str, Any]]:
+    lane = "normal_taker"
+    lane_rows = [row for row in records if str(row.get("submission_lane_truth") or "unknown") == lane]
+    if not lane_rows:
+        return {}
+
+    commitment_rows: List[Dict[str, Any]] = []
+    for row in lane_rows:
+        order_id = _non_empty_text(row.get("order_submit_id"))
+        submit = order_submit_by_id.get(order_id, {})
+        decision_ts = _parse_ts(row.get("ts_decision_utc"))
+        direction_sign = _direction_sign(_non_empty_text(row.get("order_side")).upper())
+        mid_decision = _safe_float(row.get("mid_price_decision"))
+        fill_price = _safe_float(row.get("fill_price"))
+        fill_total_size = _safe_positive_float(row.get("fill_total_size"))
+        sec_to_expiry = _extract_commitment_sec_to_expiry(submit)
+
+        commitment_status = COMMITMENT_OUTCOME_STATUS_COMPLETE
+        reference_basis = REFERENCE_BASIS_UNKNOWN
+        reference_source = "unknown"
+        reference_reason: Optional[str] = None
+        commitment_mid: Optional[float] = None
+        commitment_reference_ts: Optional[dt.datetime] = None
+        commitment_target_ts: Optional[dt.datetime] = None
+
+        if (
+            decision_ts is None
+            or direction_sign is None
+            or mid_decision is None
+            or fill_price is None
+            or fill_total_size is None
+        ):
+            commitment_status = COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_DATA
+            reference_reason = "missing_decision_or_fill_inputs"
+        elif sec_to_expiry is None:
+            commitment_status = COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_EXPIRY_HORIZON
+            reference_reason = "missing_sec_to_expiry"
+        else:
+            commitment_target_ts = decision_ts + dt.timedelta(seconds=float(sec_to_expiry))
+            target_ref = _non_empty_text(row.get("target_ref"))
+            token_id = _non_empty_text(row.get("token_id"))
+            if target_ref:
+                commitment_mid, commitment_reference_ts, reference_reason = lookup_mid_with_ts_by_target_ref(
+                    target_ref=target_ref,
+                    target_ts=commitment_target_ts,
+                )
+                if commitment_mid is not None:
+                    reference_basis = REFERENCE_BASIS_EDGE_MARKET_MIDPOINT_SERIES
+                    reference_source = "edge_evaluation.target_ref_series"
+            if commitment_mid is None and token_id:
+                commitment_mid, commitment_reference_ts, token_reason = lookup_mid_with_ts_by_token(
+                    token_id=token_id,
+                    target_ts=commitment_target_ts,
+                )
+                if commitment_mid is not None:
+                    reference_basis = REFERENCE_BASIS_DIRECT_BOOK_MIDPOINT
+                    reference_source = "book_top.token_lookup"
+                    reference_reason = token_reason
+                elif reference_reason is None:
+                    reference_reason = token_reason
+            if commitment_mid is None:
+                commitment_status = COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_COMMITMENT_REFERENCE
+            elif commitment_reference_ts is None or commitment_reference_ts <= decision_ts:
+                commitment_status = COMMITMENT_OUTCOME_STATUS_UNKNOWN_MISSING_COMMITMENT_REFERENCE
+                reference_reason = "commitment_reference_not_after_decision"
+
+        commitment_decision_component = None
+        commitment_execution_component = None
+        commitment_edge_realized = None
+        commitment_decision_quality = DECISION_QUALITY_UNKNOWN
+        commitment_execution_quality = EXECUTION_QUALITY_UNKNOWN
+        commitment_combined_outcome_class = COMBINED_CLASS_UNKNOWN
+        commitment_horizon_ms = None
+
+        if (
+            commitment_status == COMMITMENT_OUTCOME_STATUS_COMPLETE
+            and commitment_mid is not None
+            and commitment_reference_ts is not None
+            and decision_ts is not None
+            and direction_sign is not None
+            and mid_decision is not None
+            and fill_price is not None
+        ):
+            commitment_horizon_ms = max(
+                0.0, (commitment_reference_ts - decision_ts).total_seconds() * 1000.0
+            )
+            commitment_decision_component = float(direction_sign) * (float(commitment_mid) - float(mid_decision))
+            commitment_execution_component = float(direction_sign) * (float(mid_decision) - float(fill_price))
+            commitment_edge_realized = float(direction_sign) * (float(commitment_mid) - float(fill_price))
+            commitment_decision_quality = _classify_signed_delta(
+                value=commitment_decision_component,
+                tolerance=0.0,
+                positive=DECISION_QUALITY_CORRECT,
+                negative=DECISION_QUALITY_INCORRECT,
+                neutral=DECISION_QUALITY_NEUTRAL,
+            )
+            commitment_execution_quality = _classify_signed_delta(
+                value=commitment_execution_component,
+                tolerance=0.0,
+                positive=EXECUTION_QUALITY_FAVORABLE,
+                negative=EXECUTION_QUALITY_UNFAVORABLE,
+                neutral=EXECUTION_QUALITY_NEUTRAL,
+            )
+            commitment_combined_outcome_class = _combine_outcome_class(
+                commitment_decision_quality,
+                commitment_execution_quality,
+            )
+
+        commitment_rows.append(
+            {
+                "commitment_outcome_status": commitment_status,
+                "reference_basis": reference_basis,
+                "reference_source": reference_source,
+                "reference_reason": reference_reason,
+                "fill_count": int(row.get("fill_count") or 0),
+                "fill_notional": _safe_float(row.get("fill_notional")),
+                "fill_total_size": fill_total_size,
+                "commitment_decision_component": commitment_decision_component,
+                "commitment_execution_component": commitment_execution_component,
+                "commitment_edge_realized": commitment_edge_realized,
+                "commitment_decision_quality": commitment_decision_quality,
+                "commitment_execution_quality": commitment_execution_quality,
+                "commitment_combined_outcome_class": commitment_combined_outcome_class,
+                "commitment_horizon_ms": commitment_horizon_ms,
+            }
+        )
+
+    filled_rows = [row for row in commitment_rows if int(row.get("fill_count") or 0) > 0]
+    complete_rows = [
+        row for row in commitment_rows if str(row.get("commitment_outcome_status") or "") == COMMITMENT_OUTCOME_STATUS_COMPLETE
+    ]
+    filled_complete = [
+        row
+        for row in filled_rows
+        if str(row.get("commitment_outcome_status") or "") == COMMITMENT_OUTCOME_STATUS_COMPLETE
+    ]
+    filled_complete_ratio = float(len(filled_complete)) / float(len(filled_rows)) if filled_rows else 0.0
+
+    return {
+        lane: {
+            "total_outcome_records": int(len(commitment_rows)),
+            "complete_outcome_records": int(len(complete_rows)),
+            "unknown_outcome_records": int(len(commitment_rows) - len(complete_rows)),
+            "filled_total": int(len(filled_rows)),
+            "filled_complete": int(len(filled_complete)),
+            "filled_unknown": int(max(0, len(filled_rows) - len(filled_complete))),
+            "filled_complete_ratio": float(filled_complete_ratio),
+            "outcome_truth_status_distribution": _field_distribution(
+                commitment_rows,
+                field="commitment_outcome_status",
+                values=COMMITMENT_OUTCOME_STATUSES,
+            ),
+            "reference_basis_distribution": _field_distribution(
+                commitment_rows,
+                field="reference_basis",
+                values=REFERENCE_BASES,
+            ),
+            "decision_quality_distribution": _field_distribution(
+                commitment_rows,
+                field="commitment_decision_quality",
+                values=DECISION_QUALITIES,
+            ),
+            "execution_quality_distribution": _field_distribution(
+                commitment_rows,
+                field="commitment_execution_quality",
+                values=EXECUTION_QUALITIES,
+            ),
+            "combined_outcome_distribution": _field_distribution(
+                commitment_rows,
+                field="commitment_combined_outcome_class",
+                values=COMBINED_CLASSES,
+            ),
+            "fill_notional_sum": _numeric_sum(row.get("fill_notional") for row in commitment_rows),
+            "decision_component_x_size_sum": _numeric_sum(
+                (
+                    _safe_float(row.get("commitment_decision_component")) * _safe_float(row.get("fill_total_size"))
+                    if _safe_float(row.get("commitment_decision_component")) is not None
+                    and _safe_float(row.get("fill_total_size")) is not None
+                    else None
+                )
+                for row in commitment_rows
+            ),
+            "execution_component_x_size_sum": _numeric_sum(
+                (
+                    _safe_float(row.get("commitment_execution_component")) * _safe_float(row.get("fill_total_size"))
+                    if _safe_float(row.get("commitment_execution_component")) is not None
+                    and _safe_float(row.get("fill_total_size")) is not None
+                    else None
+                )
+                for row in commitment_rows
+            ),
+            "edge_realized_x_size_sum": _numeric_sum(
+                (
+                    _safe_float(row.get("commitment_edge_realized")) * _safe_float(row.get("fill_total_size"))
+                    if _safe_float(row.get("commitment_edge_realized")) is not None
+                    and _safe_float(row.get("fill_total_size")) is not None
+                    else None
+                )
+                for row in commitment_rows
+            ),
+            "edge_realized_summary": _numeric_summary(
+                row.get("commitment_edge_realized") for row in commitment_rows
+            ),
+            "commitment_horizon_ms_summary": _numeric_summary(
+                row.get("commitment_horizon_ms") for row in commitment_rows
+            ),
+            "claim_boundary": {
+                "scope": "lane_outcome_truth_observational_commitment_window",
+                "interpretation": "directional_until_estimated_expiry_using_last_observed_midpoint_at_or_before_target_not_ledger_pnl_not_settlement_truth",
+                "target_ts_basis": "decision_ts_plus_submit_sec_to_expiry",
+            },
+        }
     }
 
 
@@ -919,6 +1318,51 @@ def run_audit(
             return None, "edge_target_ref_reference_before_target_missing"
         return float(series[pos][1]), None
 
+    def lookup_mid_with_ts_by_token(
+        *,
+        token_id: str,
+        target_ts: Optional[dt.datetime],
+    ) -> Tuple[Optional[float], Optional[dt.datetime], Optional[str]]:
+        if target_ts is None:
+            return None, None, "target_ts_missing"
+        if eval_selection_rule != "latest_at_or_before_target":
+            return None, None, f"selection_rule_unsupported:{eval_selection_rule}"
+        token = str(token_id or "").strip()
+        if not token:
+            return None, None, "token_missing"
+        if _is_redacted_token(token):
+            return None, None, "token_redacted"
+        series = book_index.get(token)
+        if not series:
+            return None, None, "book_series_missing"
+        ts_values = [item[0] for item in series]
+        pos = bisect_right(ts_values, target_ts) - 1
+        if pos < 0:
+            return None, None, "book_reference_before_target_missing"
+        return float(series[pos][1]), series[pos][0], None
+
+    def lookup_mid_with_ts_by_target_ref(
+        *,
+        target_ref: str,
+        target_ts: Optional[dt.datetime],
+    ) -> Tuple[Optional[float], Optional[dt.datetime], Optional[str]]:
+        if target_ts is None:
+            return None, None, "target_ts_missing"
+        if eval_selection_rule != "latest_at_or_before_target":
+            return None, None, f"selection_rule_unsupported:{eval_selection_rule}"
+        normalized_ref = str(target_ref or "").strip()
+        if not normalized_ref:
+            return None, None, "target_ref_missing"
+        series = edge_series_by_target_ref.get(normalized_ref)
+        if not series:
+            return None, None, "edge_target_ref_series_missing"
+        upper_bound = target_ts + dt.timedelta(milliseconds=max(0, int(eval_tolerance_ms)))
+        ts_values = [item[0] for item in series]
+        pos = bisect_right(ts_values, upper_bound) - 1
+        if pos < 0:
+            return None, None, "edge_target_ref_reference_before_target_missing"
+        return float(series[pos][1]), series[pos][0], None
+
     def _resolve_edge_candidate_by_target_ref(
         *,
         target_ref: str,
@@ -1273,6 +1717,37 @@ def run_audit(
             decision_component = float(direction_sign) * (float(mid_eval) - float(mid_decision))
         if decision_component is not None and execution_component is not None and edge_realized is not None:
             market_component = float(edge_realized - decision_component - execution_component)
+        fill_notional_out = float(fill_notional) if fill_total_size > 0.0 else None
+        decision_component_x_size = (
+            float(decision_component) * float(fill_total_size)
+            if decision_component is not None and fill_total_size > 0.0
+            else None
+        )
+        execution_component_x_size = (
+            float(execution_component) * float(fill_total_size)
+            if execution_component is not None and fill_total_size > 0.0
+            else None
+        )
+        market_component_x_size = (
+            float(market_component) * float(fill_total_size)
+            if market_component is not None and fill_total_size > 0.0
+            else None
+        )
+        edge_realized_x_size = (
+            float(edge_realized) * float(fill_total_size)
+            if edge_realized is not None and fill_total_size > 0.0
+            else None
+        )
+        slippage_x_size = (
+            float(slippage) * float(fill_total_size)
+            if slippage is not None and fill_total_size > 0.0
+            else None
+        )
+        adverse_selection_x_size = (
+            float(adverse_selection) * float(fill_total_size)
+            if adverse_selection is not None and fill_total_size > 0.0
+            else None
+        )
 
         decision_delta = None
         if direction_sign is not None and mid_decision is not None and mid_eval is not None:
@@ -1362,6 +1837,9 @@ def run_audit(
             "decision_id": f"decision:{selected_run_id}:{order_id}",
             "order_submit_id": order_id,
             "fill_trade_id": fill_trade_id,
+            "submission_lane_truth": _submission_lane_truth(submit),
+            "submission_scope_hint": _submit_scope_hint(submit) or "unknown",
+            "recovery_override": bool(_is_recovery_submit(submit)),
             "ts_decision_utc": _format_ts(decision_ts),
             "ts_fill_utc": _format_ts(ts_fill),
             "ts_eval_utc": _format_ts(ts_eval),
@@ -1409,6 +1887,13 @@ def run_audit(
             "decision_component": decision_component,
             "execution_component": execution_component,
             "market_component": market_component,
+            "fill_notional": fill_notional_out,
+            "decision_component_x_size": decision_component_x_size,
+            "execution_component_x_size": execution_component_x_size,
+            "market_component_x_size": market_component_x_size,
+            "edge_realized_x_size": edge_realized_x_size,
+            "slippage_x_size": slippage_x_size,
+            "adverse_selection_x_size": adverse_selection_x_size,
             "fill_count": int(len(order_fills)),
             "fill_total_size": (float(fill_total_size) if fill_total_size > 0.0 else None),
             "decision_quality_basis": "directional_mid_eval_vs_mid_decision",
@@ -1554,6 +2039,18 @@ def run_audit(
         if expected is None or realized is None:
             continue
         expected_vs_realized_values.append(float(realized - expected))
+    lane_outcome_truth = _lane_outcome_truth(normalized_records)
+    order_submit_by_id = {
+        _non_empty_text(row.get("order_id")): row
+        for row in sorted_order_submits
+        if _non_empty_text(row.get("order_id"))
+    }
+    commitment_lane_outcome_truth = _commitment_lane_outcome_truth(
+        records=normalized_records,
+        order_submit_by_id=order_submit_by_id,
+        lookup_mid_with_ts_by_target_ref=lookup_mid_with_ts_by_target_ref,
+        lookup_mid_with_ts_by_token=lookup_mid_with_ts_by_token,
+    )
 
     records_out_resolved = ""
     if records_out_path is not None:
@@ -1631,6 +2128,8 @@ def run_audit(
         "decision_quality_distribution": decision_quality_distribution,
         "execution_quality_distribution": execution_quality_distribution,
         "combined_outcome_distribution": combined_outcome_distribution,
+        "lane_outcome_truth": lane_outcome_truth,
+        "commitment_lane_outcome_truth": commitment_lane_outcome_truth,
         "slippage_summary": _numeric_summary(row.get("slippage") for row in normalized_records),
         "adverse_selection_summary": _numeric_summary(row.get("adverse_selection") for row in normalized_records),
         "edge_expected_summary": _numeric_summary(row.get("edge_expected") for row in normalized_records),

@@ -21,6 +21,7 @@ class OpsSnapshotTests(unittest.TestCase):
                     "profile_name": "test-profile",
                     "git_commit": "deadbeef",
                     "config_fingerprint_sha256": "a" * 64,
+                    "code_fingerprint_sha256": "b" * 64,
                     "status_path": str(status_path),
                     "events_path": str(events_path),
                     "start_ts": "2099-01-01T00:00:00.000Z",

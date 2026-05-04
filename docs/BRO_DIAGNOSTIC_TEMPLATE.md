@@ -30,6 +30,14 @@ Use this worksheet for all cross-system diagnosis passes. Fill every field. Avoi
 - `fuse_or_gate` (exact gate or reject authority):
 - `ground_truth_surface` (status/report/artifact source of truth):
 
+## 3A) Semantic Contract Check
+- `emitted_live_contract_names_checked`:
+- `doctrine_boundary_concepts_checked`:
+- `downstream_mirrors_present`:
+- `descriptive_only_surfaces_checked`:
+- `precedence_owner_if_conflict`:
+- `semantic_drift_suspected`:
+
 ## 4) Evidence Bundle
 - `commands_run`:
 - `key_log_paths`:

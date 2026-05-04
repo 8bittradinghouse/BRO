@@ -18,6 +18,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
     def _write_config(self, root: Path, log_dir: Path) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+        cfg["sniper"]["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
         cfg["storage"]["log_dir"] = str(log_dir)
         cfg["targets"]["discovery"]["enabled"] = True
         cfg_path = root / "cfg.yaml"
@@ -76,7 +77,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "standdown_no_targets",
+                        "previous_runtime_state": "no_target_standdown",
                         "runtime_state": "active",
                         "active_targets_present": True,
                         "no_target_standdown": False,
@@ -193,6 +194,284 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             self.assertEqual(int(payload.get("finding_count", -1)), 0)
             self.assertEqual(int(payload.get("lifecycle_counts", {}).get("order_submit", -1)), 1)
 
+    def test_order_lifecycle_audit_accepts_suppressed_commitment_cancel_and_terminal_window_end(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            cfg_path = self._write_config(root, log_dir)
+            run_id = "rid-commitment-hold"
+            events_path = log_dir / "events_2026-03-22.jsonl"
+            status_path = log_dir / "status_2026-03-22.jsonl"
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "chainlink_tick",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:01Z",
+                        "ts_event_utc": "2026-03-22T00:00:01Z",
+                        "symbol": "btc/usd",
+                        "price": 65000.0,
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:02Z",
+                        "ts_event_utc": "2026-03-22T00:00:02Z",
+                        "token_id": "tok-1",
+                        "action_taken": "maker",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:03Z",
+                        "ts_event_utc": "2026-03-22T00:00:03Z",
+                        "order_id": "ord-1",
+                        "token_id": "tok-1",
+                        "side": "BUY",
+                        "price": 0.5,
+                        "size": 10.0,
+                        "reason_code": "mm_quote",
+                        "execution_preference": "maker_preferred",
+                        "market_id": "m-1",
+                        "window_id": "2026-03-22T00:00",
+                        "stage": "MAKER_TAKER_SELECTIVE",
+                    },
+                    {
+                        "event_type": "order_cancel_suppressed",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:04Z",
+                        "ts_event_utc": "2026-03-22T00:00:04Z",
+                        "order_id": "ord-1",
+                        "requested_cancel_reason": "launch_safe_selection_reject",
+                        "request_origin": "maker_selection_gate",
+                        "suppression_reason": "commitment_hold_active_pre_expiry",
+                        "submission_lane": "maker",
+                        "commitment_hold_active": True,
+                        "commitment_hold_reason": "late_window_commitment",
+                        "commitment_expiry_ts_utc": "2026-03-22T00:00:10Z",
+                    },
+                    {
+                        "event_type": "order_cancel",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:10Z",
+                        "ts_event_utc": "2026-03-22T00:00:10Z",
+                        "order_id": "ord-1",
+                        "reason": "commitment_window_ended",
+                        "requested_cancel_reason": "commitment_window_ended",
+                        "request_origin": "commitment_expiry_cleanup",
+                        "cancel_class": "terminal_window_end",
+                        "submission_lane": "maker",
+                        "commitment_hold_active": True,
+                        "commitment_hold_reason": "late_window_commitment",
+                        "commitment_expiry_ts_utc": "2026-03-22T00:00:10Z",
+                    },
+                ],
+            )
+            self._write_rows(
+                status_path,
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "runtime_state": "active"}],
+            )
+            contract_path = self._write_contract(
+                root=root,
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            payload = run_audit(
+                config_path=cfg_path,
+                log_dir=log_dir,
+                run_contract_path=contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+            )
+            self.assertTrue(bool(payload.get("ok")), msg=payload.get("findings"))
+            self.assertEqual(int(payload.get("lifecycle_counts", {}).get("order_cancel_suppressed", -1)), 1)
+            self.assertEqual(payload.get("cancel_suppressed_without_submit_order_ids"), [])
+
+    def test_order_lifecycle_audit_flags_preexpiry_routine_cancel_for_committed_maker(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            cfg_path = self._write_config(root, log_dir)
+            run_id = "rid-commitment-routine-cancel"
+            events_path = log_dir / "events_2026-03-22.jsonl"
+            status_path = log_dir / "status_2026-03-22.jsonl"
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "chainlink_tick",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:01Z",
+                        "ts_event_utc": "2026-03-22T00:00:01Z",
+                        "symbol": "btc/usd",
+                        "price": 65000.0,
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:02Z",
+                        "ts_event_utc": "2026-03-22T00:00:02Z",
+                        "token_id": "tok-1",
+                        "action_taken": "maker",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:03Z",
+                        "ts_event_utc": "2026-03-22T00:00:03Z",
+                        "order_id": "ord-1",
+                        "token_id": "tok-1",
+                        "side": "BUY",
+                        "price": 0.5,
+                        "size": 10.0,
+                        "reason_code": "mm_quote",
+                        "execution_preference": "maker_preferred",
+                        "market_id": "m-1",
+                        "window_id": "2026-03-22T00:00",
+                        "stage": "MAKER_TAKER_SELECTIVE",
+                    },
+                    {
+                        "event_type": "order_cancel",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:04Z",
+                        "ts_event_utc": "2026-03-22T00:00:04Z",
+                        "order_id": "ord-1",
+                        "reason": "launch_safe_selection_reject",
+                        "requested_cancel_reason": "launch_safe_selection_reject",
+                        "request_origin": "maker_selection_gate",
+                        "cancel_class": "legacy_routine",
+                        "submission_lane": "maker",
+                        "commitment_hold_active": True,
+                        "commitment_hold_reason": "late_window_commitment",
+                        "commitment_expiry_ts_utc": "2026-03-22T00:00:10Z",
+                    },
+                ],
+            )
+            self._write_rows(
+                status_path,
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "runtime_state": "active"}],
+            )
+            contract_path = self._write_contract(
+                root=root,
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            payload = run_audit(
+                config_path=cfg_path,
+                log_dir=log_dir,
+                run_contract_path=contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+            )
+            self.assertFalse(bool(payload.get("ok")))
+            self.assertIn("order_cancel:committed_maker_routine_cancel_pre_expiry", list(payload.get("findings") or []))
+
+    def test_order_lifecycle_audit_full_scans_run_contract_event_slice(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            cfg_path = self._write_config(root, log_dir)
+            run_id = "rid-slice-full-scan"
+            events_path = log_dir / "events_2026-03-22.jsonl"
+            status_path = log_dir / "status_2026-03-22.jsonl"
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "chainlink_tick",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:01Z",
+                        "ts_event_utc": "2026-03-22T00:00:01Z",
+                        "symbol": "btc/usd",
+                        "price": 65000.0,
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:02Z",
+                        "ts_event_utc": "2026-03-22T00:00:02Z",
+                        "token_id": "tok-1",
+                        "action_taken": "maker",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:03Z",
+                        "ts_event_utc": "2026-03-22T00:00:03Z",
+                        "order_id": "ord-1",
+                        "token_id": "tok-1",
+                        "side": "BUY",
+                        "price": 0.5,
+                        "size": 10.0,
+                        "reason_code": "mm_quote",
+                        "execution_preference": "maker_preferred",
+                        "market_id": "m-1",
+                        "window_id": "2026-03-22T00:00",
+                        "stage": "MAKER_TAKER_SELECTIVE",
+                    },
+                    {
+                        "event_type": "book_top",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:04Z",
+                        "ts_event_utc": "2026-03-22T00:00:04Z",
+                    },
+                    {
+                        "event_type": "order_cancel",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:05Z",
+                        "ts_event_utc": "2026-03-22T00:00:05Z",
+                        "order_id": "ord-1",
+                        "reason": "replace_quote",
+                    },
+                    {
+                        "event_type": "cancel_all_on_exit",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:06Z",
+                        "ts_event_utc": "2026-03-22T00:00:06Z",
+                        "reason": "runner_shutdown",
+                        "canceled_count": 0,
+                        "released_lock_count": 0,
+                        "gateway_reported_canceled_count": 0,
+                        "open_before_count": 0,
+                        "open_after_count": 0,
+                        "unconfirmed_open_count": 0,
+                    },
+                ],
+            )
+            self._write_rows(
+                status_path,
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+            )
+            contract_path = self._write_contract(
+                root=root,
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            payload = run_audit(
+                config_path=cfg_path,
+                log_dir=log_dir,
+                run_contract_path=contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=3,
+            )
+            self.assertTrue(bool(payload.get("ok")), msg=payload.get("findings"))
+            self.assertEqual(int(payload.get("finding_count", -1)), 0)
+            self.assertEqual(int(payload.get("warning_count", -1)), 0)
+            self.assertEqual(int(payload.get("events_considered", -1)), 6)
+            self.assertEqual(payload.get("event_source_mode"), "run_contract_slice_full_scan")
+            self.assertEqual(int(payload.get("events_max_lines_per_file", -1)), 0)
+            self.assertEqual(payload.get("cancel_without_submit_order_ids"), [])
+
     def test_order_lifecycle_audit_fails_when_transition_fields_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -262,7 +541,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "standdown_no_targets",
+                        "previous_runtime_state": "no_target_standdown",
                         "runtime_state": "active",
                         "active_targets_present": True,
                         "no_target_standdown": False,
@@ -431,7 +710,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "standdown_no_targets",
+                        "previous_runtime_state": "no_target_standdown",
                         "runtime_state": "active",
                         "active_targets_present": True,
                         "no_target_standdown": False,

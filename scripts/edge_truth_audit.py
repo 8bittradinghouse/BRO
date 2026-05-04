@@ -152,6 +152,8 @@ def _row_key(row: Dict[str, Any]) -> str:
         "run_id": str(row.get("run_id") or "").strip(),
         "token_id": str(row.get("token_id") or "").strip(),
         "target_ref": str(row.get("target_ref") or "").strip(),
+        "source_token_id": str(row.get("source_token_id") or "").strip(),
+        "source_target_ref": str(row.get("source_target_ref") or "").strip(),
         "cycle_index": row.get("cycle_index"),
         "evaluation_scope": str(row.get("evaluation_scope") or "").strip().lower(),
         "timestamp_utc": str(row.get("timestamp_utc") or "").strip(),
@@ -227,6 +229,12 @@ def _coerce_int(value: Any) -> Optional[int]:
 
 
 def _opportunity_identity(row: Dict[str, Any]) -> Optional[str]:
+    source_token_id = str(row.get("source_token_id") or "").strip()
+    if source_token_id and source_token_id != "[REDACTED]":
+        return f"source_token_id:{source_token_id}"
+    source_target_ref = str(row.get("source_target_ref") or "").strip()
+    if source_target_ref:
+        return f"source_target_ref:{source_target_ref}"
     token_id = str(row.get("token_id") or "").strip()
     if token_id and token_id != "[REDACTED]":
         return f"token_id:{token_id}"

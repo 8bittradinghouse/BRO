@@ -29,35 +29,63 @@ class ExecutionQualityModel:
     def assess_quote(self, *, intent: OrderIntent, top: BookTop) -> QuoteQuality:
         side = intent.side.upper()
         price = float(intent.price)
+        size = max(0.0, float(intent.size))
         bid = top.best_bid_price
         ask = top.best_ask_price
         bid_size = float(top.best_bid_size) if top.best_bid_size is not None else 0.0
         ask_size = float(top.best_ask_size) if top.best_ask_size is not None else 0.0
 
+        crosses_touch = False
+        queue_ahead = 0.0
+        distance_to_touch = 0.0
+        visible_touch_depth = 0.0
+
         if side == "BUY":
-            touch = bid if bid is not None else price
-            queue_ahead = 0.0
-            if bid is not None:
-                if price <= bid:
-                    queue_ahead = bid_size
-                else:
-                    queue_ahead = max(0.0, bid_size * 0.35)
-            distance_to_touch = max(0.0, (touch - price) if touch is not None else 0.0)
+            visible_touch_depth = bid_size
+            if ask is not None and price >= ask:
+                crosses_touch = True
+            elif bid is not None and ask is not None and bid < price < ask:
+                # Inside-spread passive BUY quotes become the new best bid.
+                queue_ahead = 0.0
+                distance_to_touch = max(0.0, float(ask) - price)
+            elif bid is not None:
+                queue_ahead = bid_size
+                distance_to_touch = max(0.0, float(bid) - price)
+            elif ask is not None:
+                distance_to_touch = max(0.0, float(ask) - price)
         else:
-            touch = ask if ask is not None else price
-            queue_ahead = 0.0
-            if ask is not None:
-                if price >= ask:
-                    queue_ahead = ask_size
-                else:
-                    queue_ahead = max(0.0, ask_size * 0.35)
-            distance_to_touch = max(0.0, (price - touch) if touch is not None else 0.0)
+            visible_touch_depth = ask_size
+            if bid is not None and price <= bid:
+                crosses_touch = True
+            elif bid is not None and ask is not None and bid < price < ask:
+                # Inside-spread passive SELL quotes become the new best ask.
+                queue_ahead = 0.0
+                distance_to_touch = max(0.0, price - float(bid))
+            elif ask is not None:
+                queue_ahead = ask_size
+                distance_to_touch = max(0.0, price - float(ask))
+            elif bid is not None:
+                distance_to_touch = max(0.0, price - float(bid))
 
         queue_factor = math.exp(-queue_ahead / self.queue_depth_scale)
         distance_factor = math.exp(-distance_to_touch / self.distance_scale)
         spread = top.spread if top.spread is not None else 0.0
         spread_factor = clamp(spread / 0.03, 0.25, 1.0)
-        expected_fill_prob = clamp(queue_factor * distance_factor * spread_factor, 0.0, 1.0)
+        size_fill_factor = 1.0
+        if size > 0.0:
+            if visible_touch_depth <= 0.0:
+                size_fill_factor = 0.0
+            else:
+                size_fill_factor = clamp(visible_touch_depth / size, 0.0, 1.0)
+        cross_penalty = 1.0
+        tif = str(intent.tif or "GTC").upper()
+        if crosses_touch and bool(intent.post_only is not False) and tif not in {"IOC", "FOK"}:
+            cross_penalty = 0.05
+        expected_fill_prob = clamp(
+            queue_factor * distance_factor * spread_factor * size_fill_factor * cross_penalty,
+            0.0,
+            1.0,
+        )
         adverse_risk = clamp((1.0 - distance_factor) * (1.0 - spread_factor * 0.5), 0.0, 1.0)
         quality = clamp(expected_fill_prob - (adverse_risk * self.adverse_selection_penalty), 0.0, 1.0)
         return QuoteQuality(

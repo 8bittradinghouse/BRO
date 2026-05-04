@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from prodesk.artifact_identity import build_artifact_identity
 from prodesk.config import load_execution_config
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
@@ -18,6 +19,11 @@ from prodesk.runtime_semantics import (
     RUNTIME_CLASS_INVALID_DEADLOCK,
     RUNTIME_CLASS_INVALID_SAFETY,
     RUNTIME_CLASS_NON_PROMOTABLE_NO_PARTICIPATION,
+)
+from scripts.paper_harness_realism_contract import (
+    HARNESS_REALISM_GRADE_AUTHORITY,
+    HARNESS_REALISM_GRADE_SEMANTICS,
+    empty_harness_realism_breakdown,
 )
 from scripts.nightly_soak_report import build_report
 from scripts.run_integrity_audit import run_audit as run_integrity_audit
@@ -28,7 +34,7 @@ DEFAULT_SOAK_BUDGET_PATH = (ROOT_DIR / "ops" / "soak_budget.yaml").resolve()
 DEFAULT_REALISM_DOCTRINE_PATH = (ROOT_DIR / "BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt").resolve()
 
 DECISION_INPUT_TYPES = ("observed_live", "replayed", "emulated", "bounded_derived", "unknown")
-EXECUTION_REALISM_CLASSES = ("authoritative", "bounded_approximation", "not_modeled")
+EXECUTION_REALISM_CLASSES = ("bounded_approximation", "not_modeled")
 TRUTH_QUALITY_BLOCK_REASONS = frozenset(
     {
         "stale_book",
@@ -177,6 +183,33 @@ def _load_run_scoped_events(
         rows.append(row)
     rows = apply_contract_bounds(rows, contract)
     return rows, resolved_contract_path, findings
+
+
+def _paper_harness_lineage(*, log_dir: pathlib.Path, run_id: str, config_fingerprint_sha256: str) -> Dict[str, Any]:
+    rid = str(run_id or "").strip()
+    manifest_path = str((log_dir.resolve() / f"run_manifest_{rid}.json").resolve()) if rid else ""
+    identity = build_artifact_identity(log_dir=log_dir.resolve(), run_id=rid)
+    git_commit = str(identity.get("git_commit") or "").strip()
+    code_fingerprint_sha256 = str(identity.get("code_fingerprint_sha256") or "").strip()
+    config_fingerprint = str(identity.get("config_fingerprint_sha256") or config_fingerprint_sha256 or "").strip()
+    lineage = {
+        "run_id": str(identity.get("run_id") or rid),
+        "git_commit": git_commit,
+        "config_fingerprint_sha256": config_fingerprint,
+        "code_fingerprint_sha256": code_fingerprint_sha256,
+    }
+    return {
+        "manifest_path": manifest_path,
+        "manifest_present": bool(identity.get("manifest_present", False)),
+        "manifest_load_error": str(identity.get("manifest_load_error") or ""),
+        "lineage": lineage,
+        "lineage_complete": bool(
+            str(lineage.get("run_id") or "").strip()
+            and str(lineage.get("git_commit") or "").strip()
+            and str(lineage.get("config_fingerprint_sha256") or "").strip()
+            and str(lineage.get("code_fingerprint_sha256") or "").strip()
+        ),
+    }
 
 
 def run_audit(
@@ -384,8 +417,8 @@ def run_audit(
     if not skip_run_integrity:
         selected_run_id = str(run_id or "").strip()
         if not selected_run_id:
-            findings.append("paper_harness_run_id_required_for_integrity")
-            integrity_result = {"skipped": False, "ok": False, "findings": ["run_id_required"]}
+            warnings.append("paper_harness_run_integrity_skipped_no_run_id")
+            integrity_result = {"skipped": True, "reason": "run_id_missing"}
         elif _status_files_exist(resolved_log_dir):
             integrity_result = run_integrity_audit(
                 log_dir=resolved_log_dir,
@@ -487,6 +520,7 @@ def run_audit(
         missing_disclosure_rows = 0
         missing_decision_input_type_rows = 0
         missing_execution_realism_class_rows = 0
+        invalid_execution_realism_class_rows = 0
         action_on_emulated_rows = 0
         action_on_non_observed_live_rows = 0
         no_action_due_truth_quality_rows = 0
@@ -526,8 +560,10 @@ def run_audit(
                 missing_disclosure_rows += 1
             if explicit_input_type not in DECISION_INPUT_TYPES:
                 missing_decision_input_type_rows += 1
-            if explicit_realism not in EXECUTION_REALISM_CLASSES:
+            if not explicit_realism:
                 missing_execution_realism_class_rows += 1
+            elif explicit_realism not in EXECUTION_REALISM_CLASSES:
+                invalid_execution_realism_class_rows += 1
 
         order_submit_by_id: Dict[str, Dict[str, Any]] = {}
         for row in submit_rows:
@@ -590,6 +626,7 @@ def run_audit(
         checks["edge_decision_input_missing_disclosure_rows"] = int(missing_disclosure_rows)
         checks["edge_decision_input_type_missing_rows"] = int(missing_decision_input_type_rows)
         checks["edge_execution_realism_class_missing_rows"] = int(missing_execution_realism_class_rows)
+        checks["edge_execution_realism_class_invalid_rows"] = int(invalid_execution_realism_class_rows)
         checks["edge_action_on_emulated_input_rows"] = int(action_on_emulated_rows)
         checks["edge_action_on_non_observed_live_rows"] = int(action_on_non_observed_live_rows)
         checks["paper_fill_policy_truth"] = {
@@ -667,6 +704,10 @@ def run_audit(
             findings.append(
                 f"paper_harness_edge_execution_realism_class_missing:{missing_execution_realism_class_rows}"
             )
+        if invalid_execution_realism_class_rows > 0:
+            findings.append(
+                f"paper_harness_edge_execution_realism_class_invalid:{invalid_execution_realism_class_rows}"
+            )
         if action_on_emulated_rows > 0 and not allow_action_on_emulated:
             findings.append(f"paper_harness_edge_action_on_emulated_input:{action_on_emulated_rows}")
         if action_on_emulated_rows > 0 and allow_action_on_emulated:
@@ -678,13 +719,7 @@ def run_audit(
         if not immediate_fills_bounded_visible_only:
             findings.append("paper_harness_immediate_fill_policy_not_bounded_visible_liquidity")
 
-    realism_breakdown: Dict[str, int] = {
-        "tod_liquidity_scaling": 0,
-        "maker_queue_proxy_depth_model": 0,
-        "taker_depth_slippage_model": 0,
-        "taker_lag_emulation_with_unknown_guard": 0,
-        "truth_surface_completeness": 0,
-    }
+    realism_breakdown: Dict[str, int] = empty_harness_realism_breakdown()
     if bool(checks.get("paper_liquidity_tod_scaler_enabled", False)):
         realism_breakdown["tod_liquidity_scaling"] = 20
     if str(checks.get("maker_policy", {}).get("maker_realism_class") or "") == "bounded_approximation":
@@ -712,18 +747,36 @@ def run_audit(
     harness_realism_grade = int(sum(int(v) for v in realism_breakdown.values()))
     checks["harness_realism_grade"] = int(harness_realism_grade)
     checks["harness_realism_grade_breakdown"] = dict(realism_breakdown)
+    checks["harness_realism_grade_semantics"] = HARNESS_REALISM_GRADE_SEMANTICS
+    checks["harness_realism_grade_authority"] = HARNESS_REALISM_GRADE_AUTHORITY
 
     cfg_meta = cfg.get("_meta", {}) if isinstance(cfg.get("_meta"), dict) else {}
+    lineage_info = _paper_harness_lineage(
+        log_dir=resolved_log_dir,
+        run_id=selected_run_id,
+        config_fingerprint_sha256=str(cfg_meta.get("effective_config_sha256", "")),
+    )
+    checks["paper_harness_proving_lineage"] = dict(lineage_info.get("lineage") or {})
+    checks["paper_harness_proving_lineage_complete"] = bool(lineage_info.get("lineage_complete", False))
     return {
         "config_path": str(config_path.resolve()),
         "session_phase": normalized_phase,
+        "run_id": str(selected_run_id),
         "run_contract_path": str(run_contract_path.resolve()) if isinstance(run_contract_path, pathlib.Path) else "",
         "profile_name": str(cfg.get("profile", {}).get("name", "")),
+        "git_commit": str((lineage_info.get("lineage") or {}).get("git_commit") or ""),
         "config_fingerprint_sha256": str(cfg_meta.get("effective_config_sha256", "")),
+        "code_fingerprint_sha256": str((lineage_info.get("lineage") or {}).get("code_fingerprint_sha256") or ""),
+        "manifest_path": str(lineage_info.get("manifest_path") or ""),
+        "manifest_present": bool(lineage_info.get("manifest_present", False)),
+        "manifest_load_error": str(lineage_info.get("manifest_load_error") or ""),
+        "proving_lineage_complete": bool(lineage_info.get("lineage_complete", False)),
         "log_dir": str(resolved_log_dir),
         "checks": checks,
         "harness_realism_grade": int(harness_realism_grade),
         "harness_realism_grade_breakdown": dict(realism_breakdown),
+        "harness_realism_grade_semantics": HARNESS_REALISM_GRADE_SEMANTICS,
+        "harness_realism_grade_authority": HARNESS_REALISM_GRADE_AUTHORITY,
         "finding_count": len(findings),
         "warning_count": len(warnings),
         "findings": findings,

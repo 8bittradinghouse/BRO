@@ -49,6 +49,10 @@ class OrderIntent:
     decision_reference_ts_utc: Optional[str] = None
     token_median_lag_ms: Optional[float] = None
     oracle_tick_age_sec: Optional[float] = None
+    submission_lane: Optional[str] = None
+    commitment_hold_active: Optional[bool] = None
+    commitment_hold_reason: Optional[str] = None
+    commitment_expiry_ts_utc: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -62,6 +66,10 @@ class LiveOrder:
     status: str
     client_order_id: Optional[str] = None
     created_ts_utc: Optional[str] = None
+    submission_lane: Optional[str] = None
+    commitment_hold_active: bool = False
+    commitment_hold_reason: Optional[str] = None
+    commitment_expiry_ts_utc: Optional[str] = None
 
 
 @dataclasses.dataclass

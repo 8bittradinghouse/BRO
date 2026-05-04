@@ -32,6 +32,94 @@ Core Rule
 This layer is not allowed to make the system look good.
 It is only allowed to make the system tell the truth.
 
+Semantic Language Rule
+
+Outcome truth is not allowed to invent a second dialect for runtime behavior.
+
+Required rules:
+
+- outcome surfaces must consume canonical runtime semantics when they exist
+- reconstructed or descriptive-only surfaces must be labeled explicitly and must
+  not silently outrank emitted runtime truth
+- one blocker lane must keep one owner across runtime and outcome surfaces
+- a report must not rename a runtime state in a way that changes what that state
+  means
+
+If a runtime/report mismatch is discovered, the first question is:
+
+- did the runtime emit ambiguous truth,
+- or did the outcome/report layer reinterpret clear runtime truth into a second
+  language?
+
+Do not answer that mismatch by layering additional compensator language on top
+of unresolved semantic drift.
+
+Semantic precedence and consumption rules:
+
+- outcome surfaces consume the canonical live contract names already emitted by
+  runtime when they exist
+- this includes runtime terms such as:
+  - `maker_allowed`
+  - `taker_allowed`
+  - `secondary_oracle_status`
+  - `secondary_oracle_confirmation`
+  - `market_reference_mode`
+  - `market_reference_basis`
+  - `market_reference_source_side`
+  - `market_reference_class`
+  - `runtime_state`
+  - `runtime_classification`
+  - `promotion_eligible`
+  - `authority_status_class`
+  - `order_submit_eligible`
+  - `target_ref`
+  - `block_reason`
+  - `decision_block_reason`
+- outcome surfaces may group granular emitted `block_reason` values into
+  canonical blocker lanes
+- they may not use that grouping to rename the owner of the failure
+- report-side promotion from bounded/non-authoritative truth to authoritative
+  truth is forbidden unless runtime already emitted that authority class
+
+Separation rule:
+
+- runtime authority/surface classes remain runtime semantics
+- `claim_boundary_class` remains an outcome-truth claim boundary concept only
+- `record_claim_boundary_class` remains an outcome-truth record completeness
+  concept only
+- `outcome_truth_status` remains an outcome completeness concept only
+- none of those outcome-layer concepts may be used to reinterpret or overwrite
+  runtime-emitted meaning
+
+Outcome-layer value vocabulary:
+
+- `outcome_truth_status` current values:
+  - `complete`
+  - `unknown_missing_data`
+  - `unknown_incomplete_lifecycle`
+  - `unknown_missing_decision_reference`
+  - `unknown_missing_eval_reference`
+  - `unknown_missing_linkage`
+- `claim_boundary_class` current values:
+  - `bounded_approximation`
+  - `not_provable_missing_inputs`
+  - `not_modeled_incomplete_lifecycle`
+- `record_claim_boundary_class` current values:
+  - `complete`
+  - `partial_missing_data`
+  - `incomplete_lifecycle`
+  - `missing_decision_reference`
+  - `missing_eval_reference`
+  - `unknown`
+- commitment-lens `commitment_outcome_status` is an outcome-only observational
+  sub-lens with:
+  - `complete`
+  - `unknown_missing_data`
+  - `unknown_missing_expiry_horizon`
+  - `unknown_missing_commitment_reference`
+- none of those value sets may be used to rewrite runtime actionability,
+  blocker ownership, or market-reference authority
+
 OUTCOME REFERENCE AVAILABILITY DOCTRINE (MANDATORY)
 
 Outcome classification is only complete when required references are recoverable
@@ -119,20 +207,19 @@ Canonical Policy Surface (Packet v1)
 
 Policy file: ops/outcome_truth_policy.json
 
-- evaluation_horizon_ms = 5000
-- decision_reference = mid_price_decision
-- eval_reference = mid_price_eval
-- slippage_basis = fill_vs_decision_mid_directional
-- adverse_selection_basis = fill_vs_eval_mid_directional
-- edge_realized_basis = eval_mid_vs_fill_directional
-- multi_fill_aggregation.fill_price = vwap
-- multi_fill_aggregation.fill_timestamp = latest_fill_ts
-- multi_fill_aggregation.fill_trade_id = single_trade_or_deterministic_aggregate
-- neutral_tolerance.decision_quality = 0.0
-- neutral_tolerance.execution_quality = 0.0
+This doctrine file does not hardcode the current numeric runtime settings.
 
-No adaptive horizons are allowed in this packet.
-No non-zero neutral tolerance is allowed in this packet.
+The policy file is the authoritative lower-layer surface for the current
+fighter/runtime specifics, including:
+
+- evaluation horizon
+- decision/eval reference bases
+- slippage / adverse-selection / realized-edge bases
+- deterministic multi-fill aggregation settings
+- classification tolerances
+
+Doctrine law governs claim boundaries and causal discipline.
+The policy file governs the current runtime measurement settings.
 
 Canonical Record Fields
 
@@ -185,7 +272,7 @@ Canonical Definitions
 
 5. Evaluation horizon:
 
-- ts_eval_utc = ts_decision_utc + 5000ms
+- ts_eval_utc = ts_decision_utc + policy-defined evaluation horizon
 
 6. Evaluation market reference:
 
@@ -295,7 +382,9 @@ Rule 3: PnL is not a classification signal.
 
 Rule 4: Fixed horizon only.
 
-- all records in packet v1 use evaluation_horizon_ms = 5000
+- all records in a given packet must use one explicit policy-defined evaluation
+  horizon; do not silently mix multiple horizons inside the same outcome-truth
+  claim surface
 
 Rule 5: Additive-only integration.
 

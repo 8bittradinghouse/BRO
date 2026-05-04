@@ -8,11 +8,15 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 from typing import Any, Dict, List, Optional
 
 from prodesk.error_codes import summarize_error_codes
 from prodesk.reporting import decision_item
 import yaml
+
+
+SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -29,6 +33,132 @@ def _identity_value(identity: Dict[str, Any], key: str) -> str:
     if not isinstance(identity, dict):
         return ""
     return str(identity.get(key) or "").strip()
+
+
+def _is_sha256_hex(value: str) -> bool:
+    return bool(SHA256_HEX_RE.match(str(value or "").strip().lower()))
+
+
+def _lineage_presence_and_validity_checks(
+    *,
+    label: str,
+    identity: Dict[str, Any],
+    findings: List[str],
+    decision_trace: List[Dict[str, Any]],
+) -> None:
+    required_text_fields = ("run_id", "git_commit", "profile_name")
+    required_hash_fields = ("config_fingerprint_sha256", "code_fingerprint_sha256")
+    manifest_present = bool(identity.get("manifest_present", False))
+    manifest_load_error = str(identity.get("manifest_load_error") or "").strip()
+
+    if not manifest_present:
+        findings.append(f"artifact_identity_missing_manifest:{label}")
+    decision_trace.append(
+        decision_item(
+            check=f"artifact_identity_manifest_present:{label}",
+            level="hard_fail",
+            metric="manifest_present",
+            comparator="eq",
+            value=1.0 if manifest_present else 0.0,
+            threshold=1.0,
+            passed=manifest_present,
+            note=label,
+        )
+    )
+
+    if manifest_load_error:
+        findings.append(f"artifact_identity_manifest_load_error:{label}:{manifest_load_error}")
+    decision_trace.append(
+        decision_item(
+            check=f"artifact_identity_manifest_load_error:{label}",
+            level="hard_fail",
+            metric="manifest_load_error",
+            comparator="eq",
+            value=0.0 if manifest_load_error else 1.0,
+            threshold=1.0,
+            passed=(not manifest_load_error),
+            note=manifest_load_error or label,
+        )
+    )
+
+    for key in required_text_fields:
+        value = _identity_value(identity, key)
+        if not value:
+            findings.append(f"artifact_identity_missing_field:{label}:{key}")
+        decision_trace.append(
+            decision_item(
+                check=f"artifact_identity_present:{label}:{key}",
+                level="hard_fail",
+                metric=f"present_{key}",
+                comparator="min",
+                value=1.0 if value else 0.0,
+                threshold=1.0,
+                passed=bool(value),
+                note=value or label,
+            )
+        )
+
+    for key in required_hash_fields:
+        value = _identity_value(identity, key)
+        if not value:
+            findings.append(f"artifact_identity_missing_field:{label}:{key}")
+        elif not _is_sha256_hex(value):
+            findings.append(f"artifact_identity_invalid_sha256:{label}:{key}")
+        decision_trace.append(
+            decision_item(
+                check=f"artifact_identity_valid_sha256:{label}:{key}",
+                level="hard_fail",
+                metric=f"sha256_{key}",
+                comparator="eq",
+                value=1.0 if _is_sha256_hex(value) else 0.0,
+                threshold=1.0,
+                passed=_is_sha256_hex(value),
+                note=value or label,
+            )
+        )
+
+
+def _require_soak_lineage_consistency(
+    *,
+    soak: Dict[str, Any],
+    soak_identity: Dict[str, Any],
+    findings: List[str],
+    decision_trace: List[Dict[str, Any]],
+) -> None:
+    lineage = soak.get("run_commit_lineage") if isinstance(soak.get("run_commit_lineage"), dict) else {}
+    lineage_complete = bool(lineage.get("complete", False))
+    if not lineage_complete:
+        findings.append("soak_run_commit_lineage_incomplete")
+    decision_trace.append(
+        decision_item(
+            check="soak_run_commit_lineage_complete",
+            level="hard_fail",
+            metric="run_commit_lineage_complete",
+            comparator="eq",
+            value=1.0 if lineage_complete else 0.0,
+            threshold=1.0,
+            passed=lineage_complete,
+            note="nightly soak lineage completeness",
+        )
+    )
+    for key in ("run_id", "git_commit", "config_fingerprint_sha256", "code_fingerprint_sha256"):
+        left = _identity_value(soak_identity, key)
+        right = _identity_value(lineage, key)
+        mismatch = bool(left and right and left != right)
+        if mismatch:
+            findings.append(f"soak_run_commit_lineage_mismatch:{key}")
+        decision_trace.append(
+            decision_item(
+                check=f"soak_run_commit_lineage_{key}",
+                level="hard_fail",
+                metric=f"lineage_{key}",
+                comparator="eq",
+                value=1.0 if not mismatch else 0.0,
+                threshold=1.0,
+                passed=(not mismatch),
+                note=f"artifact_identity={left or 'missing'} run_commit_lineage={right or 'missing'}",
+            )
+        )
 
 
 def run_gate(
@@ -89,6 +219,32 @@ def run_gate(
             "chainlink_reconnects_per_hour": _safe_float(metrics.get("chainlink_reconnects_per_hour")),
             "chainlink_dropped_ticks_max": _safe_float(metrics.get("chainlink_dropped_ticks_max")),
         }
+
+    _lineage_presence_and_validity_checks(
+        label="soak",
+        identity=soak_identity,
+        findings=findings,
+        decision_trace=decision_trace,
+    )
+    _lineage_presence_and_validity_checks(
+        label="reconcile",
+        identity=reconcile_identity,
+        findings=findings,
+        decision_trace=decision_trace,
+    )
+    if websocket is not None:
+        _lineage_presence_and_validity_checks(
+            label="websocket",
+            identity=websocket_identity,
+            findings=findings,
+            decision_trace=decision_trace,
+        )
+    _require_soak_lineage_consistency(
+        soak=soak,
+        soak_identity=soak_identity,
+        findings=findings,
+        decision_trace=decision_trace,
+    )
 
     if quote_uptime < float(min_uptime_ratio):
         findings.append(f"quote_uptime_ratio_too_low:{quote_uptime:.6f}<min:{float(min_uptime_ratio):.6f}")
@@ -181,7 +337,7 @@ def run_gate(
         )
     )
 
-    for key in ("run_id", "config_fingerprint_sha256", "git_commit", "profile_name"):
+    for key in ("run_id", "config_fingerprint_sha256", "code_fingerprint_sha256", "git_commit", "profile_name"):
         left = _identity_value(soak_identity, key)
         right = _identity_value(reconcile_identity, key)
         mismatch = bool(left and right and left != right)
@@ -386,6 +542,11 @@ def run_gate(
                 or reconcile_identity.get("config_fingerprint_sha256")
                 or ""
             ),
+            "code_fingerprint_sha256": str(
+                soak_identity.get("code_fingerprint_sha256")
+                or reconcile_identity.get("code_fingerprint_sha256")
+                or ""
+            ),
             "git_commit": str(soak_identity.get("git_commit") or reconcile_identity.get("git_commit") or ""),
             "dependency_lock_sha256": str(
                 soak_identity.get("dependency_lock_sha256")
@@ -393,6 +554,16 @@ def run_gate(
                 or ""
             ),
             "profile_name": str(soak_identity.get("profile_name") or reconcile_identity.get("profile_name") or ""),
+            "manifest_present": (
+                bool(soak_identity.get("manifest_present", False))
+                if isinstance(soak_identity, dict) and len(soak_identity) > 0
+                else bool(reconcile_identity.get("manifest_present", False))
+            ),
+            "manifest_load_error": str(
+                soak_identity.get("manifest_load_error")
+                or reconcile_identity.get("manifest_load_error")
+                or ""
+            ),
             "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
             "environment": str(os.getenv("BRO_ENV", "")).strip() or "unknown",
         },

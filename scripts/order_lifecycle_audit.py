@@ -20,6 +20,7 @@ from prodesk.session_phase import enforce_validation_phase
 
 ORDER_SUBMIT = "order_submit"
 ORDER_CANCEL = "order_cancel"
+ORDER_CANCEL_SUPPRESSED = "order_cancel_suppressed"
 FILL = "fill"
 KILL_SWITCH_CANCEL_ALL = "kill_switch_cancel_all"
 CANCEL_ALL_ON_EXIT = "cancel_all_on_exit"
@@ -36,6 +37,7 @@ LIFECYCLE_EVENT_TYPES = frozenset(
     {
         ORDER_SUBMIT,
         ORDER_CANCEL,
+        ORDER_CANCEL_SUPPRESSED,
         FILL,
         KILL_SWITCH_CANCEL_ALL,
         CANCEL_ALL_ON_EXIT,
@@ -70,6 +72,13 @@ REQUIRED_FIELDS: Dict[str, Tuple[str, ...]] = {
         "stage",
     ),
     ORDER_CANCEL: ("ts_utc", "order_id", "reason"),
+    ORDER_CANCEL_SUPPRESSED: (
+        "ts_utc",
+        "order_id",
+        "requested_cancel_reason",
+        "request_origin",
+        "suppression_reason",
+    ),
     FILL: ("ts_utc", "trade_id", "order_id", "token_id", "side", "price", "size", "source"),
     KILL_SWITCH_CANCEL_ALL: ("ts_utc", "reason", "canceled_count", "released_lock_count"),
     CANCEL_ALL_ON_EXIT: ("ts_utc", "reason", "canceled_count", "released_lock_count"),
@@ -264,10 +273,14 @@ def run_audit(
         }
 
     event_paths = sorted(effective_log_dir.glob("events_*.jsonl"))
+    events_max_lines_per_file = max_lines_per_file
+    event_source_mode = "log_tail"
     if isinstance(contract, dict):
         events_slice = run_contract_slice_path(contract, stream="events")
         if events_slice is not None:
             event_paths = [events_slice]
+            events_max_lines_per_file = 0
+            event_source_mode = "run_contract_slice_full_scan"
     if not event_paths:
         findings.append("events_files_missing")
 
@@ -275,7 +288,7 @@ def run_audit(
         event_paths=event_paths,
         run_id=selected_run_id,
         contract=contract,
-        max_lines_per_file=max_lines_per_file,
+        max_lines_per_file=events_max_lines_per_file,
     )
     lifecycle_rows = [row for row in events if str(row.get("event_type") or "").strip() in LIFECYCLE_EVENT_TYPES]
     if not lifecycle_rows:
@@ -288,6 +301,7 @@ def run_audit(
     duplicate_trade_ids: Set[str] = set()
     fill_without_submit_order_ids: Set[str] = set()
     cancel_without_submit_order_ids: Set[str] = set()
+    cancel_suppressed_without_submit_order_ids: Set[str] = set()
     order_submit_rows_for_linkage: List[Dict[str, Any]] = []
 
     for row in lifecycle_rows:
@@ -358,6 +372,40 @@ def run_audit(
                 findings.append("order_cancel:reason_missing_or_blank")
             if order_id and order_id not in submit_order_ids:
                 cancel_without_submit_order_ids.add(order_id)
+            commitment_hold_active = row.get("commitment_hold_active")
+            if commitment_hold_active is not None and not isinstance(commitment_hold_active, bool):
+                findings.append("order_cancel:commitment_hold_active_not_bool")
+            commitment_expiry = _parse_ts(row.get("commitment_expiry_ts_utc"))
+            cancel_class = _non_empty_text(row.get("cancel_class"))
+            submission_lane = _non_empty_text(row.get("submission_lane")).lower()
+            if submission_lane == "maker" and bool(commitment_hold_active):
+                if cancel_class == "legacy_routine":
+                    if commitment_expiry is None:
+                        findings.append("order_cancel:committed_maker_routine_cancel_missing_expiry")
+                    elif ts is not None and ts < commitment_expiry:
+                        findings.append("order_cancel:committed_maker_routine_cancel_pre_expiry")
+                if reason == "commitment_window_ended" and cancel_class and cancel_class != "terminal_window_end":
+                    findings.append("order_cancel:commitment_window_ended_cancel_class_mismatch")
+
+        elif event_type == ORDER_CANCEL_SUPPRESSED:
+            order_id = _non_empty_text(row.get("order_id"))
+            requested_cancel_reason = _non_empty_text(row.get("requested_cancel_reason"))
+            request_origin = _non_empty_text(row.get("request_origin"))
+            suppression_reason = _non_empty_text(row.get("suppression_reason"))
+            if not order_id:
+                findings.append("order_cancel_suppressed:order_id_missing_or_blank")
+            if not requested_cancel_reason:
+                findings.append("order_cancel_suppressed:requested_cancel_reason_missing_or_blank")
+            if not request_origin:
+                findings.append("order_cancel_suppressed:request_origin_missing_or_blank")
+            if not suppression_reason:
+                findings.append("order_cancel_suppressed:suppression_reason_missing_or_blank")
+            if order_id and order_id not in submit_order_ids:
+                cancel_suppressed_without_submit_order_ids.add(order_id)
+            if "commitment_hold_active" in row and not isinstance(row.get("commitment_hold_active"), bool):
+                findings.append("order_cancel_suppressed:commitment_hold_active_not_bool")
+            if row.get("commitment_expiry_ts_utc") is not None and _parse_ts(row.get("commitment_expiry_ts_utc")) is None:
+                findings.append("order_cancel_suppressed:commitment_expiry_ts_utc_invalid")
 
         elif event_type == FILL:
             trade_id = _non_empty_text(row.get("trade_id"))
@@ -467,6 +515,11 @@ def run_audit(
         warnings.append(
             "order_cancel:order_id_without_submit:"
             + ",".join(sorted(str(order_id) for order_id in cancel_without_submit_order_ids))
+        )
+    if cancel_suppressed_without_submit_order_ids:
+        warnings.append(
+            "order_cancel_suppressed:order_id_without_submit:"
+            + ",".join(sorted(str(order_id) for order_id in cancel_suppressed_without_submit_order_ids))
         )
 
     chainlink_tick_rows = [row for row in events if str(row.get("event_type") or "").strip() == CHAINLINK_TICK]
@@ -598,6 +651,8 @@ def run_audit(
         "run_id_filter": str(selected_run_id),
         "run_id_resolution": run_id_resolution,
         "event_source_paths": [str(path.resolve()) for path in event_paths],
+        "event_source_mode": event_source_mode,
+        "events_max_lines_per_file": int(max(0, int(events_max_lines_per_file))),
         "events_considered": int(len(events)),
         "lifecycle_events_considered": int(len(lifecycle_rows)),
         "lifecycle_counts": counts,
@@ -605,6 +660,7 @@ def run_audit(
         "duplicate_fill_trade_ids": sorted(duplicate_trade_ids),
         "fill_without_submit_order_ids": sorted(fill_without_submit_order_ids),
         "cancel_without_submit_order_ids": sorted(cancel_without_submit_order_ids),
+        "cancel_suppressed_without_submit_order_ids": sorted(cancel_suppressed_without_submit_order_ids),
         "chainlink_tick_events_considered": int(len(chainlink_tick_rows)),
         "edge_action_events_considered": int(len(edge_action_for_linkage)),
         "order_submit_decision_linked_count": int(len(linked_order_submit_ids)),

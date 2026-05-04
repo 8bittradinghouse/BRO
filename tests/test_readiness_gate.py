@@ -397,6 +397,98 @@ class ReadinessGateTests(unittest.TestCase):
             self.assertEqual(result.get("suppression_summary", {}).get("primary_suppression_cause"), "none")
             self.assertEqual(result.get("suppression_summary", {}).get("execution_starvation_mode"), "none")
 
+    def test_readiness_gate_applies_quote_uptime_tolerance_and_surfaces_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-uptime-eps"
+            policy_path = root / "policy.yaml"
+            policy_payload = {
+                "comparison_tolerance": {
+                    "metrics": {
+                        "quote_uptime_ratio": {"min_eps": 0.0020},
+                    }
+                },
+                "stage_order": ["paper"],
+                "stages": {
+                    "paper": {
+                        "min_quote_uptime_ratio": 0.05,
+                    }
+                },
+            }
+            policy_path.write_text(yaml.safe_dump(policy_payload), encoding="utf-8")
+            policy = _load_policy(policy_path)
+
+            fake_report = {
+                "status_rows": 2,
+                "error_rows": 0,
+                "quote_uptime_ratio": 0.0487,
+                "reject_reason_distribution": {},
+                "execution_quality": {"capture_minus_adverse": 0.0},
+                "runtime_classification": {
+                    "classification": "VALID_ACTIVE",
+                    "promotion_eligible": True,
+                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                },
+            }
+
+            with mock.patch("scripts.readiness_gate.build_report", return_value=fake_report):
+                result = run_readiness_gate(log_dir=root, policy=policy, run_id=run_id)
+
+            self.assertEqual(result["highest_passing_stage"], "paper")
+            self.assertEqual(
+                result["comparison_tolerance"]["metric_overrides"]["quote_uptime_ratio"]["min_eps"],
+                0.0020,
+            )
+            check = result["stage_results"][0]["checks"][0]
+            self.assertEqual(check["criterion"], "min_quote_uptime_ratio")
+            self.assertEqual(check["comparator"], "min")
+            self.assertAlmostEqual(check["epsilon"], 0.0020)
+            self.assertTrue(check["tolerance_applied"])
+            self.assertTrue(check["passed"])
+
+    def test_readiness_gate_still_fails_materially_low_quote_uptime_with_tolerance(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-uptime-fail"
+            policy_path = root / "policy.yaml"
+            policy_payload = {
+                "comparison_tolerance": {
+                    "metrics": {
+                        "quote_uptime_ratio": {"min_eps": 0.0020},
+                    }
+                },
+                "stage_order": ["paper"],
+                "stages": {
+                    "paper": {
+                        "min_quote_uptime_ratio": 0.05,
+                    }
+                },
+            }
+            policy_path.write_text(yaml.safe_dump(policy_payload), encoding="utf-8")
+            policy = _load_policy(policy_path)
+
+            fake_report = {
+                "status_rows": 2,
+                "error_rows": 0,
+                "quote_uptime_ratio": 0.0300,
+                "reject_reason_distribution": {},
+                "execution_quality": {"capture_minus_adverse": 0.0},
+                "runtime_classification": {
+                    "classification": "VALID_ACTIVE",
+                    "promotion_eligible": True,
+                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                },
+            }
+
+            with mock.patch("scripts.readiness_gate.build_report", return_value=fake_report):
+                result = run_readiness_gate(log_dir=root, policy=policy, run_id=run_id)
+
+            self.assertIsNone(result["highest_passing_stage"])
+            self.assertEqual(result["blocking_stage"], "paper")
+            check = result["stage_results"][0]["checks"][0]
+            self.assertAlmostEqual(check["epsilon"], 0.0020)
+            self.assertFalse(check["passed"])
+
     def test_readiness_gate_surfaces_lifecycle_context_missing_metric(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -4,6 +4,14 @@ stage_order:
   - scaled_live
   - aggressive_live
 
+comparison_tolerance:
+  min_default: 0.0
+  max_default: 0.0
+  metrics:
+    # Sampled from discrete status rows; allow the declared knife-edge paper tolerance.
+    quote_uptime_ratio:
+      min_eps: 0.0020
+
 stages:
   paper:
     min_status_rows: 20

@@ -109,6 +109,81 @@ class MarketDiscoveryTests(unittest.TestCase):
         finally:
             discovery.close()
 
+    def test_discovery_maps_up_down_outcomes_and_event_start_anchor(self):
+        cfg = self._cfg()
+        discovery = MarketDiscovery(cfg)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute Up or Down - test window",
+                "clobTokenIds": ["up1", "down1"],
+                "outcomes": ["Up", "Down"],
+                "eventStartTime": "2030-01-01T00:00:00Z",
+                "endDateIso": "2030-01-01T00:05:00Z",
+                "isFeeEnabled": True,
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, ["up1", "down1"])
+            self.assertEqual(result.token_side_by_token.get("up1"), "YES")
+            self.assertEqual(result.token_side_by_token.get("down1"), "NO")
+            self.assertEqual(result.token_open_anchor_utc_by_token.get("up1"), "2030-01-01T00:00:00.000Z")
+            self.assertEqual(result.token_open_anchor_utc_by_token.get("down1"), "2030-01-01T00:00:00.000Z")
+            self.assertNotIn("up1", result.token_strike_by_token)
+            self.assertNotIn("down1", result.token_strike_by_token)
+        finally:
+            discovery.close()
+
+    def test_discovery_rejects_timestamp_like_numeric_strike_and_falls_back_to_question_price(self):
+        cfg = self._cfg()
+        discovery = MarketDiscovery(cfg)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down above $65000?",
+                "clobTokenIds": ["yes1", "no1"],
+                "outcomes": ["Yes", "No"],
+                "endDateIso": "2030-01-01T00:01:00Z",
+                "referencePrice": 1893456000.0,
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_strike_by_token.get("yes1"), 65000.0)
+            self.assertEqual(result.token_strike_by_token.get("no1"), 65000.0)
+        finally:
+            discovery.close()
+
+    def test_discovery_drops_timestamp_like_numeric_strike_without_price_fallback(self):
+        cfg = self._cfg()
+        discovery = MarketDiscovery(cfg)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down?",
+                "clobTokenIds": ["yes1", "no1"],
+                "outcomes": ["Yes", "No"],
+                "endDateIso": "2030-01-01T00:01:00Z",
+                "referencePrice": 1893456000.0,
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertNotIn("yes1", result.token_strike_by_token)
+            self.assertNotIn("no1", result.token_strike_by_token)
+        finally:
+            discovery.close()
+
     def test_discovery_filters_explicit_fee_disabled_markets(self):
         cfg = self._cfg()
         discovery = MarketDiscovery(cfg)

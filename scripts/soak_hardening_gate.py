@@ -22,7 +22,12 @@ from prodesk.runtime_semantics import (
 )
 from scripts.nightly_soak_report import build_report
 from scripts.performance_budget_gate import run_gate as run_performance_budget_gate
-from scripts.readiness_gate import _load_policy, run_readiness_gate
+from scripts.readiness_gate import (
+    _comparison_tolerance_payload as _readiness_comparison_tolerance_payload,
+    _load_policy,
+    _metric_epsilon as _readiness_metric_epsilon,
+    run_readiness_gate,
+)
 from scripts.run_integrity_audit import run_audit as run_integrity_audit
 from scripts.websocket_reliability_gate import run_gate as run_websocket_reliability_gate
 
@@ -64,6 +69,7 @@ def _lane_for_finding(finding: str) -> str:
         "soak_quote_uptime_",
         "soak_active_target_execution_participation_missing:",
         "soak_book_updates_",
+        "soak_execution_quality_",
         "performance_cycle_",
         "performance_process_rss_",
         "performance_latency_inactive_cycles_",
@@ -228,6 +234,7 @@ def run_gate(
         session_phase=normalized_phase,
     )
     stage_order = list(policy.get("stage_order", []))
+    readiness_comparison_cfg = _readiness_comparison_tolerance_payload(policy)
     highest = str(readiness.get("highest_passing_stage") or "")
     readiness_required_stage_failure_causes: List[str] = []
     for stage_result in list(readiness.get("stage_results", []) or []):
@@ -356,6 +363,17 @@ def run_gate(
     min_taker_bonus_submits = _f(soak_cfg.get("min_taker_bonus_submits"), 0.0)
     min_taker_bonus_fills = _f(soak_cfg.get("min_taker_bonus_fills"), 0.0)
     max_taker_bonus_fill_rate = _f(soak_cfg.get("max_taker_bonus_fill_rate"), 1.0)
+    min_execution_quality_capture_minus_adverse_raw = soak_cfg.get(
+        "min_execution_quality_capture_minus_adverse"
+    )
+    execution_quality_floor_enabled = (
+        min_execution_quality_capture_minus_adverse_raw is not None
+        and str(min_execution_quality_capture_minus_adverse_raw).strip() != ""
+    )
+    min_execution_quality_capture_minus_adverse = _f(
+        min_execution_quality_capture_minus_adverse_raw,
+        0.0,
+    )
     max_preexpiry_404_anomaly_count = _f(soak_cfg.get("max_preexpiry_404_anomaly_count"), 0.0)
     max_lifecycle_context_mismatch_count = _f(soak_cfg.get("max_lifecycle_context_mismatch_count"), 0.0)
     max_lifecycle_context_missing_sec_to_expiry_count = _f(
@@ -377,6 +395,7 @@ def run_gate(
     uptime = _f(report.get("quote_uptime_ratio"), 0.0)
     errors = _f(report.get("error_rows"), 0.0)
     paths = dict(report.get("execution_paths", {}) or {})
+    execution_quality = dict(report.get("execution_quality", {}) or {})
     market_data_source = dict(report.get("market_data_source", {}) or {})
     valuation_truth = dict(report.get("valuation_truth", {}) or {})
     maker_submits = _f(paths.get("maker_submits"), 0.0)
@@ -384,6 +403,27 @@ def run_gate(
     taker_bonus_submits = _f(paths.get("taker_bonus_submits"), 0.0)
     taker_bonus_fills = _f(paths.get("taker_bonus_fills"), 0.0)
     taker_bonus_fill_rate = _f(paths.get("taker_bonus_fill_rate"), 0.0)
+    execution_quality_capture_minus_adverse = _f(
+        execution_quality.get(
+            "capture_minus_adverse",
+            execution_quality.get("immediate_capture_minus_adverse"),
+        ),
+        0.0,
+    )
+    execution_quality_capture_minus_adverse_source = "execution_quality.capture_minus_adverse"
+    decision_reference_lane_attribution = dict(
+        report.get("execution_quality_decision_reference_lane_attribution", {}) or {}
+    )
+    decision_reference_lane_total = dict(decision_reference_lane_attribution.get("total", {}) or {})
+    if _f(decision_reference_lane_total.get("immediate_fills_scored"), 0.0) > 0.0:
+        execution_quality_capture_minus_adverse = _f(
+            decision_reference_lane_total.get("immediate_capture_minus_adverse"),
+            execution_quality_capture_minus_adverse,
+        )
+        execution_quality_capture_minus_adverse_source = (
+            "execution_quality_decision_reference_lane_attribution.total."
+            "immediate_capture_minus_adverse"
+        )
     book_updates_ws_delta = _f(market_data_source.get("book_updates_ws_delta"), 0.0)
     book_updates_rest_delta = _f(market_data_source.get("book_updates_rest_delta"), 0.0)
     book_updates_total_delta = _f(market_data_source.get("book_updates_total_delta"), 0.0)
@@ -408,9 +448,21 @@ def run_gate(
         0.0,
         valuation_hard_degraded_enter_count - valuation_hard_degraded_clear_count,
     )
-    held_unpriceable_unrecovered_count = max(
+    held_unpriceable_unrecovered_raw_count = max(
         0.0,
         held_unpriceable_started_count - held_unpriceable_recovered_count,
+    )
+    held_unpriceable_unrecovered_dust_exempted_count = _f(
+        valuation_truth.get("held_unpriceable_unrecovered_dust_exempted_count"),
+        0.0,
+    )
+    held_unpriceable_unrecovered_count = _f(
+        valuation_truth.get("held_unpriceable_unrecovered_meaningful_count"),
+        max(
+            0.0,
+            held_unpriceable_unrecovered_raw_count
+            - held_unpriceable_unrecovered_dust_exempted_count,
+        ),
     )
 
     # Explicit, machine-verifiable maker opportunity policy.
@@ -430,6 +482,10 @@ def run_gate(
         "maker_timing_gate_closed",
         "token_lag_not_verified_for_maker",
         "latency_not_armed",
+        "latency_not_armed_for_maker",
+        "fair_probability_missing",
+        "market_probability_missing",
+        "time_remaining_sec_invalid",
         "fair_probability_unavailable",
         "oracle_unavailable_or_stale",
         "token_score_below_maker_min",
@@ -501,12 +557,10 @@ def run_gate(
             note=f"minimum soak time eps={duration_min_eps:.6f}",
         )
     )
-    uptime_min_eps = _metric_epsilon(
+    uptime_min_eps = _readiness_metric_epsilon(
         "quote_uptime_ratio",
         kind="min",
-        default_min_eps=default_min_eps,
-        default_max_eps=default_max_eps,
-        metric_eps_cfg=metric_eps_cfg,
+        comparison_cfg=readiness_comparison_cfg,
     )
     uptime_pass = _passes_min(uptime, min_uptime, uptime_min_eps)
     if not uptime_pass:
@@ -692,7 +746,9 @@ def run_gate(
             threshold=max_held_unpriceable_unrecovered_count,
             passed=held_unpriceable_unrecovered_pass,
             note=(
-                f"started_count={held_unpriceable_started_count:.6f} "
+                f"raw_count={held_unpriceable_unrecovered_raw_count:.6f} "
+                + f"dust_exempted_count={held_unpriceable_unrecovered_dust_exempted_count:.6f} "
+                + f"started_count={held_unpriceable_started_count:.6f} "
                 + f"recovered_count={held_unpriceable_recovered_count:.6f} "
                 + f"eps={held_unpriceable_unrecovered_max_eps:.6f}"
             ),
@@ -838,6 +894,38 @@ def run_gate(
             note=f"taker_bonus_submits={taker_bonus_submits:.6f} eps={taker_fill_rate_max_eps:.6f}",
         )
     )
+    execution_quality_min_eps = _metric_epsilon(
+        "execution_quality_capture_minus_adverse",
+        kind="min",
+        default_min_eps=default_min_eps,
+        default_max_eps=default_max_eps,
+        metric_eps_cfg=metric_eps_cfg,
+    )
+    execution_quality_pass = (not execution_quality_floor_enabled) or _passes_min(
+        execution_quality_capture_minus_adverse,
+        min_execution_quality_capture_minus_adverse,
+        execution_quality_min_eps,
+    )
+    if execution_quality_floor_enabled and not execution_quality_pass:
+        findings.append(
+            "soak_execution_quality_capture_minus_adverse_too_low:"
+            + f"{execution_quality_capture_minus_adverse:.6f}<min:{min_execution_quality_capture_minus_adverse:.6f}"
+        )
+    decision_trace.append(
+        decision_item(
+            check="soak_execution_quality_capture_minus_adverse",
+            level="hard_fail",
+            metric="execution_quality_capture_minus_adverse",
+            comparator="min",
+            value=execution_quality_capture_minus_adverse,
+            threshold=min_execution_quality_capture_minus_adverse,
+            passed=execution_quality_pass,
+            note=(
+                f"enabled={int(execution_quality_floor_enabled)} "
+                + f"eps={execution_quality_min_eps:.6f}"
+            ),
+        )
+    )
     total_updates_min_eps = _metric_epsilon(
         "book_updates_total_delta",
         kind="min",
@@ -940,6 +1028,7 @@ def run_gate(
                 "valuation/lifecycle counter coherence and anomaly budgets",
                 "active-target meaningful participation when targets are present",
                 "market-data source realism ratios",
+                "execution-quality immediate capture-minus-adverse floor when configured",
                 "maker/taker bonus execution-path minimums",
             ],
             "warning": [],
@@ -981,6 +1070,8 @@ def run_gate(
             "taker_bonus_submits": taker_bonus_submits,
             "taker_bonus_fills": taker_bonus_fills,
             "taker_bonus_fill_rate": taker_bonus_fill_rate,
+            "execution_quality_capture_minus_adverse": execution_quality_capture_minus_adverse,
+            "execution_quality_capture_minus_adverse_source": execution_quality_capture_minus_adverse_source,
             "book_updates_ws_delta": book_updates_ws_delta,
             "book_updates_rest_delta": book_updates_rest_delta,
             "book_updates_total_delta": book_updates_total_delta,
@@ -996,6 +1087,9 @@ def run_gate(
             "held_unpriceable_started_count": held_unpriceable_started_count,
             "held_unpriceable_recovered_count": held_unpriceable_recovered_count,
             "valuation_hard_degraded_unrecovered_count": valuation_hard_degraded_unrecovered_count,
+            "held_unpriceable_unrecovered_raw_count": held_unpriceable_unrecovered_raw_count,
+            "held_unpriceable_unrecovered_dust_exempted_count": held_unpriceable_unrecovered_dust_exempted_count,
+            "held_unpriceable_unrecovered_meaningful_count": held_unpriceable_unrecovered_count,
             "held_unpriceable_unrecovered_count": held_unpriceable_unrecovered_count,
             "report_max_lines_per_file": report_tail,
             "runtime_classification": runtime_classification_name,
@@ -1013,7 +1107,12 @@ def run_gate(
             "comparison_tolerance": {
                 "min_default": default_min_eps,
                 "max_default": default_max_eps,
-                "metric_overrides": metric_eps_cfg,
+                "metric_overrides": {
+                    **metric_eps_cfg,
+                    "quote_uptime_ratio": dict(
+                        (readiness_comparison_cfg.get("metrics", {}) or {}).get("quote_uptime_ratio", {})
+                    ),
+                },
             },
             "valuation_counter_limits": {
                 "max_preexpiry_404_anomaly_count": max_preexpiry_404_anomaly_count,
@@ -1041,6 +1140,11 @@ def run_gate(
             "maker_fill_rate_enforcement": {
                 "min_submits": maker_fill_rate_enforcement_min_submits,
                 "applied": bool(maker_fill_rate_enforcement_applied),
+            },
+            "execution_quality_enforcement": {
+                "enabled": bool(execution_quality_floor_enabled),
+                "min_capture_minus_adverse": min_execution_quality_capture_minus_adverse,
+                "capture_minus_adverse": execution_quality_capture_minus_adverse,
             },
         },
     }

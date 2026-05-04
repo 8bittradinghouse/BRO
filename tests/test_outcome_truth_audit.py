@@ -222,6 +222,301 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(str(rows[0].get("claim_boundary_class") or ""), "bounded_approximation")
 
+    def test_outcome_truth_audit_emits_lane_outcome_truth(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-outcome-lane-truth"
+            events_path = root / "events_2026-03-30.jsonl"
+            status_path = root / "status_2026-03-30.jsonl"
+            records_path = root / "records.jsonl"
+
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "order_id": "ord-normal",
+                        "token_id": "tok-normal",
+                        "target_ref": "ref-normal",
+                        "action_taken": "taker",
+                        "evaluation_scope": "taker",
+                        "edge_value": 0.02,
+                        "market_probability": 0.50,
+                        "ts_decision_utc": "2026-03-30T00:00:00Z",
+                        "ts_utc": "2026-03-30T00:00:00Z",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "order_id": "ord-normal",
+                        "token_id": "tok-normal",
+                        "target_ref": "ref-normal",
+                        "side": "BUY",
+                        "price": 0.50,
+                        "size": 10.0,
+                        "reason": "sniper_taker_chainlink",
+                        "execution_preference": "taker_only",
+                        "decision_reference_midpoint": 0.50,
+                        "decision_reference_ts_utc": "2026-03-30T00:00:00Z",
+                        "taker_competitiveness": {
+                            "conviction_score": 0.90,
+                            "timing_window_class": "final_window",
+                            "multi_oracle_status": "confirmed",
+                        },
+                        "ts_decision_utc": "2026-03-30T00:00:00Z",
+                        "ts_utc": "2026-03-30T00:00:00Z",
+                    },
+                    {
+                        "event_type": "fill",
+                        "run_id": run_id,
+                        "trade_id": "tr-normal",
+                        "order_id": "ord-normal",
+                        "token_id": "tok-normal",
+                        "target_ref": "ref-normal",
+                        "side": "BUY",
+                        "price": 0.49,
+                        "size": 10.0,
+                        "ts_utc": "2026-03-30T00:00:01Z",
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "tok-normal",
+                        "target_ref": "ref-normal",
+                        "action_taken": "none",
+                        "evaluation_scope": "taker",
+                        "block_reason": "edge_below_min",
+                        "market_probability": 0.55,
+                        "ts_decision_utc": "2026-03-30T00:00:05Z",
+                        "ts_utc": "2026-03-30T00:00:05Z",
+                    },
+                    {
+                        "event_type": "book_top",
+                        "run_id": run_id,
+                        "token_id": "tok-normal",
+                        "best_bid_price": 0.54,
+                        "best_ask_price": 0.56,
+                        "ts_event_utc": "2026-03-30T00:00:05Z",
+                        "ts_utc": "2026-03-30T00:00:05Z",
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "order_id": "ord-recovery",
+                        "token_id": "tok-recovery",
+                        "target_ref": "ref-recovery",
+                        "action_taken": "taker",
+                        "evaluation_scope": "taker",
+                        "edge_value": -0.02,
+                        "market_probability": 0.50,
+                        "ts_decision_utc": "2026-03-30T00:00:10Z",
+                        "ts_utc": "2026-03-30T00:00:10Z",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "order_id": "ord-recovery",
+                        "token_id": "tok-recovery",
+                        "target_ref": "ref-recovery",
+                        "side": "SELL",
+                        "price": 0.45,
+                        "size": 10.0,
+                        "reason": "sniper_taker_chainlink",
+                        "execution_preference": "taker_only",
+                        "decision_reference_midpoint": 0.50,
+                        "decision_reference_ts_utc": "2026-03-30T00:00:10Z",
+                        "taker_competitiveness": {"reduce_only_recovery_active": True},
+                        "ts_decision_utc": "2026-03-30T00:00:10Z",
+                        "ts_utc": "2026-03-30T00:00:10Z",
+                    },
+                    {
+                        "event_type": "fill",
+                        "run_id": run_id,
+                        "trade_id": "tr-recovery",
+                        "order_id": "ord-recovery",
+                        "token_id": "tok-recovery",
+                        "target_ref": "ref-recovery",
+                        "side": "SELL",
+                        "price": 0.45,
+                        "size": 10.0,
+                        "ts_utc": "2026-03-30T00:00:11Z",
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "tok-recovery",
+                        "target_ref": "ref-recovery",
+                        "action_taken": "none",
+                        "evaluation_scope": "taker",
+                        "block_reason": "edge_below_min",
+                        "market_probability": 0.55,
+                        "ts_decision_utc": "2026-03-30T00:00:15Z",
+                        "ts_utc": "2026-03-30T00:00:15Z",
+                    },
+                    {
+                        "event_type": "book_top",
+                        "run_id": run_id,
+                        "token_id": "tok-recovery",
+                        "best_bid_price": 0.54,
+                        "best_ask_price": 0.56,
+                        "ts_event_utc": "2026-03-30T00:00:15Z",
+                        "ts_utc": "2026-03-30T00:00:15Z",
+                    },
+                ],
+            )
+            self._write_rows(status_path, [{"run_id": run_id, "ts_utc": "2026-03-30T00:00:20Z"}])
+            contract_path = self._write_contract(log_dir=root, run_id=run_id, events_path=events_path, status_path=status_path)
+            payload = run_audit(
+                log_dir=root,
+                run_id=run_id,
+                run_contract_path=contract_path,
+                policy_path=self._policy_path(),
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+                records_out_path=records_path,
+            )
+            self.assertTrue(bool(payload.get("ok")), msg=payload.get("findings"))
+            lanes = payload.get("lane_outcome_truth", {})
+
+            normal = lanes.get("normal_taker", {})
+            self.assertEqual(int(normal.get("total_outcome_records", -1)), 1)
+            self.assertEqual(int(normal.get("filled_complete", -1)), 1)
+            self.assertAlmostEqual(float(normal.get("edge_realized_x_size_sum", 0.0)), 0.60)
+            self.assertAlmostEqual(float(normal.get("execution_component_x_size_sum", 0.0)), 0.10)
+            self.assertEqual(int(normal.get("decision_quality_distribution", {}).get("correct", -1)), 1)
+            self.assertEqual(int(normal.get("execution_quality_distribution", {}).get("favorable", -1)), 1)
+
+            recovery = lanes.get("reduce_only_recovery_taker", {})
+            self.assertEqual(int(recovery.get("total_outcome_records", -1)), 1)
+            self.assertEqual(int(recovery.get("filled_complete", -1)), 1)
+            self.assertEqual(int(recovery.get("recovery_override_records", -1)), 1)
+            self.assertAlmostEqual(float(recovery.get("edge_realized_x_size_sum", 0.0)), -1.0)
+            self.assertAlmostEqual(float(recovery.get("execution_component_x_size_sum", 0.0)), -0.50)
+            self.assertEqual(int(recovery.get("decision_quality_distribution", {}).get("incorrect", -1)), 1)
+            self.assertEqual(int(recovery.get("execution_quality_distribution", {}).get("unfavorable", -1)), 1)
+
+            rows = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            by_order = {str(row.get("order_submit_id") or ""): row for row in rows}
+            self.assertEqual(str(by_order["ord-normal"].get("submission_lane_truth") or ""), "normal_taker")
+            self.assertEqual(
+                str(by_order["ord-recovery"].get("submission_lane_truth") or ""),
+                "reduce_only_recovery_taker",
+            )
+
+    def test_outcome_truth_audit_emits_commitment_lane_outcome_truth_for_normal_taker(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-outcome-commitment-truth"
+            events_path = root / "events_2026-03-30.jsonl"
+            status_path = root / "status_2026-03-30.jsonl"
+            records_path = root / "records.jsonl"
+
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "order_id": "ord-commit",
+                        "token_id": "tok-commit",
+                        "target_ref": "ref-commit",
+                        "action_taken": "taker",
+                        "evaluation_scope": "taker",
+                        "edge_value": 0.05,
+                        "market_probability": 0.50,
+                        "ts_decision_utc": "2026-03-30T00:00:00Z",
+                        "ts_utc": "2026-03-30T00:00:00Z",
+                    },
+                    {
+                        "event_type": "order_submit",
+                        "run_id": run_id,
+                        "order_id": "ord-commit",
+                        "token_id": "tok-commit",
+                        "target_ref": "ref-commit",
+                        "side": "BUY",
+                        "price": 0.50,
+                        "size": 10.0,
+                        "sec_to_expiry": 10.0,
+                        "reason": "sniper_taker_chainlink",
+                        "execution_preference": "taker_only",
+                        "decision_reference_midpoint": 0.50,
+                        "decision_reference_ts_utc": "2026-03-30T00:00:00Z",
+                        "taker_competitiveness": {
+                            "conviction_score": 0.95,
+                            "timing_window_class": "final_window",
+                            "multi_oracle_status": "confirmed",
+                            "sec_to_expiry": 10.0,
+                        },
+                        "ts_decision_utc": "2026-03-30T00:00:00Z",
+                        "ts_utc": "2026-03-30T00:00:00Z",
+                    },
+                    {
+                        "event_type": "fill",
+                        "run_id": run_id,
+                        "trade_id": "tr-commit",
+                        "order_id": "ord-commit",
+                        "token_id": "tok-commit",
+                        "target_ref": "ref-commit",
+                        "side": "BUY",
+                        "price": 0.50,
+                        "size": 10.0,
+                        "ts_utc": "2026-03-30T00:00:01Z",
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "tok-commit",
+                        "target_ref": "ref-commit",
+                        "action_taken": "none",
+                        "evaluation_scope": "taker",
+                        "block_reason": "edge_below_min",
+                        "market_probability": 0.49,
+                        "ts_decision_utc": "2026-03-30T00:00:05Z",
+                        "ts_utc": "2026-03-30T00:00:05Z",
+                    },
+                    {
+                        "event_type": "edge_evaluation",
+                        "run_id": run_id,
+                        "token_id": "tok-commit",
+                        "target_ref": "ref-commit",
+                        "action_taken": "none",
+                        "evaluation_scope": "taker",
+                        "block_reason": "normal_taker_commitment_active",
+                        "market_probability": 0.75,
+                        "ts_decision_utc": "2026-03-30T00:00:10Z",
+                        "ts_utc": "2026-03-30T00:00:10Z",
+                    },
+                ],
+            )
+            self._write_rows(status_path, [{"run_id": run_id, "ts_utc": "2026-03-30T00:00:12Z"}])
+            contract_path = self._write_contract(
+                log_dir=root,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            payload = run_audit(
+                log_dir=root,
+                run_id=run_id,
+                run_contract_path=contract_path,
+                policy_path=self._policy_path(),
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+                records_out_path=records_path,
+            )
+
+            self.assertTrue(bool(payload.get("ok")), msg=payload.get("findings"))
+
+            observational = payload.get("lane_outcome_truth", {}).get("normal_taker", {})
+            self.assertEqual(int(observational.get("decision_quality_distribution", {}).get("incorrect", -1)), 1)
+
+            commitment = payload.get("commitment_lane_outcome_truth", {}).get("normal_taker", {})
+            self.assertEqual(int(commitment.get("complete_outcome_records", -1)), 1)
+            self.assertEqual(int(commitment.get("decision_quality_distribution", {}).get("correct", -1)), 1)
+            self.assertAlmostEqual(float(commitment.get("edge_realized_x_size_sum", 0.0)), 2.5)
+            self.assertAlmostEqual(float(commitment.get("commitment_horizon_ms_summary", {}).get("max", 0.0)), 10000.0)
+
     def test_outcome_truth_audit_marks_unknown_incomplete_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

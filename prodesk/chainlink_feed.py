@@ -67,9 +67,12 @@ class ChainlinkFeed:
         self.reconnect_backoff_initial_sec = float(cfg.get("reconnect_backoff_initial_sec", 1.0))
         self.reconnect_backoff_max_sec = float(cfg.get("reconnect_backoff_max_sec", 30.0))
         self.max_queue_size = int(cfg.get("max_queue_size", 10000))
+        self.history_max_points = max(0, int(cfg.get("history_max_points", 2048)))
+        self.history_retention_sec = max(0.0, float(cfg.get("history_retention_sec", 900.0)))
 
         self._lock = threading.Lock()
         self._latest_by_symbol: Dict[str, ChainlinkTick] = {}
+        self._history_by_symbol: Dict[str, Deque[ChainlinkTick]] = {}
         self._queue: Deque[ChainlinkTick] = deque()
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -125,6 +128,25 @@ class ChainlinkFeed:
         normalized = self._normalize_symbol(symbol)
         with self._lock:
             return self._latest_by_symbol.get(normalized)
+
+    def get_first_at_or_after(self, symbol: str, ts_utc: str) -> Optional[ChainlinkTick]:
+        normalized = self._normalize_symbol(symbol)
+        target_dt = parse_ts(ts_utc)
+        if not normalized or target_dt is None:
+            return None
+        target_epoch = float(target_dt.timestamp())
+        with self._lock:
+            history = list(self._history_by_symbol.get(normalized, ()))
+        best_tick: Optional[ChainlinkTick] = None
+        best_epoch: Optional[float] = None
+        for tick in history:
+            source_epoch = self._source_epoch(tick)
+            if source_epoch is None or source_epoch < target_epoch:
+                continue
+            if best_epoch is None or source_epoch < best_epoch or source_epoch == best_epoch:
+                best_tick = tick
+                best_epoch = source_epoch
+        return best_tick
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
@@ -429,11 +451,25 @@ class ChainlinkFeed:
                 self._ordering_decision_counts["first_tick"] = int(self._ordering_decision_counts.get("first_tick", 0)) + 1
                 self._ordering_class_counts["ordered"] = int(self._ordering_class_counts.get("ordered", 0)) + 1
             self._latest_by_symbol[tick.symbol] = tick
+            self._append_history_locked(tick)
             if self.max_queue_size > 0:
                 while len(self._queue) >= self.max_queue_size:
                     self._queue.popleft()
                     self._dropped_ticks += 1
             self._queue.append(tick)
+
+    def _append_history_locked(self, tick: ChainlinkTick) -> None:
+        if self.history_max_points <= 0 and self.history_retention_sec <= 0.0:
+            return
+        history = self._history_by_symbol.setdefault(tick.symbol, deque())
+        history.append(tick)
+        if self.history_max_points > 0:
+            while len(history) > self.history_max_points:
+                history.popleft()
+        if self.history_retention_sec > 0.0:
+            cutoff_mono = float(tick.received_monotonic) - float(self.history_retention_sec)
+            while len(history) > 1 and float(history[0].received_monotonic) < cutoff_mono:
+                history.popleft()
 
     @staticmethod
     def _decision_class(decision: str) -> str:
