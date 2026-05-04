@@ -7,6 +7,7 @@ import argparse
 import collections
 import concurrent.futures
 import contextlib
+import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -66,7 +67,7 @@ from prodesk.latency_verifier import (
 )
 from prodesk.market_discovery import MarketDiscovery
 from prodesk.market_data import RestBookClient
-from prodesk.models import Position
+from prodesk.models import BookTop, Position
 from prodesk.operating_mode import (
     MODE_CAUTIOUS,
     MODE_MAKER_ONLY,
@@ -86,6 +87,7 @@ from prodesk.state_store import load_state, save_state
 from prodesk.strategy import MarketMakingStrategy
 from prodesk.sniper_tool import SniperCandidate, SniperDecision, SniperTool, SniperToolConfig
 from prodesk.telemetry import Telemetry
+from prodesk.time_sync import capture_host_time_sync_snapshot
 from prodesk.tx_manager import TransactionManager
 from prodesk.volatility import RealizedVolTracker
 from prodesk.wallet_doctrine import create_wallet_doctrine
@@ -108,6 +110,7 @@ FINANCIAL_POSTURE_NORMAL = "NORMAL"
 FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY = "PREEXPIRY_REDUCE_ONLY"
 FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY = "HARD_DEGRADED_REDUCE_ONLY"
 FINANCIAL_POSTURE_HALT_NEW_RISK = "HALT_NEW_RISK"
+MAKER_PAIRED_TOUCH_MAX_DELTA_SEC = 0.10
 RUN_MANIFEST_REQUIRED_FIELDS = (
     "manifest_schema_version",
     "ts_utc",
@@ -303,7 +306,10 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_token_ids: List[str] = []
         self._held_unpriceable_escalation_reasons: List[str] = []
         self._held_unpriceable_escalation_max_age_sec: float = 0.0
+        self._held_unpriceable_defect_candidate: bool = False
         self._held_unpriceable_operator_action: str = "none"
+        self._held_unpriceable_dust_exempted_escalation_token_ids: List[str] = []
+        self._held_unpriceable_meaningful_escalation_token_ids: List[str] = []
         self._held_unpriceable_cause_by_token: Dict[str, str] = {}
         self._held_unpriceable_cause_counts: Dict[str, int] = {}
         self._held_unpriceable_dominant_cause: str = HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
@@ -367,7 +373,7 @@ class ExecutionRunner:
         self.held_expired_reduce_only_grace_sec = (
             max(0.0, float(configured_held_expired_reduce_only_grace))
             if configured_held_expired_reduce_only_grace is not None
-            else 90.0
+            else 15.0
         )
         configured_held_preexpiry_reduce_only_sec = parse_float(
             runtime_cfg.get("held_preexpiry_reduce_only_sec")
@@ -383,7 +389,7 @@ class ExecutionRunner:
         self.preexpiry_emergency_taker_window_sec = (
             max(0.0, float(configured_preexpiry_emergency_taker_window_sec))
             if configured_preexpiry_emergency_taker_window_sec is not None
-            else 30.0
+            else 7.0
         )
         configured_terminal_unwind_halt_new_risk_sec = parse_float(
             runtime_cfg.get("terminal_unwind_halt_new_risk_sec")
@@ -391,7 +397,7 @@ class ExecutionRunner:
         self.terminal_unwind_halt_new_risk_sec = (
             max(0.0, float(configured_terminal_unwind_halt_new_risk_sec))
             if configured_terminal_unwind_halt_new_risk_sec is not None
-            else 60.0
+            else 7.0
         )
         configured_expiry_boundary_epsilon_sec = parse_float(
             runtime_cfg.get("expiry_boundary_epsilon_sec")
@@ -436,6 +442,14 @@ class ExecutionRunner:
         self._preexpiry_emergency_taker_fill_count: int = 0
         self._preexpiry_emergency_taker_block_count: int = 0
         self._preexpiry_emergency_taker_block_reasons: Dict[str, int] = {}
+        self._preexpiry_emergency_taker_repeat_signature: Optional[Tuple[str, ...]] = None
+        self._preexpiry_emergency_taker_repeat_payload: Optional[Dict[str, Any]] = None
+        self._preexpiry_emergency_taker_repeat_total: int = 0
+        self._preexpiry_emergency_taker_repeat_pending: int = 0
+        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc: str = ""
+        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc: str = ""
+        self._preexpiry_emergency_taker_repeat_token_ids_seen: set[str] = set()
+        self._preexpiry_emergency_taker_repeat_token_ids_sample: List[str] = []
         self._held_exposure_class_by_token: Dict[str, str] = {}
         self._held_exposure_detail_by_token: Dict[str, Dict[str, Any]] = {}
         self._held_dust_token_ids: List[str] = []
@@ -460,6 +474,8 @@ class ExecutionRunner:
             self.cfg.get("targets", {}).get("token_expiry_utc_by_token", {}),
             source="config",
         )
+        self.token_open_anchor_utc_by_token: Dict[str, str] = {}
+        self.token_open_anchor_dt_by_token: Dict[str, dt.datetime] = {}
         self.token_side_by_token: Dict[str, str] = {}
         self._apply_token_side_map(
             self.cfg.get("targets", {}).get("token_side_by_token", {}),
@@ -479,29 +495,42 @@ class ExecutionRunner:
         self.doctrine_maker_allow_bounded_single_side_reference = bool(
             doctrine_cfg.get("maker_allow_bounded_single_side_reference", True)
         )
+        self._maker_paired_touch_max_delta_sec = float(MAKER_PAIRED_TOUCH_MAX_DELTA_SEC)
+        self._maker_last_ws_bid_quote_by_token: Dict[str, Dict[str, Any]] = {}
+        self._maker_last_ws_ask_quote_by_token: Dict[str, Dict[str, Any]] = {}
         self._maker_market_reference_policy: Dict[str, Any] = {
             "direct_mode": "direct_midpoint",
+            "paired_fallback_mode": "backfilled_paired_touch",
             "bounded_fallback_mode": (
                 "bounded_single_side_touch" if self.doctrine_maker_allow_bounded_single_side_reference else "disabled"
             ),
+            "paired_touch_max_delta_sec": float(self._maker_paired_touch_max_delta_sec),
             "activation_requires": [
                 "doctrine_mode_canonical",
                 "evaluation_scope_maker",
                 "book_source_ws",
                 "midpoint_missing",
+                "recent_complementary_ws_side_within_delta",
                 "single_side_present",
                 "maker_prereq_pass",
             ],
+            "paired_fallback_claim_class": "authoritative",
             "fallback_claim_class": "bounded_approximation",
             "missing_fallback_behavior": "fail_closed_market_probability_missing",
         }
         preflight_cfg = self.cfg.get("preflight", {}) if isinstance(self.cfg.get("preflight"), dict) else {}
+        time_policy_cfg = self.cfg.get("time_policy", {}) if isinstance(self.cfg.get("time_policy"), dict) else {}
         self._time_policy: Dict[str, Any] = {
             "source_of_truth": "utc_wall_clock",
             "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
-            "skew_tolerance_ms": max(0.0, float(preflight_cfg.get("max_clock_skew_sec", 0.0) or 0.0) * 1000.0),
+            "skew_tolerance_ms": max(0.0, float(time_policy_cfg.get("skew_tolerance_ms", 120.0) or 0.0)),
             "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
         }
+        self._host_time_sync_refresh_interval_sec = 60.0
+        self._host_time_sync_last_refresh_mono = 0.0
+        self._host_time_sync_snapshot: Dict[str, Any] = {}
+        self._last_host_time_sync_signature: Optional[Tuple[Any, ...]] = None
+        self._refresh_host_time_sync_snapshot(force=True)
         self.doctrine_min_observe_cycles_on_entry = max(0, int(doctrine_cfg.get("min_observe_cycles_on_entry", 2)))
         self.doctrine_min_observe_seconds_on_entry = max(
             0.0, float(doctrine_cfg.get("min_observe_seconds_on_entry", 2.0))
@@ -642,10 +671,10 @@ class ExecutionRunner:
             maker_comp_cfg = {}
         self.maker_comp_timing_gate_enabled = bool(maker_comp_cfg.get("timing_gate_enabled", False))
         self.maker_comp_timing_gate_min_sec_to_expiry = float(
-            maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 45.0)
+            maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 15.0)
         )
         self.maker_comp_timing_gate_max_sec_to_expiry = float(
-            maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 60.0)
+            maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 20.0)
         )
         self.maker_comp_edge_scale_enabled = bool(maker_comp_cfg.get("edge_scale_enabled", False))
         self.maker_comp_edge_scale_start_abs = float(maker_comp_cfg.get("edge_scale_start_abs", 0.05))
@@ -694,6 +723,7 @@ class ExecutionRunner:
             disarmed=True,
         )
         self._last_taker_submit_mono_by_token: Dict[str, float] = {}
+        self._normal_taker_commitment_token_ids: set[str] = set()
         operating_mode_cfg = self.cfg.get("operating_mode", {})
         self.operating_mode = OperatingModeController(operating_mode_cfg)
         self.operating_mode_ws_slo_enforce = bool(operating_mode_cfg.get("ws_slo_enforce_health", True))
@@ -839,6 +869,55 @@ class ExecutionRunner:
             "last_status_ts_utc": None,
         }
 
+    def _refresh_host_time_sync_snapshot(self, *, force: bool = False) -> Dict[str, Any]:
+        now_mono = time.monotonic()
+        if (
+            not force
+            and self._host_time_sync_snapshot
+            and (now_mono - self._host_time_sync_last_refresh_mono) < self._host_time_sync_refresh_interval_sec
+        ):
+            return dict(self._host_time_sync_snapshot)
+
+        snapshot = capture_host_time_sync_snapshot(timeout_sec=2.0)
+        if not isinstance(snapshot, dict):
+            snapshot = {
+                "available": False,
+                "clock_state": "unknown",
+                "sample_ts_utc": utc_iso(),
+                "source": "timedatectl",
+            }
+        self._host_time_sync_snapshot = dict(snapshot)
+        self._host_time_sync_last_refresh_mono = now_mono
+
+        offset_ms = parse_float(snapshot.get("offset_ms"))
+        jitter_ms = parse_float(snapshot.get("jitter_ms"))
+        root_distance_ms = parse_float(snapshot.get("root_distance_ms"))
+        if offset_ms is not None:
+            self.telemetry.set_gauge("host_time_sync_offset_ms", float(offset_ms))
+        if jitter_ms is not None:
+            self.telemetry.set_gauge("host_time_sync_jitter_ms", float(jitter_ms))
+        if root_distance_ms is not None:
+            self.telemetry.set_gauge("host_time_sync_root_distance_ms", float(root_distance_ms))
+
+        signature = (
+            str(snapshot.get("clock_state") or ""),
+            snapshot.get("system_clock_synchronized"),
+            snapshot.get("ntp_service_active"),
+            str(snapshot.get("server") or ""),
+            round(float(offset_ms), 3) if offset_ms is not None else None,
+        )
+        if force or signature != self._last_host_time_sync_signature:
+            self._last_host_time_sync_signature = signature
+            self.events.log_event(
+                "host_time_sync_snapshot",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "host_time_sync": dict(snapshot),
+                },
+            )
+        return dict(snapshot)
+
     def _load_state_safe(self) -> Dict[str, Any]:
         try:
             return load_state(self.state_path)
@@ -896,7 +975,7 @@ class ExecutionRunner:
                 transition_reason_code = "kill_switch_engaged"
             elif self._runtime_state == "active":
                 transition_reason_code = "targets_activated"
-            elif self._runtime_state == "standdown_no_targets":
+            elif self._runtime_state == "no_target_standdown":
                 transition_reason_code = "targets_absent"
             transition_reason_detail = (
                 f"prev_state={prev_state};new_state={self._runtime_state};"
@@ -969,6 +1048,39 @@ class ExecutionRunner:
             )
         return applied
 
+    def _apply_token_open_anchor_map(self, raw_map: Any, *, source: str) -> int:
+        if not isinstance(raw_map, dict):
+            return 0
+        applied = 0
+        for token_id_raw, anchor_raw in raw_map.items():
+            token_id = str(token_id_raw).strip()
+            anchor_dt = parse_ts(anchor_raw)
+            if not token_id or anchor_dt is None:
+                continue
+            self.token_open_anchor_utc_by_token[token_id] = utc_iso(anchor_dt)
+            self.token_open_anchor_dt_by_token[token_id] = anchor_dt
+            applied += 1
+        if applied:
+            self.events.log_event(
+                "token_open_anchor_map_update",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "source": source,
+                    "applied_count": applied,
+                },
+            )
+        return applied
+
+    @staticmethod
+    def _strike_looks_like_epoch_near_expiry(*, strike: float, expiry_dt: Optional[dt.datetime]) -> bool:
+        parsed = parse_float(strike)
+        if parsed is None or parsed < 1_000_000_000.0:
+            return False
+        if not isinstance(expiry_dt, dt.datetime):
+            return False
+        return abs(float(parsed) - float(expiry_dt.timestamp())) <= 86400.0
+
     def _apply_token_strike_map(self, raw_map: Any, *, source: str) -> int:
         if not isinstance(raw_map, dict):
             return 0
@@ -977,6 +1089,9 @@ class ExecutionRunner:
             token_id = str(token_id_raw).strip()
             strike = parse_float(strike_raw)
             if not token_id or strike is None or strike <= 0:
+                continue
+            expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+            if self._strike_looks_like_epoch_near_expiry(strike=float(strike), expiry_dt=expiry_dt):
                 continue
             self.token_strike_by_token[token_id] = float(strike)
             applied += 1
@@ -991,6 +1106,28 @@ class ExecutionRunner:
                 },
             )
         return applied
+
+    def _token_price_anchor(self, token_id: str) -> Optional[float]:
+        token = str(token_id or "").strip()
+        if not token:
+            return None
+        strike = self.token_strike_by_token.get(token)
+        expiry_dt = self.token_expiry_dt_by_token.get(token)
+        if isinstance(strike, (int, float)):
+            strike_value = float(strike)
+            if not self._strike_looks_like_epoch_near_expiry(strike=strike_value, expiry_dt=expiry_dt):
+                return strike_value
+        anchor_dt = self.token_open_anchor_dt_by_token.get(token)
+        symbol_for_targets = str(self.chainlink_symbol_for_targets or "").strip()
+        if not isinstance(anchor_dt, dt.datetime) or not symbol_for_targets:
+            return None
+        anchor_tick = self.chainlink.get_first_at_or_after(symbol_for_targets, utc_iso(anchor_dt))
+        if anchor_tick is None:
+            return None
+        anchor_source_dt = parse_ts(anchor_tick.source_ts_utc)
+        if anchor_source_dt is None or anchor_source_dt < anchor_dt:
+            return None
+        return float(anchor_tick.price)
 
     def _fair_probability_up(self, *, spot: float, strike: float, sec_to_expiry: float) -> float:
         # Smooth logistic mapping of spot-vs-strike to up probability.
@@ -1548,13 +1685,14 @@ class ExecutionRunner:
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
             dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
+            dust_age_sec_for_classification = 0.0 if postexpiry_retired_recent_404 else float(dust_age_sec)
             _base_classification_by_token[token_id] = classify_exposure_fail_closed(
                 net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
                 cfg=self._dust_classifier_cfg,
                 conservative_mark_price=float(conservative_mark_by_token.get(token_id, 0.0) or 0.0),
                 open_order_present=bool(lifecycle_flags.get("open_order_present", False)),
                 unresolved_lifecycle_obligation=bool(unresolved_for_dust),
-                dust_age_sec=float(dust_age_sec),
+                dust_age_sec=float(dust_age_sec_for_classification),
                 aggregate_dust_notional_upper_bound_usd=0.0,
                 aggregate_dust_token_count=0,
             )
@@ -1608,13 +1746,14 @@ class ExecutionRunner:
                 or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
             dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
+            dust_age_sec_for_classification = 0.0 if postexpiry_retired_recent_404 else float(dust_age_sec)
             classification = classify_exposure_fail_closed(
                 net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
                 cfg=self._dust_classifier_cfg,
                 conservative_mark_price=float(conservative_mark_by_token.get(token_id, 0.0) or 0.0),
                 open_order_present=bool(lifecycle_flags.get("open_order_present", False)),
                 unresolved_lifecycle_obligation=bool(unresolved_for_dust),
-                dust_age_sec=float(dust_age_sec),
+                dust_age_sec=float(dust_age_sec_for_classification),
                 aggregate_dust_notional_upper_bound_usd=float(aggregate_dust_notional_upper_bound_usd),
                 aggregate_dust_token_count=int(aggregate_dust_token_count),
             )
@@ -1636,6 +1775,11 @@ class ExecutionRunner:
                         lifecycle_flags.get("held_unpriceable_tracking_active", False)
                     ),
                     "dust_age_sec": float(dust_age_sec),
+                    "dust_age_sec_for_classification": float(dust_age_sec_for_classification),
+                    "dust_age_gate_bypassed": bool(postexpiry_retired_recent_404),
+                    "dust_age_gate_bypass_reason": (
+                        "postexpiry_retired_recent_404" if postexpiry_retired_recent_404 else "none"
+                    ),
                     "sec_to_expiry": (
                         float(sec_to_expiry)
                         if isinstance(sec_to_expiry, (int, float))
@@ -1906,6 +2050,23 @@ class ExecutionRunner:
         held_unpriceable_dominant_cause = str(
             valuation_state.get("held_unpriceable_dominant_cause") or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
         ).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        dust_exempted_held_unpriceable_escalation_token_ids: List[str] = []
+        meaningful_held_unpriceable_escalation_token_ids = list(held_unpriceable_escalation_token_ids)
+        if bool(self.dust_classifier_enforce_enabled) and int(effective_hard_degraded_exempt_count) > 0:
+            dust_eligible_set = set(hard_degraded_dust_eligible_token_ids)
+            dust_exempted_held_unpriceable_escalation_token_ids = sorted(
+                token_id
+                for token_id in held_unpriceable_escalation_token_ids
+                if token_id in dust_eligible_set
+            )
+            meaningful_held_unpriceable_escalation_token_ids = sorted(
+                token_id
+                for token_id in held_unpriceable_escalation_token_ids
+                if token_id not in dust_eligible_set
+            )
+            if held_unpriceable_escalation_active and not meaningful_held_unpriceable_escalation_token_ids:
+                held_unpriceable_defect_candidate = False
+                held_unpriceable_operator_action = "none"
         self._held_dust_shadow_active = bool(shadow_active)
         self._held_dust_enforced_this_cycle = bool(
             self.dust_classifier_enforce_enabled and effective_hard_degraded_exempt_count > 0
@@ -2014,7 +2175,14 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_token_ids = list(held_unpriceable_escalation_token_ids)
         self._held_unpriceable_escalation_reasons = list(held_unpriceable_escalation_reasons)
         self._held_unpriceable_escalation_max_age_sec = float(held_unpriceable_escalation_max_age_sec)
+        self._held_unpriceable_defect_candidate = bool(held_unpriceable_defect_candidate)
         self._held_unpriceable_operator_action = str(held_unpriceable_operator_action)
+        self._held_unpriceable_dust_exempted_escalation_token_ids = list(
+            dust_exempted_held_unpriceable_escalation_token_ids
+        )
+        self._held_unpriceable_meaningful_escalation_token_ids = list(
+            meaningful_held_unpriceable_escalation_token_ids
+        )
         self._held_unpriceable_cause_by_token = dict(held_unpriceable_cause_by_token)
         self._held_unpriceable_cause_counts = dict(held_unpriceable_cause_counts)
         self._held_unpriceable_dominant_cause = str(held_unpriceable_dominant_cause)
@@ -2031,6 +2199,7 @@ class ExecutionRunner:
         )
         self.risk.set_exposure_classification_state(
             exposure_class_by_token=held_exposure_class_by_token,
+            dust_capacity_enforce_enabled=bool(self.dust_classifier_enforce_enabled),
         )
 
         self.telemetry.set_gauge("valuation_degraded", 1.0 if degraded else 0.0)
@@ -2198,6 +2367,12 @@ class ExecutionRunner:
                     "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
                     "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
                     "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
+                    "held_unpriceable_dust_exempted_escalation_token_ids": list(
+                        dust_exempted_held_unpriceable_escalation_token_ids
+                    ),
+                    "held_unpriceable_meaningful_escalation_token_ids": list(
+                        meaningful_held_unpriceable_escalation_token_ids
+                    ),
                     "held_unpriceable_cause_by_token": dict(held_unpriceable_cause_by_token),
                     "held_unpriceable_cause_counts": dict(held_unpriceable_cause_counts),
                     "held_unpriceable_dominant_cause": str(held_unpriceable_dominant_cause),
@@ -2331,6 +2506,14 @@ class ExecutionRunner:
         )
         valuation_state["held_dust_raw_hard_degraded_token_count"] = int(
             self._held_dust_raw_hard_degraded_token_count
+        )
+        valuation_state["held_unpriceable_defect_candidate"] = bool(held_unpriceable_defect_candidate)
+        valuation_state["held_unpriceable_operator_action"] = str(held_unpriceable_operator_action)
+        valuation_state["held_unpriceable_dust_exempted_escalation_token_ids"] = list(
+            dust_exempted_held_unpriceable_escalation_token_ids
+        )
+        valuation_state["held_unpriceable_meaningful_escalation_token_ids"] = list(
+            meaningful_held_unpriceable_escalation_token_ids
         )
         return valuation_state
 
@@ -2548,14 +2731,24 @@ class ExecutionRunner:
 
         return bool(reasons), reasons
 
-    def _build_fair_probability_map(self, books: Dict[str, Any], *, latency_snapshot: LatencySnapshot) -> Dict[str, float]:
+    def _build_fair_probability_map(
+        self,
+        books: Dict[str, Any],
+        *,
+        latency_snapshot: LatencySnapshot,
+        scope: str = "maker",
+    ) -> Dict[str, float]:
+        normalized_scope = str(scope or "maker").strip().lower()
+        if normalized_scope not in {"maker", "taker"}:
+            raise ValueError(f"fair_probability_scope_invalid:{normalized_scope or 'missing'}")
+        apply_maker_latency_gates = normalized_scope == "maker"
         symbol_for_targets = self.chainlink_symbol_for_targets
         if not symbol_for_targets:
             return {}
         latest_chainlink = self.chainlink.get_latest(symbol_for_targets)
         if latest_chainlink is None:
             return {}
-        if self.latency_verifier.require_armed_for_maker and not latency_snapshot.armed:
+        if apply_maker_latency_gates and self.latency_verifier.require_armed_for_maker and not latency_snapshot.armed:
             return {}
         tick_age_sec = time.monotonic() - latest_chainlink.received_monotonic
         if tick_age_sec > self.doctrine_oracle_max_tick_age_sec:
@@ -2564,14 +2757,14 @@ class ExecutionRunner:
         out: Dict[str, float] = {}
         now = utc_now()
         for token_id in books.keys():
-            strike = self.token_strike_by_token.get(token_id)
             expiry_dt = self.token_expiry_dt_by_token.get(token_id)
             side = self.token_side_by_token.get(token_id)
+            strike = self._token_price_anchor(token_id)
             if strike is None or expiry_dt is None or side not in {"YES", "NO"}:
                 continue
-            if self.latency_verifier.require_armed_for_maker and not self._lag_verified(token_id):
+            if apply_maker_latency_gates and self.latency_verifier.require_armed_for_maker and not self._lag_verified(token_id):
                 continue
-            if self.latency_verifier.score_enabled:
+            if apply_maker_latency_gates and self.latency_verifier.score_enabled:
                 score = self.latency_verifier.token_score(token_id)
                 if score < self.latency_verifier.score_min_for_maker:
                     continue
@@ -2591,9 +2784,9 @@ class ExecutionRunner:
         now = utc_now()
         out: Dict[str, float] = {}
         for token_id in token_ids:
-            strike = self.token_strike_by_token.get(token_id)
             expiry_dt = self.token_expiry_dt_by_token.get(token_id)
             side = self.token_side_by_token.get(token_id)
+            strike = self._token_price_anchor(token_id)
             if strike is None or expiry_dt is None or side not in {"YES", "NO"}:
                 continue
             sec_to_expiry = max(0.0, (expiry_dt - now).total_seconds())
@@ -2765,20 +2958,24 @@ class ExecutionRunner:
         rows: Dict[str, Dict[str, Any]] = {}
         dead_count = 0
         for stage_name, (lower_exclusive, upper_inclusive) in stage_bands.items():
+            _, stage_allows_taker = edge_stage_policy(stage_name)
             effective_window_sec = _effective_window(stage_name)
-            semantically_live = bool(effective_window_sec > lower_exclusive)
-            if not semantically_live:
+            semantically_live = bool(stage_allows_taker and effective_window_sec > lower_exclusive)
+            semantic_dead_reason = None
+            if not stage_allows_taker:
+                semantic_dead_reason = "stage_disallow_taker"
+            elif not semantically_live:
                 dead_count += 1
+                semantic_dead_reason = "stage_window_non_overlapping_with_stage_interval"
             overlap_high = min(upper_inclusive, effective_window_sec)
             rows[stage_name] = {
                 "interval_lower_exclusive_sec": float(lower_exclusive),
                 "interval_upper_inclusive_sec": float(upper_inclusive),
+                "stage_allows_taker": bool(stage_allows_taker),
                 "effective_final_window_sec": float(effective_window_sec),
                 "semantically_live": semantically_live,
                 "overlap_high_sec": (float(overlap_high) if semantically_live else None),
-                "semantic_dead_reason": (
-                    None if semantically_live else "stage_window_non_overlapping_with_stage_interval"
-                ),
+                "semantic_dead_reason": semantic_dead_reason,
             }
 
         self.events.log_event(
@@ -2831,6 +3028,138 @@ class ExecutionRunner:
         value = min(caps)
         return float(value) if value > 0.0 else None
 
+    @staticmethod
+    def _binary_complement_side(side: Any) -> str:
+        normalized = str(side or "").strip().upper()
+        if normalized == "YES":
+            return "NO"
+        if normalized == "NO":
+            return "YES"
+        return ""
+
+    def _resolve_complement_token_id(
+        self,
+        token_id: str,
+        *,
+        active_token_ids: Optional[set[str]] = None,
+    ) -> Tuple[Optional[str], str]:
+        token = str(token_id or "").strip()
+        if not token:
+            return None, "complement_token_mapping_unavailable"
+        side = str(self.token_side_by_token.get(token, "")).strip().upper()
+        complement_side = self._binary_complement_side(side)
+        market_key = str(self.token_market_key_by_token.get(token, "")).strip()
+        if complement_side not in {"YES", "NO"}:
+            return None, "complement_token_mapping_unavailable"
+        if not market_key or "|" not in market_key:
+            return None, "complement_token_mapping_unavailable"
+        base_key, key_side = market_key.rsplit("|", 1)
+        if not base_key or str(key_side or "").strip().upper() != side:
+            return None, "complement_token_mapping_unavailable"
+        expected_market_key = f"{base_key}|{complement_side}"
+        active = {str(item).strip() for item in (active_token_ids or set()) if str(item).strip()}
+        matches = [
+            candidate_id
+            for candidate_id, candidate_market_key in self.token_market_key_by_token.items()
+            if str(candidate_id).strip()
+            and str(candidate_id).strip() != token
+            and (not active or str(candidate_id).strip() in active)
+            and str(candidate_market_key or "").strip() == expected_market_key
+            and str(self.token_side_by_token.get(str(candidate_id).strip(), "")).strip().upper() == complement_side
+        ]
+        if len(matches) != 1:
+            return None, "complement_token_mapping_unavailable"
+        return str(matches[0]).strip(), ""
+
+    def _binary_settlement_value_for_token(self, *, token_id: str, resolution_price: float) -> Optional[float]:
+        side = str(self.token_side_by_token.get(token_id, "")).strip().upper()
+        strike = self._token_price_anchor(token_id)
+        if side not in {"YES", "NO"} or not isinstance(strike, (int, float)):
+            return None
+        diff = float(resolution_price) - float(strike)
+        if abs(diff) <= 1e-9:
+            return None
+        yes_wins = diff > 0.0
+        if side == "YES":
+            return 1.0 if yes_wins else 0.0
+        return 0.0 if yes_wins else 1.0
+
+    def _apply_postexpiry_binary_settlement(self) -> int:
+        symbol_for_targets = str(self.chainlink_symbol_for_targets or "").strip()
+        if not symbol_for_targets:
+            return 0
+        settled_count = 0
+        now_dt = utc_now()
+        boundary_eps = max(0.0, float(self.expiry_boundary_epsilon_sec))
+        for token_id, position in sorted(self.risk.positions.items(), key=lambda item: str(item[0])):
+            token = str(token_id or "").strip()
+            if not token:
+                continue
+            net_shares = float(getattr(position, "net_shares", 0.0) or 0.0)
+            if abs(net_shares) <= 1e-9:
+                continue
+            expiry_dt = self.token_expiry_dt_by_token.get(token)
+            if not isinstance(expiry_dt, dt.datetime):
+                continue
+            sec_to_expiry = (expiry_dt - now_dt).total_seconds()
+            if float(sec_to_expiry) > -(boundary_eps + 1e-9):
+                continue
+            settlement_tick = self.chainlink.get_first_at_or_after(symbol_for_targets, utc_iso(expiry_dt))
+            if settlement_tick is None:
+                continue
+            settlement_source_dt = parse_ts(settlement_tick.source_ts_utc)
+            if settlement_source_dt is None or settlement_source_dt < expiry_dt:
+                continue
+            settlement_value = self._binary_settlement_value_for_token(
+                token_id=token,
+                resolution_price=float(settlement_tick.price),
+            )
+            if settlement_value is None:
+                continue
+            risk_settlement = self.risk.settle_binary_position(
+                token_id=token,
+                settlement_price=float(settlement_value),
+            )
+            if not isinstance(risk_settlement, dict):
+                continue
+            wallet_settlement = self.wallet.settle_binary_position(
+                token_id=token,
+                settlement_side=str(risk_settlement.get("settlement_side") or ""),
+                size_shares=float(risk_settlement.get("settlement_size_shares") or 0.0),
+                settlement_price=float(settlement_value),
+                ts_utc=utc_iso(),
+            )
+            self._normal_taker_commitment_token_ids.discard(token)
+            self.telemetry.incr("binary_position_settled")
+            settled_count += 1
+            self.events.log_event(
+                "binary_position_settlement",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "token_id": token,
+                    "market_key": str(self.token_market_key_by_token.get(token, "") or ""),
+                    "token_side": str(self.token_side_by_token.get(token, "") or ""),
+                    "strike": self._token_price_anchor(token),
+                    "open_anchor_ts_utc": str(self.token_open_anchor_utc_by_token.get(token) or ""),
+                    "expiry_ts_utc": utc_iso(expiry_dt),
+                    "sec_to_expiry_at_settlement": float(sec_to_expiry),
+                    "chainlink_symbol": symbol_for_targets,
+                    "settlement_spot_price": float(settlement_tick.price),
+                    "settlement_source_ts_utc": settlement_tick.source_ts_utc,
+                    "settlement_received_ts_utc": settlement_tick.received_ts_utc,
+                    "settlement_value": float(settlement_value),
+                    "settlement_side": str(risk_settlement.get("settlement_side") or ""),
+                    "settlement_size_shares": float(risk_settlement.get("settlement_size_shares") or 0.0),
+                    "settlement_notional_usd": float(risk_settlement.get("settlement_notional_usd") or 0.0),
+                    "net_shares_before": float(risk_settlement.get("net_shares_before") or 0.0),
+                    "net_shares_after": float(risk_settlement.get("net_shares_after") or 0.0),
+                    "wallet_settlement_notional_usd": float(wallet_settlement.get("settlement_notional_usd") or 0.0),
+                    "authority": "chainlink_first_source_ts_at_or_after_expiry",
+                },
+            )
+        return settled_count
+
     def _refresh_sniper_multi_oracle_cap_from_wallet(self) -> None:
         pct_cap = float(self.sniper_taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
         if pct_cap <= 0.0:
@@ -2861,6 +3190,24 @@ class ExecutionRunner:
             return False
         sec = float(sec_to_expiry)
         return self.maker_comp_timing_gate_min_sec_to_expiry <= sec <= self.maker_comp_timing_gate_max_sec_to_expiry
+
+    @staticmethod
+    def _maker_cannon_probe_token_ids(
+        *,
+        stage_info_by_token: Dict[str, Dict[str, Any]],
+        books: Dict[str, Any],
+    ) -> set[str]:
+        token_ids: set[str] = set()
+        if not books:
+            return token_ids
+        for token_id, info in stage_info_by_token.items():
+            sec_to_expiry = info.get("sec_to_expiry")
+            if not isinstance(sec_to_expiry, (int, float)):
+                continue
+            sec = float(sec_to_expiry)
+            if 0.0 <= sec <= 20.0 and str(token_id) in books:
+                token_ids.add(str(token_id))
+        return token_ids
 
     def _maker_edge_strength(self, edge_abs: Optional[float]) -> float:
         if (not self.maker_comp_edge_scale_enabled) or (not isinstance(edge_abs, (int, float))):
@@ -2893,21 +3240,70 @@ class ExecutionRunner:
         *,
         token_id: str,
         top: Any,
+        market_reference: Optional[Dict[str, Any]],
         fair_probability: Optional[float],
+        secondary_fair_probability: Optional[float],
+        secondary_oracle_status: str,
+        chainlink_spot_price: Optional[float],
+        secondary_oracle_spot_price: Optional[float],
         stage: str,
         sec_to_expiry: Optional[float],
         base_size_multiplier: float,
         base_spread_multiplier: float,
         timing_gate_open: bool,
     ) -> Dict[str, Any]:
+        market_reference = dict(market_reference or {})
         market_probability = (
-            float(getattr(top, "midpoint"))
-            if top is not None and isinstance(getattr(top, "midpoint", None), (int, float))
-            else None
+            float(market_reference.get("market_probability"))
+            if isinstance(market_reference.get("market_probability"), (int, float))
+            else (
+                float(getattr(top, "midpoint"))
+                if top is not None and isinstance(getattr(top, "midpoint", None), (int, float))
+                else None
+            )
         )
         fair = float(fair_probability) if isinstance(fair_probability, (int, float)) else None
+        secondary_fair = (
+            float(secondary_fair_probability)
+            if isinstance(secondary_fair_probability, (int, float))
+            else None
+        )
         edge_signed = (fair - market_probability) if (fair is not None and market_probability is not None) else None
         edge_abs = abs(edge_signed) if edge_signed is not None else None
+        secondary_edge_signed = (
+            secondary_fair - market_probability
+            if (secondary_fair is not None and market_probability is not None)
+            else None
+        )
+        normalized_secondary_oracle_status = (
+            str(secondary_oracle_status or "unknown").strip().lower() or "unknown"
+        )
+        secondary_oracle_confirmation = False
+        if normalized_secondary_oracle_status != "disabled":
+            if (
+                isinstance(edge_signed, (int, float))
+                and isinstance(secondary_edge_signed, (int, float))
+                and abs(float(edge_signed)) > 1e-12
+                and abs(float(secondary_edge_signed)) > 1e-12
+            ):
+                secondary_oracle_confirmation = bool(
+                    (float(edge_signed) > 0.0) == (float(secondary_edge_signed) > 0.0)
+                )
+                normalized_secondary_oracle_status = (
+                    "confirmed" if secondary_oracle_confirmation else "direction_mismatch"
+                )
+            elif normalized_secondary_oracle_status == "available":
+                normalized_secondary_oracle_status = "unknown"
+        secondary_oracle_price_delta_abs = None
+        secondary_oracle_price_delta_bps = None
+        if isinstance(chainlink_spot_price, (int, float)) and isinstance(secondary_oracle_spot_price, (int, float)):
+            secondary_oracle_price_delta_abs = abs(
+                float(chainlink_spot_price) - float(secondary_oracle_spot_price)
+            )
+            if abs(float(chainlink_spot_price)) > 1e-12:
+                secondary_oracle_price_delta_bps = (
+                    float(secondary_oracle_price_delta_abs) / abs(float(chainlink_spot_price))
+                ) * 10000.0
         strength = self._maker_edge_strength(edge_abs)
         size_mult_comp = 1.0 + ((float(self.maker_comp_size_mult_max) - 1.0) * strength)
         spread_mult_comp = 1.0 - ((1.0 - float(self.maker_comp_spread_mult_min)) * strength)
@@ -2945,6 +3341,49 @@ class ExecutionRunner:
             "edge_strength_normalized": float(strength),
             "market_probability": market_probability,
             "fair_probability": fair,
+            "secondary_fair_probability": secondary_fair,
+            "market_reference_mode": str(
+                market_reference.get("market_reference_mode")
+                or ("direct_midpoint" if isinstance(market_probability, (int, float)) else "missing")
+            ).strip().lower(),
+            "market_reference_basis": str(
+                market_reference.get("market_reference_basis")
+                or ("direct_book_midpoint" if isinstance(market_probability, (int, float)) else "missing")
+            ).strip().lower(),
+            "market_reference_source_side": str(
+                market_reference.get("market_reference_source_side") or "none"
+            ).strip().lower(),
+            "market_reference_class": str(
+                market_reference.get("market_reference_class")
+                or ("authoritative" if isinstance(market_probability, (int, float)) else "not_available")
+            ).strip().lower(),
+            "secondary_edge_value": (
+                float(secondary_edge_signed)
+                if isinstance(secondary_edge_signed, (int, float))
+                else None
+            ),
+            "secondary_oracle_status": normalized_secondary_oracle_status,
+            "secondary_oracle_confirmation": bool(secondary_oracle_confirmation),
+            "chainlink_spot_price": (
+                float(chainlink_spot_price)
+                if isinstance(chainlink_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_spot_price": (
+                float(secondary_oracle_spot_price)
+                if isinstance(secondary_oracle_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_abs": (
+                float(secondary_oracle_price_delta_abs)
+                if isinstance(secondary_oracle_price_delta_abs, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_bps": (
+                float(secondary_oracle_price_delta_bps)
+                if isinstance(secondary_oracle_price_delta_bps, (int, float))
+                else None
+            ),
             "size_multiplier_base": float(base_size_multiplier),
             "size_multiplier_competitiveness": float(size_mult_comp),
             "size_multiplier_applied": float(size_multiplier_applied),
@@ -2988,6 +3427,15 @@ class ExecutionRunner:
             reason = (reason or "missing_market_key")
         stage = self._stage_name_for_sec_to_expiry(sec_to_expiry)
         raw_stage = stage
+        maker_timing_gate_open = bool(self._maker_timing_gate_open(sec_to_expiry))
+        maker_timing_stage_override_active = False
+        if (
+            self.maker_comp_timing_gate_enabled
+            and maker_timing_gate_open
+            and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}
+        ):
+            maker_timing_stage_override_active = bool(stage != STAGE_MAKER_TAKER_SELECTIVE)
+            stage = STAGE_MAKER_TAKER_SELECTIVE
         if not market_key:
             stage = STAGE_UNKNOWN
         expired_reduce_only_grace_active = (
@@ -3016,7 +3464,9 @@ class ExecutionRunner:
                     reason = f"observe_hold_active:{raw_stage}"
         allow_maker, allow_taker = self._stage_policy(stage)
         if bool(reduce_only_recovery.get("active", False)) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
-            allow_maker, allow_taker = True, True
+            # Recovery lifecycle tracking stays live, but taker authority does not.
+            # Cleanup must not silently route back through taker scope.
+            allow_maker, allow_taker = True, False
             recovery_reason = str(reduce_only_recovery.get("reason") or "").strip()
             if recovery_reason:
                 if reason:
@@ -3032,6 +3482,8 @@ class ExecutionRunner:
             "stage": stage,
             "raw_stage": raw_stage,
             "sec_to_expiry": sec_to_expiry,
+            "maker_timing_gate_open": bool(maker_timing_gate_open),
+            "maker_timing_stage_override_active": bool(maker_timing_stage_override_active),
             "market_key": market_key,
             "observe_hold_active": hold_active,
             "observe_hold_cycles_remaining": hold_cycles_remaining,
@@ -3051,6 +3503,9 @@ class ExecutionRunner:
             ),
             "reduce_only_net_shares": float(reduce_only_recovery.get("net_shares", 0.0) or 0.0),
             "reduce_only_open_order_present": bool(reduce_only_recovery.get("open_order_present", False)),
+            "normal_taker_commitment_hold_active": bool(
+                reduce_only_recovery.get("normal_taker_commitment_hold_active", False)
+            ),
             "held_preexpiry_reduce_only_sec": float(reduce_only_recovery.get("preexpiry_window_sec", 0.0) or 0.0),
             "allow_maker": allow_maker,
             "allow_taker": allow_taker,
@@ -3160,7 +3615,7 @@ class ExecutionRunner:
     ) -> str:
         if self.token_expiry_dt_by_token.get(token_id) is None:
             return "missing_expiry_metadata"
-        if self.token_strike_by_token.get(token_id) is None:
+        if self._token_price_anchor(token_id) is None:
             return "missing_threshold_metadata"
         if str(self.token_side_by_token.get(token_id, "")).strip().upper() not in {"YES", "NO"}:
             return "missing_side_metadata"
@@ -3295,6 +3750,190 @@ class ExecutionRunner:
     def _book_source_is_ws(cls, top: Any) -> bool:
         return cls._book_source(top) == "ws"
 
+    @staticmethod
+    def _book_ts_utc(top: Any) -> Optional[dt.datetime]:
+        if top is None:
+            return None
+        return parse_ts(getattr(top, "ts_utc", None))
+
+    @staticmethod
+    def _book_side_quote_entry(
+        *,
+        top: Any,
+        side: str,
+        fallback_ts: Optional[dt.datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        normalized_side = str(side or "").strip().lower()
+        if normalized_side == "bid":
+            price = getattr(top, "best_bid_price", None)
+            size = getattr(top, "best_bid_size", None)
+        else:
+            price = getattr(top, "best_ask_price", None)
+            size = getattr(top, "best_ask_size", None)
+        if not isinstance(price, (int, float)):
+            return None
+        ts = ExecutionRunner._book_ts_utc(top) or fallback_ts or utc_now()
+        return {
+            "price": float(price),
+            "size": (float(size) if isinstance(size, (int, float)) else None),
+            "ts": ts,
+        }
+
+    def _clear_maker_ws_touch_cache(self, token_id: str) -> None:
+        normalized_token_id = str(token_id or "").strip()
+        if not normalized_token_id:
+            return
+        self._maker_last_ws_bid_quote_by_token.pop(normalized_token_id, None)
+        self._maker_last_ws_ask_quote_by_token.pop(normalized_token_id, None)
+
+    def _update_maker_ws_touch_cache(self, *, books: Dict[str, Any]) -> None:
+        now = utc_now()
+        for raw_token_id, top in books.items():
+            token_id = str(raw_token_id or "").strip()
+            if not token_id or not self._book_source_is_ws(top):
+                continue
+            bid_entry = self._book_side_quote_entry(top=top, side="bid", fallback_ts=now)
+            ask_entry = self._book_side_quote_entry(top=top, side="ask", fallback_ts=now)
+            if bid_entry is not None:
+                self._maker_last_ws_bid_quote_by_token[token_id] = bid_entry
+            if ask_entry is not None:
+                self._maker_last_ws_ask_quote_by_token[token_id] = ask_entry
+
+    def _resolve_maker_paired_touch_reference(
+        self,
+        *,
+        token_id: str,
+        top: Any,
+        maker_prereq_failure_reason: str,
+    ) -> Optional[Tuple[BookTop, Dict[str, Any]]]:
+        normalized_token_id = str(token_id or "").strip()
+        if not normalized_token_id or top is None or not self._book_source_is_ws(top):
+            return None
+        if isinstance(getattr(top, "midpoint", None), (int, float)):
+            return None
+        if self.doctrine_mode != "canonical":
+            return None
+        if str(maker_prereq_failure_reason or "").strip():
+            return None
+
+        current_ts = self._book_ts_utc(top) or utc_now()
+        bid_entry = self._book_side_quote_entry(top=top, side="bid", fallback_ts=current_ts)
+        ask_entry = self._book_side_quote_entry(top=top, side="ask", fallback_ts=current_ts)
+        if bid_entry is None:
+            bid_entry = self._maker_last_ws_bid_quote_by_token.get(normalized_token_id)
+        if ask_entry is None:
+            ask_entry = self._maker_last_ws_ask_quote_by_token.get(normalized_token_id)
+        if not bid_entry or not ask_entry:
+            return None
+        bid_ts = bid_entry.get("ts")
+        ask_ts = ask_entry.get("ts")
+        if not isinstance(bid_ts, dt.datetime) or not isinstance(ask_ts, dt.datetime):
+            return None
+        pair_delta_sec = abs((bid_ts - ask_ts).total_seconds())
+        if pair_delta_sec > float(self._maker_paired_touch_max_delta_sec):
+            return None
+
+        bid_price = bid_entry.get("price")
+        ask_price = ask_entry.get("price")
+        if not isinstance(bid_price, (int, float)) or not isinstance(ask_price, (int, float)):
+            return None
+        bid_value = float(bid_price)
+        ask_value = float(ask_price)
+        if bid_value <= 0.0 or ask_value <= 0.0 or bid_value > ask_value + 1e-9:
+            return None
+
+        synthetic_ts = utc_iso(max(bid_ts, ask_ts))
+        resolved_top = BookTop(
+            token_id=normalized_token_id,
+            ts_utc=synthetic_ts,
+            source="ws",
+            best_bid_price=bid_value,
+            best_bid_size=(
+                float(bid_entry["size"])
+                if isinstance(bid_entry.get("size"), (int, float))
+                else None
+            ),
+            best_ask_price=ask_value,
+            best_ask_size=(
+                float(ask_entry["size"])
+                if isinstance(ask_entry.get("size"), (int, float))
+                else None
+            ),
+        )
+        midpoint = resolved_top.midpoint
+        if midpoint is None:
+            return None
+        return (
+            resolved_top,
+            {
+                "market_probability": float(midpoint),
+                "market_reference_mode": "backfilled_paired_touch",
+                "market_reference_basis": "ws_recent_paired_touch",
+                "market_reference_confidence": "authoritative",
+                "market_reference_fallback_used": True,
+                "market_reference_source_side": "paired",
+                "market_reference_class": "authoritative",
+                "decision_input_type_override": None,
+                "decision_input_data_class_override": None,
+                "market_reference_backfill_pair_delta_sec": float(pair_delta_sec),
+            },
+        )
+
+    def _resolve_maker_book_reference(
+        self,
+        *,
+        token_id: str,
+        top: Any,
+        maker_prereq_failure_reason: str,
+    ) -> Tuple[Any, Dict[str, Any]]:
+        if top is not None and isinstance(getattr(top, "midpoint", None), (int, float)):
+            return (
+                top,
+                self._resolve_maker_market_reference(
+                    top=top,
+                    maker_prereq_failure_reason=maker_prereq_failure_reason,
+                ),
+            )
+
+        paired = self._resolve_maker_paired_touch_reference(
+            token_id=token_id,
+            top=top,
+            maker_prereq_failure_reason=maker_prereq_failure_reason,
+        )
+        if paired is not None:
+            return paired
+        return (
+            top,
+            self._resolve_maker_market_reference(
+                top=top,
+                maker_prereq_failure_reason=maker_prereq_failure_reason,
+            ),
+        )
+
+    def _resolve_maker_market_reference_inputs(
+        self,
+        *,
+        books: Dict[str, Any],
+        maker_token_ids: set[str],
+        maker_prereq_failure_by_token: Dict[str, str],
+    ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+        resolved_books: Dict[str, Any] = {}
+        market_reference_by_token: Dict[str, Dict[str, Any]] = {}
+        for raw_token_id in sorted(str(x) for x in maker_token_ids):
+            token_id = str(raw_token_id or "").strip()
+            if not token_id:
+                continue
+            top = books.get(token_id)
+            resolved_top, market_reference = self._resolve_maker_book_reference(
+                token_id=token_id,
+                top=top,
+                maker_prereq_failure_reason=str(maker_prereq_failure_by_token.get(token_id, "")).strip(),
+            )
+            if resolved_top is not None:
+                resolved_books[token_id] = resolved_top
+            market_reference_by_token[token_id] = dict(market_reference)
+        return resolved_books, market_reference_by_token
+
     @classmethod
     def _latency_sample_token_ids(cls, books: Dict[str, Any]) -> list[str]:
         return [str(token_id) for token_id, top in books.items() if cls._book_source_is_ws(top)]
@@ -3326,11 +3965,218 @@ class ExecutionRunner:
             gated_tokens.add(token_id)
         return gated_tokens
 
+    @staticmethod
+    def _market_base_key_from_market_key(market_key: Any) -> str:
+        normalized = str(market_key or "").strip()
+        if not normalized:
+            return ""
+        if "|" not in normalized:
+            return normalized
+        base_key, last_part = normalized.rsplit("|", 1)
+        if str(last_part or "").strip().upper() in {"YES", "NO"} and str(base_key or "").strip():
+            return str(base_key).strip()
+        return normalized
+
+    @classmethod
+    def _apply_normal_taker_commitment_market_gate(
+        cls,
+        *,
+        maker_eligible_tokens: set[str],
+        token_market_key_by_token: Dict[str, str],
+        normal_taker_commitment_token_ids: set[str],
+        maker_prereq_failure_by_token: Dict[str, str],
+    ) -> set[str]:
+        committed_market_bases = {
+            cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
+            for token_id in normal_taker_commitment_token_ids
+            if cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
+        }
+        if not committed_market_bases:
+            return set(maker_eligible_tokens)
+
+        gated_tokens: set[str] = set()
+        for token_id in maker_eligible_tokens:
+            market_base_key = cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
+            if market_base_key and market_base_key in committed_market_bases:
+                maker_prereq_failure_by_token.setdefault(token_id, "maker_blocked_by_normal_taker_commitment")
+                continue
+            gated_tokens.add(token_id)
+        return gated_tokens
+
+    @classmethod
+    def _normal_taker_market_family_conflict_snapshot(
+        cls,
+        *,
+        decision_token_id: str,
+        token_market_key_by_token: Dict[str, str],
+        positions: Dict[str, Position],
+        open_order_token_ids: set[str],
+        min_meaningful_net_shares: float,
+    ) -> Dict[str, Any]:
+        token = str(decision_token_id or "").strip()
+        market_key = str(token_market_key_by_token.get(token, "")).strip()
+        market_base_key = cls._market_base_key_from_market_key(market_key)
+        if not token or not market_base_key:
+            return {
+                "active": False,
+                "market_base_key": market_base_key,
+                "sibling_token_ids": [],
+                "conflict_token_ids": [],
+                "position_conflict_token_ids": [],
+                "open_order_conflict_token_ids": [],
+                "max_abs_net_shares": 0.0,
+            }
+
+        min_net = max(1e-9, float(min_meaningful_net_shares or 0.0))
+        sibling_token_ids: List[str] = []
+        conflict_token_ids: List[str] = []
+        position_conflict_token_ids: List[str] = []
+        open_order_conflict_token_ids: List[str] = []
+        max_abs_net_shares = 0.0
+
+        for candidate_id, candidate_market_key in token_market_key_by_token.items():
+            sibling = str(candidate_id or "").strip()
+            if not sibling or sibling == token:
+                continue
+            if cls._market_base_key_from_market_key(candidate_market_key) != market_base_key:
+                continue
+            sibling_token_ids.append(sibling)
+            pos = positions.get(sibling)
+            net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0) if pos is not None else 0.0
+            max_abs_net_shares = max(max_abs_net_shares, abs(net_shares))
+            position_conflict = abs(net_shares) + 1e-9 >= min_net
+            open_order_conflict = sibling in open_order_token_ids
+            if position_conflict:
+                position_conflict_token_ids.append(sibling)
+            if open_order_conflict:
+                open_order_conflict_token_ids.append(sibling)
+            if position_conflict or open_order_conflict:
+                conflict_token_ids.append(sibling)
+
+        return {
+            "active": bool(conflict_token_ids),
+            "market_base_key": market_base_key,
+            "sibling_token_ids": sibling_token_ids,
+            "conflict_token_ids": conflict_token_ids,
+            "position_conflict_token_ids": position_conflict_token_ids,
+            "open_order_conflict_token_ids": open_order_conflict_token_ids,
+            "max_abs_net_shares": float(max_abs_net_shares),
+        }
+
+    def _market_base_occupancy_snapshot(
+        self,
+        *,
+        decision_token_id: str,
+        min_meaningful_net_shares: float,
+    ) -> Dict[str, Any]:
+        token = str(decision_token_id or "").strip()
+        market_key = str(self.token_market_key_by_token.get(token, "")).strip()
+        market_base_key = self._market_base_key_from_market_key(market_key)
+        if not token or not market_base_key:
+            return {
+                "active": False,
+                "self_active": False,
+                "market_base_key": market_base_key,
+                "self_open_order_present": False,
+                "self_unresolved_lifecycle_obligation": False,
+                "self_net_shares_abs": 0.0,
+                "conflict_token_ids": [],
+                "position_conflict_token_ids": [],
+                "open_order_conflict_token_ids": [],
+                "unresolved_lifecycle_conflict_token_ids": [],
+                "max_abs_net_shares": 0.0,
+            }
+
+        min_net = max(1e-9, float(min_meaningful_net_shares or 0.0))
+        open_order_token_ids = self._open_order_token_ids()
+        conflict_token_ids: List[str] = []
+        position_conflict_token_ids: List[str] = []
+        open_order_conflict_token_ids: List[str] = []
+        unresolved_lifecycle_conflict_token_ids: List[str] = []
+        max_abs_net_shares = 0.0
+        self_open_order_present = False
+        self_unresolved_lifecycle_obligation = False
+        self_net_shares_abs = 0.0
+
+        for candidate_id, candidate_market_key in self.token_market_key_by_token.items():
+            candidate = str(candidate_id or "").strip()
+            if not candidate:
+                continue
+            if self._market_base_key_from_market_key(candidate_market_key) != market_base_key:
+                continue
+            pos = self.risk.positions.get(candidate)
+            net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0) if pos is not None else 0.0
+            max_abs_net_shares = max(max_abs_net_shares, abs(net_shares))
+            open_order_present = candidate in open_order_token_ids
+            lifecycle_flags = self._token_lifecycle_obligation_flags(
+                token_id=candidate,
+                open_order_present=bool(open_order_present),
+            )
+            unresolved_lifecycle_obligation = bool(lifecycle_flags.get("unresolved_lifecycle_obligation", False))
+            position_conflict = bool(abs(net_shares) + 1e-9 >= min_net)
+            candidate_active = bool(
+                position_conflict
+                or open_order_present
+                or unresolved_lifecycle_obligation
+            )
+            if candidate == token:
+                self_open_order_present = bool(open_order_present)
+                self_unresolved_lifecycle_obligation = bool(unresolved_lifecycle_obligation)
+                self_net_shares_abs = float(abs(net_shares))
+            if not candidate_active:
+                continue
+            conflict_token_ids.append(candidate)
+            if position_conflict:
+                position_conflict_token_ids.append(candidate)
+            if open_order_present:
+                open_order_conflict_token_ids.append(candidate)
+            if unresolved_lifecycle_obligation:
+                unresolved_lifecycle_conflict_token_ids.append(candidate)
+
+        return {
+            "active": bool(conflict_token_ids),
+            "self_active": bool(
+                self_open_order_present
+                or self_unresolved_lifecycle_obligation
+                or (self_net_shares_abs + 1e-9 >= min_net)
+            ),
+            "market_base_key": market_base_key,
+            "self_open_order_present": bool(self_open_order_present),
+            "self_unresolved_lifecycle_obligation": bool(self_unresolved_lifecycle_obligation),
+            "self_net_shares_abs": float(self_net_shares_abs),
+            "conflict_token_ids": sorted(conflict_token_ids),
+            "position_conflict_token_ids": sorted(position_conflict_token_ids),
+            "open_order_conflict_token_ids": sorted(open_order_conflict_token_ids),
+            "unresolved_lifecycle_conflict_token_ids": sorted(unresolved_lifecycle_conflict_token_ids),
+            "max_abs_net_shares": float(max_abs_net_shares),
+        }
+
+    @staticmethod
+    def _build_maker_handoff_no_submission_reason_by_token(
+        *,
+        maker_no_submission_reason_by_token: Optional[Dict[str, str]],
+        maker_prereq_failure_by_token: Optional[Dict[str, str]],
+    ) -> Dict[str, str]:
+        handoff_reasons: Dict[str, str] = {
+            str(token_id): str(reason).strip().lower()
+            for token_id, reason in dict(maker_no_submission_reason_by_token or {}).items()
+            if str(token_id).strip() and str(reason).strip()
+        }
+        for token_id, reason in dict(maker_prereq_failure_by_token or {}).items():
+            normalized_token_id = str(token_id).strip()
+            normalized_reason = str(reason).strip().lower()
+            if not normalized_token_id or not normalized_reason:
+                continue
+            handoff_reasons.setdefault(normalized_token_id, normalized_reason)
+        return handoff_reasons
+
     def _emit_edge_evaluation(
         self,
         *,
         token_id: str,
         target_ref: Optional[str] = None,
+        source_token_id: Optional[str] = None,
+        source_target_ref: Optional[str] = None,
         evaluation_scope: str,
         stage: str,
         time_remaining_sec: Optional[float],
@@ -3363,6 +4209,17 @@ class ExecutionRunner:
         taker_submit_reject_reason: Optional[str] = None,
         reduce_only_recovery_active: Optional[bool] = None,
         reduce_only_recovery_reason: Optional[str] = None,
+        financial_posture_class: Optional[str] = None,
+        secondary_fair_probability: Optional[float] = None,
+        secondary_oracle_status: Optional[str] = None,
+        secondary_oracle_confirmation: Optional[bool] = None,
+        chainlink_spot_price: Optional[float] = None,
+        secondary_oracle_spot_price: Optional[float] = None,
+        secondary_oracle_price_delta_abs: Optional[float] = None,
+        secondary_oracle_price_delta_bps: Optional[float] = None,
+        open_maker_orders_total: Optional[int] = None,
+        probe_favored_side: Optional[str] = None,
+        probe_visible_depth_shares: Optional[float] = None,
     ) -> None:
         normalized_action = str(action_taken or EDGE_ACTION_NONE).strip().lower() or EDGE_ACTION_NONE
         normalized_scope = str(evaluation_scope or "").strip().lower()
@@ -3388,8 +4245,12 @@ class ExecutionRunner:
         ts_utc = utc_iso()
         normalized_token_id = str(token_id or "").strip()
         normalized_target_ref = str(target_ref or "").strip() or None
+        normalized_source_token_id = str(source_token_id or "").strip() or None
+        normalized_source_target_ref = str(source_target_ref or "").strip() or None
         if normalized_target_ref is None and normalized_token_id:
             normalized_target_ref = hashlib.sha256(normalized_token_id.encode("utf-8")).hexdigest()[:16]
+        if normalized_source_target_ref is None and normalized_source_token_id:
+            normalized_source_target_ref = hashlib.sha256(normalized_source_token_id.encode("utf-8")).hexdigest()[:16]
         normalized_submitted_order_ids = sorted(
             {
                 str(value).strip()
@@ -3403,6 +4264,8 @@ class ExecutionRunner:
             "run_id": self.run_id,
             "token_id": normalized_token_id,
             "target_ref": normalized_target_ref,
+            "source_token_id": normalized_source_token_id,
+            "source_target_ref": normalized_source_target_ref,
             "evaluation_scope": normalized_scope,
             "cycle_index": (int(cycle_index) if cycle_index is not None else int(self._doctrine_cycle_index)),
             "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
@@ -3441,6 +4304,55 @@ class ExecutionRunner:
             "reduce_only_recovery_reason": (
                 str(reduce_only_recovery_reason or "").strip().lower() or None
             ),
+            "financial_posture_class": (
+                str(financial_posture_class or "").strip().upper() or None
+            ),
+            "secondary_fair_probability": (
+                float(secondary_fair_probability)
+                if isinstance(secondary_fair_probability, (int, float))
+                else None
+            ),
+            "secondary_oracle_status": (
+                str(secondary_oracle_status or "").strip().lower() or None
+            ),
+            "secondary_oracle_confirmation": (
+                bool(secondary_oracle_confirmation)
+                if secondary_oracle_confirmation is not None
+                else None
+            ),
+            "chainlink_spot_price": (
+                float(chainlink_spot_price)
+                if isinstance(chainlink_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_spot_price": (
+                float(secondary_oracle_spot_price)
+                if isinstance(secondary_oracle_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_abs": (
+                float(secondary_oracle_price_delta_abs)
+                if isinstance(secondary_oracle_price_delta_abs, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_bps": (
+                float(secondary_oracle_price_delta_bps)
+                if isinstance(secondary_oracle_price_delta_bps, (int, float))
+                else None
+            ),
+            "open_maker_orders_total": (
+                int(open_maker_orders_total)
+                if isinstance(open_maker_orders_total, (int, float))
+                else None
+            ),
+            "probe_favored_side": (
+                str(probe_favored_side or "").strip().upper() or None
+            ),
+            "probe_visible_depth_shares": (
+                float(probe_visible_depth_shares)
+                if isinstance(probe_visible_depth_shares, (int, float))
+                else None
+            ),
         }
         if payload["block_reason"] != "maker_no_submission":
             payload["maker_no_submission_cause"] = None
@@ -3454,6 +4366,8 @@ class ExecutionRunner:
         if not normalized_market_reference_basis:
             if normalized_market_reference_mode == "direct_midpoint":
                 normalized_market_reference_basis = "direct_book_midpoint"
+            elif normalized_market_reference_mode == "backfilled_paired_touch":
+                normalized_market_reference_basis = "ws_recent_paired_touch"
             elif normalized_market_reference_mode == "bounded_single_side_touch":
                 normalized_market_reference_basis = "ws_single_side_touch"
             else:
@@ -3462,22 +4376,26 @@ class ExecutionRunner:
         if not normalized_market_reference_confidence:
             if normalized_market_reference_mode == "direct_midpoint":
                 normalized_market_reference_confidence = "authoritative"
+            elif normalized_market_reference_mode == "backfilled_paired_touch":
+                normalized_market_reference_confidence = "authoritative"
             elif normalized_market_reference_mode == "bounded_single_side_touch":
                 normalized_market_reference_confidence = "bounded_low"
             else:
                 normalized_market_reference_confidence = "none"
         normalized_market_reference_source_side = str(market_reference_source_side or "").strip().lower()
-        if normalized_market_reference_source_side not in {"bid", "ask"}:
+        if normalized_market_reference_source_side not in {"bid", "ask", "paired"}:
             normalized_market_reference_source_side = "none"
         fallback_used = (
             bool(market_reference_fallback_used)
             if market_reference_fallback_used is not None
-            else (normalized_market_reference_mode == "bounded_single_side_touch")
+            else (normalized_market_reference_mode in {"bounded_single_side_touch", "backfilled_paired_touch"})
         )
         normalized_market_reference_class = str(market_reference_class or "").strip().lower()
         if not normalized_market_reference_class:
             if normalized_market_reference_mode == "bounded_single_side_touch":
                 normalized_market_reference_class = "bounded_approximation"
+            elif normalized_market_reference_mode == "backfilled_paired_touch":
+                normalized_market_reference_class = "authoritative"
             elif normalized_market_reference_mode == "direct_midpoint":
                 normalized_market_reference_class = "authoritative"
             else:
@@ -3537,12 +4455,21 @@ class ExecutionRunner:
         maker_no_submission_category_by_token: Optional[Dict[str, str]],
         maker_prereq_failure_by_token: Dict[str, str],
         fair_probability_by_token: Dict[str, float],
+        maker_competitiveness_profiles_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         oracle_tick_age_sec: Optional[float],
         latency_state: str,
         cycle_index: int,
+        maker_market_reference_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         maker_no_submission_reason_by_token = maker_no_submission_reason_by_token or {}
         maker_no_submission_category_by_token = maker_no_submission_category_by_token or {}
+        maker_competitiveness_profiles_by_token = maker_competitiveness_profiles_by_token or {}
+        maker_market_reference_by_token = maker_market_reference_by_token or {}
+        open_maker_orders_total: Optional[int] = None
+        try:
+            open_maker_orders_total = int(len(self.tx_manager.get_open_orders()))
+        except ORDER_TRANSPORT_EXCEPTIONS:
+            open_maker_orders_total = None
         for token_id in sorted(str(x) for x in maker_eval_token_ids):
             info = stage_info_by_token.get(token_id, {})
             stage = str(info.get("stage", STAGE_UNKNOWN))
@@ -3553,11 +4480,16 @@ class ExecutionRunner:
             reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
             reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
             top = books.get(token_id)
-            maker_prereq_failure_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
-            market_reference = self._resolve_maker_market_reference(
-                top=top,
-                maker_prereq_failure_reason=maker_prereq_failure_reason,
+            profile_context = dict(
+                (maker_competitiveness_profiles_by_token.get(token_id) or {}).get("context") or {}
             )
+            maker_prereq_failure_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
+            market_reference = dict(maker_market_reference_by_token.get(token_id) or {})
+            if not market_reference:
+                market_reference = self._resolve_maker_market_reference(
+                    top=top,
+                    maker_prereq_failure_reason=maker_prereq_failure_reason,
+                )
             market_probability = market_reference.get("market_probability")
             fair_probability = fair_probability_by_token.get(token_id)
             edge_value = compute_edge_value(
@@ -3605,6 +4537,20 @@ class ExecutionRunner:
                     maker_no_submission_category = (
                         str(maker_no_submission_category_by_token.get(token_id, "")).strip().lower() or "unknown"
                     )
+            financial_posture_class = self._resolve_financial_posture_class(
+                stage_info_by_token={token_id: info}
+            )
+            probe_favored_side: Optional[str] = None
+            if isinstance(edge_value, (int, float)):
+                if float(edge_value) > 1e-12:
+                    probe_favored_side = "BUY"
+                elif float(edge_value) < -1e-12:
+                    probe_favored_side = "SELL"
+            probe_visible_depth_shares: Optional[float] = None
+            if probe_favored_side == "BUY" and isinstance(getattr(top, "best_bid_size", None), (int, float)):
+                probe_visible_depth_shares = float(getattr(top, "best_bid_size"))
+            elif probe_favored_side == "SELL" and isinstance(getattr(top, "best_ask_size", None), (int, float)):
+                probe_visible_depth_shares = float(getattr(top, "best_ask_size"))
 
             self._emit_edge_evaluation(
                 token_id=token_id,
@@ -3648,6 +4594,17 @@ class ExecutionRunner:
                 ),
                 reduce_only_recovery_active=reduce_only_recovery_active,
                 reduce_only_recovery_reason=reduce_only_recovery_reason,
+                financial_posture_class=financial_posture_class,
+                secondary_fair_probability=profile_context.get("secondary_fair_probability"),
+                secondary_oracle_status=profile_context.get("secondary_oracle_status"),
+                secondary_oracle_confirmation=profile_context.get("secondary_oracle_confirmation"),
+                chainlink_spot_price=profile_context.get("chainlink_spot_price"),
+                secondary_oracle_spot_price=profile_context.get("secondary_oracle_spot_price"),
+                secondary_oracle_price_delta_abs=profile_context.get("secondary_oracle_price_delta_abs"),
+                secondary_oracle_price_delta_bps=profile_context.get("secondary_oracle_price_delta_bps"),
+                open_maker_orders_total=open_maker_orders_total,
+                probe_favored_side=probe_favored_side,
+                probe_visible_depth_shares=probe_visible_depth_shares,
             )
 
     @staticmethod
@@ -3671,6 +4628,7 @@ class ExecutionRunner:
             return True
         blocked_reasons = {
             "replace_cancel_unavailable",
+            "maker_timing_gate_closed",
             "reduce_only_recovery_size_cap_below_min_order_size",
             "action_budget_exhausted",
             "no_desired_quote",
@@ -3693,9 +4651,11 @@ class ExecutionRunner:
         self.last_midpoint_ts_mono_by_token.pop(token_id, None)
         self.last_volatility_by_token.pop(token_id, None)
         self._last_taker_submit_mono_by_token.pop(token_id, None)
+        self._normal_taker_commitment_token_ids.discard(token_id)
         self._last_doctrine_signature_by_token.pop(token_id, None)
         self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
         self._last_stage_by_token.pop(token_id, None)
+        self._clear_maker_ws_touch_cache(token_id)
         expiry_dt = self.token_expiry_dt_by_token.get(token_id)
         sec_to_expiry = (expiry_dt - now).total_seconds() if expiry_dt is not None else None
         self.events.log_event(
@@ -3747,6 +4707,97 @@ class ExecutionRunner:
             except EXECUTION_RUNTIME_EXCEPTIONS as exc:
                 errors_by_token[token_id] = str(exc)
         return books_by_token, errors_by_token
+
+    def _reset_preexpiry_emergency_taker_repeat_state(self) -> None:
+        self._preexpiry_emergency_taker_repeat_signature = None
+        self._preexpiry_emergency_taker_repeat_payload = None
+        self._preexpiry_emergency_taker_repeat_total = 0
+        self._preexpiry_emergency_taker_repeat_pending = 0
+        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ""
+        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ""
+        self._preexpiry_emergency_taker_repeat_token_ids_seen = set()
+        self._preexpiry_emergency_taker_repeat_token_ids_sample = []
+
+    @staticmethod
+    def _preexpiry_emergency_taker_signature(payload: Dict[str, Any]) -> Tuple[str, ...]:
+        return (
+            str(payload.get("stage") or "").strip().upper(),
+            str(payload.get("financial_posture_class") or "").strip().upper(),
+            str(payload.get("outcome") or "").strip().lower(),
+            str(payload.get("reason") or "").strip().lower(),
+            str(payload.get("blocked_reason") or "").strip().lower(),
+            str(payload.get("maker_no_submission_reason") or "").strip().lower(),
+            "1" if bool(payload.get("maker_submitted_for_token")) else "0",
+            "1" if bool(payload.get("maker_reduce_only_exit_blocked")) else "0",
+            "1" if bool(payload.get("timing_gate_handoff_override_active")) else "0",
+            str(payload.get("taker_submit_reject_reason") or "").strip().lower(),
+        )
+
+    def _flush_preexpiry_emergency_taker_repeat_summary(self) -> None:
+        if (
+            self._preexpiry_emergency_taker_repeat_pending <= 0
+            or not isinstance(self._preexpiry_emergency_taker_repeat_payload, dict)
+        ):
+            return
+        payload = dict(self._preexpiry_emergency_taker_repeat_payload)
+        payload["ts_utc"] = utc_iso()
+        payload["compression_mode"] = "repeat_summary"
+        payload["repeat_count_delta"] = int(self._preexpiry_emergency_taker_repeat_pending)
+        payload["repeat_count_total"] = int(self._preexpiry_emergency_taker_repeat_total)
+        payload["repeat_first_ts_utc"] = str(self._preexpiry_emergency_taker_repeat_pending_first_ts_utc or "")
+        payload["repeat_last_ts_utc"] = str(self._preexpiry_emergency_taker_repeat_pending_last_ts_utc or "")
+        payload["repeat_distinct_token_count"] = int(len(self._preexpiry_emergency_taker_repeat_token_ids_seen))
+        payload["repeat_token_ids_sample"] = list(self._preexpiry_emergency_taker_repeat_token_ids_sample)
+        self.events.log_event("preexpiry_emergency_taker_unwind", payload)
+        self._preexpiry_emergency_taker_repeat_pending = 0
+        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ""
+        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ""
+
+    def _log_preexpiry_emergency_taker_event(self, payload: Dict[str, Any]) -> None:
+        outcome = str(payload.get("outcome") or "").strip().lower()
+        if outcome != "blocked":
+            self._flush_preexpiry_emergency_taker_repeat_summary()
+            self._reset_preexpiry_emergency_taker_repeat_state()
+            direct_payload = dict(payload)
+            direct_payload["compression_mode"] = "direct"
+            direct_payload["repeat_count_delta"] = 1
+            direct_payload["repeat_count_total"] = 1
+            self.events.log_event("preexpiry_emergency_taker_unwind", direct_payload)
+            return
+
+        signature = self._preexpiry_emergency_taker_signature(payload)
+        ts_utc = str(payload.get("ts_utc") or utc_iso())
+        if self._preexpiry_emergency_taker_repeat_signature != signature:
+            self._flush_preexpiry_emergency_taker_repeat_summary()
+            self._reset_preexpiry_emergency_taker_repeat_state()
+            direct_payload = dict(payload)
+            direct_payload["compression_mode"] = "initial"
+            direct_payload["repeat_count_delta"] = 1
+            direct_payload["repeat_count_total"] = 1
+            token_id = str(payload.get("token_id") or "").strip()
+            direct_payload["repeat_distinct_token_count"] = 1 if token_id else 0
+            direct_payload["repeat_token_ids_sample"] = [token_id] if token_id else []
+            self.events.log_event("preexpiry_emergency_taker_unwind", direct_payload)
+            self._preexpiry_emergency_taker_repeat_signature = signature
+            self._preexpiry_emergency_taker_repeat_payload = dict(payload)
+            self._preexpiry_emergency_taker_repeat_total = 1
+            if token_id:
+                self._preexpiry_emergency_taker_repeat_token_ids_seen = {token_id}
+                self._preexpiry_emergency_taker_repeat_token_ids_sample = [token_id]
+            return
+
+        self._preexpiry_emergency_taker_repeat_total += 1
+        self._preexpiry_emergency_taker_repeat_pending += 1
+        token_id = str(payload.get("token_id") or "").strip()
+        if token_id and token_id not in self._preexpiry_emergency_taker_repeat_token_ids_seen:
+            self._preexpiry_emergency_taker_repeat_token_ids_seen.add(token_id)
+            if len(self._preexpiry_emergency_taker_repeat_token_ids_sample) < 4:
+                self._preexpiry_emergency_taker_repeat_token_ids_sample.append(token_id)
+        if not self._preexpiry_emergency_taker_repeat_pending_first_ts_utc:
+            self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ts_utc
+        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ts_utc
+        if self._preexpiry_emergency_taker_repeat_pending >= 25:
+            self._flush_preexpiry_emergency_taker_repeat_summary()
 
     def _run_sniper_taker(
         self,
@@ -3832,6 +4883,124 @@ class ExecutionRunner:
                 token_id,
             )
         )
+        active_token_ids = {str(token_id).strip() for token_id in token_order if str(token_id).strip()}
+        open_order_token_ids = self._open_order_token_ids()
+        normal_side_policy = (
+            str(self.sniper_taker_competitiveness_cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
+            or "buy_expected_winner_only"
+        )
+        allow_complement_buy_route = bool(self.sniper_taker_competitiveness_cfg.allow_complement_buy_route)
+        min_visible_fill_ratio = max(0.0, float(self.sniper_taker_competitiveness_cfg.min_visible_fill_ratio))
+
+        def _build_route_block_decision(
+            *,
+            decision_token_id: str,
+            decision_stage: str,
+            decision_sec_to_expiry: Optional[float],
+            edge_signed_value: Optional[float],
+            required_min_edge_value: float,
+            token_score_value: Optional[float],
+            block_reason_value: str,
+            side_class_value: str,
+        ) -> SniperDecision:
+            edge_abs_value = abs(float(edge_signed_value)) if isinstance(edge_signed_value, (int, float)) else 0.0
+            conviction_score_value = self.sniper_tool._conviction(
+                edge_abs=edge_abs_value,
+                token_score=token_score_value,
+            )
+            timing_window_class_value = self.sniper_tool._timing_window_class(
+                str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                decision_sec_to_expiry,
+            )
+            return SniperDecision(
+                token_id=str(decision_token_id),
+                stage=str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                should_submit=False,
+                block_reason=str(block_reason_value or "taker_submit_rejected"),
+                side="BUY",
+                price=None,
+                edge_abs=float(edge_abs_value),
+                required_min_edge=float(required_min_edge_value),
+                conviction_score=float(conviction_score_value),
+                timing_window_class=timing_window_class_value,
+                aggressiveness_level="none",
+                price_aggress_bps_applied=0.0,
+                target_usd_requested=0.0,
+                target_usd_resolved=0.0,
+                hard_min_floor_applied=False,
+                hard_min_unachievable=False,
+                submit_capable_static=False,
+                submit_capable_dynamic_predicted=None,
+                predicted_dynamic_feasible=None,
+                predicted_feasible_target_usd=None,
+                predicted_reject_reason=None,
+                preview_authority="none",
+                dynamic_size_capped_by_risk=False,
+                multi_oracle_confirmation=False,
+                multi_oracle_boost_eligible=False,
+                multi_oracle_boost_applied=False,
+                multi_oracle_status="unknown",
+                sec_to_expiry=decision_sec_to_expiry,
+                normal_side_policy=normal_side_policy,
+                normal_taker_side_class=str(side_class_value or "unknown"),
+            )
+
+        def _log_sniper_taker_decision(
+            *,
+            source_token_id: str,
+            submit_token_id: str,
+            source_midpoint: Optional[float],
+            source_fair_probability: Optional[float],
+            source_edge_value: Optional[float],
+            submit_midpoint: Optional[float],
+            submit_fair_probability: Optional[float],
+            submit_edge_value: Optional[float],
+            confidence_score_value: float,
+            source_token_score_value: Optional[float],
+            submit_token_score_value: Optional[float],
+            cooldown_sec_value: float,
+            complement_token_id: Optional[str],
+            decision_row: SniperDecision,
+        ) -> None:
+            decision_ts_utc = utc_iso()
+            self.events.log_event(
+                "sniper_taker_decision",
+                {
+                    "ts_utc": decision_ts_utc,
+                    "ts_event_utc": decision_ts_utc,
+                    "ts_decision_utc": decision_ts_utc,
+                    "run_id": self.run_id,
+                    "token_id": str(submit_token_id),
+                    "source_token_id": str(source_token_id),
+                    "submit_token_id": str(submit_token_id),
+                    "complement_token_id": (
+                        str(complement_token_id).strip() if str(complement_token_id or "").strip() else None
+                    ),
+                    "complement_route_applied": bool(
+                        str(complement_token_id or "").strip()
+                        and str(submit_token_id).strip() != str(source_token_id).strip()
+                    ),
+                    "midpoint": submit_midpoint,
+                    "fair_probability": submit_fair_probability,
+                    "edge": submit_edge_value,
+                    "source_midpoint": source_midpoint,
+                    "source_fair_probability": source_fair_probability,
+                    "source_edge": source_edge_value,
+                    "confidence_score": float(confidence_score_value),
+                    "normal_taker_source_token_score": (
+                        float(source_token_score_value)
+                        if isinstance(source_token_score_value, (int, float))
+                        else None
+                    ),
+                    "normal_taker_submit_token_score": (
+                        float(submit_token_score_value)
+                        if isinstance(submit_token_score_value, (int, float))
+                        else None
+                    ),
+                    "cooldown_sec_applied": float(cooldown_sec_value),
+                    **decision_row.as_event_payload(),
+                },
+            )
 
         for token_id in token_order:
             info = stage_info_by_token.get(token_id, {})
@@ -3853,6 +5022,9 @@ class ExecutionRunner:
                 info.get("reduce_only_size_cap_below_min_order_size", False)
             )
             expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
+            normal_taker_commitment_hold_active = bool(
+                info.get("normal_taker_commitment_hold_active", False)
+            )
             maker_submitted_for_token = token_id in maker_submitted_token_ids
             maker_no_submission_reason = str(maker_no_submission_reason_by_token.get(token_id) or "")
             maker_reduce_only_exit_blocked = bool(
@@ -3867,12 +5039,23 @@ class ExecutionRunner:
                 and float(self.preexpiry_emergency_taker_window_sec) > 0.0
                 and sec_to_expiry <= (float(self.preexpiry_emergency_taker_window_sec) + 1e-9)
             )
+            timing_gate_handoff_override_active = bool(
+                reduce_only_recovery_active
+                and maker_reduce_only_exit_blocked
+                and (not preexpiry_emergency_window_open)
+                and str(maker_no_submission_reason or "").strip().lower() == "maker_timing_gate_closed"
+            )
             preexpiry_emergency_taker_active = bool(
-                preexpiry_emergency_window_open and maker_reduce_only_exit_blocked
+                maker_reduce_only_exit_blocked
+                and (preexpiry_emergency_window_open or timing_gate_handoff_override_active)
             )
             taker_recovery_override_active = bool(
                 reduce_only_recovery_active
                 and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active)
+            )
+            taker_recovery_dead_power_active = bool(
+                reduce_only_recovery_active
+                and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active or maker_reduce_only_exit_blocked)
             )
             recovery_financial_posture_class = (
                 str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper()
@@ -3893,6 +5076,25 @@ class ExecutionRunner:
             edge = compute_edge_value(
                 fair_probability=fair,
                 market_probability=midpoint,
+            )
+            decision_token_id = str(token_id)
+            decision_info = info
+            decision_stage = str(stage or STAGE_UNKNOWN)
+            decision_time_remaining_sec = time_remaining_sec
+            decision_sec_to_expiry = sec_to_expiry
+            decision_top = top
+            decision_midpoint = midpoint
+            decision_fair = fair
+            decision_edge = edge
+            decision_source_token_id = str(token_id)
+            decision_source_midpoint = midpoint
+            decision_source_fair = fair
+            decision_source_edge = edge
+            complement_token_id: Optional[str] = None
+            normal_taker_side_class = (
+                "buy_expected_winner"
+                if isinstance(edge, (int, float)) and float(edge) > 0.0
+                else "unknown"
             )
             validation = validate_edge_inputs(
                 EdgeInputSnapshot(
@@ -3916,6 +5118,7 @@ class ExecutionRunner:
             taker_submit_reject_reason: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
             required_min_edge = self._resolve_taker_required_min_edge(stage)
+            decision: Optional[SniperDecision] = None
 
             if not self.sniper_enabled:
                 block_reason = "sniper_disabled"
@@ -3939,10 +5142,14 @@ class ExecutionRunner:
                 and (not taker_recovery_override_active)
             ):
                 block_reason = "token_lag_not_verified"
+            elif reduce_only_recovery_active:
+                block_reason = (
+                    "maker_to_taker_recovery_handoff_disabled"
+                    if taker_recovery_dead_power_active
+                    else "taker_recovery_disabled_in_taker_scope"
+                )
             elif not taker_allowed:
                 block_reason = "stage_disallow_taker"
-            elif reduce_only_recovery_active and (not taker_recovery_override_active):
-                block_reason = "reduce_only_recovery_waiting_for_maker_exit"
             elif not oracle_fresh:
                 block_reason = "oracle_unavailable_or_stale"
             elif (
@@ -3962,33 +5169,220 @@ class ExecutionRunner:
             elif (not taker_recovery_override_active) and abs(float(edge)) < float(required_min_edge):
                 block_reason = "edge_below_min"
             else:
+                if (
+                    block_reason is None
+                    and (not taker_recovery_override_active)
+                    and isinstance(edge, (int, float))
+                    and float(edge) < 0.0
+                    and normal_side_policy == "buy_expected_winner_only"
+                ):
+                    if not allow_complement_buy_route:
+                        block_reason = "complement_route_disabled_pending_validation"
+                        normal_taker_side_class = "complement_route_disabled"
+                    else:
+                        resolved_complement_token_id, complement_block_reason = self._resolve_complement_token_id(
+                            token_id=token_id,
+                            active_token_ids=active_token_ids,
+                        )
+                        if not resolved_complement_token_id:
+                            block_reason = complement_block_reason or "complement_token_mapping_unavailable"
+                            normal_taker_side_class = "complement_mapping_unavailable"
+                        else:
+                            complement_token_id = str(resolved_complement_token_id)
+                            decision_token_id = str(resolved_complement_token_id)
+                            decision_info = stage_info_by_token.get(decision_token_id, info) or info
+                            decision_stage = str(decision_info.get("stage", stage) or stage or STAGE_UNKNOWN)
+                            required_min_edge = self._resolve_taker_required_min_edge(decision_stage)
+                            decision_time_remaining_sec = decision_info.get("sec_to_expiry", time_remaining_sec)
+                            decision_sec_to_expiry = (
+                                float(decision_time_remaining_sec)
+                                if isinstance(decision_time_remaining_sec, (int, float))
+                                else None
+                            )
+                            decision_top = books.get(decision_token_id)
+                            decision_midpoint = (
+                                decision_top.midpoint if decision_top is not None else None
+                            )
+                            decision_fair = fair_probability_by_token.get(decision_token_id)
+                            decision_edge = compute_edge_value(
+                                fair_probability=decision_fair,
+                                market_probability=decision_midpoint,
+                            )
+                            decision_target_ref = self._target_ref_for_token(decision_token_id)
+                            normal_taker_side_class = "complement_buy"
+                            if decision_fair is None:
+                                block_reason = "complement_token_fair_probability_unavailable"
+                                normal_taker_side_class = "complement_fair_unavailable"
+                            elif decision_top is None or not isinstance(
+                                getattr(decision_top, "best_ask_price", None),
+                                (int, float),
+                            ):
+                                block_reason = "complement_token_price_unavailable"
+                                normal_taker_side_class = "complement_price_unavailable"
+                            else:
+                                complement_validation = validate_edge_inputs(
+                                    EdgeInputSnapshot(
+                                        fair_probability=decision_fair,
+                                        market_probability=decision_midpoint,
+                                        time_remaining_sec=decision_time_remaining_sec,
+                                        oracle_tick_age_sec=oracle_tick_age_sec,
+                                        latency_state=latency_state,
+                                        stage=decision_stage,
+                                        evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
+                                    ),
+                                    oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
+                                    require_latency_state=bool(self.latency_verifier.require_armed_for_sniper),
+                                )
+                                if not complement_validation.valid:
+                                    block_reason = str(complement_validation.reason_code or "")
+                                elif decision_edge is None:
+                                    block_reason = "edge_value_invalid"
+                                elif float(decision_edge) <= 0.0:
+                                    block_reason = "edge_below_min"
+                                    normal_taker_side_class = "complement_edge_not_positive"
+                                elif float(decision_edge) < float(required_min_edge):
+                                    block_reason = "edge_below_min"
+                market_base_occupancy = (
+                    self._market_base_occupancy_snapshot(
+                        decision_token_id=decision_token_id,
+                        min_meaningful_net_shares=float(self.risk_min_order_size_shares),
+                    )
+                    if block_reason is None and (not taker_recovery_override_active)
+                    else {"active": False, "self_active": False}
+                )
+                if bool(market_base_occupancy.get("self_active", False)) and (
+                    str(decision_token_id or "").strip() not in self._normal_taker_commitment_token_ids
+                ):
+                    block_reason = "market_token_not_flat_and_clear"
+                    if str(normal_taker_side_class or "").strip().lower() == "unknown":
+                        normal_taker_side_class = "market_base_self_conflict"
+                market_family_conflict = (
+                    self._normal_taker_market_family_conflict_snapshot(
+                        decision_token_id=decision_token_id,
+                        token_market_key_by_token=self.token_market_key_by_token,
+                        positions=self.risk.positions,
+                        open_order_token_ids=open_order_token_ids,
+                        min_meaningful_net_shares=float(self.risk_min_order_size_shares),
+                    )
+                    if (
+                        block_reason is None
+                        and (not taker_recovery_override_active)
+                    )
+                    else {"active": False}
+                )
+                if bool(market_family_conflict.get("active", False)):
+                    block_reason = "market_family_sibling_inventory_active"
+                    if str(normal_taker_side_class or "").strip().lower() == "unknown":
+                        normal_taker_side_class = "market_family_conflict"
                 if taker_recovery_override_active:
-                    if reduce_only_side not in {"BUY", "SELL"}:
+                    if reduce_only_size_cap_below_min_order_size:
+                        block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
+                    elif reduce_only_side not in {"BUY", "SELL"}:
                         block_reason = "reduce_only_recovery_no_reducing_side"
                     elif reduce_only_size_cap_shares <= 1e-9:
                         block_reason = "reduce_only_recovery_size_cap_unavailable"
                 now_mono = time.monotonic()
-                last_submit = self._last_taker_submit_mono_by_token.get(token_id)
-                cooldown_sec = self._resolve_taker_cooldown_sec(stage)
+                cooldown_token_id = decision_token_id if not taker_recovery_override_active else token_id
+                last_submit = self._last_taker_submit_mono_by_token.get(cooldown_token_id)
+                cooldown_sec = self._resolve_taker_cooldown_sec(
+                    decision_stage if not taker_recovery_override_active else stage
+                )
                 if (
+                    (not taker_recovery_override_active)
+                    and str(decision_token_id or "").strip() in self._normal_taker_commitment_token_ids
+                ):
+                    block_reason = "normal_taker_commitment_active"
+                elif (
                     last_submit is not None
                     and (now_mono - last_submit) < cooldown_sec
                 ):
                     block_reason = "taker_token_cooldown"
                 else:
-                    if self.latency_verifier.score_enabled:
-                        score = self.latency_verifier.token_score(token_id)
+                    score_token_id = decision_token_id if not taker_recovery_override_active else token_id
+                    submit_confidence_score = float(self.latency_verifier.token_score(score_token_id))
+                    source_confidence_score = float(submit_confidence_score)
+                    confidence_score = float(submit_confidence_score)
+                    if (
+                        (not taker_recovery_override_active)
+                        and str(normal_taker_side_class or "").strip().lower() == "complement_buy"
+                    ):
+                        source_confidence_score = float(
+                            self.latency_verifier.token_score(decision_source_token_id)
+                        )
+                        confidence_score = max(float(submit_confidence_score), float(source_confidence_score))
+                    if self.latency_verifier.score_enabled and (not taker_recovery_override_active):
+                        score = float(confidence_score)
                         if score < self.latency_verifier.score_min_for_taker:
                             block_reason = "token_score_below_taker_min"
+                    if (
+                        competitiveness_enabled
+                        and (not taker_recovery_override_active)
+                        and decision is None
+                        and str(normal_taker_side_class or "").strip().lower().startswith("complement_")
+                        and block_reason is not None
+                    ):
+                        decision = _build_route_block_decision(
+                            decision_token_id=decision_token_id,
+                            decision_stage=decision_stage,
+                            decision_sec_to_expiry=decision_sec_to_expiry,
+                            edge_signed_value=decision_edge,
+                            required_min_edge_value=float(required_min_edge),
+                            token_score_value=float(confidence_score),
+                            block_reason_value=str(block_reason),
+                            side_class_value=normal_taker_side_class,
+                        )
+                        _log_sniper_taker_decision(
+                            source_token_id=decision_source_token_id,
+                            submit_token_id=decision_token_id,
+                            source_midpoint=(
+                                float(decision_source_midpoint)
+                                if isinstance(decision_source_midpoint, (int, float))
+                                else None
+                            ),
+                            source_fair_probability=(
+                                float(decision_source_fair)
+                                if isinstance(decision_source_fair, (int, float))
+                                else None
+                            ),
+                            source_edge_value=(
+                                float(decision_source_edge)
+                                if isinstance(decision_source_edge, (int, float))
+                                else None
+                            ),
+                            submit_midpoint=(
+                                float(decision_midpoint)
+                                if isinstance(decision_midpoint, (int, float))
+                                else None
+                            ),
+                            submit_fair_probability=(
+                                float(decision_fair)
+                                if isinstance(decision_fair, (int, float))
+                                else None
+                            ),
+                            submit_edge_value=(
+                                float(decision_edge)
+                                if isinstance(decision_edge, (int, float))
+                                else None
+                            ),
+                            confidence_score_value=float(confidence_score),
+                            source_token_score_value=float(source_confidence_score),
+                            submit_token_score_value=float(submit_confidence_score),
+                            cooldown_sec_value=float(cooldown_sec),
+                            complement_token_id=complement_token_id,
+                            decision_row=decision,
+                        )
                     if block_reason is None and submitted >= max_orders:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
                         side = (
                             reduce_only_side
                             if taker_recovery_override_active
-                            else ("BUY" if float(edge) > 0.0 else "SELL")
+                            else ("BUY" if float(decision_edge) > 0.0 else "SELL")
                         )
-                        touch_price = top.best_ask_price if side == "BUY" else top.best_bid_price
+                        decision_top_for_submit = decision_top if not taker_recovery_override_active else top
+                        touch_price = (
+                            decision_top_for_submit.best_ask_price if side == "BUY" else decision_top_for_submit.best_bid_price
+                        )
                         if touch_price is None:
                             block_reason = (
                                 "reduce_only_recovery_touch_price_unavailable"
@@ -3996,45 +5390,45 @@ class ExecutionRunner:
                                 else "taker_price_unavailable"
                             )
                         else:
-                            token_stats = self.latency_verifier.token_stats(token_id)
+                            token_stats = self.latency_verifier.token_stats(
+                                decision_token_id if not taker_recovery_override_active else token_id
+                            )
                             token_median_lag_ms = (
                                 float(token_stats.median_lag_ms)
                                 if token_stats is not None
                                 and isinstance(getattr(token_stats, "median_lag_ms", None), (int, float))
                                 else None
                             )
-                            confidence_score = self.latency_verifier.token_score(token_id)
                             multi_oracle_status = secondary_oracle_base_status
                             multi_oracle_confirmation = False
                             if (not taker_recovery_override_active) and competitiveness_enabled and bool(
                                 self.sniper_taker_competitiveness_cfg.multi_oracle_boost_enabled
                             ):
-                                secondary_fair = secondary_fair_probability_by_token.get(token_id)
+                                secondary_fair = secondary_fair_probability_by_token.get(decision_token_id)
                                 if secondary_oracle_base_status == "disabled":
                                     multi_oracle_status = "disabled"
                                 elif not (
                                     isinstance(secondary_fair, (int, float))
-                                    and isinstance(midpoint, (int, float))
-                                    and isinstance(fair, (int, float))
-                                    and isinstance(edge, (int, float))
+                                    and isinstance(decision_midpoint, (int, float))
+                                    and isinstance(decision_fair, (int, float))
+                                    and isinstance(decision_edge, (int, float))
                                 ):
                                     multi_oracle_status = "unknown"
                                 else:
                                     secondary_edge = compute_edge_value(
                                         fair_probability=float(secondary_fair),
-                                        market_probability=float(midpoint),
+                                        market_probability=float(decision_midpoint),
                                     )
                                     if (
                                         secondary_edge is None
                                         or abs(float(secondary_edge)) <= 1e-12
-                                        or abs(float(edge)) <= 1e-12
+                                        or abs(float(decision_edge)) <= 1e-12
                                     ):
                                         multi_oracle_status = "unknown"
                                     else:
-                                        same_direction = (float(secondary_edge) > 0.0) == (float(edge) > 0.0)
+                                        same_direction = (float(secondary_edge) > 0.0) == (float(decision_edge) > 0.0)
                                         multi_oracle_confirmation = bool(same_direction)
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
-                            decision: Optional[SniperDecision] = None
                             if competitiveness_enabled and (not taker_recovery_override_active):
                                 self._refresh_sniper_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
@@ -4048,49 +5442,49 @@ class ExecutionRunner:
                                 }
                                 if bool(self.sniper_taker_competitiveness_cfg.dynamic_preview_enabled):
                                     dynamic_preview = self.manager.preview_taker_dynamic_feasible_target(
-                                        token_id=token_id,
+                                        token_id=decision_token_id,
                                         side=side,
                                         price=float(touch_price),
                                         target_usd_cap=static_max_feasible_target_usd,
-                                        top=top,
+                                        top=decision_top_for_submit,
                                         reason="sniper_taker_chainlink",
-                                        stage=stage,
+                                        stage=decision_stage,
                                         realized_volatility=(
-                                            realized_volatility_by_token.get(token_id)
+                                            realized_volatility_by_token.get(decision_token_id)
                                             if isinstance(realized_volatility_by_token, dict)
                                             else None
                                         ),
                                         competitiveness_context={
-                                            "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                                            "stage": str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                                             "sec_to_expiry": (
-                                                float(time_remaining_sec)
-                                                if isinstance(time_remaining_sec, (int, float))
+                                                float(decision_time_remaining_sec)
+                                                if isinstance(decision_time_remaining_sec, (int, float))
                                                 else None
                                             ),
-                                            "edge_abs": abs(float(edge)),
+                                            "edge_abs": abs(float(decision_edge)),
                                         },
                                     )
                                 decision = self.sniper_tool.evaluate_batch(
                                     candidates=[
                                         SniperCandidate(
-                                            token_id=token_id,
-                                            stage=str(stage or STAGE_UNKNOWN),
+                                            token_id=decision_token_id,
+                                            stage=str(decision_stage or STAGE_UNKNOWN),
                                             sec_to_expiry=(
-                                                float(time_remaining_sec)
-                                                if isinstance(time_remaining_sec, (int, float))
+                                                float(decision_time_remaining_sec)
+                                                if isinstance(decision_time_remaining_sec, (int, float))
                                                 else None
                                             ),
-                                            edge_value=float(edge),
+                                            edge_value=float(decision_edge),
                                             required_min_edge=float(required_min_edge),
                                             base_target_usd=float(self.sniper_taker_target_usd),
                                             top_best_bid_price=(
-                                                float(top.best_bid_price)
-                                                if isinstance(top.best_bid_price, (int, float))
+                                                float(decision_top_for_submit.best_bid_price)
+                                                if isinstance(decision_top_for_submit.best_bid_price, (int, float))
                                                 else None
                                             ),
                                             top_best_ask_price=(
-                                                float(top.best_ask_price)
-                                                if isinstance(top.best_ask_price, (int, float))
+                                                float(decision_top_for_submit.best_ask_price)
+                                                if isinstance(decision_top_for_submit.best_ask_price, (int, float))
                                                 else None
                                             ),
                                             token_score=float(confidence_score),
@@ -4120,19 +5514,93 @@ class ExecutionRunner:
                                     ],
                                     max_orders_per_cycle=max(0, int(max_orders - submitted)),
                                 ).decisions[0]
-                                self.events.log_event(
-                                    "sniper_taker_decision",
-                                    {
-                                        "ts_utc": utc_iso(),
-                                        "run_id": self.run_id,
-                                        "token_id": token_id,
-                                        "midpoint": midpoint,
-                                        "fair_probability": fair,
-                                        "edge": edge,
-                                        "confidence_score": float(confidence_score),
-                                        "cooldown_sec_applied": float(cooldown_sec),
-                                        **decision.as_event_payload(),
-                                    },
+                                if (
+                                    decision.should_submit
+                                    and min_visible_fill_ratio > 0.0
+                                    and hasattr(self.gateway, "preview_visible_immediate_fill")
+                                ):
+                                    visible_fill_preview = self.gateway.preview_visible_immediate_fill(
+                                        top=decision_top_for_submit,
+                                        side=str(decision.side or side).strip().upper(),
+                                    )
+                                    visible_notional_usd = (
+                                        float(visible_fill_preview.get("visible_notional_usd"))
+                                        if isinstance(visible_fill_preview, dict)
+                                        and isinstance(visible_fill_preview.get("visible_notional_usd"), (int, float))
+                                        else None
+                                    )
+                                    resolved_target_usd = (
+                                        float(decision.target_usd_resolved)
+                                        if isinstance(decision.target_usd_resolved, (int, float))
+                                        else None
+                                    )
+                                    visible_fill_ratio = (
+                                        float(visible_notional_usd) / float(resolved_target_usd)
+                                        if visible_notional_usd is not None
+                                        and resolved_target_usd is not None
+                                        and resolved_target_usd > 0.0
+                                        else None
+                                    )
+                                    decision = dataclasses.replace(
+                                        decision,
+                                        visible_fill_ratio=visible_fill_ratio,
+                                        visible_fill_notional_usd=visible_notional_usd,
+                                    )
+                                    if (
+                                        visible_fill_ratio is not None
+                                        and visible_fill_ratio + 1e-9 < min_visible_fill_ratio
+                                    ):
+                                        decision = dataclasses.replace(
+                                            decision,
+                                            should_submit=False,
+                                            block_reason="taker_visible_fill_ratio_below_min",
+                                            submit_capable_static=False,
+                                        )
+                                if normal_taker_side_class == "complement_buy":
+                                    decision = dataclasses.replace(
+                                        decision,
+                                        normal_side_policy=normal_side_policy,
+                                        normal_taker_side_class="complement_buy",
+                                    )
+                                _log_sniper_taker_decision(
+                                    source_token_id=decision_source_token_id,
+                                    submit_token_id=decision_token_id,
+                                    source_midpoint=(
+                                        float(decision_source_midpoint)
+                                        if isinstance(decision_source_midpoint, (int, float))
+                                        else None
+                                    ),
+                                    source_fair_probability=(
+                                        float(decision_source_fair)
+                                        if isinstance(decision_source_fair, (int, float))
+                                        else None
+                                    ),
+                                    source_edge_value=(
+                                        float(decision_source_edge)
+                                        if isinstance(decision_source_edge, (int, float))
+                                        else None
+                                    ),
+                                    submit_midpoint=(
+                                        float(decision_midpoint)
+                                        if isinstance(decision_midpoint, (int, float))
+                                        else None
+                                    ),
+                                    submit_fair_probability=(
+                                        float(decision_fair)
+                                        if isinstance(decision_fair, (int, float))
+                                        else None
+                                    ),
+                                    submit_edge_value=(
+                                        float(decision_edge)
+                                        if isinstance(decision_edge, (int, float))
+                                        else None
+                                    ),
+                                    confidence_score_value=float(confidence_score),
+                                    source_token_score_value=float(source_confidence_score),
+                                    submit_token_score_value=float(submit_confidence_score),
+                                    cooldown_sec_value=float(cooldown_sec),
+                                    complement_token_id=complement_token_id,
+                                    decision_row=decision,
                                 )
                                 if decision.dynamic_size_capped_by_risk:
                                     self.telemetry.incr("taker_dynamic_size_capped_by_risk")
@@ -4142,6 +5610,16 @@ class ExecutionRunner:
                                     self.telemetry.incr("taker_multi_oracle_confirmation")
                                 if bool(decision.multi_oracle_boost_applied):
                                     self.telemetry.incr("taker_multi_oracle_boost_applied")
+                                if str(decision.normal_taker_side_class or "").strip().lower() == "same_token_sell_blocked":
+                                    self.telemetry.incr("taker_same_token_sell_blocked")
+                                if str(decision.normal_taker_side_class or "").strip().lower() == "complement_buy":
+                                    self.telemetry.incr("taker_complement_buy")
+                                if str(decision.normal_taker_side_class or "").strip().lower() == "complement_route_disabled":
+                                    self.telemetry.incr("taker_complement_route_disabled")
+                                if str(decision.block_reason or "").strip().lower() == "taker_visible_fill_ratio_below_min":
+                                    self.telemetry.incr("taker_visible_fill_ratio_blocked")
+                                if str(decision.block_reason or "").strip().lower() == "complement_token_mapping_unavailable":
+                                    self.telemetry.incr("taker_complement_mapping_failure")
                                 if not decision.should_submit:
                                     block_reason = str(decision.block_reason or "taker_submit_rejected")
                             if block_reason is None:
@@ -4163,6 +5641,10 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None
                                     else float(self.sniper_taker_target_usd)
                                 )
+                                if taker_recovery_override_active:
+                                    recovery_target_usd = float(reduce_only_size_cap_shares) * float(submit_price)
+                                    if math.isfinite(recovery_target_usd) and recovery_target_usd > 0.0:
+                                        submit_target_usd = max(float(submit_target_usd), float(recovery_target_usd))
                                 competitiveness_context = (
                                     decision.as_competitiveness_payload()
                                     if competitiveness_enabled and decision is not None
@@ -4172,30 +5654,96 @@ class ExecutionRunner:
                                     competitiveness_context = {}
                                 competitiveness_context.update(
                                     self._build_submission_lifecycle_context(
-                                        token_id=token_id,
-                                        info=info,
+                                        token_id=(decision_token_id if not taker_recovery_override_active else token_id),
+                                        info=(decision_info if not taker_recovery_override_active else info),
                                         submission_lane="taker",
-                                        stage=stage,
+                                        stage=(decision_stage if not taker_recovery_override_active else stage),
                                         edge_abs=(
-                                            abs(float(edge))
-                                            if isinstance(edge, (int, float))
+                                            abs(float(decision_edge))
+                                            if isinstance(decision_edge, (int, float))
                                             else None
                                         ),
                                     )
                                 )
+                                if taker_recovery_override_active:
+                                    competitiveness_context.setdefault("normal_side_policy", "recovery_override")
+                                    competitiveness_context.setdefault("normal_taker_side_class", "recovery_reduce_only")
+                                else:
+                                    competitiveness_context.setdefault(
+                                        "normal_side_policy",
+                                        normal_side_policy,
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_side_class",
+                                        normal_taker_side_class
+                                        if str(normal_taker_side_class or "").strip()
+                                        else ("buy_expected_winner" if str(submit_side).strip().upper() == "BUY" else "unknown"),
+                                    )
+                                    competitiveness_context.setdefault("normal_taker_source_token_id", decision_source_token_id)
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_submit_token_id",
+                                        decision_token_id,
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_complement_token_id",
+                                        (
+                                            str(complement_token_id).strip()
+                                            if str(complement_token_id or "").strip()
+                                            else None
+                                        ),
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_complement_route_applied",
+                                        bool(
+                                            str(complement_token_id or "").strip()
+                                            and str(decision_token_id).strip() != str(decision_source_token_id).strip()
+                                        ),
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_source_edge",
+                                        (
+                                            float(decision_source_edge)
+                                            if isinstance(decision_source_edge, (int, float))
+                                            else None
+                                        ),
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_submit_edge",
+                                        (
+                                            float(decision_edge)
+                                            if isinstance(decision_edge, (int, float))
+                                            else None
+                                        ),
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_source_token_score",
+                                        (
+                                            float(source_confidence_score)
+                                            if isinstance(source_confidence_score, (int, float))
+                                            else None
+                                        ),
+                                    )
+                                    competitiveness_context.setdefault(
+                                        "normal_taker_submit_token_score",
+                                        (
+                                            float(submit_confidence_score)
+                                            if isinstance(submit_confidence_score, (int, float))
+                                            else None
+                                        ),
+                                    )
                                 attempts += 1
                                 outcome = self.manager.place_taker_order_with_outcome(
-                                    token_id=token_id,
+                                    token_id=(decision_token_id if not taker_recovery_override_active else token_id),
                                     side=submit_side,
                                     price=submit_price,
                                     size=(float(self.sniper_taker_order_size) if self.sizing_mode == "shares" else None),
                                     target_usd=submit_target_usd,
-                                    top=top,
+                                    top=decision_top_for_submit,
                                     reason="sniper_taker_chainlink",
-                                    stage=str(stage or STAGE_UNKNOWN),
+                                    stage=str((decision_stage if not taker_recovery_override_active else stage) or STAGE_UNKNOWN),
                                     target_ref=decision_target_ref,
                                     decision_reference_midpoint=(
-                                        float(midpoint) if isinstance(midpoint, (int, float)) else None
+                                        float(decision_midpoint) if isinstance(decision_midpoint, (int, float)) else None
                                     ),
                                     decision_reference_source="edge_decision_market_midpoint",
                                     decision_reference_lookup_key=(
@@ -4209,29 +5757,93 @@ class ExecutionRunner:
                                         else None
                                     ),
                                     realized_volatility=(
-                                        float(realized_volatility_by_token.get(token_id))
+                                        float(realized_volatility_by_token.get(decision_token_id))
                                         if isinstance(realized_volatility_by_token, dict)
-                                        and isinstance(realized_volatility_by_token.get(token_id), (int, float))
+                                        and isinstance(realized_volatility_by_token.get(decision_token_id), (int, float))
                                         else None
                                     ),
                                     competitiveness_context=competitiveness_context,
                                 )
                                 if bool(outcome.get("submitted", False)):
                                     submitted += 1
-                                    submitted_token_ids.add(token_id)
-                                    self._last_taker_submit_mono_by_token[token_id] = now_mono
+                                    actual_submit_token_id = (
+                                        decision_token_id if not taker_recovery_override_active else token_id
+                                    )
+                                    submitted_token_ids.add(actual_submit_token_id)
+                                    self._last_taker_submit_mono_by_token[actual_submit_token_id] = now_mono
                                     action_taken = EDGE_ACTION_TAKER
                                     was_submitted = True
                                     fills_accepted = int(outcome.get("fills_accepted", 0) or 0)
                                     if fills_accepted > 0:
                                         was_filled = True
-                                        filled_token_ids.add(token_id)
+                                        filled_token_ids.add(actual_submit_token_id)
+                                        if not taker_recovery_override_active:
+                                            self._normal_taker_commitment_token_ids.add(actual_submit_token_id)
+                                            sibling_snapshot = self._normal_taker_market_family_conflict_snapshot(
+                                                decision_token_id=actual_submit_token_id,
+                                                token_market_key_by_token=self.token_market_key_by_token,
+                                                positions=self.risk.positions,
+                                                open_order_token_ids=self._open_order_token_ids(),
+                                                min_meaningful_net_shares=float(self.risk_min_order_size_shares),
+                                            )
+                                            sibling_token_ids = {
+                                                str(item).strip()
+                                                for item in sibling_snapshot.get("sibling_token_ids", [])
+                                                if str(item).strip()
+                                            }
+                                            canceled_sibling_orders = 0
+                                            if sibling_token_ids:
+                                                canceled_sibling_orders = int(
+                                                    self.manager.cancel_orders_for_tokens(
+                                                        sibling_token_ids,
+                                                        reason="normal_taker_market_family_commitment_cleanup",
+                                                    )
+                                                )
+                                            self.events.log_event(
+                                                "normal_taker_market_family_cleanup",
+                                                {
+                                                    "ts_utc": utc_iso(),
+                                                    "run_id": self.run_id,
+                                                    "commitment_token_id": actual_submit_token_id,
+                                                    "market_base_key": str(
+                                                        sibling_snapshot.get("market_base_key") or ""
+                                                    ),
+                                                    "sibling_token_ids": sorted(sibling_token_ids),
+                                                    "conflict_token_ids": sorted(
+                                                        {
+                                                            str(item).strip()
+                                                            for item in sibling_snapshot.get("conflict_token_ids", [])
+                                                            if str(item).strip()
+                                                        }
+                                                    ),
+                                                    "position_conflict_token_ids": sorted(
+                                                        {
+                                                            str(item).strip()
+                                                            for item in sibling_snapshot.get(
+                                                                "position_conflict_token_ids", []
+                                                            )
+                                                            if str(item).strip()
+                                                        }
+                                                    ),
+                                                    "open_order_conflict_token_ids": sorted(
+                                                        {
+                                                            str(item).strip()
+                                                            for item in sibling_snapshot.get(
+                                                                "open_order_conflict_token_ids", []
+                                                            )
+                                                            if str(item).strip()
+                                                        }
+                                                    ),
+                                                    "canceled_sibling_order_count": int(canceled_sibling_orders),
+                                                },
+                                            )
                                     fills_accepted_total += max(0, fills_accepted)
                                     emitted_order_id = str(outcome.get("order_id") or "").strip() or None
                                     submit_payload: Dict[str, Any] = {
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
-                                        "token_id": token_id,
+                                        "token_id": actual_submit_token_id,
+                                        "source_token_id": decision_source_token_id,
                                         "order_id": emitted_order_id,
                                         "side": submit_side,
                                         "price": float(submit_price),
@@ -4241,20 +5853,27 @@ class ExecutionRunner:
                                             else None
                                         ),
                                         "target_usd": float(submit_target_usd),
-                                        "midpoint": midpoint,
-                                        "fair_probability": fair,
-                                        "edge": edge,
-                                        "edge_abs": (abs(float(edge)) if isinstance(edge, (int, float)) else None),
+                                        "midpoint": decision_midpoint,
+                                        "fair_probability": decision_fair,
+                                        "edge": decision_edge,
+                                        "edge_abs": (
+                                            abs(float(decision_edge)) if isinstance(decision_edge, (int, float)) else None
+                                        ),
                                         "edge_bucket": self._taker_edge_bucket(
-                                            abs(float(edge)) if isinstance(edge, (int, float)) else None
+                                            abs(float(decision_edge)) if isinstance(decision_edge, (int, float)) else None
                                         ),
                                         "edge_unknown_reason": (
-                                            None if isinstance(edge, (int, float)) else "missing_edge_value"
+                                            None if isinstance(decision_edge, (int, float)) else "missing_edge_value"
                                         ),
                                         "required_min_edge": float(required_min_edge),
-                                        "stage": (str(stage or "").strip().upper() or "UNKNOWN"),
+                                        "stage": (
+                                            str((decision_stage if not taker_recovery_override_active else stage) or "").strip().upper()
+                                            or "UNKNOWN"
+                                        ),
                                         "stage_unknown_reason": (
-                                            None if str(stage or "").strip() else "missing_stage_info"
+                                            None
+                                            if str((decision_stage if not taker_recovery_override_active else stage) or "").strip()
+                                            else "missing_stage_info"
                                         ),
                                         "confidence_score": float(confidence_score),
                                         "reduce_only_recovery_active": bool(taker_recovery_override_active),
@@ -4329,8 +5948,7 @@ class ExecutionRunner:
                     self._preexpiry_emergency_taker_block_reasons[emergency_block_reason] = (
                         int(self._preexpiry_emergency_taker_block_reasons.get(emergency_block_reason, 0)) + 1
                     )
-                self.events.log_event(
-                    "preexpiry_emergency_taker_unwind",
+                self._log_preexpiry_emergency_taker_event(
                     {
                         "ts_utc": utc_iso(),
                         "run_id": self.run_id,
@@ -4342,6 +5960,7 @@ class ExecutionRunner:
                         "maker_submitted_for_token": bool(maker_submitted_for_token),
                         "maker_no_submission_reason": str(maker_no_submission_reason or ""),
                         "maker_reduce_only_exit_blocked": bool(maker_reduce_only_exit_blocked),
+                        "timing_gate_handoff_override_active": bool(timing_gate_handoff_override_active),
                         "outcome": emergency_outcome,
                         "reason": emergency_outcome_reason,
                         "outcome_reason": emergency_outcome_reason,
@@ -4353,18 +5972,32 @@ class ExecutionRunner:
                             if str(taker_submit_reject_reason or "").strip()
                             else None
                         ),
-                    },
+                    }
                 )
 
             self._emit_edge_evaluation(
-                token_id=token_id,
+                token_id=(decision_token_id if not taker_recovery_override_active else token_id),
                 target_ref=decision_target_ref,
+                source_token_id=decision_source_token_id,
+                source_target_ref=self._target_ref_for_token(decision_source_token_id),
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
-                stage=stage,
-                time_remaining_sec=time_remaining_sec if isinstance(time_remaining_sec, (int, float)) else None,
-                fair_probability=fair if isinstance(fair, (int, float)) else None,
-                market_probability=midpoint if isinstance(midpoint, (int, float)) else None,
-                edge_value=edge if isinstance(edge, (int, float)) else None,
+                stage=(decision_stage if not taker_recovery_override_active else stage),
+                time_remaining_sec=(
+                    decision_time_remaining_sec
+                    if isinstance(decision_time_remaining_sec, (int, float))
+                    else None
+                ),
+                fair_probability=(
+                    decision_fair
+                    if isinstance(decision_fair, (int, float))
+                    else None
+                ),
+                market_probability=(
+                    decision_midpoint
+                    if isinstance(decision_midpoint, (int, float))
+                    else None
+                ),
+                edge_value=decision_edge if isinstance(decision_edge, (int, float)) else None,
                 oracle_tick_age_sec=oracle_tick_age_sec,
                 latency_state=latency_state,
                 maker_allowed=maker_allowed,
@@ -4376,13 +6009,41 @@ class ExecutionRunner:
                 result=None,
                 cycle_index=stable_cycle_index,
                 order_id=emitted_order_id,
-                book_source=(self._book_source(top) or None),
-                market_reference_mode=("direct_midpoint" if isinstance(midpoint, (int, float)) else "missing"),
-                market_reference_basis=("direct_book_midpoint" if isinstance(midpoint, (int, float)) else "missing"),
-                market_reference_confidence=("authoritative" if isinstance(midpoint, (int, float)) else "none"),
+                book_source=(self._book_source(decision_top if not taker_recovery_override_active else top) or None),
+                market_reference_mode=(
+                    "direct_midpoint"
+                    if isinstance(
+                        decision_midpoint if not taker_recovery_override_active else midpoint,
+                        (int, float),
+                    )
+                    else "missing"
+                ),
+                market_reference_basis=(
+                    "direct_book_midpoint"
+                    if isinstance(
+                        decision_midpoint if not taker_recovery_override_active else midpoint,
+                        (int, float),
+                    )
+                    else "missing"
+                ),
+                market_reference_confidence=(
+                    "authoritative"
+                    if isinstance(
+                        decision_midpoint if not taker_recovery_override_active else midpoint,
+                        (int, float),
+                    )
+                    else "none"
+                ),
                 market_reference_fallback_used=False,
                 market_reference_source_side="none",
-                market_reference_class=("authoritative" if isinstance(midpoint, (int, float)) else "not_available"),
+                market_reference_class=(
+                    "authoritative"
+                    if isinstance(
+                        decision_midpoint if not taker_recovery_override_active else midpoint,
+                        (int, float),
+                    )
+                    else "not_available"
+                ),
                 taker_submit_reject_reason=taker_submit_reject_reason,
                 reduce_only_recovery_active=reduce_only_recovery_active,
                 reduce_only_recovery_reason=reduce_only_recovery_reason,
@@ -4604,6 +6265,7 @@ class ExecutionRunner:
         context: Dict[str, Any] = {
             "submission_lane": str(submission_lane or "unknown"),
             "stage": stage_value,
+            "raw_stage": str(lifecycle_info.get("raw_stage") or stage_value).strip().upper() or stage_value,
             "financial_posture_class": str(resolved_posture),
             "sec_to_expiry": sec_to_expiry,
             "lifecycle_context_present": bool(lifecycle_context_present),
@@ -4611,6 +6273,10 @@ class ExecutionRunner:
             "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
             "require_lifecycle_context_for_decisions": bool(self.require_lifecycle_context_for_decisions),
             "reduce_only_recovery_active": bool(reduce_only_recovery_active),
+            "maker_timing_gate_open": bool(lifecycle_info.get("maker_timing_gate_open", False)),
+            "maker_timing_stage_override_active": bool(
+                lifecycle_info.get("maker_timing_stage_override_active", False)
+            ),
             "reduce_only_recovery_reason": str(lifecycle_info.get("reduce_only_recovery_reason") or ""),
             "reduce_only_side": str(lifecycle_info.get("reduce_only_side") or "NONE"),
             "reduce_only_side_policy": str(lifecycle_info.get("reduce_only_side_policy") or "NONE"),
@@ -4624,6 +6290,9 @@ class ExecutionRunner:
             "reduce_only_net_shares": float(lifecycle_info.get("reduce_only_net_shares", 0.0) or 0.0),
             "reduce_only_open_order_present": bool(lifecycle_info.get("reduce_only_open_order_present", False)),
             "preexpiry_reduce_only_active": bool(lifecycle_info.get("preexpiry_reduce_only_active", False)),
+            "normal_taker_commitment_hold_active": bool(
+                lifecycle_info.get("normal_taker_commitment_hold_active", False)
+            ),
             "held_preexpiry_reduce_only_sec": float(lifecycle_info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0),
         }
         if isinstance(edge_abs, (int, float)):
@@ -4686,6 +6355,30 @@ class ExecutionRunner:
         pos = self.risk.positions.get(token_id)
         return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
 
+    def _normal_taker_commitment_hold_active(
+        self,
+        *,
+        token_id: str,
+        sec_to_expiry: Optional[float],
+        open_order_present: bool,
+        net_shares: Optional[float] = None,
+    ) -> bool:
+        token = str(token_id or "").strip()
+        if not token or token not in self._normal_taker_commitment_token_ids:
+            return False
+        if open_order_present:
+            return False
+        if not isinstance(sec_to_expiry, (int, float)) or float(sec_to_expiry) < 0.0:
+            return False
+        financial_posture = str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper()
+        if financial_posture != FINANCIAL_POSTURE_NORMAL:
+            return False
+        shares = net_shares
+        if not isinstance(shares, (int, float)):
+            pos = self.risk.positions.get(token)
+            shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
+        return abs(float(shares or 0.0)) > 1e-9
+
     def _token_lifecycle_obligation_flags(
         self,
         *,
@@ -4741,8 +6434,17 @@ class ExecutionRunner:
             token_id=token,
             sec_to_expiry=sec,
         )
+        pos = self.risk.positions.get(token)
+        net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
+        normal_taker_commitment_hold_active = self._normal_taker_commitment_hold_active(
+            token_id=token,
+            sec_to_expiry=sec,
+            open_order_present=bool(open_orders_flag),
+            net_shares=net_shares,
+        )
         preexpiry_reduce_only_active = bool(
-            isinstance(sec, (int, float))
+            (not normal_taker_commitment_hold_active)
+            and isinstance(sec, (int, float))
             and float(sec) >= 0.0
             and float(self.held_preexpiry_reduce_only_sec) > 0.0
             and float(sec) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
@@ -4762,6 +6464,7 @@ class ExecutionRunner:
             "forced_refresh_pending": bool(forced_refresh_pending),
             "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
             "preexpiry_reduce_only_active": bool(preexpiry_reduce_only_active),
+            "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
             "held_unpriceable_tracking_active": bool(held_unpriceable_tracking_active),
             "sec_to_expiry": (float(sec) if isinstance(sec, (int, float)) else None),
         }
@@ -4796,8 +6499,15 @@ class ExecutionRunner:
         open_order_present = token in self._open_order_token_ids()
         held_present = open_order_present or (abs(net_shares) > 1e-9)
         sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+        normal_taker_commitment_hold_active = self._normal_taker_commitment_hold_active(
+            token_id=token,
+            sec_to_expiry=sec,
+            open_order_present=bool(open_order_present),
+            net_shares=net_shares,
+        )
         preexpiry_active = bool(
             held_present
+            and (not normal_taker_commitment_hold_active)
             and isinstance(sec, float)
             and sec >= 0.0
             and float(self.held_preexpiry_reduce_only_sec) > 0.0
@@ -4832,6 +6542,7 @@ class ExecutionRunner:
                 "net_shares": float(net_shares),
                 "open_order_present": bool(open_order_present),
                 "preexpiry_active": False,
+                "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
                 "expired_grace_active": bool(expired_reduce_only_grace_active),
                 "sec_to_expiry": sec_to_expiry,
                 "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
@@ -4852,6 +6563,7 @@ class ExecutionRunner:
             "net_shares": float(net_shares),
             "open_order_present": bool(open_order_present),
             "preexpiry_active": bool(preexpiry_active),
+            "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
             "expired_grace_active": bool(expired_reduce_only_grace_active),
             "sec_to_expiry": sec_to_expiry,
             "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
@@ -5047,6 +6759,11 @@ class ExecutionRunner:
             for token_id, side in result.token_side_by_token.items()
             if str(token_id) and str(side)
         }
+        discovered_open_anchor_map = {
+            str(token_id): str(anchor_utc)
+            for token_id, anchor_utc in getattr(result, "token_open_anchor_utc_by_token", {}).items()
+            if str(token_id) and str(anchor_utc)
+        }
         discovered_strike_map = {
             str(token_id): float(strike)
             for token_id, strike in result.token_strike_by_token.items()
@@ -5070,6 +6787,8 @@ class ExecutionRunner:
                 self.token_expiry_utc_by_token = {}
                 self.token_expiry_dt_by_token = {}
                 self.token_side_by_token = {}
+                self.token_open_anchor_utc_by_token = {}
+                self.token_open_anchor_dt_by_token = {}
                 self.token_strike_by_token = {}
                 self._prune_removed_tokens(old_set=old_set, active_set=set())
                 self.events.log_event(
@@ -5114,6 +6833,7 @@ class ExecutionRunner:
             active_set = set(self.token_ids)
             self._apply_token_expiry_map(discovered_expiry_map, source="discovery")
             self._apply_token_side_map(discovered_side_map, source="discovery")
+            self._apply_token_open_anchor_map(discovered_open_anchor_map, source="discovery")
             self._apply_token_strike_map(discovered_strike_map, source="discovery")
             old_market_key_map = dict(self.token_market_key_by_token)
             self.token_market_key_by_token = {
@@ -5133,6 +6853,16 @@ class ExecutionRunner:
             self.token_side_by_token = {
                 token_id: side
                 for token_id, side in self.token_side_by_token.items()
+                if token_id in active_set
+            }
+            self.token_open_anchor_utc_by_token = {
+                token_id: anchor_utc
+                for token_id, anchor_utc in self.token_open_anchor_utc_by_token.items()
+                if token_id in active_set
+            }
+            self.token_open_anchor_dt_by_token = {
+                token_id: anchor_dt
+                for token_id, anchor_dt in self.token_open_anchor_dt_by_token.items()
                 if token_id in active_set
             }
             self.token_strike_by_token = {
@@ -5157,6 +6887,7 @@ class ExecutionRunner:
                     "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
                     "expiry_map_count": len(self.token_expiry_utc_by_token),
                     "side_map_count": len(self.token_side_by_token),
+                    "open_anchor_map_count": len(self.token_open_anchor_utc_by_token),
                     "strike_map_count": len(self.token_strike_by_token),
                     "market_key_map_count": len(self.token_market_key_by_token),
                     "discovered_token_count": len(discovered_ids),
@@ -5189,6 +6920,7 @@ class ExecutionRunner:
                         "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
                         "expiry_map_count": len(discovered_expiry_map),
                         "side_map_count": len(discovered_side_map),
+                        "open_anchor_map_count": len(discovered_open_anchor_map),
                         "strike_map_count": len(discovered_strike_map),
                         "market_key_map_count": len(discovered_market_key_map),
                     },
@@ -5197,6 +6929,8 @@ class ExecutionRunner:
                 self._apply_token_expiry_map(discovered_expiry_map, source="discovery_refresh")
             if discovered_side_map:
                 self._apply_token_side_map(discovered_side_map, source="discovery_refresh")
+            if discovered_open_anchor_map:
+                self._apply_token_open_anchor_map(discovered_open_anchor_map, source="discovery_refresh")
             if discovered_strike_map:
                 self._apply_token_strike_map(discovered_strike_map, source="discovery_refresh")
             if discovered_market_key_map:
@@ -5254,12 +6988,16 @@ class ExecutionRunner:
                 self._held_book_not_found_last_mono_by_token.pop(token_id, None)
                 self._held_book_not_found_force_refresh_next_mono_by_token.pop(token_id, None)
             self.token_market_key_by_token.pop(token_id, None)
+            self.token_open_anchor_utc_by_token.pop(token_id, None)
+            self.token_open_anchor_dt_by_token.pop(token_id, None)
             self._market_entry_mono_by_token.pop(token_id, None)
             self._market_entry_cycle_by_token.pop(token_id, None)
             self._last_stage_by_token.pop(token_id, None)
             self._last_taker_submit_mono_by_token.pop(token_id, None)
+            self._normal_taker_commitment_token_ids.discard(token_id)
             self._last_doctrine_signature_by_token.pop(token_id, None)
             self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
+            self._clear_maker_ws_touch_cache(token_id)
             pos = self.risk.positions.get(token_id)
             if pos is not None and self._position_is_effectively_empty(pos):
                 self.risk.positions.pop(token_id, None)
@@ -5658,6 +7396,8 @@ class ExecutionRunner:
                         self.telemetry.set_gauge("chainlink_last_tick_age_sec", float(age))
                         if float(age) > self.doctrine_oracle_max_tick_age_sec:
                             stale_oracle_cycle = True
+                settled_positions_cycle = self._apply_postexpiry_binary_settlement()
+                self.telemetry.set_gauge("postexpiry_binary_settlements_last_cycle", float(settled_positions_cycle))
 
                 ws_books = self.book_feed.snapshot_books()
                 book_feed_status_live = self.book_feed.status()
@@ -6132,10 +7872,23 @@ class ExecutionRunner:
                 maker_stage_tokens = {
                     token_id for token_id, info in stage_info_by_token.items() if bool(info.get("allow_maker", False))
                 }
+                maker_cannon_probe_token_ids = self._maker_cannon_probe_token_ids(
+                    stage_info_by_token=stage_info_by_token,
+                    books=books,
+                )
+                maker_observational_token_ids = set(maker_stage_tokens) | set(maker_cannon_probe_token_ids)
                 taker_stage_tokens = {
                     token_id for token_id, info in stage_info_by_token.items() if bool(info.get("allow_taker", False))
                 }
                 self.telemetry.set_gauge("doctrine_maker_stage_token_count", float(len(maker_stage_tokens)))
+                self.telemetry.set_gauge(
+                    "doctrine_maker_cannon_probe_token_count",
+                    float(len(maker_cannon_probe_token_ids)),
+                )
+                self.telemetry.set_gauge(
+                    "doctrine_maker_observational_token_count",
+                    float(len(maker_observational_token_ids)),
+                )
                 self.telemetry.set_gauge("doctrine_taker_stage_token_count", float(len(taker_stage_tokens)))
                 stage_counts = {
                     STAGE_OBSERVE: 0,
@@ -6189,25 +7942,42 @@ class ExecutionRunner:
                 if mode_state in {MODE_MAKER_ONLY, MODE_SAFE_STOP}:
                     candidate_sniper_tokens = []
                 sniper_active = bool(candidate_sniper_tokens) and self.sniper_enabled
-                fair_probability_by_token = self._build_fair_probability_map(books, latency_snapshot=latency_snapshot)
+                fair_probability_by_token = self._build_fair_probability_map(
+                    books,
+                    latency_snapshot=latency_snapshot,
+                    scope="maker",
+                )
+                taker_fair_probability_by_token = self._build_fair_probability_map(
+                    books,
+                    latency_snapshot=latency_snapshot,
+                    scope="taker",
+                )
                 secondary_fair_probability_by_token, secondary_oracle_base_status = (
                     self._build_secondary_fair_probability_map(self.token_ids)
                 )
                 self.telemetry.set_gauge("fair_probability_token_count", float(len(fair_probability_by_token)))
                 self.telemetry.set_gauge(
+                    "taker_fair_probability_token_count",
+                    float(len(taker_fair_probability_by_token)),
+                )
+                self.telemetry.set_gauge(
                     "secondary_fair_probability_token_count",
                     float(len(secondary_fair_probability_by_token)),
                 )
+                latest_chainlink_targets = self.chainlink.get_latest(self.chainlink_symbol_for_targets)
+                latest_pyth_targets = self.pyth.get_latest(self.pyth_symbol_for_targets)
                 oracle_fresh, oracle_tick_age_sec, oracle_freshness_reason = self._oracle_freshness()
                 if oracle_tick_age_sec is not None:
                     self.telemetry.set_gauge("doctrine_oracle_tick_age_sec", float(oracle_tick_age_sec))
                 self.telemetry.set_gauge("doctrine_oracle_fresh", 1.0 if oracle_fresh else 0.0)
                 maker_prereq_failure_by_token: Dict[str, str] = {}
+                maker_preclassified_no_submission_reason_by_token: Dict[str, str] = {}
+                maker_preclassified_no_submission_category_by_token: Dict[str, str] = {}
                 maker_timing_gate_open_by_token: Dict[str, bool] = {
                     token_id: self._maker_timing_gate_open(
                         stage_info_by_token.get(token_id, {}).get("sec_to_expiry")
                     )
-                    for token_id in maker_stage_tokens
+                    for token_id in maker_observational_token_ids
                 }
                 maker_eligible_tokens = set(maker_stage_tokens)
                 if self.doctrine_mode == "canonical":
@@ -6228,11 +7998,7 @@ class ExecutionRunner:
                         if failure_reason:
                             maker_prereq_failure_by_token[token_id] = failure_reason
                             continue
-                        if self.maker_comp_timing_gate_enabled and (not timing_gate_open) and (
-                            not expired_reduce_only_grace_active
-                        ) and (
-                            not reduce_only_recovery_active
-                        ):
+                        if self.maker_comp_timing_gate_enabled and (not timing_gate_open):
                             maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
                         maker_eligible_tokens.add(token_id)
@@ -6244,7 +8010,12 @@ class ExecutionRunner:
                         maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                         maker_reduce_only_recovery_tokens=maker_reduce_only_recovery_tokens,
                     )
-                self.telemetry.set_gauge("doctrine_maker_eligible_token_count", float(len(maker_eligible_tokens)))
+                    maker_eligible_tokens = self._apply_normal_taker_commitment_market_gate(
+                        maker_eligible_tokens=maker_eligible_tokens,
+                        token_market_key_by_token=self.token_market_key_by_token,
+                        normal_taker_commitment_token_ids=self._normal_taker_commitment_token_ids,
+                        maker_prereq_failure_by_token=maker_prereq_failure_by_token,
+                    )
                 self.telemetry.set_gauge(
                     "doctrine_maker_prereq_failure_count",
                     float(len(maker_prereq_failure_by_token)),
@@ -6315,20 +8086,74 @@ class ExecutionRunner:
                 maker_side_policy_by_token: Dict[str, str] = {}
                 maker_competitiveness_context_by_token: Dict[str, Dict[str, Any]] = {}
                 maker_competitiveness_profiles_by_token: Dict[str, Dict[str, Any]] = {}
+                self._update_maker_ws_touch_cache(books=books)
+                maker_market_reference_token_ids = set(maker_observational_token_ids) | set(
+                    maker_prereq_failure_by_token.keys()
+                )
+                maker_resolved_books_by_token, maker_market_reference_by_token = (
+                    self._resolve_maker_market_reference_inputs(
+                        books=books,
+                        maker_token_ids=maker_market_reference_token_ids,
+                        maker_prereq_failure_by_token=maker_prereq_failure_by_token,
+                    )
+                )
+                if self.doctrine_mode == "canonical":
+                    pre_reference_maker_eligible_tokens = set(maker_eligible_tokens)
+                    maker_eligible_tokens = set()
+                    for token_id in sorted(pre_reference_maker_eligible_tokens):
+                        market_reference = dict(maker_market_reference_by_token.get(token_id) or {})
+                        resolved_top = maker_resolved_books_by_token.get(token_id, books.get(token_id))
+                        market_reference_mode = str(
+                            market_reference.get("market_reference_mode") or ""
+                        ).strip().lower()
+                        market_reference_class = str(
+                            market_reference.get("market_reference_class") or ""
+                        ).strip().lower()
+                        midpoint = getattr(resolved_top, "midpoint", None)
+                        midpoint_present = isinstance(midpoint, (int, float))
+                        if (
+                            market_reference_class == "authoritative"
+                            and market_reference_mode in {"direct_midpoint", "backfilled_paired_touch"}
+                            and midpoint_present
+                        ):
+                            maker_eligible_tokens.add(token_id)
+                            continue
+                        maker_preclassified_no_submission_reason_by_token[token_id] = (
+                            "market_reference_not_authoritative"
+                        )
+                        maker_preclassified_no_submission_category_by_token[token_id] = (
+                            "market_reference_not_authoritative"
+                        )
+                self.telemetry.set_gauge("doctrine_maker_eligible_token_count", float(len(maker_eligible_tokens)))
+                maker_books_for_evaluation = dict(books)
+                maker_books_for_evaluation.update(maker_resolved_books_by_token)
                 maker_one_sided_buy_active_count = 0
                 maker_one_sided_sell_active_count = 0
-                for token_id in sorted(maker_stage_tokens):
+                for token_id in sorted(maker_observational_token_ids):
                     info = stage_info_by_token.get(token_id, {})
                     sec_to_expiry = info.get("sec_to_expiry")
                     stage = str(info.get("stage", STAGE_UNKNOWN))
-                    top = books.get(token_id)
+                    top = maker_resolved_books_by_token.get(token_id, books.get(token_id))
                     fair = fair_probability_by_token.get(token_id)
                     base_size_mult = float(size_multiplier_by_token.get(token_id, 1.0))
                     base_spread_mult = float(spread_multiplier_by_token.get(token_id, 1.0))
                     profile = self._maker_competitiveness_profile(
                         token_id=token_id,
                         top=top,
+                        market_reference=maker_market_reference_by_token.get(token_id),
                         fair_probability=fair,
+                        secondary_fair_probability=secondary_fair_probability_by_token.get(token_id),
+                        secondary_oracle_status=secondary_oracle_base_status,
+                        chainlink_spot_price=(
+                            float(latest_chainlink_targets.price)
+                            if latest_chainlink_targets is not None
+                            else None
+                        ),
+                        secondary_oracle_spot_price=(
+                            float(latest_pyth_targets.price)
+                            if latest_pyth_targets is not None
+                            else None
+                        ),
                         stage=stage,
                         sec_to_expiry=sec_to_expiry,
                         base_size_multiplier=base_size_mult,
@@ -6397,11 +8222,15 @@ class ExecutionRunner:
                     float(maker_one_sided_sell_active_count),
                 )
 
-                maker_eval_token_ids = set(maker_stage_tokens) | set(maker_prereq_failure_by_token.keys())
+                maker_eval_token_ids = set(maker_observational_token_ids) | set(maker_prereq_failure_by_token.keys())
                 maker_submitted_token_ids: set[str] = set()
                 maker_submitted_order_ids_by_token: Dict[str, List[str]] = {}
-                maker_no_submission_reason_by_token: Dict[str, str] = {}
-                maker_no_submission_category_by_token: Dict[str, str] = {}
+                maker_no_submission_reason_by_token: Dict[str, str] = dict(
+                    maker_preclassified_no_submission_reason_by_token
+                )
+                maker_no_submission_category_by_token: Dict[str, str] = dict(
+                    maker_preclassified_no_submission_category_by_token
+                )
                 taker_summary: Dict[str, Any] = {
                     "attempts": 0,
                     "submitted": 0,
@@ -6434,7 +8263,8 @@ class ExecutionRunner:
                         self.consecutive_failures = 0
                     if maker_eval_token_ids:
                         self._emit_maker_edge_evaluations(
-                            books=books,
+                            books=maker_books_for_evaluation,
+                            maker_market_reference_by_token=maker_market_reference_by_token,
                             stage_info_by_token=stage_info_by_token,
                             maker_eval_token_ids=maker_eval_token_ids,
                             maker_submitted_token_ids=maker_submitted_token_ids,
@@ -6443,14 +8273,21 @@ class ExecutionRunner:
                             maker_no_submission_category_by_token=maker_no_submission_category_by_token,
                             maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                             fair_probability_by_token=fair_probability_by_token,
+                            maker_competitiveness_profiles_by_token=maker_competitiveness_profiles_by_token,
                             oracle_tick_age_sec=oracle_tick_age_sec,
                             latency_state=latency_snapshot.state,
                             cycle_index=int(self._doctrine_cycle_index),
                         )
                     if near_tokens:
+                        maker_handoff_no_submission_reason_by_token = (
+                            self._build_maker_handoff_no_submission_reason_by_token(
+                                maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
+                                maker_prereq_failure_by_token=maker_prereq_failure_by_token,
+                            )
+                        )
                         taker_summary = self._run_sniper_taker(
                             books=books,
-                            fair_probability_by_token=fair_probability_by_token,
+                            fair_probability_by_token=taker_fair_probability_by_token,
                             realized_volatility_by_token=volatility_by_token,
                             secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                             secondary_oracle_base_status=secondary_oracle_base_status,
@@ -6465,7 +8302,7 @@ class ExecutionRunner:
                             sniper_ramp_allowed=self._sniper_ramp_allowed,
                             cycle_index=int(self._doctrine_cycle_index),
                             maker_submitted_token_ids=maker_submitted_token_ids,
-                            maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
+                            maker_no_submission_reason_by_token=maker_handoff_no_submission_reason_by_token,
                         )
                     valuation_state = self._apply_valuation_controls(books=valuation_books, phase="post_submit")
                     mids = dict(valuation_state.get("mid_by_token", {}))
@@ -6480,7 +8317,9 @@ class ExecutionRunner:
                 else:
                     try:
                         books_for_manager = {
-                            token_id: top for token_id, top in books.items() if token_id in maker_eligible_tokens
+                            token_id: maker_resolved_books_by_token.get(token_id, top)
+                            for token_id, top in books.items()
+                            if token_id in maker_eligible_tokens
                         }
                         fair_for_manager = {
                             token_id: value
@@ -6517,12 +8356,22 @@ class ExecutionRunner:
                             for token_id, value in maker_competitiveness_context_by_token.items()
                             if token_id in maker_eligible_tokens
                         }
-                        tracked_tokens_for_manager = (
-                            set(self.token_ids) if self.doctrine_mode != "canonical" else set(maker_eligible_tokens)
-                        )
+                        tracked_tokens_for_manager = set(self.token_ids)
+                        tracked_token_cancel_reason_by_token: Dict[str, str] = {}
+                        if self.doctrine_mode == "canonical":
+                            for token_id in sorted(tracked_tokens_for_manager):
+                                if token_id in maker_eligible_tokens:
+                                    continue
+                                reason = str(maker_no_submission_reason_by_token.get(token_id, "")).strip().lower()
+                                if not reason:
+                                    reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
+                                if not reason:
+                                    reason = "stage_disallow_maker"
+                                tracked_token_cancel_reason_by_token[str(token_id)] = reason
                         summary = self.manager.step(
                             books_for_manager,
                             tracked_tokens=tracked_tokens_for_manager,
+                            tracked_token_cancel_reason_by_token=tracked_token_cancel_reason_by_token,
                             fair_probability_by_token=fair_for_manager,
                             realized_volatility_by_token=volatility_for_manager,
                             size_multiplier_by_token=size_mult_for_manager,
@@ -6531,6 +8380,7 @@ class ExecutionRunner:
                             side_policy_by_token=side_policy_for_manager,
                             competitiveness_context_by_token=competitiveness_context_for_manager,
                             max_actions_override=max_actions_override,
+                            cycle_index=int(self._doctrine_cycle_index),
                         )
                         maker_submitted_token_ids = {
                             str(token_id)
@@ -6546,19 +8396,38 @@ class ExecutionRunner:
                             for token_id, order_ids in dict(summary.get("maker_submitted_order_ids_by_token", {})).items()
                             if str(token_id).strip()
                         }
-                        maker_no_submission_reason_by_token = {
+                        manager_maker_no_submission_reason_by_token = {
                             str(token_id): str(reason).strip().lower()
                             for token_id, reason in dict(summary.get("maker_no_submission_reason_by_token", {})).items()
                             if str(token_id).strip() and str(reason).strip()
                         }
-                        maker_no_submission_category_by_token = {
+                        manager_maker_no_submission_category_by_token = {
                             str(token_id): str(category).strip().lower()
                             for token_id, category in dict(summary.get("maker_no_submission_category_by_token", {})).items()
                             if str(token_id).strip() and str(category).strip()
                         }
+                        maker_no_submission_reason_by_token = dict(
+                            maker_preclassified_no_submission_reason_by_token
+                        )
+                        maker_no_submission_reason_by_token.update(
+                            manager_maker_no_submission_reason_by_token
+                        )
+                        maker_no_submission_category_by_token = dict(
+                            maker_preclassified_no_submission_category_by_token
+                        )
+                        maker_no_submission_category_by_token.update(
+                            manager_maker_no_submission_category_by_token
+                        )
+                        maker_handoff_no_submission_reason_by_token = (
+                            self._build_maker_handoff_no_submission_reason_by_token(
+                                maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
+                                maker_prereq_failure_by_token=maker_prereq_failure_by_token,
+                            )
+                        )
                         if maker_eval_token_ids:
                             self._emit_maker_edge_evaluations(
-                                books=books,
+                                books=maker_books_for_evaluation,
+                                maker_market_reference_by_token=maker_market_reference_by_token,
                                 stage_info_by_token=stage_info_by_token,
                                 maker_eval_token_ids=maker_eval_token_ids,
                                 maker_submitted_token_ids=maker_submitted_token_ids,
@@ -6567,6 +8436,7 @@ class ExecutionRunner:
                                 maker_no_submission_category_by_token=maker_no_submission_category_by_token,
                                 maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                                 fair_probability_by_token=fair_probability_by_token,
+                                maker_competitiveness_profiles_by_token=maker_competitiveness_profiles_by_token,
                                 oracle_tick_age_sec=oracle_tick_age_sec,
                                 latency_state=latency_snapshot.state,
                                 cycle_index=int(self._doctrine_cycle_index),
@@ -6574,7 +8444,7 @@ class ExecutionRunner:
                         if near_tokens:
                             taker_summary = self._run_sniper_taker(
                                 books=books,
-                                fair_probability_by_token=fair_probability_by_token,
+                                fair_probability_by_token=taker_fair_probability_by_token,
                                 realized_volatility_by_token=volatility_by_token,
                                 secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                                 secondary_oracle_base_status=secondary_oracle_base_status,
@@ -6589,7 +8459,7 @@ class ExecutionRunner:
                                 sniper_ramp_allowed=self._sniper_ramp_allowed,
                                 cycle_index=int(self._doctrine_cycle_index),
                                 maker_submitted_token_ids=maker_submitted_token_ids,
-                                maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
+                                maker_no_submission_reason_by_token=maker_handoff_no_submission_reason_by_token,
                             )
                             if taker_summary["attempts"] > 0:
                                 self.telemetry.incr("sniper_taker_attempts", taker_summary["attempts"])
@@ -6933,6 +8803,7 @@ class ExecutionRunner:
                     chainlink_status = self.chainlink.status()
                     book_feed_status = self.book_feed.status()
                     wallet_contract = self.wallet.status_contract()
+                    host_time_sync = self._refresh_host_time_sync_snapshot()
                     guard_active, guard_reason = self._read_external_guard_stop()
                     status_ts_utc = utc_iso()
                     runtime_resource = self._runtime_resource_snapshot_from_telemetry(telemetry)
@@ -6974,6 +8845,10 @@ class ExecutionRunner:
                         "chainlink": chainlink_status,
                         "secondary_oracle": {"pyth": pyth_status_live},
                         "book_feed": book_feed_status,
+                        "host_time_sync": dict(host_time_sync),
+                        "host_time_sync_snapshot_age_sec": max(
+                            0.0, float(time.monotonic() - self._host_time_sync_last_refresh_mono)
+                        ),
                         "wallet_contract": wallet_contract,
                         "wallet_health_ok": bool(wallet_contract.get("wallet_health_ok", False)),
                         "wallet_health_reasons": list(wallet_contract.get("wallet_health_reasons", [])),
@@ -7017,7 +8892,13 @@ class ExecutionRunner:
                         "held_unpriceable_escalation_max_age_sec": float(self._held_unpriceable_escalation_max_age_sec),
                         "held_unpriceable_escalation_threshold_sec": float(self.held_unpriceable_escalation_sec),
                         "held_unpriceable_operator_action": str(self._held_unpriceable_operator_action),
-                        "held_unpriceable_defect_candidate": bool(self._held_unpriceable_escalation_active),
+                        "held_unpriceable_defect_candidate": bool(self._held_unpriceable_defect_candidate),
+                        "held_unpriceable_dust_exempted_escalation_token_ids": list(
+                            self._held_unpriceable_dust_exempted_escalation_token_ids
+                        ),
+                        "held_unpriceable_meaningful_escalation_token_ids": list(
+                            self._held_unpriceable_meaningful_escalation_token_ids
+                        ),
                         "held_unpriceable_cause_by_token": dict(self._held_unpriceable_cause_by_token),
                         "held_unpriceable_cause_counts": dict(self._held_unpriceable_cause_counts),
                         "held_unpriceable_dominant_cause": str(self._held_unpriceable_dominant_cause),
@@ -7108,6 +8989,7 @@ class ExecutionRunner:
                         "runtime_resource": dict(runtime_resource),
                         **telemetry,
                     }
+                    self._flush_preexpiry_emergency_taker_repeat_summary()
                     self.events.log_status(status_row)
                     self.prometheus.update(
                         telemetry,
@@ -7190,6 +9072,8 @@ class ExecutionRunner:
                 self._dump_state()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._write_run_manifest_end()
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
+                self._flush_preexpiry_emergency_taker_repeat_summary()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.log_event("runner_stop", {"ts_utc": utc_iso(), "run_id": self.run_id})
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):

@@ -37,6 +37,10 @@ class TxLifecycleRecord:
     reserved_nonce: int
     order_id: Optional[str] = None
     target_ref: Optional[str] = None
+    submission_lane: Optional[str] = None
+    commitment_hold_active: bool = False
+    commitment_hold_reason: Optional[str] = None
+    commitment_expiry_ts_utc: Optional[str] = None
     failure_class: str = ""
     failure_detail: str = ""
     filled_size: float = 0.0
@@ -105,6 +109,22 @@ class TransactionManager:
             last_update_ts_utc=now,
             reserved_nonce=reserved_nonce,
             target_ref=(str(intent.target_ref).strip() if str(intent.target_ref or "").strip() else None),
+            submission_lane=(
+                str(intent.submission_lane).strip().lower()
+                if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            commitment_hold_active=bool(intent.commitment_hold_active),
+            commitment_hold_reason=(
+                str(intent.commitment_hold_reason).strip()
+                if str(intent.commitment_hold_reason or "").strip()
+                else None
+            ),
+            commitment_expiry_ts_utc=(
+                str(intent.commitment_expiry_ts_utc).strip()
+                if str(intent.commitment_expiry_ts_utc or "").strip()
+                else None
+            ),
         )
         self._records_by_client[cid] = record
         self._client_by_authorization_id[authorization_id] = cid
@@ -121,6 +141,7 @@ class TransactionManager:
         record.order_id = str(order.order_id or "").strip() or None
         if record.order_id:
             self._client_by_order_id[record.order_id] = cid
+        self._apply_record_metadata_to_order(order, record)
         self._set_state(record, self._normalize_order_state(order.status))
         return order
 
@@ -201,6 +222,7 @@ class TransactionManager:
             record.order_id = str(order.order_id or "").strip() or record.order_id
             if record.order_id:
                 self._client_by_order_id[record.order_id] = client_id
+            self._apply_record_metadata_to_order(order, record)
             self._set_state(record, self._normalize_order_state(order.status))
         return open_orders
 
@@ -329,6 +351,20 @@ class TransactionManager:
     def _set_state(record: TxLifecycleRecord, state: str) -> None:
         record.state = str(state or "unknown")
         record.last_update_ts_utc = utc_iso()
+
+    @staticmethod
+    def _apply_record_metadata_to_order(order: LiveOrder, record: TxLifecycleRecord) -> None:
+        order.client_order_id = str(record.client_order_id or "").strip() or order.client_order_id
+        order.submission_lane = (
+            str(record.submission_lane or "").strip().lower() or None
+        )
+        order.commitment_hold_active = bool(record.commitment_hold_active)
+        order.commitment_hold_reason = (
+            str(record.commitment_hold_reason or "").strip() or None
+        )
+        order.commitment_expiry_ts_utc = (
+            str(record.commitment_expiry_ts_utc or "").strip() or None
+        )
 
     @staticmethod
     def _order_ids_from_orders(orders: List[LiveOrder]) -> set[str]:

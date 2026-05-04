@@ -781,6 +781,36 @@ class WalletDoctrineBase(ABC):
         )
         self.reconcile(pre_execution=False)
 
+    def settle_binary_position(
+        self,
+        *,
+        token_id: str,
+        settlement_side: str,
+        size_shares: float,
+        settlement_price: float,
+        ts_utc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        token = str(token_id or "").strip()
+        side = str(settlement_side or "").strip().upper()
+        size = max(0.0, float(size_shares))
+        price = max(0.0, min(1.0, float(settlement_price)))
+        notional = float(size * price)
+        if side == "BUY":
+            self._net_usdc_outflow += notional
+        elif side == "SELL":
+            self._net_usdc_outflow -= notional
+        self.reconcile(pre_execution=False)
+        payload = {
+            "ts_utc": str(ts_utc or utc_iso()),
+            "token_id": token,
+            "settlement_side": side,
+            "settlement_size_shares": float(size),
+            "settlement_price": float(price),
+            "settlement_notional_usd": float(notional),
+        }
+        self._emit("wallet_position_settled", payload)
+        return payload
+
     def _locked_usdc_total(self) -> float:
         return float(self._reservations.locked_total())
 

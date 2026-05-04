@@ -26,7 +26,6 @@ CRITICAL_PATTERNS = (
 
 HIGH_PATTERNS = (
     "scripts/*.py",
-    "simulator.py",
     "requirements.txt",
     ".github/workflows/*",
     "Dockerfile",

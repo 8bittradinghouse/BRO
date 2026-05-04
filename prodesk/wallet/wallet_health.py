@@ -47,7 +47,10 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     startup_authority_ready = bool(status.get("startup_authority_ready", False))
     order_capable_live = bool(status.get("order_capable_live", False))
     startup_ready = bool(startup_authority_ready and authoritative_refresh_completed and authority_status_class == "authoritative")
-    order_submit_eligible = bool(order_capable_live and startup_ready)
+    # Submit readiness is stage-relative. In paper mode, authoritative startup
+    # readiness is sufficient for paper submission. In live mode, the separate
+    # live-order capability gate must also be true.
+    order_submit_eligible = bool(startup_ready if mode != "live" else (order_capable_live and startup_ready))
     reconcile_scope = str(reconcile.get("scope") or "integrity_tripwire")
     reservation_mismatch_candidate = bool(status.get("reservation_mismatch_candidate", False))
     reservation_mismatch_delta_usdc = float(status.get("reservation_mismatch_delta_usdc", 0.0) or 0.0)

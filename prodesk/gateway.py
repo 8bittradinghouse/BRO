@@ -74,6 +74,9 @@ class BaseGateway:
     def seed_fill_cursor(self, last_fill_ts_utc: Optional[str]) -> None:
         return None
 
+    def preview_visible_immediate_fill(self, *, top: Optional[BookTop], side: str) -> Optional[Dict[str, Any]]:
+        return None
+
 
 class PaperGateway(BaseGateway):
     def __init__(self, runtime_cfg: Optional[Dict[str, Any]] = None) -> None:
@@ -238,6 +241,40 @@ class PaperGateway(BaseGateway):
             raise GatewayError(f"invalid_paper_trade_id_generated:{trade_id}")
         return trade_id
 
+    def preview_visible_immediate_fill(self, *, top: Optional[BookTop], side: str) -> Optional[Dict[str, Any]]:
+        if top is None:
+            return None
+        side_norm = str(side or "").strip().upper()
+        if side_norm not in {"BUY", "SELL"}:
+            return None
+        liquidity_depth_multiplier = self._paper_liquidity_depth_scale(top)
+        if side_norm == "BUY":
+            visible_size = (
+                (float(top.best_ask_size) if top.best_ask_size is not None else 0.0)
+                * float(liquidity_depth_multiplier)
+            )
+            touch_price = float(top.best_ask_price) if top.best_ask_price is not None else None
+        else:
+            visible_size = (
+                (float(top.best_bid_size) if top.best_bid_size is not None else 0.0)
+                * float(liquidity_depth_multiplier)
+            )
+            touch_price = float(top.best_bid_price) if top.best_bid_price is not None else None
+        visible_notional_usd = (
+            float(visible_size) * float(touch_price)
+            if touch_price is not None and visible_size > 0.0
+            else 0.0
+        )
+        return {
+            "available": bool(touch_price is not None),
+            "side": side_norm,
+            "touch_price": touch_price,
+            "visible_size": float(max(0.0, visible_size)),
+            "visible_notional_usd": float(max(0.0, visible_notional_usd)),
+            "paper_liquidity_depth_multiplier": float(liquidity_depth_multiplier),
+            "fill_policy_basis": "bounded_visible_liquidity_top_of_book",
+        }
+
     def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
         tif = str(intent.tif or "GTC").upper()
         post_only = True if intent.post_only is None else bool(intent.post_only)
@@ -259,6 +296,22 @@ class PaperGateway(BaseGateway):
             status="OPEN",
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            submission_lane=(
+                str(intent.submission_lane).strip().lower()
+                if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            commitment_hold_active=bool(intent.commitment_hold_active),
+            commitment_hold_reason=(
+                str(intent.commitment_hold_reason).strip()
+                if str(intent.commitment_hold_reason or "").strip()
+                else None
+            ),
+            commitment_expiry_ts_utc=(
+                str(intent.commitment_expiry_ts_utc).strip()
+                if str(intent.commitment_expiry_ts_utc or "").strip()
+                else None
+            ),
         )
         self._open_orders[order_id] = order
         return order
@@ -370,6 +423,22 @@ class PaperGateway(BaseGateway):
             status=status,
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            submission_lane=(
+                str(intent.submission_lane).strip().lower()
+                if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            commitment_hold_active=bool(intent.commitment_hold_active),
+            commitment_hold_reason=(
+                str(intent.commitment_hold_reason).strip()
+                if str(intent.commitment_hold_reason or "").strip()
+                else None
+            ),
+            commitment_expiry_ts_utc=(
+                str(intent.commitment_expiry_ts_utc).strip()
+                if str(intent.commitment_expiry_ts_utc or "").strip()
+                else None
+            ),
         )
 
     def cancel_order(self, order_id: str) -> bool:
@@ -749,6 +818,22 @@ class LiveClobGateway(BaseGateway):
             status=str(first_non_none(response.get("status"), "OPEN")),
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            submission_lane=(
+                str(intent.submission_lane).strip().lower()
+                if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            commitment_hold_active=bool(intent.commitment_hold_active),
+            commitment_hold_reason=(
+                str(intent.commitment_hold_reason).strip()
+                if str(intent.commitment_hold_reason or "").strip()
+                else None
+            ),
+            commitment_expiry_ts_utc=(
+                str(intent.commitment_expiry_ts_utc).strip()
+                if str(intent.commitment_expiry_ts_utc or "").strip()
+                else None
+            ),
         )
 
     def cancel_order(self, order_id: str) -> bool:

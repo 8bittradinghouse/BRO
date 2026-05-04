@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 import yaml
+from prodesk.config import _load_raw_with_extends
 
 try:
     import websockets
@@ -621,8 +622,7 @@ def apply_symbol_filter(tokens: Dict[str, TokenMeta], symbols: Optional[List[str
 
 
 def load_config(path: pathlib.Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        user_cfg = yaml.safe_load(fh) or {}
+    user_cfg, _ = _load_raw_with_extends(path.resolve())
     if not isinstance(user_cfg, dict):
         raise ValueError("config root must be a mapping")
     return deep_merge(DEFAULTS, user_cfg)

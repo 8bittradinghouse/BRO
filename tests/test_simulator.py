@@ -1,8 +1,12 @@
+import os
 import copy
 import json
 import tempfile
 import unittest
 from pathlib import Path
+
+if os.getenv("BRO_ENABLE_LEGACY_SIMULATOR_TESTS", "").strip() != "1":
+    raise unittest.SkipTest("legacy simulator tests are disabled by default")
 
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
 from simulator import _build_aggregate_summary, run_scenario

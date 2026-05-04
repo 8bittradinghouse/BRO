@@ -60,6 +60,9 @@ class SniperToolConfig:
     multi_oracle_target_usd_cap: float = 350.0
     multi_oracle_capital_pct_cap: float = 0.18
     stage_priority_enabled: bool = False
+    normal_side_policy: str = "buy_expected_winner_only"
+    allow_complement_buy_route: bool = True
+    min_visible_fill_ratio: float = 0.0
 
     @classmethod
     def from_mapping(cls, row: Optional[Mapping[str, Any]]) -> "SniperToolConfig":
@@ -111,6 +114,10 @@ class SniperToolConfig:
             multi_oracle_target_usd_cap=max(0.0, _safe_float(row.get("multi_oracle_target_usd_cap"), 350.0)),
             multi_oracle_capital_pct_cap=max(0.0, _safe_float(row.get("multi_oracle_capital_pct_cap"), 0.18)),
             stage_priority_enabled=bool(row.get("stage_priority_enabled", False)),
+            normal_side_policy=str(row.get("normal_side_policy", "buy_expected_winner_only")).strip().lower()
+            or "buy_expected_winner_only",
+            allow_complement_buy_route=bool(row.get("allow_complement_buy_route", True)),
+            min_visible_fill_ratio=max(0.0, min(1.0, _safe_float(row.get("min_visible_fill_ratio"), 0.0))),
         )
 
 
@@ -164,6 +171,10 @@ class SniperDecision:
     multi_oracle_boost_applied: bool
     multi_oracle_status: str
     sec_to_expiry: Optional[float] = None
+    normal_side_policy: str = "buy_expected_winner_only"
+    normal_taker_side_class: str = "unknown"
+    visible_fill_ratio: Optional[float] = None
+    visible_fill_notional_usd: Optional[float] = None
 
     def as_event_payload(self) -> Dict[str, Any]:
         return {
@@ -209,6 +220,16 @@ class SniperDecision:
             "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
             "multi_oracle_status": str(self.multi_oracle_status or "unknown"),
+            "normal_side_policy": str(self.normal_side_policy or "buy_expected_winner_only"),
+            "normal_taker_side_class": str(self.normal_taker_side_class or "unknown"),
+            "visible_fill_ratio": (
+                float(self.visible_fill_ratio) if isinstance(self.visible_fill_ratio, (int, float)) else None
+            ),
+            "visible_fill_notional_usd": (
+                float(self.visible_fill_notional_usd)
+                if isinstance(self.visible_fill_notional_usd, (int, float))
+                else None
+            ),
             "block_reason": self.block_reason,
             "side": self.side,
             "price": self.price,
@@ -257,6 +278,16 @@ class SniperDecision:
             "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
             "multi_oracle_status": str(self.multi_oracle_status or "unknown"),
+            "normal_side_policy": str(self.normal_side_policy or "buy_expected_winner_only"),
+            "normal_taker_side_class": str(self.normal_taker_side_class or "unknown"),
+            "visible_fill_ratio": (
+                float(self.visible_fill_ratio) if isinstance(self.visible_fill_ratio, (int, float)) else None
+            ),
+            "visible_fill_notional_usd": (
+                float(self.visible_fill_notional_usd)
+                if isinstance(self.visible_fill_notional_usd, (int, float))
+                else None
+            ),
         }
 
 
@@ -384,6 +415,7 @@ class SniperTool:
             return SniperBatchResult(decisions=decisions)
 
         provisional: List[SniperDecision] = []
+        normal_side_policy = str(self.cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
         for candidate in candidates:
             token_id = str(candidate.token_id)
             stage = str(candidate.stage or "").strip().upper() or "UNKNOWN"
@@ -570,6 +602,43 @@ class SniperTool:
                 )
                 continue
 
+            if edge_signed < 0.0 and normal_side_policy == "buy_expected_winner_only":
+                provisional.append(
+                    SniperDecision(
+                        token_id=token_id,
+                        stage=stage,
+                        should_submit=False,
+                        block_reason="normal_taker_same_token_sell_forbidden",
+                        side="SELL",
+                        price=None,
+                        edge_abs=edge_abs,
+                        required_min_edge=required_min_edge,
+                        conviction_score=conviction_score,
+                        timing_window_class=timing_window_class,
+                        aggressiveness_level=aggressiveness_level,
+                        price_aggress_bps_applied=aggress_bps,
+                        target_usd_requested=target_usd_requested,
+                        target_usd_resolved=target_usd_resolved,
+                        hard_min_floor_applied=hard_min_floor_applied,
+                        hard_min_unachievable=hard_min_unachievable,
+                        submit_capable_static=False,
+                        submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
+                        predicted_dynamic_feasible=predicted_dynamic_feasible,
+                        predicted_feasible_target_usd=predicted_feasible_target_usd,
+                        predicted_reject_reason=predicted_dynamic_reject_reason,
+                        preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
+                        dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
+                        multi_oracle_confirmation=multi_oracle_confirmation,
+                        multi_oracle_boost_eligible=boost_eligible,
+                        multi_oracle_boost_applied=boost_eligible,
+                        multi_oracle_status=multi_oracle_status,
+                        sec_to_expiry=sec_to_expiry_value,
+                        normal_side_policy=normal_side_policy,
+                        normal_taker_side_class="same_token_sell_blocked",
+                    )
+                )
+                continue
+
             side = "BUY" if edge_signed > 0.0 else "SELL"
             base_price = (
                 float(candidate.top_best_ask_price)
@@ -682,6 +751,8 @@ class SniperTool:
                     multi_oracle_boost_applied=boost_eligible,
                     multi_oracle_status=multi_oracle_status,
                     sec_to_expiry=sec_to_expiry_value,
+                    normal_side_policy=normal_side_policy,
+                    normal_taker_side_class="buy_expected_winner",
                 )
             )
 

@@ -41,11 +41,16 @@ class DoctrineGatingTests(unittest.TestCase):
         cfg["storage"]["state_path"] = str(Path(td.name) / "state.json")
         return ExecutionRunner(cfg)
 
-    def test_stage_policy_sniper_primary_is_taker_only(self):
+    def test_stage_policy_sniper_primary_is_not_live_taker_stage(self):
         allow_maker, allow_taker = ExecutionRunner._stage_policy(STAGE_SNIPER_PRIMARY)
         self.assertFalse(allow_maker)
-        self.assertTrue(allow_taker)
+        self.assertFalse(allow_taker)
         self.assertEqual((allow_maker, allow_taker), edge_stage_policy(STAGE_SNIPER_PRIMARY))
+
+        allow_maker, allow_taker = ExecutionRunner._stage_policy(STAGE_EXTREME_ONLY)
+        self.assertFalse(allow_maker)
+        self.assertTrue(allow_taker)
+        self.assertEqual((allow_maker, allow_taker), edge_stage_policy(STAGE_EXTREME_ONLY))
 
     def test_stage_policy_uses_canonical_contract_source(self):
         for stage in (
@@ -110,11 +115,11 @@ class DoctrineGatingTests(unittest.TestCase):
     def test_maker_timing_gate_is_fail_closed_outside_window(self):
         runner = self._runner()
         runner.maker_comp_timing_gate_enabled = True
-        runner.maker_comp_timing_gate_min_sec_to_expiry = 45.0
-        runner.maker_comp_timing_gate_max_sec_to_expiry = 60.0
+        runner.maker_comp_timing_gate_min_sec_to_expiry = 15.0
+        runner.maker_comp_timing_gate_max_sec_to_expiry = 20.0
         self.assertFalse(runner._maker_timing_gate_open(None))
         self.assertFalse(runner._maker_timing_gate_open(30.0))
-        self.assertTrue(runner._maker_timing_gate_open(50.0))
+        self.assertTrue(runner._maker_timing_gate_open(18.0))
         self.assertFalse(runner._maker_timing_gate_open(75.0))
 
     def test_maker_canonical_mode_blocks_non_ws_book_source(self):
@@ -186,9 +191,9 @@ class DoctrineGatingTests(unittest.TestCase):
         ) as placed:
             out = runner._run_sniper_taker(
                 books=books,
-                fair_probability_by_token=fair,
+                fair_probability_by_token={"t1": 0.55},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 45.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -215,7 +220,7 @@ class DoctrineGatingTests(unittest.TestCase):
         submitted_rows = [
             row
             for row in event_rows
-            if str(row.get("stage") or "") == STAGE_MAKER_TAKER_SELECTIVE
+            if str(row.get("stage") or "") == STAGE_EXTREME_ONLY
             and str(row.get("action_taken") or "") == "taker"
         ]
         self.assertTrue(bool(submitted_rows))
@@ -226,7 +231,7 @@ class DoctrineGatingTests(unittest.TestCase):
         runner.sniper_taker_enabled = True
         runner.sniper_taker_min_edge = 0.01
         runner.sniper_taker_extreme_edge_mult = 2.0
-        runner.sniper_taker_min_edge_by_stage = {STAGE_MAKER_TAKER_SELECTIVE: 0.05}
+        runner.sniper_taker_min_edge_by_stage = {STAGE_EXTREME_ONLY: 0.05}
         top = BookTop(
             token_id="t1",
             ts_utc=utc_iso(),
@@ -244,24 +249,25 @@ class DoctrineGatingTests(unittest.TestCase):
             "place_taker_order_with_outcome",
             return_value={"submitted": True, "fills_accepted": 0, "order_id": "ord-1"},
         ) as placed:
-            out_selective = runner._run_sniper_taker(
+            out_extreme_blocked = runner._run_sniper_taker(
                 books=books,
                 fair_probability_by_token=fair,
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 45.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
-            out_primary = runner._run_sniper_taker(
+            runner.sniper_taker_min_edge_by_stage = {}
+            out_extreme_live = runner._run_sniper_taker(
                 books=books,
                 fair_probability_by_token=fair,
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_SNIPER_PRIMARY, "sec_to_expiry": 25.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
-        self.assertEqual(out_selective["submitted"], 0)
-        self.assertEqual(out_primary["submitted"], 1)
+        self.assertEqual(out_extreme_blocked["submitted"], 0)
+        self.assertEqual(out_extreme_live["submitted"], 1)
         placed.assert_called_once()
 
     def test_sniper_taker_submit_event_emits_order_id(self):
@@ -286,7 +292,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.53},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 45.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -305,7 +311,7 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertEqual(str(submit_rows[-1].get("order_id") or ""), "ord-42")
         self.assertTrue(isinstance(submit_rows[-1].get("edge_abs"), (int, float)))
         self.assertEqual(str(submit_rows[-1].get("edge_bucket") or ""), "le_0p10")
-        self.assertEqual(str(submit_rows[-1].get("stage") or ""), STAGE_MAKER_TAKER_SELECTIVE)
+        self.assertEqual(str(submit_rows[-1].get("stage") or ""), STAGE_EXTREME_ONLY)
         self.assertIsNone(submit_rows[-1].get("stage_unknown_reason"))
 
     def test_maker_edge_evaluation_emits_block_reason_when_not_submitted(self):
@@ -514,6 +520,179 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertEqual(str(row.get("decision_input_type") or ""), "bounded_derived")
         self.assertEqual(str(row.get("decision_input_data_class") or ""), "observed_other")
 
+    def test_maker_book_reference_backfills_recent_paired_touch_when_midpoint_missing(self):
+        runner = self._runner()
+        now = dt.datetime.now(dt.timezone.utc)
+        earlier = now - dt.timedelta(milliseconds=50)
+        bid_only = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(earlier),
+            source="ws",
+            best_bid_price=0.48,
+            best_bid_size=1500.0,
+            best_ask_price=None,
+            best_ask_size=None,
+        )
+        ask_only = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(now),
+            source="ws",
+            best_bid_price=None,
+            best_bid_size=None,
+            best_ask_price=0.52,
+            best_ask_size=900.0,
+        )
+
+        runner._update_maker_ws_touch_cache(books={"t1": bid_only})
+        runner._update_maker_ws_touch_cache(books={"t1": ask_only})
+        resolved_top, market_reference = runner._resolve_maker_book_reference(
+            token_id="t1",
+            top=ask_only,
+            maker_prereq_failure_reason="",
+        )
+        self.assertIsInstance(resolved_top, BookTop)
+        self.assertAlmostEqual(float(resolved_top.midpoint or 0.0), 0.50, places=9)
+        self.assertAlmostEqual(float(resolved_top.best_bid_size or 0.0), 1500.0, places=9)
+        self.assertAlmostEqual(float(resolved_top.best_ask_size or 0.0), 900.0, places=9)
+        self.assertEqual(str(market_reference.get("market_reference_mode") or ""), "backfilled_paired_touch")
+        self.assertEqual(str(market_reference.get("market_reference_basis") or ""), "ws_recent_paired_touch")
+        self.assertEqual(str(market_reference.get("market_reference_source_side") or ""), "paired")
+        self.assertEqual(str(market_reference.get("market_reference_class") or ""), "authoritative")
+        self.assertTrue(bool(market_reference.get("market_reference_fallback_used", False)))
+        self.assertLessEqual(
+            float(market_reference.get("market_reference_backfill_pair_delta_sec") or 0.0),
+            float(runner._maker_paired_touch_max_delta_sec),
+        )
+
+        profile = runner._maker_competitiveness_profile(
+            token_id="t1",
+            top=resolved_top,
+            market_reference=market_reference,
+            fair_probability=0.62,
+            secondary_fair_probability=0.63,
+            secondary_oracle_status="available",
+            chainlink_spot_price=65000.0,
+            secondary_oracle_spot_price=65001.0,
+            stage=STAGE_MAKER_TAKER_SELECTIVE,
+            sec_to_expiry=12.0,
+            base_size_multiplier=1.0,
+            base_spread_multiplier=1.0,
+            timing_gate_open=True,
+        )
+        context = dict(profile.get("context") or {})
+        self.assertEqual(str(context.get("market_reference_mode") or ""), "backfilled_paired_touch")
+        self.assertEqual(str(context.get("market_reference_class") or ""), "authoritative")
+
+    def test_maker_edge_evaluation_preserves_backfilled_paired_touch_and_depth(self):
+        runner = self._runner()
+        now = dt.datetime.now(dt.timezone.utc)
+        earlier = now - dt.timedelta(milliseconds=40)
+        runner._update_maker_ws_touch_cache(
+            books={
+                "t1": BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(earlier),
+                    source="ws",
+                    best_bid_price=0.47,
+                    best_bid_size=1200.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+            }
+        )
+        ask_only = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(now),
+            source="ws",
+            best_bid_price=None,
+            best_bid_size=None,
+            best_ask_price=0.53,
+            best_ask_size=800.0,
+        )
+        resolved_books, market_reference_by_token = runner._resolve_maker_market_reference_inputs(
+            books={"t1": ask_only},
+            maker_token_ids={"t1"},
+            maker_prereq_failure_by_token={},
+        )
+        runner._emit_maker_edge_evaluations(
+            books=resolved_books,
+            stage_info_by_token={
+                "t1": {
+                    "stage": STAGE_MAKER_TAKER_SELECTIVE,
+                    "sec_to_expiry": 12.0,
+                    "allow_maker": True,
+                    "allow_taker": True,
+                }
+            },
+            maker_eval_token_ids={"t1"},
+            maker_submitted_token_ids=set(),
+            maker_submitted_order_ids_by_token={},
+            maker_no_submission_reason_by_token={"t1": "no_desired_quote"},
+            maker_no_submission_category_by_token={"t1": "quoteability"},
+            maker_prereq_failure_by_token={},
+            fair_probability_by_token={"t1": 0.61},
+            maker_market_reference_by_token=market_reference_by_token,
+            oracle_tick_age_sec=0.2,
+            latency_state="armed",
+            cycle_index=7,
+        )
+        runner.events.close()
+        rows: list[dict] = []
+        for path in sorted(Path(runner.log_dir).glob("events_*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if str(payload.get("event_type") or "") == "edge_evaluation":
+                    rows.append(payload)
+        self.assertTrue(bool(rows))
+        row = rows[-1]
+        self.assertEqual(str(row.get("block_reason") or ""), "maker_no_submission")
+        self.assertEqual(str(row.get("maker_no_submission_cause") or ""), "no_desired_quote")
+        self.assertEqual(str(row.get("market_reference_mode") or ""), "backfilled_paired_touch")
+        self.assertEqual(str(row.get("market_reference_source_side") or ""), "paired")
+        self.assertEqual(str(row.get("market_reference_class") or ""), "authoritative")
+        self.assertEqual(str(row.get("decision_input_type") or ""), "observed_live")
+        self.assertAlmostEqual(float(row.get("market_probability") or 0.0), 0.50, places=9)
+        self.assertEqual(str(row.get("probe_favored_side") or ""), "BUY")
+        self.assertAlmostEqual(float(row.get("probe_visible_depth_shares") or 0.0), 1200.0, places=9)
+
+    def test_maker_book_reference_keeps_bounded_single_side_touch_when_pair_is_stale(self):
+        runner = self._runner()
+        now = dt.datetime.now(dt.timezone.utc)
+        stale = now - dt.timedelta(milliseconds=250)
+        runner._update_maker_ws_touch_cache(
+            books={
+                "t1": BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(stale),
+                    source="ws",
+                    best_bid_price=0.44,
+                    best_bid_size=600.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+            }
+        )
+        ask_only = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(now),
+            source="ws",
+            best_bid_price=None,
+            best_bid_size=None,
+            best_ask_price=0.63,
+            best_ask_size=100.0,
+        )
+        resolved_top, market_reference = runner._resolve_maker_book_reference(
+            token_id="t1",
+            top=ask_only,
+            maker_prereq_failure_reason="",
+        )
+        self.assertIs(resolved_top, ask_only)
+        self.assertEqual(str(market_reference.get("market_reference_mode") or ""), "bounded_single_side_touch")
+        self.assertEqual(str(market_reference.get("market_reference_class") or ""), "bounded_approximation")
+        self.assertEqual(str(market_reference.get("market_reference_source_side") or ""), "ask")
+
     def test_maker_edge_evaluation_keeps_market_probability_missing_when_bounded_fallback_disabled(self):
         runner = self._runner()
         runner.doctrine_maker_allow_bounded_single_side_reference = False
@@ -590,8 +769,8 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0},
-            "t2": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0},
+            "t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0},
+            "t2": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0},
         }
         with mock.patch.object(
             runner.manager,
@@ -652,7 +831,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=4,
@@ -695,7 +874,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 oracle_fresh=False,
                 lag_verified_token_ids=["t1"],
@@ -729,7 +908,7 @@ class DoctrineGatingTests(unittest.TestCase):
             {
                 "enabled": True,
                 "final_window_enabled": True,
-                "final_window_sec": 15.0,
+                "final_window_sec": 7.0,
                 "hard_min_target_usd": 100.0,
             }
         )
@@ -749,7 +928,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 35.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 10.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=6,
@@ -785,7 +964,7 @@ class DoctrineGatingTests(unittest.TestCase):
             {
                 "enabled": True,
                 "final_window_enabled": True,
-                "final_window_sec": 30.0,
+                "final_window_sec": 7.0,
                 "hard_min_target_usd": 1.0,
                 "dynamic_size_target_usd_cap": 1.0,
             }
@@ -815,7 +994,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_MAKER_TAKER_SELECTIVE, "sec_to_expiry": 10.0}},
+                stage_info_by_token={"t1": {"stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=7,
@@ -837,7 +1016,7 @@ class DoctrineGatingTests(unittest.TestCase):
                     edge_rows.append(payload)
         self.assertTrue(bool(decision_rows))
         self.assertEqual(str(decision_rows[-1].get("timing_window_class") or ""), "final_window")
-        self.assertAlmostEqual(float(decision_rows[-1].get("sec_to_expiry") or 0.0), 10.0, places=9)
+        self.assertAlmostEqual(float(decision_rows[-1].get("sec_to_expiry") or 0.0), 6.0, places=9)
         taker_rows = [row for row in edge_rows if str(row.get("evaluation_scope") or "") == "taker"]
         self.assertTrue(bool(taker_rows))
         self.assertEqual(str(taker_rows[-1].get("block_reason") or ""), "taker_submit_rejected")
@@ -854,14 +1033,14 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertAlmostEqual(float(runner._resolve_taker_cooldown_sec("MAKER_TAKER_SELECTIVE")), 0.25, places=9)
         self.assertAlmostEqual(float(runner._resolve_taker_cooldown_sec("EXTREME_ONLY")), 0.25, places=9)
 
-    def test_sniper_stage_window_semantic_check_emits_warn_on_non_overlap(self):
+    def test_sniper_stage_window_semantic_check_marks_earlier_taker_stages_dead_by_doctrine(self):
         runner = self._runner()
         runner.sniper_taker_competitiveness_cfg = SniperToolConfig.from_mapping(
             {
                 "enabled": True,
                 "final_window_enabled": True,
                 "final_window_sec": 60.0,
-                "stage_final_window_sec_by_stage": {"SNIPER_PRIMARY": 20.0},
+                "stage_final_window_sec_by_stage": {"EXTREME_ONLY": 7.0},
             }
         )
         runner._emit_sniper_stage_window_semantic_check()
@@ -876,13 +1055,13 @@ class DoctrineGatingTests(unittest.TestCase):
                     semantic_rows.append(payload)
         self.assertTrue(bool(semantic_rows))
         row = semantic_rows[-1]
-        self.assertEqual(str(row.get("semantic_status") or ""), "warn")
+        self.assertEqual(str(row.get("semantic_status") or ""), "ok")
         stage_rows = row.get("stage_rows") or {}
         sniper_row = stage_rows.get("SNIPER_PRIMARY") or {}
         self.assertFalse(bool(sniper_row.get("semantically_live", True)))
         self.assertEqual(
             str(sniper_row.get("semantic_dead_reason") or ""),
-            "stage_window_non_overlapping_with_stage_interval",
+            "stage_disallow_taker",
         )
 
 

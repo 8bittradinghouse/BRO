@@ -124,7 +124,7 @@ class PrestartGateTests(unittest.TestCase):
                 guard=guard,
                 runtime_overrides={
                     "paper_enforce_setup_lock": True,
-                    "paper_expected_profile_name": "paper_discipline",
+                    "paper_expected_profile_name": "fixture_expected_profile",
                     "paper_expected_config_fingerprint_sha256": "a" * 64,
                 },
             )

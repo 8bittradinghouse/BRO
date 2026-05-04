@@ -65,6 +65,28 @@ class LatencyVerifierTests(unittest.TestCase):
         self.assertLess(degraded.confidence_score, baseline_score)  # type: ignore[union-attr]
         self.assertGreaterEqual(degraded.drift_median_drop_ms, 0.0)  # type: ignore[union-attr]
 
+    def test_strong_absolute_signal_stays_verified_under_drift(self):
+        cfg = self._cfg()
+        cfg["drift_window_samples"] = 20
+        verifier = LatencyVerifier(cfg)
+        for _ in range(80):
+            verifier.observe(token_id="tok1", lag_ms=190.0)
+            verifier.snapshot(active_tokens=["tok1"])
+        self.assertTrue(verifier.token_is_verified("tok1"))
+
+        # The token still clears absolute armed thresholds comfortably even
+        # though recent lag drifts lower. Drift should degrade confidence
+        # without zeroing verification on a still-strong token.
+        for _ in range(80):
+            verifier.observe(token_id="tok1", lag_ms=130.0)
+            verifier.snapshot(active_tokens=["tok1"])
+
+        stats = verifier.token_stats("tok1")
+        self.assertIsNotNone(stats)
+        self.assertGreaterEqual(stats.median_lag_ms, verifier.armed_min_median_ms)  # type: ignore[union-attr]
+        self.assertGreaterEqual(stats.hit_rate, verifier.armed_min_hit_rate)  # type: ignore[union-attr]
+        self.assertTrue(verifier.token_is_verified("tok1"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -447,6 +447,42 @@ class SniperToolTests(unittest.TestCase):
         self.assertGreaterEqual(float(decision.target_usd_resolved or 0.0), 100.0)
         self.assertFalse(bool(decision.hard_min_unachievable))
 
+    def test_negative_edge_blocks_same_token_sell_under_buy_expected_winner_policy(self) -> None:
+        tool = SniperTool(
+            SniperToolConfig.from_mapping(
+                {
+                    "enabled": True,
+                    "normal_side_policy": "buy_expected_winner_only",
+                    "hard_min_target_usd": 100.0,
+                }
+            )
+        )
+        result = tool.evaluate_batch(
+            candidates=[
+                SniperCandidate(
+                    token_id="tok-negative-edge",
+                    stage="SNIPER_PRIMARY",
+                    sec_to_expiry=8.0,
+                    edge_value=-0.24,
+                    required_min_edge=0.10,
+                    base_target_usd=100.0,
+                    top_best_bid_price=0.49,
+                    top_best_ask_price=0.50,
+                    token_score=1.0,
+                    max_feasible_target_usd=1000.0,
+                    multi_oracle_confirmation=True,
+                    multi_oracle_status="confirmed",
+                )
+            ],
+            max_orders_per_cycle=1,
+        )
+        decision = result.decisions[0]
+        self.assertFalse(bool(decision.should_submit))
+        self.assertEqual(str(decision.block_reason or ""), "normal_taker_same_token_sell_forbidden")
+        self.assertEqual(str(decision.side or ""), "SELL")
+        self.assertEqual(str(decision.normal_taker_side_class or ""), "same_token_sell_blocked")
+        self.assertEqual(str(decision.normal_side_policy or ""), "buy_expected_winner_only")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -614,6 +614,29 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             any("canonical_live_pending_wallet_tx_unavailable" in str(x) for x in (contract.get("live_truth_gap_reasons") or []))
         )
 
+    def test_paper_wallet_submit_readiness_tracks_current_mode_authority(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+
+        contract = wallet.status_contract()
+        self.assertEqual(str(contract.get("authority_status_class") or ""), "authoritative")
+        self.assertTrue(bool(contract.get("authoritative_refresh_completed")))
+        self.assertTrue(bool(contract.get("startup_authority_ready")))
+        self.assertTrue(bool(contract.get("order_submit_eligible")))
+        self.assertFalse(bool(contract.get("order_capable_live")))
+        self.assertFalse(bool(contract.get("canonical_live_nonce_available")))
+        self.assertFalse(bool(contract.get("canonical_live_pending_wallet_tx_available")))
+        self.assertTrue(bool(contract.get("wallet_health_ok")))
+
     def test_wallet_post_lock_reconcile_failure_rolls_back_pending_lock(self) -> None:
         wallet = PaperWalletDoctrine(
             {

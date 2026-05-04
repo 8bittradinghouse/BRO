@@ -150,7 +150,10 @@ class LatencyVerifier:
             clamp(drift_median_drop_ms / self.drift_max_median_drop_ms, 0.0, 1.0),
             clamp(drift_hit_rate_drop / self.drift_max_hit_rate_drop, 0.0, 1.0),
         )
-        return clamp(raw * (1.0 - drift_penalty), 0.0, 1.0)
+        # Drift should degrade confidence, but it should not become a total
+        # override when the same token still has strong sample count, median,
+        # and hit-rate proof on the active path.
+        return clamp(raw - (0.5 * drift_penalty), 0.0, 1.0)
 
     def prune_tokens(self, active_tokens: Iterable[str]) -> None:
         keep = {str(token_id) for token_id in active_tokens}

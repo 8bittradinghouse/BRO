@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections import deque
 import datetime as dt
 import hashlib
@@ -50,6 +51,32 @@ OPEN_EQUIVALENT_ORDER_ACK_STATUSES = {
     "PARTIALLY_FILLED",
     "SUBMITTED",
 }
+COMMITMENT_CANCEL_CLASS_EXCEPTIONAL = "exceptional_shutdown_or_safety"
+COMMITMENT_CANCEL_CLASS_ROUTINE = "legacy_routine"
+COMMITMENT_CANCEL_CLASS_TERMINAL = "terminal_window_end"
+COMMITMENT_CANCEL_REASON_WINDOW_ENDED = "commitment_window_ended"
+COMMITMENT_SUPPRESSION_REASON_ACTIVE_HOLD = "commitment_hold_active_pre_expiry"
+COMMITMENT_SUPPRESSION_REASON_MISSING_EXPIRY = "commitment_expiry_context_missing_fail_closed"
+COMMITMENT_ROUTINE_CANCEL_ORIGINS = frozenset(
+    {
+        "maker_selection_gate",
+        "maker_replace_logic",
+        "maker_no_desired_quote",
+        "maker_side_policy",
+        "maker_extra_same_side_cleanup",
+        "stale_watchdog",
+        "tracked_token_cleanup",
+        "non_target_cleanup",
+        "targeted_token_cleanup",
+        "market_family_commitment_cleanup",
+    }
+)
+COMMITMENT_EXCEPTIONAL_CANCEL_ORIGINS = frozenset(
+    {
+        "runner_shutdown",
+        "kill_switch_cleanup",
+    }
+)
 
 
 def _normalize_soft_limit_pct(value: object, default: float) -> float:
@@ -120,6 +147,7 @@ class OrderManager:
         )
         self.requote_delta = float(strategy_cfg["quote_refresh_min_delta"])
         self.tick_size = max(1e-9, float(strategy_cfg.get("tick_size", 0.001)))
+        self.strategy_min_spread = max(0.0, float(strategy_cfg.get("min_spread", 0.0)))
         self.seen_trade_ids_max = int(runtime_cfg.get("seen_trade_ids_max", 200000))
         self.sizing_cfg = sizing_cfg or {}
         self.sizing_mode = str(self.sizing_cfg.get("mode", "shares")).strip().lower()
@@ -197,6 +225,110 @@ class OrderManager:
             if recovery_queue_multiplier is not None
             else 2.0
         )
+        maker_competitiveness_cfg = strategy_cfg.get("maker_competitiveness", {})
+        if not isinstance(maker_competitiveness_cfg, dict):
+            maker_competitiveness_cfg = {}
+        queue_pressure_cfg = maker_competitiveness_cfg.get("queue_pressure", {})
+        if not isinstance(queue_pressure_cfg, dict):
+            queue_pressure_cfg = {}
+        queue_pressure_allowed_stages = queue_pressure_cfg.get("allowed_stages", ["MAKER_TAKER_SELECTIVE"])
+        if not isinstance(queue_pressure_allowed_stages, list):
+            queue_pressure_allowed_stages = ["MAKER_TAKER_SELECTIVE"]
+        self.maker_queue_pressure_enabled = bool(queue_pressure_cfg.get("enabled", False))
+        self.maker_queue_pressure_allowed_stages = {
+            str(stage or "").strip().upper()
+            for stage in queue_pressure_allowed_stages
+            if str(stage or "").strip()
+        }
+        self.maker_queue_pressure_min_edge_abs = max(
+            0.0,
+            float(queue_pressure_cfg.get("min_edge_abs", 0.05) or 0.0),
+        )
+        self.maker_queue_pressure_inside_price_ticks = max(
+            1,
+            int(float(queue_pressure_cfg.get("inside_price_ticks", 1) or 1)),
+        )
+        self.maker_queue_pressure_favored_side_only = bool(
+            queue_pressure_cfg.get("favored_side_only", True)
+        )
+        self.maker_queue_pressure_tight_spread_only = bool(
+            queue_pressure_cfg.get("tight_spread_only", True)
+        )
+        self.maker_queue_pressure_skip_below_geometry_floor = bool(
+            queue_pressure_cfg.get("skip_below_geometry_floor", True)
+        )
+        self.maker_queue_pressure_force_replace_on_adjustment = bool(
+            queue_pressure_cfg.get("force_replace_on_adjustment", True)
+        )
+        selection_gate_cfg = maker_competitiveness_cfg.get("selection_gate", {})
+        if not isinstance(selection_gate_cfg, dict):
+            selection_gate_cfg = {}
+        selection_gate_allowed_stages = selection_gate_cfg.get(
+            "allowed_stages", ["MAKER_TAKER_SELECTIVE"]
+        )
+        if not isinstance(selection_gate_allowed_stages, list):
+            selection_gate_allowed_stages = ["MAKER_TAKER_SELECTIVE"]
+        self.maker_selection_gate_enabled = bool(selection_gate_cfg.get("enabled", False))
+        self.maker_selection_gate_allowed_stages = {
+            str(stage or "").strip().upper()
+            for stage in selection_gate_allowed_stages
+            if str(stage or "").strip()
+        }
+        self.maker_selection_gate_require_secondary_oracle_confirmation = bool(
+            selection_gate_cfg.get("require_secondary_oracle_confirmation", True)
+        )
+        self.maker_selection_gate_require_one_sided_active = bool(
+            selection_gate_cfg.get("require_one_sided_active", False)
+        )
+        selection_gate_min_sec_to_expiry = selection_gate_cfg.get(
+            "min_sec_to_expiry",
+            None,
+        )
+        selection_gate_max_sec_to_expiry = selection_gate_cfg.get(
+            "max_sec_to_expiry",
+            None,
+        )
+        self.maker_selection_gate_min_sec_to_expiry = (
+            float(selection_gate_min_sec_to_expiry)
+            if isinstance(selection_gate_min_sec_to_expiry, (int, float))
+            and not isinstance(selection_gate_min_sec_to_expiry, bool)
+            else None
+        )
+        self.maker_selection_gate_max_sec_to_expiry = (
+            float(selection_gate_max_sec_to_expiry)
+            if isinstance(selection_gate_max_sec_to_expiry, (int, float))
+            and not isinstance(selection_gate_max_sec_to_expiry, bool)
+            else None
+        )
+        self.maker_selection_gate_cannon_target_notional_usd = max(
+            1e-9,
+            float(selection_gate_cfg.get("cannon_target_notional_usd", 350.0) or 350.0),
+        )
+        self.maker_selection_gate_min_depth_multiple = max(
+            0.0,
+            float(selection_gate_cfg.get("min_depth_multiple", 1.5) or 0.0),
+        )
+        max_same_target_submit_count_prior = selection_gate_cfg.get(
+            "max_same_target_submit_count_prior",
+            1,
+        )
+        self.maker_selection_gate_max_same_target_submit_count_prior = max(
+            0,
+            int(float(max_same_target_submit_count_prior or 0)),
+        )
+        max_same_target_side_submit_count_prior = selection_gate_cfg.get(
+            "max_same_target_side_submit_count_prior",
+            1,
+        )
+        self.maker_selection_gate_max_same_target_side_submit_count_prior = max(
+            0,
+            int(float(max_same_target_side_submit_count_prior or 0)),
+        )
+        self._maker_admission_shadow_seq = 0
+        self._maker_target_shadow_count_by_ref: Dict[str, int] = {}
+        self._maker_target_submit_count_by_ref: Dict[str, int] = {}
+        self._maker_target_side_shadow_count_by_ref: Dict[str, int] = {}
+        self._maker_target_side_submit_count_by_ref: Dict[str, int] = {}
 
     def _next_client_order_id(self, token_id: str, side: str) -> str:
         self._client_seq += 1
@@ -211,9 +343,633 @@ class OrderManager:
 
     @staticmethod
     def _submission_lane(intent: OrderIntent) -> str:
+        explicit = str(intent.submission_lane or "").strip().lower()
+        if explicit:
+            return explicit
         tif = str(intent.tif or "GTC").upper()
         is_taker = bool(intent.post_only is False) or tif in {"IOC", "FOK"}
         return "taker" if is_taker else "maker"
+
+    @staticmethod
+    def _is_commitment_candidate_intent(intent: OrderIntent, lane: str) -> bool:
+        return bool(
+            str(lane or "").strip().lower() == "maker"
+            and bool(intent.post_only is not False)
+            and str(intent.tif or "GTC").upper() == "GTC"
+        )
+
+    @staticmethod
+    def _normalize_cancel_request_origin(request_origin: Optional[str], requested_reason: str) -> str:
+        explicit = str(request_origin or "").strip().lower()
+        if explicit:
+            return explicit
+        normalized_reason = str(requested_reason or "").strip().lower()
+        if normalized_reason == "normal_taker_market_family_commitment_cleanup":
+            return "market_family_commitment_cleanup"
+        if normalized_reason == COMMITMENT_CANCEL_REASON_WINDOW_ENDED:
+            return "commitment_expiry_cleanup"
+        return normalized_reason or "unknown"
+
+    @staticmethod
+    def _commitment_expiry_dt(order: LiveOrder) -> Optional[dt.datetime]:
+        raw = str(getattr(order, "commitment_expiry_ts_utc", "") or "").strip()
+        if not raw:
+            return None
+        return parse_ts(raw)
+
+    @staticmethod
+    def _commitment_hold_configured(order: LiveOrder) -> bool:
+        return bool(
+            str(getattr(order, "submission_lane", "") or "").strip().lower() == "maker"
+            and bool(getattr(order, "commitment_hold_active", False))
+        )
+
+    def _commitment_hold_active(self, order: LiveOrder, *, now: Optional[dt.datetime] = None) -> bool:
+        if not self._commitment_hold_configured(order):
+            return False
+        expiry_dt = self._commitment_expiry_dt(order)
+        if expiry_dt is None:
+            return True
+        now_dt = now or self._now_fn()
+        return bool(now_dt < expiry_dt)
+
+    def _commitment_window_ended(self, order: LiveOrder, *, now: Optional[dt.datetime] = None) -> bool:
+        if not self._commitment_hold_configured(order):
+            return False
+        expiry_dt = self._commitment_expiry_dt(order)
+        if expiry_dt is None:
+            return False
+        now_dt = now or self._now_fn()
+        return bool(now_dt >= expiry_dt)
+
+    def _cancel_request_class(
+        self,
+        *,
+        order: LiveOrder,
+        requested_reason: str,
+        request_origin: str,
+    ) -> str:
+        if self._commitment_window_ended(order):
+            return COMMITMENT_CANCEL_CLASS_TERMINAL
+        if request_origin == "commitment_expiry_cleanup":
+            return COMMITMENT_CANCEL_CLASS_TERMINAL
+        if request_origin in COMMITMENT_EXCEPTIONAL_CANCEL_ORIGINS:
+            return COMMITMENT_CANCEL_CLASS_EXCEPTIONAL
+        return COMMITMENT_CANCEL_CLASS_ROUTINE
+
+    def _commitment_metadata_from_order(self, order: LiveOrder) -> Dict[str, Any]:
+        return {
+            "submission_lane": (
+                str(getattr(order, "submission_lane", "") or "").strip().lower() or None
+            ),
+            "commitment_hold_active": bool(getattr(order, "commitment_hold_active", False)),
+            "commitment_hold_reason": (
+                str(getattr(order, "commitment_hold_reason", "") or "").strip() or None
+            ),
+            "commitment_expiry_ts_utc": (
+                str(getattr(order, "commitment_expiry_ts_utc", "") or "").strip() or None
+            ),
+        }
+
+    def _active_committed_maker_order(self, order: Optional[LiveOrder]) -> bool:
+        if order is None:
+            return False
+        return bool(
+            str(getattr(order, "submission_lane", "") or "").strip().lower() == "maker"
+            and self._commitment_hold_active(order)
+        )
+
+    @staticmethod
+    def _resolve_submit_sec_to_expiry(
+        *,
+        risk_basis: Optional[Dict[str, Any]],
+        risk_context: Optional[Dict[str, Any]],
+        competitiveness_context: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        for source in (risk_basis, risk_context, competitiveness_context):
+            if not isinstance(source, dict):
+                continue
+            raw = source.get("sec_to_expiry")
+            if isinstance(raw, (int, float)):
+                return float(raw)
+        return None
+
+    def _decorate_intent_with_commitment_metadata(
+        self,
+        *,
+        intent: OrderIntent,
+        lane: str,
+        submit_ts_utc: str,
+        sec_to_expiry: Optional[float],
+    ) -> Optional[OrderIntent]:
+        normalized_lane = str(lane or "").strip().lower() or self._submission_lane(intent)
+        if not self._is_commitment_candidate_intent(intent, normalized_lane):
+            return dataclasses.replace(
+                intent,
+                submission_lane=normalized_lane,
+                commitment_hold_active=False,
+                commitment_hold_reason=None,
+                commitment_expiry_ts_utc=None,
+            )
+        submit_ts = parse_ts(submit_ts_utc)
+        if submit_ts is None or not isinstance(sec_to_expiry, (int, float)):
+            return None
+        expiry_ts_utc = utc_iso(submit_ts + dt.timedelta(seconds=float(sec_to_expiry)))
+        return dataclasses.replace(
+            intent,
+            submission_lane=normalized_lane,
+            commitment_hold_active=True,
+            commitment_hold_reason="late_window_commitment",
+            commitment_expiry_ts_utc=expiry_ts_utc,
+        )
+
+    def _cleanup_expired_commitment_orders(
+        self,
+        open_orders: List[LiveOrder],
+        *,
+        max_actions: int,
+    ) -> Tuple[List[LiveOrder], int]:
+        if max_actions <= 0:
+            return list(open_orders), 0
+        keep: List[LiveOrder] = []
+        actions = 0
+        for order in open_orders:
+            if not self._commitment_window_ended(order):
+                keep.append(order)
+                continue
+            if actions >= max_actions:
+                keep.append(order)
+                continue
+            result = self._request_cancel_order(
+                order,
+                COMMITMENT_CANCEL_REASON_WINDOW_ENDED,
+                request_origin="commitment_expiry_cleanup",
+            )
+            if bool(result.get("executed", False)):
+                actions += 1
+            else:
+                keep.append(order)
+        return keep, actions
+
+    def _next_maker_admission_shadow_id(self, token_id: str, side: str) -> str:
+        self._maker_admission_shadow_seq += 1
+        return f"maker-shadow-{str(token_id or '')[:8]}-{str(side or '')[:1]}-{self._maker_admission_shadow_seq}"
+
+    @staticmethod
+    def _target_side_ref(target_ref: Optional[str], side: str) -> str:
+        return f"{str(target_ref or '').strip() or 'unknown'}|{str(side or '').strip().upper() or 'UNKNOWN'}"
+
+    @staticmethod
+    def _maker_queue_severity_class(queue_delta_shares: Optional[float]) -> str:
+        if not isinstance(queue_delta_shares, (int, float)):
+            return "unknown"
+        delta = float(queue_delta_shares)
+        if delta <= 0.0:
+            return "within_threshold"
+        if delta <= 25.0:
+            return "within_25"
+        if delta <= 50.0:
+            return "25_to_50"
+        return "gt_50"
+
+    def _evaluate_maker_selection_gate(
+        self,
+        *,
+        shadow_event: Dict[str, Any],
+        competitiveness_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        stage = str(
+            shadow_event.get("stage")
+            or competitiveness_context.get("stage")
+            or ""
+        ).strip().upper()
+        gate_applied = bool(
+            self.maker_selection_gate_enabled
+            and stage in self.maker_selection_gate_allowed_stages
+        )
+        depth_multiple_vs_cannon_target = None
+        visible_depth_notional_usd = None
+        desired_quote_price = parse_float(shadow_event.get("desired_quote_price"))
+        visible_depth_shares = parse_float(shadow_event.get("visible_depth_shares"))
+        if isinstance(desired_quote_price, (int, float)) and isinstance(visible_depth_shares, (int, float)):
+            visible_depth_notional_usd = float(desired_quote_price) * float(visible_depth_shares)
+        if isinstance(visible_depth_notional_usd, (int, float)):
+            depth_multiple_vs_cannon_target = (
+                float(visible_depth_notional_usd)
+                / float(self.maker_selection_gate_cannon_target_notional_usd)
+            )
+        cannon_depth_requirement_met = (
+            bool(depth_multiple_vs_cannon_target >= self.maker_selection_gate_min_depth_multiple)
+            if isinstance(depth_multiple_vs_cannon_target, (int, float))
+            else None
+        )
+        repeat_target_side_submit_count_prior = int(
+            max(0, int(float(shadow_event.get("same_target_side_submit_count_prior") or 0.0)))
+        )
+        repeat_target_submit_count_prior = int(
+            max(0, int(float(shadow_event.get("same_target_submit_count_prior") or 0.0)))
+        )
+        repeat_target_side_calm = (
+            repeat_target_side_submit_count_prior
+            <= self.maker_selection_gate_max_same_target_side_submit_count_prior
+        )
+        repeat_target_calm = (
+            repeat_target_submit_count_prior
+            <= self.maker_selection_gate_max_same_target_submit_count_prior
+        )
+        secondary_oracle_confirmation = bool(
+            shadow_event.get("secondary_oracle_confirmation", False)
+        )
+        one_sided_active = bool(
+            shadow_event.get("one_sided_active", competitiveness_context.get("one_sided_active", False))
+        )
+        sec_to_expiry = parse_float(
+            shadow_event.get("sec_to_expiry")
+            if shadow_event.get("sec_to_expiry") is not None
+            else competitiveness_context.get("sec_to_expiry")
+        )
+        timing_window_configured = (
+            isinstance(self.maker_selection_gate_min_sec_to_expiry, (int, float))
+            or isinstance(self.maker_selection_gate_max_sec_to_expiry, (int, float))
+        )
+        timing_window_met = None
+        if timing_window_configured and isinstance(sec_to_expiry, (int, float)):
+            timing_window_met = True
+            if isinstance(self.maker_selection_gate_min_sec_to_expiry, (int, float)):
+                timing_window_met = bool(
+                    timing_window_met
+                    and float(sec_to_expiry) >= float(self.maker_selection_gate_min_sec_to_expiry) - 1e-9
+                )
+            if isinstance(self.maker_selection_gate_max_sec_to_expiry, (int, float)):
+                timing_window_met = bool(
+                    timing_window_met
+                    and float(sec_to_expiry) <= float(self.maker_selection_gate_max_sec_to_expiry) + 1e-9
+                )
+
+        reject_reasons: List[str] = []
+        if gate_applied:
+            if timing_window_configured:
+                if not isinstance(sec_to_expiry, (int, float)):
+                    reject_reasons.append("timing_window_unknown")
+                elif timing_window_met is not True:
+                    reject_reasons.append("timing_window_out_of_band")
+            if (
+                self.maker_selection_gate_require_secondary_oracle_confirmation
+                and not secondary_oracle_confirmation
+            ):
+                reject_reasons.append("secondary_oracle_not_confirmed")
+            if self.maker_selection_gate_require_one_sided_active and not one_sided_active:
+                reject_reasons.append("selection_non_one_sided")
+            if not repeat_target_calm:
+                reject_reasons.append("selection_prior_target_submit")
+            if cannon_depth_requirement_met is not True:
+                reject_reasons.append("insufficient_depth_multiple")
+            if not repeat_target_side_calm:
+                reject_reasons.append("selection_prior_same_side_submit")
+
+        return {
+            "enabled": bool(self.maker_selection_gate_enabled),
+            "applied": bool(gate_applied),
+            "passed": bool(gate_applied and not reject_reasons) if gate_applied else None,
+            "stage": stage,
+            "require_one_sided_active": bool(self.maker_selection_gate_require_one_sided_active),
+            "one_sided_active": bool(one_sided_active),
+            "cannon_target_notional_usd": float(self.maker_selection_gate_cannon_target_notional_usd),
+            "cannon_min_depth_multiple": float(self.maker_selection_gate_min_depth_multiple),
+            "visible_depth_notional_usd": (
+                float(visible_depth_notional_usd)
+                if isinstance(visible_depth_notional_usd, (int, float))
+                else None
+            ),
+            "depth_multiple_vs_cannon_target": (
+                float(depth_multiple_vs_cannon_target)
+                if isinstance(depth_multiple_vs_cannon_target, (int, float))
+                else None
+            ),
+            "cannon_depth_requirement_met": cannon_depth_requirement_met,
+            "require_secondary_oracle_confirmation": bool(
+                self.maker_selection_gate_require_secondary_oracle_confirmation
+            ),
+            "min_sec_to_expiry": (
+                float(self.maker_selection_gate_min_sec_to_expiry)
+                if isinstance(self.maker_selection_gate_min_sec_to_expiry, (int, float))
+                else None
+            ),
+            "max_sec_to_expiry": (
+                float(self.maker_selection_gate_max_sec_to_expiry)
+                if isinstance(self.maker_selection_gate_max_sec_to_expiry, (int, float))
+                else None
+            ),
+            "sec_to_expiry": float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None,
+            "timing_window_met": timing_window_met,
+            "secondary_oracle_confirmation": bool(secondary_oracle_confirmation),
+            "max_same_target_submit_count_prior": int(
+                self.maker_selection_gate_max_same_target_submit_count_prior
+            ),
+            "same_target_submit_count_prior": int(repeat_target_submit_count_prior),
+            "repeat_target_calm": bool(repeat_target_calm),
+            "max_same_target_side_submit_count_prior": int(
+                self.maker_selection_gate_max_same_target_side_submit_count_prior
+            ),
+            "same_target_side_submit_count_prior": int(repeat_target_side_submit_count_prior),
+            "repeat_target_side_calm": bool(repeat_target_side_calm),
+            "reject_reasons": list(reject_reasons),
+            "primary_reject_reason": reject_reasons[0] if reject_reasons else None,
+        }
+
+    def _build_maker_fight_admission_shadow_event(
+        self,
+        *,
+        token_id: str,
+        side: str,
+        top: BookTop,
+        desired_intent: OrderIntent,
+        competitiveness_context: Dict[str, Any],
+        cycle_index: Optional[int],
+        primary: Optional[LiveOrder],
+        open_maker_orders_total: int,
+        open_orders_for_token_count: int,
+        open_orders_same_side_count: int,
+    ) -> Dict[str, Any]:
+        target_ref = (
+            str(desired_intent.target_ref).strip()
+            if str(desired_intent.target_ref or "").strip()
+            else self._derive_target_ref(token_id)
+        )
+        target_side_ref = self._target_side_ref(target_ref, side)
+        same_target_shadow_count_prior = int(
+            self._maker_target_shadow_count_by_ref.get(str(target_ref or "").strip(), 0)
+        )
+        same_target_submit_count_prior = int(
+            self._maker_target_submit_count_by_ref.get(str(target_ref or "").strip(), 0)
+        )
+        same_target_side_shadow_count_prior = int(
+            self._maker_target_side_shadow_count_by_ref.get(target_side_ref, 0)
+        )
+        same_target_side_submit_count_prior = int(
+            self._maker_target_side_submit_count_by_ref.get(target_side_ref, 0)
+        )
+        geometry_floor_price = self._maker_geometry_floor_price()
+        sizing_price_used = self._sizing_price(top, side)
+        resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
+            desired_intent,
+            top,
+        )
+        size_decision_reasons = (
+            list(size_resolution.get("size_decision_reasons") or [])
+            if isinstance(size_resolution, dict)
+            else []
+        )
+        sizing_conflict = bool(resolved_size is None)
+        if not sizing_conflict:
+            sizing_conflict = any(
+                reason in {
+                    "maker_hard_min_notional_failed_after_rounding",
+                    "maker_hard_max_notional_failed_after_rounding",
+                    "global_notional_bounds_after_rounding",
+                    "rounded_shares_nonpositive",
+                    "price_unavailable",
+                }
+                for reason in size_decision_reasons
+            )
+        viability_class = "unknown_viability"
+        if isinstance(sizing_price_used, (int, float)) and isinstance(geometry_floor_price, (int, float)):
+            if float(sizing_price_used) + 1e-9 < float(geometry_floor_price):
+                viability_class = "impossible_only"
+            else:
+                viability_class = "viable_only"
+        elif isinstance(sizing_price_used, (int, float)):
+            viability_class = "viable_only"
+
+        expected_fill_prob = None
+        min_expected_fill_prob = None
+        fill_prob_margin = None
+        queue_ahead_size = None
+        max_queue_ahead_size = None
+        queue_delta_shares = None
+        if self.quality.enabled:
+            quality = self.quality.assess_quote(intent=desired_intent, top=top)
+            expected_fill_prob = float(quality.expected_fill_prob)
+            min_expected_fill_prob = float(self.quality.min_expected_fill_prob)
+            fill_prob_margin = float(expected_fill_prob - min_expected_fill_prob)
+            queue_ahead_size = float(quality.queue_ahead_size)
+            max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
+            queue_delta_shares = float(queue_ahead_size - max_queue_ahead_size)
+
+        visible_depth_shares = float(self._maker_visible_depth_shares(top, side))
+        intended_size_shares = (
+            float(resolved_size)
+            if isinstance(resolved_size, (int, float))
+            else None
+        )
+        intended_notional_usd = None
+        if isinstance(size_resolution, dict) and isinstance(size_resolution.get("resolved_notional_usd"), (int, float)):
+            intended_notional_usd = float(size_resolution.get("resolved_notional_usd"))
+        size_to_visible_depth_ratio = None
+        if isinstance(intended_size_shares, (int, float)) and visible_depth_shares > 0.0:
+            size_to_visible_depth_ratio = float(intended_size_shares / visible_depth_shares)
+
+        replace_guard_would_block = False
+        if primary is not None and self.maker_replace_min_rest_sec > 0.0:
+            age_sec = self._order_age_sec(primary)
+            replace_guard_would_block = bool(
+                isinstance(age_sec, (int, float)) and float(age_sec) < self.maker_replace_min_rest_sec
+            )
+
+        fair_probability = parse_float(competitiveness_context.get("fair_probability"))
+        market_probability = parse_float(competitiveness_context.get("market_probability"))
+        sec_to_expiry = parse_float(competitiveness_context.get("sec_to_expiry"))
+        secondary_fair_probability = parse_float(
+            competitiveness_context.get("secondary_fair_probability")
+        )
+        secondary_edge_value = parse_float(
+            competitiveness_context.get("secondary_edge_value")
+        )
+        chainlink_spot_price = parse_float(
+            competitiveness_context.get("chainlink_spot_price")
+        )
+        secondary_oracle_spot_price = parse_float(
+            competitiveness_context.get("secondary_oracle_spot_price")
+        )
+        secondary_oracle_price_delta_abs = parse_float(
+            competitiveness_context.get("secondary_oracle_price_delta_abs")
+        )
+        secondary_oracle_price_delta_bps = parse_float(
+            competitiveness_context.get("secondary_oracle_price_delta_bps")
+        )
+        market_reference_class = str(
+            competitiveness_context.get("market_reference_class") or ""
+        ).strip().lower()
+        if not market_reference_class:
+            market_reference_class = (
+                "authoritative"
+                if isinstance(market_probability, (int, float))
+                else "not_available"
+            )
+
+        return {
+            "ts_utc": utc_iso(),
+            "admission_shadow_id": self._next_maker_admission_shadow_id(token_id, side),
+            "token_id": str(token_id),
+            "target_ref": target_ref,
+            "target_side_ref": target_side_ref,
+            "side": str(side).strip().upper(),
+            "one_sided_active": bool(competitiveness_context.get("one_sided_active", False)),
+            "side_policy": str(competitiveness_context.get("side_policy") or "TWO_SIDED").strip().upper(),
+            "stage": str(desired_intent.stage or competitiveness_context.get("stage") or "").strip().upper() or "UNKNOWN",
+            "raw_stage": str(competitiveness_context.get("raw_stage") or "").strip().upper() or None,
+            "cycle_index": int(cycle_index) if isinstance(cycle_index, int) else None,
+            "ts_decision_utc": (
+                str(desired_intent.decision_reference_ts_utc).strip()
+                if str(desired_intent.decision_reference_ts_utc or "").strip()
+                else (
+                    str(desired_intent.timestamp_utc).strip()
+                    if str(desired_intent.timestamp_utc or "").strip()
+                    else (
+                        str(top.ts_utc).strip()
+                        if str(getattr(top, "ts_utc", "") or "").strip()
+                        else utc_iso()
+                    )
+                )
+            ),
+            "fair_probability": float(fair_probability) if isinstance(fair_probability, (int, float)) else None,
+            "market_probability": float(market_probability) if isinstance(market_probability, (int, float)) else None,
+            "edge_value": parse_float(competitiveness_context.get("edge_signed")),
+            "sec_to_expiry": float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None,
+            "market_reference_class": market_reference_class,
+            "market_reference_mode": (
+                str(competitiveness_context.get("market_reference_mode") or "").strip().lower() or None
+            ),
+            "secondary_fair_probability": (
+                float(secondary_fair_probability)
+                if isinstance(secondary_fair_probability, (int, float))
+                else None
+            ),
+            "secondary_edge_value": (
+                float(secondary_edge_value)
+                if isinstance(secondary_edge_value, (int, float))
+                else None
+            ),
+            "secondary_oracle_status": str(
+                competitiveness_context.get("secondary_oracle_status") or "unknown"
+            ).strip().lower()
+            or "unknown",
+            "secondary_oracle_confirmation": bool(
+                competitiveness_context.get("secondary_oracle_confirmation", False)
+            ),
+            "maker_timing_gate_open": bool(
+                competitiveness_context.get("maker_timing_gate_open", False)
+            ),
+            "maker_timing_stage_override_active": bool(
+                competitiveness_context.get("maker_timing_stage_override_active", False)
+            ),
+            "chainlink_spot_price": (
+                float(chainlink_spot_price)
+                if isinstance(chainlink_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_spot_price": (
+                float(secondary_oracle_spot_price)
+                if isinstance(secondary_oracle_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_abs": (
+                float(secondary_oracle_price_delta_abs)
+                if isinstance(secondary_oracle_price_delta_abs, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_bps": (
+                float(secondary_oracle_price_delta_bps)
+                if isinstance(secondary_oracle_price_delta_bps, (int, float))
+                else None
+            ),
+            "viability_class": viability_class,
+            "geometry_floor_price": float(geometry_floor_price) if isinstance(geometry_floor_price, (int, float)) else None,
+            "sizing_price_used": float(sizing_price_used) if isinstance(sizing_price_used, (int, float)) else None,
+            "sizing_conflict": bool(sizing_conflict),
+            "desired_quote_price": float(desired_intent.price),
+            "intended_size_shares": float(intended_size_shares) if isinstance(intended_size_shares, (int, float)) else None,
+            "intended_notional_usd": float(intended_notional_usd) if isinstance(intended_notional_usd, (int, float)) else None,
+            "expected_fill_prob": expected_fill_prob,
+            "min_expected_fill_prob": min_expected_fill_prob,
+            "fill_prob_margin": fill_prob_margin,
+            "queue_ahead_size": queue_ahead_size,
+            "max_queue_ahead_size": max_queue_ahead_size,
+            "queue_delta_shares": queue_delta_shares,
+            "queue_severity_class": self._maker_queue_severity_class(queue_delta_shares),
+            "visible_depth_shares": float(visible_depth_shares),
+            "size_to_visible_depth_ratio": (
+                float(size_to_visible_depth_ratio)
+                if isinstance(size_to_visible_depth_ratio, (int, float))
+                else None
+            ),
+            "same_target_shadow_count_prior": int(same_target_shadow_count_prior),
+            "same_target_submit_count_prior": int(same_target_submit_count_prior),
+            "same_target_side_shadow_count_prior": int(same_target_side_shadow_count_prior),
+            "same_target_side_submit_count_prior": int(same_target_side_submit_count_prior),
+            "open_maker_orders_total": int(max(0, open_maker_orders_total)),
+            "open_orders_for_token_count": int(max(0, open_orders_for_token_count)),
+            "open_orders_same_side_count": int(max(0, open_orders_same_side_count)),
+            "financial_posture_class": str(
+                competitiveness_context.get("financial_posture_class") or "UNKNOWN"
+            ).strip().upper(),
+            "reduce_only_recovery_active": bool(
+                competitiveness_context.get("reduce_only_recovery_active", False)
+            ),
+            "replace_guard_would_block": bool(replace_guard_would_block),
+            "decision_result": None,
+            "decision_block_reason": None,
+            "selection_gate_primary_reject_reason": None,
+            "selection_gate_all_reject_reasons": [],
+            "order_submit_id": None,
+        }
+
+    def _log_maker_fight_admission_shadow_event(
+        self,
+        shadow_event: Optional[Dict[str, Any]],
+        *,
+        decision_result: str,
+        decision_block_reason: Optional[str] = None,
+        order_submit_id: Optional[str] = None,
+    ) -> None:
+        if not isinstance(shadow_event, dict):
+            return
+        target_side_ref = str(shadow_event.get("target_side_ref") or "").strip()
+        target_ref = str(shadow_event.get("target_ref") or "").strip()
+        if not target_side_ref:
+            return
+        if target_ref:
+            self._maker_target_shadow_count_by_ref[target_ref] = (
+                int(self._maker_target_shadow_count_by_ref.get(target_ref, 0)) + 1
+            )
+        self._maker_target_side_shadow_count_by_ref[target_side_ref] = (
+            int(self._maker_target_side_shadow_count_by_ref.get(target_side_ref, 0)) + 1
+        )
+        if str(order_submit_id or "").strip():
+            if target_ref:
+                self._maker_target_submit_count_by_ref[target_ref] = (
+                    int(self._maker_target_submit_count_by_ref.get(target_ref, 0)) + 1
+                )
+            self._maker_target_side_submit_count_by_ref[target_side_ref] = (
+                int(self._maker_target_side_submit_count_by_ref.get(target_side_ref, 0)) + 1
+            )
+        payload = dict(shadow_event)
+        # This event captures the finalized shadow outcome after downstream selection,
+        # replace, and submit work has run, so stamp all local event/decision domains
+        # from the authoritative manager clock at log time rather than preserving an
+        # older upstream competitiveness anchor.
+        finalized_shadow_ts_utc = utc_iso(self._now_fn())
+        payload["ts_utc"] = finalized_shadow_ts_utc
+        payload["ts_event_utc"] = finalized_shadow_ts_utc
+        payload["ts_decision_utc"] = finalized_shadow_ts_utc
+        payload["decision_result"] = str(decision_result or "").strip().lower() or "unknown"
+        payload["decision_block_reason"] = (
+            str(decision_block_reason).strip().lower()
+            if str(decision_block_reason or "").strip()
+            else None
+        )
+        payload["order_submit_id"] = str(order_submit_id).strip() if str(order_submit_id or "").strip() else None
+        self.events.log_event("maker_fight_admission_shadow", payload)
 
     @staticmethod
     def _would_post_only_cross_touch(intent: OrderIntent, top: BookTop) -> bool:
@@ -298,6 +1054,8 @@ class OrderManager:
             "quote_quality_skip_fill_probability": "quote_quality_skip_fill_probability",
             "quote_quality_skip_queue_depth": "quote_quality_skip_queue_depth",
             "one_sided_mode_disallow_side": "one_sided_mode_disallow_side",
+            "maker_timing_gate_closed": "maker_timing_gate_closed",
+            "stage_disallow_maker": "stage_disallow_maker",
             "risk_reject": "risk_reject",
             "replace_guard_min_rest": "replace_guard_min_rest",
             "replace_cancel_unavailable": "replace_cancel_unavailable",
@@ -307,6 +1065,7 @@ class OrderManager:
             "sizing_reject": "sizing_reject",
             "wallet_reject": "wallet_reject",
             "order_submit_exception": "order_submit_exception",
+            "maker_commitment_context_missing": "maker_commitment_context_missing",
             "reduce_only_recovery_size_cap_below_min_order_size": "reduce_only_recovery_size_cap_below_min_order_size",
         }
         return str(mapping.get(normalized, "unknown"))
@@ -353,12 +1112,86 @@ class OrderManager:
         )
         return False
 
-    def _cancel_order(self, order: LiveOrder, reason: str) -> bool:
-        if self.risk.remaining_cancel_capacity(self.cancel_rate_soft_limit_pct) <= 0:
+    def _request_cancel_order(
+        self,
+        order: LiveOrder,
+        requested_reason: str,
+        *,
+        request_origin: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_reason = str(requested_reason or "").strip().lower() or "unknown"
+        normalized_origin = self._normalize_cancel_request_origin(request_origin, normalized_reason)
+        commitment_metadata = self._commitment_metadata_from_order(order)
+        cancel_class = self._cancel_request_class(
+            order=order,
+            requested_reason=normalized_reason,
+            request_origin=normalized_origin,
+        )
+        commitment_active = self._commitment_hold_active(order)
+        suppress_routine = bool(
+            cancel_class == COMMITMENT_CANCEL_CLASS_ROUTINE
+            and commitment_active
+        )
+        missing_expiry_fail_closed = bool(
+            cancel_class == COMMITMENT_CANCEL_CLASS_ROUTINE
+            and self._commitment_hold_configured(order)
+            and self._commitment_expiry_dt(order) is None
+        )
+        if suppress_routine or missing_expiry_fail_closed:
+            suppression_reason = (
+                COMMITMENT_SUPPRESSION_REASON_MISSING_EXPIRY
+                if missing_expiry_fail_closed
+                else COMMITMENT_SUPPRESSION_REASON_ACTIVE_HOLD
+            )
+            self.events.log_event(
+                "order_cancel_suppressed",
+                {
+                    "ts_utc": utc_iso(),
+                    "order_id": order.order_id,
+                    "token_id": order.token_id,
+                    "side": order.side,
+                    "price": order.price,
+                    "remaining_size": order.remaining_size,
+                    "requested_cancel_reason": normalized_reason,
+                    "request_origin": normalized_origin,
+                    "cancel_class_requested": cancel_class,
+                    "suppression_reason": suppression_reason,
+                    **commitment_metadata,
+                },
+            )
+            return {
+                "executed": False,
+                "suppressed": True,
+                "cancel_class": cancel_class,
+                "effective_cancel_reason": None,
+                "suppression_reason": suppression_reason,
+            }
+
+        effective_reason = (
+            COMMITMENT_CANCEL_REASON_WINDOW_ENDED
+            if cancel_class == COMMITMENT_CANCEL_CLASS_TERMINAL
+            else normalized_reason
+        )
+        bypass_internal_cancel_limits = bool(
+            cancel_class in {
+                COMMITMENT_CANCEL_CLASS_TERMINAL,
+                COMMITMENT_CANCEL_CLASS_EXCEPTIONAL,
+            }
+        )
+        if (
+            not bypass_internal_cancel_limits
+            and self.risk.remaining_cancel_capacity(self.cancel_rate_soft_limit_pct) <= 0
+        ):
             self.telemetry.incr("cancel_soft_throttle_skips")
-            return False
+            return {
+                "executed": False,
+                "suppressed": False,
+                "cancel_class": cancel_class,
+                "effective_cancel_reason": effective_reason,
+                "suppression_reason": None,
+            }
         decision = self.risk.can_cancel()
-        if not decision.allowed:
+        if not bypass_internal_cancel_limits and not decision.allowed:
             self.telemetry.incr("cancel_rate_rejects")
             self.events.log_event(
                 "risk_reject",
@@ -370,9 +1203,17 @@ class OrderManager:
                     "size": order.remaining_size,
                     "reason": decision.reason,
                     "detail": decision.detail,
+                    "requested_cancel_reason": normalized_reason,
+                    "request_origin": normalized_origin,
                 },
             )
-            return False
+            return {
+                "executed": False,
+                "suppressed": False,
+                "cancel_class": cancel_class,
+                "effective_cancel_reason": effective_reason,
+                "suppression_reason": None,
+            }
 
         try:
             ok = self.tx_manager.cancel_order(order.order_id)
@@ -385,10 +1226,18 @@ class OrderManager:
                     "action": "cancel",
                     "order_id": order.order_id,
                     "reason": "gateway_cancel_exception",
+                    "requested_cancel_reason": normalized_reason,
+                    "request_origin": normalized_origin,
                     "error": str(exc),
                 }
             )
-            return False
+            return {
+                "executed": False,
+                "suppressed": False,
+                "cancel_class": cancel_class,
+                "effective_cancel_reason": effective_reason,
+                "suppression_reason": None,
+            }
         if ok:
             self.risk.on_order_canceled()
             self.wallet.release_order_lock(order.order_id)
@@ -402,7 +1251,12 @@ class OrderManager:
                     "side": order.side,
                     "price": order.price,
                     "size": order.remaining_size,
-                    "reason": reason,
+                    "reason": effective_reason,
+                    "requested_cancel_reason": normalized_reason,
+                    "request_origin": normalized_origin,
+                    "cancel_class": cancel_class,
+                    "cancel_allowed_under_commitment_doctrine": True,
+                    **commitment_metadata,
                 },
             )
         else:
@@ -414,9 +1268,27 @@ class OrderManager:
                     "action": "cancel",
                     "order_id": order.order_id,
                     "reason": "gateway_cancel_failed",
+                    "requested_cancel_reason": normalized_reason,
+                    "request_origin": normalized_origin,
                 }
             )
-        return ok
+        return {
+            "executed": bool(ok),
+            "suppressed": False,
+            "cancel_class": cancel_class,
+            "effective_cancel_reason": effective_reason,
+            "suppression_reason": None,
+        }
+
+    def _cancel_order(
+        self,
+        order: LiveOrder,
+        reason: str,
+        *,
+        request_origin: Optional[str] = None,
+    ) -> bool:
+        result = self._request_cancel_order(order, reason, request_origin=request_origin)
+        return bool(result.get("executed", False))
 
     @staticmethod
     def _extract_remaining_size(order: LiveOrder) -> Optional[float]:
@@ -858,6 +1730,45 @@ class OrderManager:
                 else intent_ts
             ),
         )
+        adjusted_intent, cross_clamp = self._maybe_clamp_post_only_intent(intent_sized, top)
+        if cross_clamp is not None:
+            intent_sized = adjusted_intent
+            self.telemetry.incr("pre_submit_cross_guard_adjusted")
+            self.events.log_event(
+                "pre_submit_cross_guard_adjusted",
+                {
+                    "ts_utc": utc_iso(),
+                    "token_id": intent_sized.token_id,
+                    "side": intent_sized.side,
+                    "submission_lane": lane,
+                    "original_price": cross_clamp.get("original_price"),
+                    "adjusted_price": cross_clamp.get("adjusted_price"),
+                    "tick_size": cross_clamp.get("tick_size"),
+                    "best_bid_price": top.best_bid_price,
+                    "best_ask_price": top.best_ask_price,
+                    "adjustment_reason": cross_clamp.get("adjustment_reason"),
+                    "submission_reject_class": "adjusted_local",
+                },
+            )
+
+        if self._would_post_only_cross_touch(intent_sized, top):
+            self.telemetry.incr("pre_submit_cross_guarded")
+            self.events.log_event(
+                "pre_submit_cross_guard",
+                {
+                    "ts_utc": utc_iso(),
+                    "token_id": intent_sized.token_id,
+                    "side": intent_sized.side,
+                    "price": intent_sized.price,
+                    "size": intent_sized.size,
+                    "best_bid_price": top.best_bid_price,
+                    "best_ask_price": top.best_ask_price,
+                    "submission_lane": lane,
+                    "submission_reject_class": "rejected_local",
+                },
+            )
+            return _local_reject("pre_submit_cross_guarded", detail="post_only_would_cross_touch")
+
         risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", lane)
         decision = self.risk.validate_order(
@@ -913,45 +1824,6 @@ class OrderManager:
                 detail=f"{decision.reason}:{decision.detail}",
                 extra={"risk_decision_basis": risk_basis},
             )
-
-        adjusted_intent, cross_clamp = self._maybe_clamp_post_only_intent(intent_sized, top)
-        if cross_clamp is not None:
-            intent_sized = adjusted_intent
-            self.telemetry.incr("pre_submit_cross_guard_adjusted")
-            self.events.log_event(
-                "pre_submit_cross_guard_adjusted",
-                {
-                    "ts_utc": utc_iso(),
-                    "token_id": intent_sized.token_id,
-                    "side": intent_sized.side,
-                    "submission_lane": lane,
-                    "original_price": cross_clamp.get("original_price"),
-                    "adjusted_price": cross_clamp.get("adjusted_price"),
-                    "tick_size": cross_clamp.get("tick_size"),
-                    "best_bid_price": top.best_bid_price,
-                    "best_ask_price": top.best_ask_price,
-                    "adjustment_reason": cross_clamp.get("adjustment_reason"),
-                    "submission_reject_class": "adjusted_local",
-                },
-            )
-
-        if self._would_post_only_cross_touch(intent_sized, top):
-            self.telemetry.incr("pre_submit_cross_guarded")
-            self.events.log_event(
-                "pre_submit_cross_guard",
-                {
-                    "ts_utc": utc_iso(),
-                    "token_id": intent_sized.token_id,
-                    "side": intent_sized.side,
-                    "price": intent_sized.price,
-                    "size": intent_sized.size,
-                    "best_bid_price": top.best_bid_price,
-                    "best_ask_price": top.best_ask_price,
-                    "submission_lane": lane,
-                    "submission_reject_class": "rejected_local",
-                },
-            )
-            return _local_reject("pre_submit_cross_guarded", detail="post_only_would_cross_touch")
 
         quality_fields: Dict[str, float] = {}
         if self.quality.enabled and intent_sized.post_only is not False and intent_sized.tif.upper() == "GTC":
@@ -1183,6 +2055,49 @@ class OrderManager:
                     },
                 )
 
+        submit_ts_utc = utc_iso()
+        risk_basis_event = decision.basis if isinstance(decision.basis, dict) else {}
+        commitment_sec_to_expiry = self._resolve_submit_sec_to_expiry(
+            risk_basis=risk_basis_event,
+            risk_context=risk_context_payload,
+            competitiveness_context=(
+                competitiveness_context if isinstance(competitiveness_context, dict) else None
+            ),
+        )
+        intent_authorized_with_commitment = self._decorate_intent_with_commitment_metadata(
+            intent=intent_authorized,
+            lane=lane,
+            submit_ts_utc=submit_ts_utc,
+            sec_to_expiry=commitment_sec_to_expiry,
+        )
+        if intent_authorized_with_commitment is None:
+            released = self._cleanup_failed_submission(
+                wallet_lock_id=wallet_auth.lock_id,
+                submission_lane=lane,
+                cleanup_reason="maker_commitment_context_missing",
+                release_submission_reservation=False,
+            )
+            return _local_reject(
+                "maker_commitment_context_missing",
+                detail="missing_submit_expiry_context",
+                extra={
+                    "submission_reserved_released": bool(released),
+                    "risk_decision_basis": risk_basis_event,
+                    "risk_context_sec_to_expiry": (
+                        float(risk_context_payload["sec_to_expiry"])
+                        if isinstance(risk_context_payload.get("sec_to_expiry"), (int, float))
+                        else None
+                    ),
+                    "competitiveness_sec_to_expiry": (
+                        float(competitiveness_context["sec_to_expiry"])
+                        if isinstance(competitiveness_context, dict)
+                        and isinstance(competitiveness_context.get("sec_to_expiry"), (int, float))
+                        else None
+                    ),
+                },
+            )
+        intent_authorized = intent_authorized_with_commitment
+
         client_order_id = self._next_client_order_id(intent_authorized.token_id, intent_authorized.side)
         self.risk.reserve_order_submission()
         self.telemetry.incr("order_submission_reserved")
@@ -1302,7 +2217,6 @@ class OrderManager:
         competitiveness_payload = (
             dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         )
-        risk_basis_event = decision.basis if isinstance(decision.basis, dict) else {}
         intent_stage_raw = str(intent_authorized.stage or "").strip().upper()
         basis_stage_raw = str(risk_basis_event.get("stage") or "").strip().upper()
         if intent_stage_raw:
@@ -1331,11 +2245,24 @@ class OrderManager:
                 size_resolution_payload["maker_competitiveness"] = competitiveness_payload
             elif lane == "taker":
                 size_resolution_payload["taker_competitiveness"] = competitiveness_payload
+        submit_ts = parse_ts(submit_ts_utc)
+        decision_reference_ts = parse_ts(intent_authorized.decision_reference_ts_utc)
+        decision_to_submit_latency_ms = None
+        if submit_ts is not None and decision_reference_ts is not None:
+            decision_to_submit_latency_ms = max(
+                0.0, (submit_ts - decision_reference_ts).total_seconds() * 1000.0
+            )
 
         self.events.log_event(
             "order_submit",
             {
-                "ts_utc": utc_iso(),
+                "ts_utc": submit_ts_utc,
+                "ts_event_utc": submit_ts_utc,
+                "ts_decision_utc": (
+                    str(intent_authorized.decision_reference_ts_utc).strip()
+                    if str(intent_authorized.decision_reference_ts_utc or "").strip()
+                    else submit_ts_utc
+                ),
                 "token_id": intent_authorized.token_id,
                 "side": intent_authorized.side,
                 "price": intent_authorized.price,
@@ -1397,6 +2324,22 @@ class OrderManager:
                 "decision_reference_recoverable": isinstance(
                     intent_authorized.decision_reference_midpoint, (int, float)
                 ),
+                "decision_to_submit_latency_ms": (
+                    float(decision_to_submit_latency_ms)
+                    if isinstance(decision_to_submit_latency_ms, (int, float))
+                    else None
+                ),
+                "commitment_hold_active": bool(intent_authorized.commitment_hold_active),
+                "commitment_hold_reason": (
+                    str(intent_authorized.commitment_hold_reason).strip()
+                    if str(intent_authorized.commitment_hold_reason or "").strip()
+                    else None
+                ),
+                "commitment_expiry_ts_utc": (
+                    str(intent_authorized.commitment_expiry_ts_utc).strip()
+                    if str(intent_authorized.commitment_expiry_ts_utc or "").strip()
+                    else None
+                ),
                 "sizing_mode": self.sizing_mode,
                 "sizing_target_usd": float(notional_target_usd) if notional_target_usd is not None else None,
                 "size_selection_authority": "order_manager_notional_sizing_v2",
@@ -1431,6 +2374,152 @@ class OrderManager:
         if side.upper() == "BUY":
             return top.best_ask_price or top.best_bid_price
         return top.best_bid_price or top.best_ask_price
+
+    def _maker_geometry_floor_price(self) -> Optional[float]:
+        if self.maker_competitive_min_notional_usd <= 0.0 or self.maker_competitive_max_shares <= 0.0:
+            return None
+        return float(self.maker_competitive_min_notional_usd / self.maker_competitive_max_shares)
+
+    def _maybe_apply_maker_queue_pressure(
+        self,
+        *,
+        desired_intent: OrderIntent,
+        top: BookTop,
+        competitiveness_context: Optional[Dict[str, Any]],
+    ) -> Tuple[OrderIntent, Optional[Dict[str, Any]]]:
+        if not self.maker_queue_pressure_enabled or not self.quality.enabled:
+            return desired_intent, None
+        if not self._is_maker_lane(desired_intent):
+            return desired_intent, None
+        if bool(desired_intent.post_only is False) or str(desired_intent.tif or "GTC").upper() != "GTC":
+            return desired_intent, None
+        if not isinstance(competitiveness_context, dict):
+            return desired_intent, None
+        if bool(competitiveness_context.get("reduce_only_recovery_active", False)):
+            return desired_intent, None
+
+        stage_name = str(
+            desired_intent.stage
+            or competitiveness_context.get("stage")
+            or ""
+        ).strip().upper()
+        if stage_name not in self.maker_queue_pressure_allowed_stages:
+            return desired_intent, None
+
+        edge_signed = parse_float(competitiveness_context.get("edge_signed"))
+        if edge_signed is None:
+            return desired_intent, None
+        edge_signed = float(edge_signed)
+        edge_abs = abs(edge_signed)
+        if edge_abs + 1e-12 < float(self.maker_queue_pressure_min_edge_abs):
+            return desired_intent, None
+
+        favored_side = "BUY" if edge_signed >= 0.0 else "SELL"
+        desired_side = str(desired_intent.side or "").strip().upper()
+        if self.maker_queue_pressure_favored_side_only and desired_side != favored_side:
+            return desired_intent, None
+
+        touch_price = top.best_bid_price if desired_side == "BUY" else top.best_ask_price
+        if not isinstance(touch_price, (int, float)):
+            return desired_intent, None
+        price_tolerance = max(1e-9, float(self.tick_size) * 0.5)
+        if abs(float(desired_intent.price) - float(touch_price)) > price_tolerance:
+            return desired_intent, None
+
+        spread = top.spread
+        if self.maker_queue_pressure_tight_spread_only:
+            if not isinstance(spread, (int, float)):
+                return desired_intent, None
+            if float(spread) > float(self.strategy_min_spread) + price_tolerance:
+                return desired_intent, None
+
+        geometry_floor_price = self._maker_geometry_floor_price()
+        sizing_price_used = self._sizing_price(top, desired_intent.side)
+        if self.maker_queue_pressure_skip_below_geometry_floor and geometry_floor_price is not None:
+            if not isinstance(sizing_price_used, (int, float)):
+                return desired_intent, None
+            if float(sizing_price_used) <= float(geometry_floor_price) + 1e-9:
+                return desired_intent, None
+
+        tick_distance = max(1e-9, float(self.tick_size)) * float(self.maker_queue_pressure_inside_price_ticks)
+        adjusted_price = (
+            float(desired_intent.price) + tick_distance
+            if desired_side == "BUY"
+            else float(desired_intent.price) - tick_distance
+        )
+        adjusted_intent = OrderIntent(
+            token_id=desired_intent.token_id,
+            side=desired_intent.side,
+            price=adjusted_price,
+            size=desired_intent.size,
+            tif=desired_intent.tif,
+            post_only=desired_intent.post_only,
+            reason=desired_intent.reason,
+            market_id=desired_intent.market_id,
+            window_id=desired_intent.window_id,
+            stage=desired_intent.stage,
+            reason_code=desired_intent.reason_code,
+            timestamp_utc=desired_intent.timestamp_utc,
+            execution_preference=desired_intent.execution_preference,
+            target_ref=desired_intent.target_ref,
+            decision_reference_midpoint=desired_intent.decision_reference_midpoint,
+            decision_reference_source=desired_intent.decision_reference_source,
+            decision_reference_lookup_key=desired_intent.decision_reference_lookup_key,
+            decision_reference_ts_utc=desired_intent.decision_reference_ts_utc,
+            token_median_lag_ms=desired_intent.token_median_lag_ms,
+            oracle_tick_age_sec=desired_intent.oracle_tick_age_sec,
+        )
+        if self._would_post_only_cross_touch(adjusted_intent, top):
+            return desired_intent, None
+
+        base_quality = self.quality.assess_quote(intent=desired_intent, top=top)
+        adjusted_quality = self.quality.assess_quote(intent=adjusted_intent, top=top)
+        min_expected_fill_prob = float(self.quality.min_expected_fill_prob)
+        max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
+        base_queue_fail = float(base_quality.queue_ahead_size) > max_queue_ahead_size
+        base_fill_fail = float(base_quality.expected_fill_prob) < min_expected_fill_prob
+        if (not base_queue_fail) or base_fill_fail:
+            return desired_intent, None
+
+        adjusted_queue_fail = float(adjusted_quality.queue_ahead_size) > max_queue_ahead_size
+        adjusted_fill_fail = float(adjusted_quality.expected_fill_prob) < min_expected_fill_prob
+        adopted = not adjusted_queue_fail and not adjusted_fill_fail
+        event_payload: Dict[str, Any] = {
+            "ts_utc": utc_iso(),
+            "token_id": desired_intent.token_id,
+            "side": desired_side,
+            "stage": stage_name,
+            "edge_signed": float(edge_signed),
+            "edge_abs": float(edge_abs),
+            "favored_side": favored_side,
+            "inside_price_ticks": int(self.maker_queue_pressure_inside_price_ticks),
+            "base_price": float(desired_intent.price),
+            "adjusted_price": float(adjusted_intent.price),
+            "base_queue_ahead_size": float(base_quality.queue_ahead_size),
+            "adjusted_queue_ahead_size": float(adjusted_quality.queue_ahead_size),
+            "base_expected_fill_prob": float(base_quality.expected_fill_prob),
+            "adjusted_expected_fill_prob": float(adjusted_quality.expected_fill_prob),
+            "base_quality_score": float(base_quality.expected_quality_score),
+            "adjusted_quality_score": float(adjusted_quality.expected_quality_score),
+            "max_queue_ahead_size": float(max_queue_ahead_size),
+            "min_expected_fill_prob": float(min_expected_fill_prob),
+            "geometry_floor_price": (
+                float(geometry_floor_price)
+                if isinstance(geometry_floor_price, (int, float))
+                else None
+            ),
+            "sizing_price_used": (
+                float(sizing_price_used)
+                if isinstance(sizing_price_used, (int, float))
+                else None
+            ),
+            "adopted": bool(adopted),
+            "gate_conversion": bool(adopted),
+            "replace_guard_blocked": False,
+        }
+        if adopted:
+            return adjusted_intent, event_payload
+        return desired_intent, event_payload
 
     @staticmethod
     def _is_maker_lane(intent: OrderIntent) -> bool:
@@ -2116,7 +3205,7 @@ class OrderManager:
                 continue
             if actions >= action_budget:
                 break
-            if self._cancel_order(order, "orphan_token_order"):
+            if self._cancel_order(order, "orphan_token_order", request_origin="non_target_cleanup"):
                 actions += 1
         return actions
 
@@ -2132,7 +3221,32 @@ class OrderManager:
             age_sec = self._order_age_sec(order)
             if age_sec is None or age_sec <= self.max_quote_age_sec:
                 continue
-            if self._cancel_order(order, "stale_quote_watchdog"):
+            if self._cancel_order(order, "stale_quote_watchdog", request_origin="stale_watchdog"):
+                actions += 1
+        return actions
+
+    def cancel_orders_for_tokens(
+        self,
+        token_ids: Set[str],
+        *,
+        reason: str,
+        request_origin: Optional[str] = None,
+        action_budget: Optional[int] = None,
+    ) -> int:
+        tracked = {str(token_id or "").strip() for token_id in set(token_ids or set()) if str(token_id or "").strip()}
+        if not tracked:
+            return 0
+        if action_budget is None:
+            action_budget = self.max_actions_per_cycle
+        if action_budget <= 0:
+            return 0
+        actions = 0
+        for order in self.tx_manager.get_open_orders():
+            if order.token_id not in tracked:
+                continue
+            if actions >= action_budget:
+                break
+            if self._cancel_order(order, reason, request_origin=request_origin):
                 actions += 1
         return actions
 
@@ -2140,6 +3254,7 @@ class OrderManager:
         self,
         books: Dict[str, BookTop],
         tracked_tokens: Optional[Set[str]] = None,
+        tracked_token_cancel_reason_by_token: Optional[Dict[str, str]] = None,
         fair_probability_by_token: Optional[Dict[str, float]] = None,
         realized_volatility_by_token: Optional[Dict[str, float]] = None,
         size_multiplier_by_token: Optional[Dict[str, float]] = None,
@@ -2148,6 +3263,7 @@ class OrderManager:
         side_policy_by_token: Optional[Dict[str, str]] = None,
         competitiveness_context_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         max_actions_override: Optional[int] = None,
+        cycle_index: Optional[int] = None,
     ) -> Dict[str, Any]:
         max_actions = self.max_actions_per_cycle if max_actions_override is None else max(1, int(max_actions_override))
         actions = 0
@@ -2218,9 +3334,48 @@ class OrderManager:
             float(self.risk.remaining_cancel_capacity(self.cancel_rate_soft_limit_pct)),
         )
         open_orders = self.tx_manager.get_open_orders()
+        open_orders, expired_commitment_cancel_actions = self._cleanup_expired_commitment_orders(
+            open_orders,
+            max_actions=max(0, max_actions - actions),
+        )
+        actions += expired_commitment_cancel_actions
+        tracked_cancel_reason_by_token: Dict[str, str] = {}
+        if isinstance(tracked_token_cancel_reason_by_token, dict):
+            for token_id, reason in tracked_token_cancel_reason_by_token.items():
+                normalized_token_id = str(token_id or "").strip()
+                normalized_reason = str(reason or "").strip().lower()
+                if not normalized_token_id or not normalized_reason:
+                    continue
+                tracked_cancel_reason_by_token[normalized_token_id] = normalized_reason
+        if tracked_cancel_reason_by_token:
+            keep: List[LiveOrder] = []
+            canceled_actions = 0
+            cancel_budget_remaining = max(0, max_actions - actions)
+            for order in open_orders:
+                cancel_reason = tracked_cancel_reason_by_token.get(str(order.token_id or "").strip())
+                if not cancel_reason or canceled_actions >= cancel_budget_remaining:
+                    keep.append(order)
+                    continue
+                result = self._request_cancel_order(
+                    order,
+                    cancel_reason,
+                    request_origin="tracked_token_cleanup",
+                )
+                if bool(result.get("executed", False)):
+                    _record_maker_no_submission_reason(order.token_id, cancel_reason)
+                    canceled_actions += 1
+                else:
+                    keep.append(order)
+            open_orders = keep
+            actions += canceled_actions
         if self.cancel_orphan_orders:
             tracked = tracked_tokens if tracked_tokens is not None else set(books.keys())
-            open_orders, canceled_actions = self._cancel_orphan_orders(open_orders, tracked, max_actions=max_actions)
+            tracked = set(tracked) | set(tracked_cancel_reason_by_token.keys())
+            open_orders, canceled_actions = self._cancel_orphan_orders(
+                open_orders,
+                tracked,
+                max_actions=max(0, max_actions - actions),
+            )
             actions += canceled_actions
         open_orders_total = len(open_orders)
         reference_mid_by_token: Dict[str, Optional[float]] = {
@@ -2292,6 +3447,29 @@ class OrderManager:
                     break
                 side_orders = [o for o in token_orders if o.side == side]
                 side_orders.sort(key=lambda x: x.created_ts_utc or "")
+                committed_side_orders = [o for o in side_orders if self._active_committed_maker_order(o)]
+                primary: Optional[LiveOrder] = committed_side_orders[0] if committed_side_orders else (
+                    side_orders[0] if side_orders else None
+                )
+                extras = [o for o in side_orders if o is not primary]
+                if self._active_committed_maker_order(primary):
+                    for order in extras:
+                        if actions >= max_actions:
+                            break
+                        result = self._request_cancel_order(
+                            order,
+                            "extra_same_side_order",
+                            request_origin="maker_extra_same_side_cleanup",
+                        )
+                        if bool(result.get("executed", False)):
+                            actions += 1
+                            open_orders_total = max(0, open_orders_total - 1)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="extra_same_side_order",
+                            )
+                    continue
                 desired_intent = desired.get(side)
 
                 if desired_intent is None:
@@ -2300,7 +3478,11 @@ class OrderManager:
                         if actions >= max_actions:
                             _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                             break
-                        if self._cancel_order(order, "no_desired_quote"):
+                        if self._cancel_order(
+                            order,
+                            "no_desired_quote",
+                            request_origin="maker_no_desired_quote",
+                        ):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
                             self._remove_token_order_if_present(
@@ -2309,9 +3491,6 @@ class OrderManager:
                                 remove_reason="no_desired_quote",
                             )
                     continue
-
-                primary: Optional[LiveOrder] = side_orders[0] if side_orders else None
-                extras = side_orders[1:] if len(side_orders) > 1 else []
 
                 side_allowed = (
                     token_side_policy == "TWO_SIDED"
@@ -2324,7 +3503,11 @@ class OrderManager:
                         if actions >= max_actions:
                             _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                             break
-                        if self._cancel_order(order, "one_sided_mode_disallow_side"):
+                        if self._cancel_order(
+                            order,
+                            "one_sided_mode_disallow_side",
+                            request_origin="maker_side_policy",
+                        ):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
                             self._remove_token_order_if_present(
@@ -2334,17 +3517,308 @@ class OrderManager:
                             )
                     continue
 
+                desired_effective, queue_pressure_event = self._maybe_apply_maker_queue_pressure(
+                    desired_intent=desired_intent,
+                    top=top,
+                    competitiveness_context=token_competitiveness_context,
+                )
+                shadow_effective, shadow_cross_guard_preview = self._maybe_clamp_post_only_intent(
+                    desired_effective,
+                    top,
+                )
+                effective_competitiveness_context = (
+                    dict(token_competitiveness_context)
+                    if isinstance(token_competitiveness_context, dict)
+                    else {}
+                )
+                effective_competitiveness_context["strategy_quote_price"] = float(desired_intent.price)
+                effective_competitiveness_context["submission_candidate_quote_price"] = float(
+                    shadow_effective.price
+                )
+                if shadow_cross_guard_preview is not None:
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_applied"] = True
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_original_price"] = float(
+                        shadow_cross_guard_preview.get("original_price", desired_effective.price)
+                    )
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_adjusted_price"] = float(
+                        shadow_cross_guard_preview.get("adjusted_price", shadow_effective.price)
+                    )
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_reason"] = str(
+                        shadow_cross_guard_preview.get("adjustment_reason") or ""
+                    ).strip().lower() or "post_only_cross_touch_clamp"
+                else:
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_applied"] = False
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_original_price"] = float(
+                        desired_effective.price
+                    )
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_adjusted_price"] = float(
+                        shadow_effective.price
+                    )
+                    effective_competitiveness_context["pre_submit_cross_guard_preview_reason"] = None
+                shadow_event = self._build_maker_fight_admission_shadow_event(
+                    token_id=token_id,
+                    side=side,
+                    top=top,
+                    desired_intent=shadow_effective,
+                    competitiveness_context=effective_competitiveness_context,
+                    cycle_index=cycle_index,
+                    primary=primary,
+                    open_maker_orders_total=int(open_orders_total),
+                    open_orders_for_token_count=len(token_orders),
+                    open_orders_same_side_count=len(side_orders),
+                )
+                shadow_event["strategy_quote_price"] = float(desired_intent.price)
+                shadow_event["submission_candidate_quote_price"] = float(shadow_effective.price)
+                shadow_event["pre_submit_cross_guard_preview_applied"] = bool(
+                    shadow_cross_guard_preview is not None
+                )
+                shadow_event["pre_submit_cross_guard_preview_original_price"] = (
+                    float(shadow_cross_guard_preview.get("original_price"))
+                    if isinstance(shadow_cross_guard_preview, dict)
+                    and isinstance(shadow_cross_guard_preview.get("original_price"), (int, float))
+                    else float(desired_effective.price)
+                )
+                shadow_event["pre_submit_cross_guard_preview_adjusted_price"] = (
+                    float(shadow_cross_guard_preview.get("adjusted_price"))
+                    if isinstance(shadow_cross_guard_preview, dict)
+                    and isinstance(shadow_cross_guard_preview.get("adjusted_price"), (int, float))
+                    else float(shadow_effective.price)
+                )
+                shadow_event["pre_submit_cross_guard_preview_reason"] = (
+                    str(shadow_cross_guard_preview.get("adjustment_reason")).strip().lower()
+                    if isinstance(shadow_cross_guard_preview, dict)
+                    and str(shadow_cross_guard_preview.get("adjustment_reason") or "").strip()
+                    else None
+                )
+                selection_gate = self._evaluate_maker_selection_gate(
+                    shadow_event=shadow_event,
+                    competitiveness_context=effective_competitiveness_context,
+                )
+                shadow_event["launch_safe_selection_enabled"] = bool(selection_gate.get("enabled", False))
+                shadow_event["launch_safe_selection_applied"] = bool(selection_gate.get("applied", False))
+                shadow_event["launch_safe_selection_passed"] = selection_gate.get("passed")
+                shadow_event["launch_safe_selection_primary_reason"] = selection_gate.get(
+                    "primary_reject_reason"
+                )
+                shadow_event["launch_safe_selection_reject_reasons"] = list(
+                    selection_gate.get("reject_reasons") or []
+                )
+                shadow_event["selection_gate_primary_reject_reason"] = selection_gate.get(
+                    "primary_reject_reason"
+                )
+                shadow_event["selection_gate_all_reject_reasons"] = list(
+                    selection_gate.get("reject_reasons") or []
+                )
+                shadow_event["selection_gate_min_sec_to_expiry"] = selection_gate.get(
+                    "min_sec_to_expiry"
+                )
+                shadow_event["selection_gate_max_sec_to_expiry"] = selection_gate.get(
+                    "max_sec_to_expiry"
+                )
+                shadow_event["launch_safe_selection_timing_window_met"] = selection_gate.get(
+                    "timing_window_met"
+                )
+                shadow_event["cannon_target_notional_usd"] = selection_gate.get(
+                    "cannon_target_notional_usd"
+                )
+                shadow_event["cannon_min_depth_multiple"] = selection_gate.get(
+                    "cannon_min_depth_multiple"
+                )
+                shadow_event["visible_depth_notional_usd"] = selection_gate.get(
+                    "visible_depth_notional_usd"
+                )
+                shadow_event["depth_multiple_vs_cannon_target"] = selection_gate.get(
+                    "depth_multiple_vs_cannon_target"
+                )
+                shadow_event["cannon_depth_requirement_met"] = selection_gate.get(
+                    "cannon_depth_requirement_met"
+                )
+                shadow_event["same_target_submit_count_prior"] = selection_gate.get(
+                    "same_target_submit_count_prior"
+                )
+                shadow_event["repeat_target_calm"] = selection_gate.get(
+                    "repeat_target_calm"
+                )
+                shadow_event["repeat_target_side_calm"] = selection_gate.get(
+                    "repeat_target_side_calm"
+                )
+                shadow_event["max_same_target_submit_count_prior"] = selection_gate.get(
+                    "max_same_target_submit_count_prior"
+                )
+                shadow_event["max_same_target_side_submit_count_prior"] = selection_gate.get(
+                    "max_same_target_side_submit_count_prior"
+                )
+                effective_competitiveness_context["launch_safe_selection_enabled"] = bool(
+                    selection_gate.get("enabled", False)
+                )
+                effective_competitiveness_context["launch_safe_selection_applied"] = bool(
+                    selection_gate.get("applied", False)
+                )
+                effective_competitiveness_context["launch_safe_selection_passed"] = selection_gate.get(
+                    "passed"
+                )
+                effective_competitiveness_context["launch_safe_selection_primary_reason"] = selection_gate.get(
+                    "primary_reject_reason"
+                )
+                effective_competitiveness_context["launch_safe_selection_reject_reasons"] = list(
+                    selection_gate.get("reject_reasons") or []
+                )
+                effective_competitiveness_context["selection_gate_primary_reject_reason"] = selection_gate.get(
+                    "primary_reject_reason"
+                )
+                effective_competitiveness_context["selection_gate_all_reject_reasons"] = list(
+                    selection_gate.get("reject_reasons") or []
+                )
+                effective_competitiveness_context["selection_gate_min_sec_to_expiry"] = selection_gate.get(
+                    "min_sec_to_expiry"
+                )
+                effective_competitiveness_context["selection_gate_max_sec_to_expiry"] = selection_gate.get(
+                    "max_sec_to_expiry"
+                )
+                effective_competitiveness_context["launch_safe_selection_timing_window_met"] = selection_gate.get(
+                    "timing_window_met"
+                )
+                effective_competitiveness_context["cannon_target_notional_usd"] = selection_gate.get(
+                    "cannon_target_notional_usd"
+                )
+                effective_competitiveness_context["cannon_min_depth_multiple"] = selection_gate.get(
+                    "cannon_min_depth_multiple"
+                )
+                effective_competitiveness_context["visible_depth_notional_usd"] = selection_gate.get(
+                    "visible_depth_notional_usd"
+                )
+                effective_competitiveness_context["depth_multiple_vs_cannon_target"] = selection_gate.get(
+                    "depth_multiple_vs_cannon_target"
+                )
+                effective_competitiveness_context["cannon_depth_requirement_met"] = selection_gate.get(
+                    "cannon_depth_requirement_met"
+                )
+                effective_competitiveness_context["same_target_submit_count_prior"] = selection_gate.get(
+                    "same_target_submit_count_prior"
+                )
+                effective_competitiveness_context["repeat_target_calm"] = selection_gate.get(
+                    "repeat_target_calm"
+                )
+                effective_competitiveness_context["repeat_target_side_calm"] = selection_gate.get(
+                    "repeat_target_side_calm"
+                )
+                effective_competitiveness_context["max_same_target_submit_count_prior"] = selection_gate.get(
+                    "max_same_target_submit_count_prior"
+                )
+                effective_competitiveness_context["max_same_target_side_submit_count_prior"] = selection_gate.get(
+                    "max_same_target_side_submit_count_prior"
+                )
+                effective_competitiveness_context["admission_shadow_id"] = str(
+                    shadow_event.get("admission_shadow_id") or ""
+                )
+                effective_competitiveness_context["target_side_ref"] = str(
+                    shadow_event.get("target_side_ref") or ""
+                )
+                if queue_pressure_event is not None:
+                    effective_competitiveness_context["queue_pressure_enabled"] = True
+                    effective_competitiveness_context["queue_pressure_candidate"] = True
+                    effective_competitiveness_context["queue_pressure_adopted"] = bool(
+                        queue_pressure_event.get("adopted", False)
+                    )
+                    effective_competitiveness_context["queue_pressure_gate_conversion"] = bool(
+                        queue_pressure_event.get("gate_conversion", False)
+                    )
+                    effective_competitiveness_context["queue_pressure_inside_price_ticks"] = int(
+                        queue_pressure_event.get("inside_price_ticks", self.maker_queue_pressure_inside_price_ticks)
+                    )
+                    if bool(queue_pressure_event.get("adopted", False)):
+                        effective_competitiveness_context["queue_pressure_adjusted_price"] = float(
+                            queue_pressure_event.get("adjusted_price", desired_effective.price)
+                        )
+                        effective_competitiveness_context["queue_pressure_base_price"] = float(
+                            queue_pressure_event.get("base_price", desired_intent.price)
+                        )
+                        effective_competitiveness_context["queue_pressure_base_queue_ahead_size"] = float(
+                            queue_pressure_event.get("base_queue_ahead_size", 0.0)
+                        )
+                        effective_competitiveness_context["queue_pressure_adjusted_queue_ahead_size"] = float(
+                            queue_pressure_event.get("adjusted_queue_ahead_size", 0.0)
+                        )
+                        effective_competitiveness_context["queue_pressure_base_expected_fill_prob"] = float(
+                            queue_pressure_event.get("base_expected_fill_prob", 0.0)
+                        )
+                        effective_competitiveness_context["queue_pressure_adjusted_expected_fill_prob"] = float(
+                            queue_pressure_event.get("adjusted_expected_fill_prob", 0.0)
+                        )
+                if bool(selection_gate.get("applied", False)) and not bool(selection_gate.get("passed", False)):
+                    primary_reject_reason = str(
+                        selection_gate.get("primary_reject_reason") or "selection_gate_reject"
+                    ).strip().lower() or "selection_gate_reject"
+                    gate_reject_label = (
+                        f"launch_safe_{primary_reject_reason}"
+                        if primary_reject_reason.startswith("selection_")
+                        else f"launch_safe_selection_{primary_reject_reason}"
+                    )
+                    _record_maker_no_submission_reason(
+                        token_id,
+                        gate_reject_label,
+                    )
+                    for order in side_orders:
+                        if actions >= max_actions:
+                            _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
+                            break
+                        if self._cancel_order(
+                            order,
+                            "launch_safe_selection_reject",
+                            request_origin="maker_selection_gate",
+                        ):
+                            actions += 1
+                            open_orders_total = max(0, open_orders_total - 1)
+                            self._remove_token_order_if_present(
+                                token_orders,
+                                order,
+                                remove_reason="launch_safe_selection_reject",
+                            )
+                    self._log_maker_fight_admission_shadow_event(
+                        shadow_event,
+                        decision_result="selection_rejected",
+                        decision_block_reason=gate_reject_label,
+                    )
+                    continue
+
+                force_replace_queue_pressure = False
+                if (
+                    primary is not None
+                    and bool(self.maker_queue_pressure_force_replace_on_adjustment)
+                    and isinstance(queue_pressure_event, dict)
+                    and bool(queue_pressure_event.get("adopted", False))
+                    and abs(float(primary.price) - float(desired_effective.price)) >= (float(self.tick_size) - 1e-12)
+                ):
+                    force_replace_queue_pressure = True
                 replace_needed = (
                     primary is None
-                    or self._needs_replace(primary, desired_intent, requote_delta=token_requote_delta)
+                    or force_replace_queue_pressure
+                    or self._needs_replace(primary, desired_effective, requote_delta=token_requote_delta)
                 )
 
                 if replace_needed:
                     if primary is not None and self.maker_replace_min_rest_sec > 0.0:
                         age_sec = self._order_age_sec(primary)
                         if age_sec is not None and age_sec < self.maker_replace_min_rest_sec:
+                            if isinstance(queue_pressure_event, dict):
+                                queue_pressure_event["replace_guard_blocked"] = bool(force_replace_queue_pressure)
+                                self.events.log_event(
+                                    "maker_queue_pressure_adjustment",
+                                    queue_pressure_event,
+                                )
+                            self._log_maker_fight_admission_shadow_event(
+                                shadow_event,
+                                decision_result="replace_guard_blocked",
+                                decision_block_reason="replace_guard_min_rest",
+                            )
                             _record_maker_no_submission_reason(token_id, "replace_guard_min_rest")
                             continue
+
+                    if isinstance(queue_pressure_event, dict):
+                        self.events.log_event(
+                            "maker_queue_pressure_adjustment",
+                            queue_pressure_event,
+                        )
 
                     cancel_failed = False
                     # Cancel old side orders first to keep behavior deterministic.
@@ -2352,7 +3826,11 @@ class OrderManager:
                         if actions >= max_actions:
                             _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                             break
-                        if self._cancel_order(order, "replace_quote"):
+                        if self._cancel_order(
+                            order,
+                            "replace_quote",
+                            request_origin="maker_replace_logic",
+                        ):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
                             self._remove_token_order_if_present(
@@ -2364,25 +3842,30 @@ class OrderManager:
                             cancel_failed = True
                             _record_maker_no_submission_reason(token_id, "replace_cancel_unavailable")
                     if actions >= max_actions:
+                        self._log_maker_fight_admission_shadow_event(
+                            shadow_event,
+                            decision_result="action_budget_exhausted",
+                            decision_block_reason="action_budget_exhausted",
+                        )
                         break
-                    risk_context_payload = dict(token_competitiveness_context) if isinstance(token_competitiveness_context, dict) else {}
+                    risk_context_payload = dict(effective_competitiveness_context)
                     risk_context_payload.setdefault("submission_lane", "maker")
                     risk_context_payload.setdefault(
                         "stage",
-                        str(desired_intent.stage or "").strip().upper() or "UNKNOWN",
+                        str(desired_effective.stage or "").strip().upper() or "UNKNOWN",
                     )
                     risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
                     if isinstance(realized_vol, (int, float)):
                         risk_context_payload["realized_volatility"] = float(realized_vol)
                     placed, submit_reject_reason = self._place_order(
-                        desired_intent,
+                        desired_effective,
                         top,
                         open_orders_for_token=token_orders,
                         open_orders_total=open_orders_total,
                         open_orders_all=[order for rows in by_token.values() for order in rows],
                         reference_mid_by_token=reference_mid_by_token,
                         risk_context=risk_context_payload,
-                        competitiveness_context=token_competitiveness_context,
+                        competitiveness_context=effective_competitiveness_context,
                     )
                     if placed is not None:
                         actions += 1
@@ -2390,18 +3873,52 @@ class OrderManager:
                         token_orders.append(placed)
                         maker_submitted_token_ids.add(str(token_id))
                         maker_submitted_order_ids_by_token.setdefault(str(token_id), []).append(str(placed.order_id))
+                        self._log_maker_fight_admission_shadow_event(
+                            shadow_event,
+                            decision_result="submitted",
+                            order_submit_id=str(placed.order_id),
+                        )
                     elif not cancel_failed:
                         if str(submit_reject_reason or "").strip():
                             _record_maker_no_submission_reason(token_id, f"submit_rejected_{submit_reject_reason}")
                         else:
                             _record_maker_no_submission_reason(token_id, "submit_rejected")
+                        self._log_maker_fight_admission_shadow_event(
+                            shadow_event,
+                            decision_result="submit_rejected",
+                            decision_block_reason=str(submit_reject_reason or "submit_rejected"),
+                        )
+                    else:
+                        self._log_maker_fight_admission_shadow_event(
+                            shadow_event,
+                            decision_result="submit_rejected",
+                            decision_block_reason=(
+                                str(submit_reject_reason).strip()
+                                if str(submit_reject_reason or "").strip()
+                                else "replace_cancel_unavailable"
+                            ),
+                        )
                 else:
+                    if isinstance(queue_pressure_event, dict):
+                        self.events.log_event(
+                            "maker_queue_pressure_adjustment",
+                            queue_pressure_event,
+                        )
+                    self._log_maker_fight_admission_shadow_event(
+                        shadow_event,
+                        decision_result="quote_unchanged",
+                        decision_block_reason="quote_unchanged",
+                    )
                     _record_maker_no_submission_reason(token_id, "quote_unchanged")
                     for order in extras:
                         if actions >= max_actions:
                             _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                             break
-                        if self._cancel_order(order, "extra_same_side_order"):
+                        if self._cancel_order(
+                            order,
+                            "extra_same_side_order",
+                            request_origin="maker_extra_same_side_cleanup",
+                        ):
                             actions += 1
                             open_orders_total = max(0, open_orders_total - 1)
                             self._remove_token_order_if_present(
@@ -2449,7 +3966,7 @@ class OrderManager:
             if actions >= max_actions:
                 keep.append(order)
                 continue
-            if self._cancel_order(order, "orphan_token_order"):
+            if self._cancel_order(order, "orphan_token_order", request_origin="non_target_cleanup"):
                 actions += 1
             else:
                 keep.append(order)
