@@ -1,8 +1,8 @@
 bot_name: "Bro-BTC-Paper-Docker"
 mode: "paper"
 profile:
-  name: "paper_universal"
-  class: "canonical"
+  name: "btc_paper_docker_example"
+  class: "degraded"
 
 asset:
   symbol: "BTC"
@@ -38,9 +38,6 @@ runtime:
   paper_passive_near_touch_band: 0.0
   paper_passive_near_touch_fill_ratio: 0.0
   paper_background_fill_ratio: 0.0
-  paper_enforce_setup_lock: true
-  paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: b0c04cda260f585859584930a26031e2dfb91d9a73c910e7328f842d8f748cf3
 doctrine:
   mode: canonical
   oracle_max_tick_age_sec: 1.5

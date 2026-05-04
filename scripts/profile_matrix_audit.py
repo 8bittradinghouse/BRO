@@ -22,6 +22,7 @@ DEFAULT_PROFILES = [
     "configs/profiles/live_canary.yaml",
     "configs/profiles/live_pilot.yaml",
 ]
+CANONICAL_PAPER_PROFILE = pathlib.Path("configs/profiles/paper_universal.yaml").resolve()
 
 
 def _resolve_path(cfg_path: pathlib.Path, raw: str) -> pathlib.Path:
@@ -53,6 +54,8 @@ def run_audit(*, profile_paths: List[pathlib.Path]) -> Dict[str, Any]:
         if mode not in {"paper", "live"}:
             findings.append(f"{profile_label}:mode_invalid:{mode}")
 
+        profile = cfg.get("profile", {}) if isinstance(cfg.get("profile"), dict) else {}
+        profile_name = str(profile.get("name", "")).strip()
         asset = cfg.get("asset", {}) if isinstance(cfg.get("asset"), dict) else {}
         symbol = str(asset.get("symbol", "")).strip().upper()
         if not symbol:
@@ -67,6 +70,21 @@ def run_audit(*, profile_paths: List[pathlib.Path]) -> Dict[str, Any]:
         storage = cfg.get("storage", {}) if isinstance(cfg.get("storage"), dict) else {}
         runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime"), dict) else {}
         security = cfg.get("security", {}) if isinstance(cfg.get("security"), dict) else {}
+        if mode == "paper":
+            if cfg_path == CANONICAL_PAPER_PROFILE:
+                if profile_name != "paper_universal":
+                    findings.append(f"{profile_label}:canonical_paper_profile_name_invalid:{profile_name or 'missing'}")
+                if not bool(runtime.get("paper_enforce_setup_lock", False)):
+                    findings.append(f"{profile_label}:canonical_paper_setup_lock_disabled")
+            else:
+                if profile_name == "paper_universal":
+                    findings.append(f"{profile_label}:canonical_paper_identity_claim_outside_owner")
+                if bool(runtime.get("paper_enforce_setup_lock", False)):
+                    findings.append(f"{profile_label}:canonical_paper_setup_lock_claim_outside_owner")
+                if str(runtime.get("paper_expected_profile_name", "")).strip():
+                    findings.append(f"{profile_label}:canonical_paper_expected_profile_claim_outside_owner")
+                if str(runtime.get("paper_expected_config_fingerprint_sha256", "")).strip():
+                    findings.append(f"{profile_label}:canonical_paper_expected_fingerprint_claim_outside_owner")
         log_dir = _resolve_path(cfg_path, str(storage.get("log_dir", "")))
         state_path = _resolve_path(cfg_path, str(storage.get("state_path", "")))
         guard_path = _resolve_path(cfg_path, str(runtime.get("guard_stop_file", "")))

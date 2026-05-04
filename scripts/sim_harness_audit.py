@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Hardening audit for the offline simulator harness."""
+"""Legacy hardening audit for the offline simulator harness.
+
+This is non-canonical shop tooling and is disabled from active BRO
+qualification by default.
+"""
 
 from __future__ import annotations
 

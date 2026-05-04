@@ -1,7 +1,10 @@
 # BRO Doctrine/Truth Closure Diagnosis — 2026-04-08
 
 > Doc Class: `Reference`
-> Authority: supporting diagnosis record; canonical operational truth is maintained in `docs/CURRENT_BASELINE.md`, `docs/DOCTRINE_RUNBOOK.md`, and `docs/BASELINE_LOCK_20260408.md`.
+> Authority: supporting diagnosis record; front-of-house repo current truth is
+> maintained in `docs/PROJECT_TRUTH_STATE.md`. Supporting runtime/doctrine
+> surfaces for this packet remain `docs/DOCTRINE_RUNBOOK.md` and
+> `docs/BASELINE_LOCK_20260408.md`.
 
 ## Executive Summary
 - `VERIFIED`: Canonical live nonce truth is unavailable in current live provider path.

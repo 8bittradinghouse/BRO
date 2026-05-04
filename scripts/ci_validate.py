@@ -45,7 +45,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bro local CI-equivalent validator")
     parser.add_argument("--config", default="configs/profiles/paper_universal.yaml", help="Execution config path")
     parser.add_argument("--log-dir", default="./logs_exec/paper_universal", help="Execution log directory for harness integrity audit")
-    parser.add_argument("--deep-harness", action="store_true", help="Run deep harness qualification (includes simulator audit)")
+    parser.add_argument(
+        "--deep-harness",
+        action="store_true",
+        help="Run backstage harness qualification",
+    )
     parser.add_argument("--skip-pytest", action="store_true", help="Skip pytest run")
     parser.add_argument("--skip-run-integrity", action="store_true", help="Skip run integrity/harness audit step")
     args = parser.parse_args()

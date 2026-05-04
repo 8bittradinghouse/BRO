@@ -69,6 +69,309 @@ It may not:
 - invent strategy
 - override strategy side selection except by rejection or size reduction based on safety rules
 
+1.2.1 Timing Authority Law
+
+BRO is a timing-sensitive combat system. Combat-locked sub-second synchronized
+timing is foundational system steel, not convenience telemetry.
+
+Maker and taker are both timing-dependent weapons. If timing truth is weak,
+late, degraded, or only coarsely inferred, BRO must not overclaim readiness,
+execution realism, or weapon health.
+
+Three timing truths must remain distinct and authoritative:
+
+- host clock discipline
+- event/source-receive cross-domain skew
+- decision-to-submit timing
+
+Authoritative execution evidence requires:
+
+- millisecond-class host clock synchronization
+- explicit sub-second timing truth across feed, decision, and submit domains
+- explicit timing artifacts rather than logger/default backfill standing in as
+  critical proof
+
+Coarse fallback checks may expose gross drift, but they must never certify
+combat readiness or timing health.
+
+When timing truth is missing, degraded, or contradictory, BRO must fail closed,
+skip, downgrade the claim, or halt rather than infer timing health.
+
+1.3 Single Semantic Language Law
+
+BRO must speak one operational language from doctrine to runtime to reports.
+
+Required semantic laws:
+
+- one concept, one term
+- one term, one meaning
+- one decision boundary, one owner
+- one blocker lane, one authoritative report owner
+- downstream surfaces consume upstream truth; they do not reinterpret it into a
+  second dialect
+
+Forbidden semantic failure modes:
+
+- using multiple near-synonyms for the same operational state
+- using the same term to mean different things at different layers
+- allowing runtime and reporting to maintain parallel meanings for the same row
+- adding shadow/backfill/translation layers to compensate for preventable
+  language drift instead of fixing the upstream contract
+- letting descriptive-only or reconstructed surfaces masquerade as runtime
+  authority
+
+Operational rule:
+
+- if a behavior problem is actually a language/contract problem, fix the
+  highest-authority semantic break first
+- do not build compensator machinery for a vocabulary split unless the system
+  has first proven that the existing canonical path cannot express the truth
+  directly
+
+1.3.1 Semantic Precedence Law
+
+If surfaces disagree about the meaning of the same row or state, semantic
+precedence is:
+
+1. core doctrine
+2. runtime-emitted live contract truth
+3. wallet authority domain truth
+4. edge truth contract
+5. gate/readiness consumers
+6. report/aggregation surfaces
+7. descriptive-only and historical surfaces
+
+Lower-precedence surfaces may summarize, classify, or count higher-precedence
+truth.
+
+They may not:
+
+- silently rename it
+- silently upgrade its authority class
+- silently reinterpret it into a second dialect
+
+1.3.2 Live Contract Registry
+
+If a live-emitted contract name already exists and is consumed downstream,
+doctrine must use that name rather than inventing a cleaner parallel label.
+
+| Live contract name | Doctrine meaning | Primary owner | Must not mean |
+| --- | --- | --- | --- |
+| `maker_allowed` | maker-lane stage permission only | runtime stage policy | maker actionability or quoteability |
+| `taker_allowed` | taker-lane stage permission only | runtime stage policy | taker actionability or submit permission |
+| `secondary_oracle_confirmation` | selection/confirmation truth only | selection/oracle gate | quoteability, readiness, or wallet permission |
+| `secondary_oracle_status` | emitted secondary-oracle status paired with confirmation | selection/oracle gate | confirmation truth or submit permission by itself |
+| `market_reference_mode` | market truth mechanism/path kind | runtime reference resolution | blocker ownership |
+| `market_reference_basis` | emitted basis label for how market reference was formed | runtime reference resolution | authority class by itself |
+| `market_reference_confidence` | emitted confidence tier for the market-reference path | runtime reference resolution | submit permission or outcome truth |
+| `market_reference_fallback_used` | explicit marker that a fallback/reference rescue path was used | runtime reference resolution | automatic degradation verdict by itself |
+| `market_reference_source_side` | emitted source-side label for the reference path (`bid|ask|paired|none`) | runtime reference resolution | trade side or authority by itself |
+| `market_reference_class` | authority class of the market reference | runtime reference resolution | report-only opinion |
+| `runtime_state` | runtime posture state | runtime status emitter | market actionability |
+| `active_targets_present` | emitted runtime target-presence posture fact | runtime status emitter | promotion proof or market authority by itself |
+| `no_target_standdown` | emitted runtime standdown posture fact | runtime status emitter | runtime_state replacement or actionability by itself |
+| `book_feed_required` | emitted runtime requirement fact for live book connectivity | runtime status emitter | actual connectivity or market truth by itself |
+| `promotion_eligibility_hint` | emitted live runtime posture hint that participation conditions are present | runtime status emitter | final `promotion_eligible` classification output |
+| `runtime_classification` | runtime-semantics/readiness classification container | runtime semantics / readiness classifier | direct strategy-quality proof by itself |
+| `promotion_eligible` | runtime/readiness promotion classification output | runtime semantics / readiness classifier | proof of strategy quality or execution realism by itself |
+| `primary_suppression_cause` | emitted dominant suppression cause when runtime classification is non-promotable or constrained | runtime semantics / readiness classifier | blocker-lane owner for a single edge row |
+| `contributing_suppression_causes` | emitted list of additional suppression contributors | runtime semantics / readiness classifier | ordered root-cause proof by itself |
+| `ambiguous_suppression_cause` | explicit marker that suppression ownership was not uniquely resolved | runtime semantics / readiness classifier | safe license to invent a synthetic primary cause |
+| `authority_status_class` | wallet/startup authority state | wallet authority | market truth class |
+| `startup_authority_ready` | emitted wallet/startup readiness fact before full health-contract packaging | wallet authority | market truth or edge validity |
+| `authoritative_refresh_completed` | emitted wallet/startup proof that authoritative refresh completed successfully | wallet authority | order permission by itself |
+| `order_capable_live` | live-wallet capability switch | wallet authority | market permission |
+| `order_submit_eligible` | wallet/readiness submit-readiness term only | wallet authority | quoteability or edge validity |
+| `canonical_live_nonce_available` | emitted wallet/live nonce availability fact | wallet authority | generic wallet health by itself |
+| `canonical_live_pending_wallet_tx_available` | emitted wallet/live pending-tx availability fact | wallet authority | generic wallet health by itself |
+| `canonical_live_nonce_source` | emitted source label for nonce authority truth | wallet authority | truth-domain class by itself |
+| `canonical_live_nonce_detail` | emitted detail string for nonce authority truth | wallet authority | canonical authority verdict by itself |
+| `canonical_live_pending_wallet_tx_source` | emitted source label for pending-wallet-tx authority truth | wallet authority | truth-domain class by itself |
+| `canonical_live_pending_wallet_tx_detail` | emitted detail string for pending-wallet-tx authority truth | wallet authority | canonical authority verdict by itself |
+| `live_truth_gap_reasons` | emitted wallet live-truth gap reason list | wallet authority | canonical blocker-lane owner outside wallet domain |
+| `target_ref` | deterministic decision-lineage identity | runtime lineage / tx / audits | pricing, side, or authority class |
+| `source_target_ref` | deterministic lineage identity for the source-side or complement-side decision context | runtime lineage / tx / audits | primary target identity or authority class |
+| `block_reason` | emitted local stop reason inside the owning contract | emitting contract owner | cross-system blocker-lane owner by itself |
+| `decision_block_reason` | emitted submit-path/local order-manager block reason after decision handoff | order manager / submit gate | edge `block_reason` or canonical blocker-lane owner by itself |
+| `decision_result` | emitted submit-path/local order-manager decision outcome after selection, replace, and submit work | order manager / submit gate | edge `action_taken` or global blocker ownership by itself |
+| `action_taken` | emitted action choice for the row | emitting contract owner | quality grade |
+| `submitted` | emitted decision-path submit fact for the row | quote/order path | fill or full lifecycle completion |
+| `filled` | emitted observed fill fact for the row | execution/outcome handoff | outcome completeness |
+| `result` | reserved edge-outcome field pending explicit outcome-linkage doctrine | edge truth contract | current authoritative outcome truth |
+| `evaluation_scope` | emitted lane family for the row | edge truth contract | authority class |
+| `decision_input_source` | source string for decision input provenance | emitting contract owner | execution realism grade |
+| `decision_input_type` | emitted decision-input provenance type | emitting contract owner | authority class |
+| `decision_input_emulated` | explicit emulation disclosure | emitting contract owner | optional hint |
+| `decision_input_data_class` | emitted data-class disclosure for decision input | emitting contract owner | global truth class |
+| `financial_posture_class` | emitted lifecycle/risk posture class for the decision context | risk / lifecycle context | runtime_state or actionability by itself |
+| `execution_realism_class` | emitted paper-harness execution-realism classification | paper harness / execution simulator | market reference authority or outcome completeness |
+| `claim_boundary_class` | emitted outcome-truth claim-boundary classification | outcome truth layer | runtime authority class |
+| `outcome_truth_status` | emitted outcome completeness/status label | outcome truth layer | runtime blocker ownership or actionability |
+| `record_claim_boundary_class` | emitted record-level completeness boundary derived from outcome status | outcome truth layer | runtime authority class or claim boundary rewrite |
+| `canonical_live_wallet_truth` | authoritative live wallet-truth container | wallet authority | local tx state or derived order state |
+| `local_tx_lifecycle_state` | local tx-manager lifecycle-truth container | tx lifecycle owner | canonical live wallet truth |
+| `open_order_state` | derived open-order state container | wallet/order derived surface | canonical live wallet truth |
+| `integrity_tripwire_reconcile_state` | reconcile/integrity derived-truth container | reconcile/integrity surface | canonical accounting truth by itself |
+| `previous_runtime_state` | emitted previous runtime posture for a runtime transition event | runtime transition emitter | current runtime posture |
+| `previous_book_feed_required` | emitted previous runtime requirement fact for live book connectivity | runtime transition emitter | actual connectivity history by itself |
+| `transition_reason_code` | emitted compact runtime-transition reason code | runtime transition emitter | blocker-lane owner or descriptive essay |
+| `transition_reason_detail` | emitted human-readable runtime-transition detail | runtime transition emitter | canonical code or steady-state classification |
+
+Runtime-classification value vocabulary:
+
+| `runtime_classification.classification` value | Meaning |
+| --- | --- |
+| `VALID_ACTIVE` | targets were present and the runtime showed meaningful participation |
+| `VALID_STANDDOWN` | no-target standdown was active and remained doctrinal/healthy for the window |
+| `NON_PROMOTABLE_NO_PARTICIPATION` | runtime was not invalid, but the window did not earn promotable participation proof |
+| `INVALID_DEADLOCK` | runtime violated expected participation/transition posture strongly enough to fail closed |
+| `INVALID_SAFETY` | runtime violated a safety condition strongly enough to fail closed |
+
+Additional deployed value vocabulary:
+
+| Field | Current deployed values | Meaning / boundary |
+| --- | --- | --- |
+| `runtime_state` | `active`, `no_target_standdown`, `safety_halt` | current runtime posture only |
+| `active_targets_present` | `true`, `false` | emitted target-presence posture only |
+| `no_target_standdown` | `true`, `false` | emitted standdown posture flag only |
+| `book_feed_required` | `true`, `false` | emitted requirement flag only; not connectivity proof |
+| `previous_book_feed_required` | `true`, `false` | emitted transition-only prior requirement flag |
+| `promotion_eligibility_hint` | `true`, `false` | live runtime posture hint only; not final promotion classification |
+| `transition_reason_code` | `runtime_state_changed`, `book_requirement_changed`, `kill_switch_engaged`, `targets_activated`, `targets_absent` | runtime-transition explanation only |
+| `secondary_oracle_status` | `confirmed`, `direction_mismatch`, `disabled`, `unknown` | emitted selection/oracle status only; compatibility input `available` must normalize to `unknown` before emission |
+| `market_reference_basis` | `direct_book_midpoint`, `ws_recent_paired_touch`, `ws_single_side_touch`, `missing` | emitted reference-formation basis only; report-only `report_book_top_pair_backfill` remains a downstream reconstructed basis label |
+| `market_reference_confidence` | `authoritative`, `bounded_low`, `none` | emitted confidence tier for reference formation only |
+| `decision_input_source` | `ws`, `rest`, `chainlink`, `replay`, `replayed`, `paper`, `simulated`, `synthetic`, `emulated`, `unknown` | emitted decision-input source only; type/class carry the normalized doctrine meaning |
+| `decision_input_type` | `observed_live`, `replayed`, `bounded_derived`, `emulated`, `unknown` | emitted decision-input provenance only |
+| `decision_input_data_class` | `observed_live`, `observed_other`, `emulated`, `unknown` | emitted input data-class disclosure only |
+| `authority_status_class` | `authoritative`, `bootstrap_non_authoritative` | live wallet/startup authority vocabulary; `legacy_fallback_non_authoritative` is report/readout fallback only |
+| `startup_authority_ready` | `true`, `false` | wallet/startup readiness fact only |
+| `authoritative_refresh_completed` | `true`, `false` | wallet/startup authoritative-refresh fact only |
+| `canonical_live_nonce_available` | `true`, `false` | wallet live nonce-availability fact only |
+| `canonical_live_pending_wallet_tx_available` | `true`, `false` | wallet live pending-wallet-tx availability fact only |
+| `financial_posture_class` | `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, `HALT_NEW_RISK` | lifecycle/risk posture only |
+| `decision_result` | `submitted`, `submit_rejected`, `selection_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged` | submit-path/local order-manager outcome only |
+| `execution_realism_class` | `bounded_approximation`, `not_modeled` | emitted paper-realism classification only |
+| `claim_boundary_class` | `bounded_approximation`, `not_provable_missing_inputs`, `not_modeled_incomplete_lifecycle` | outcome-layer claim boundary only |
+| `record_claim_boundary_class` | `complete`, `partial_missing_data`, `incomplete_lifecycle`, `missing_decision_reference`, `missing_eval_reference`, `unknown` | record-level outcome completeness boundary only |
+| `outcome_truth_status` | `complete`, `unknown_missing_data`, `unknown_incomplete_lifecycle`, `unknown_missing_decision_reference`, `unknown_missing_eval_reference`, `unknown_missing_linkage` | outcome completeness/status only |
+
+1.3.3 Naming Morphology Law
+
+Future names must preserve meaning through shape, not just prose.
+
+| Name shape | Required meaning |
+| --- | --- |
+| `*_allowed` | stage permission only |
+| `*_confirmation` | confirmation truth only |
+| `*_mode` | mechanism/path kind |
+| `*_class` | semantic classification |
+| `*_state` | posture or lifecycle state |
+| `*_reason` | local explanatory cause, not cross-system owner by itself |
+| `*_result` | local finalized outcome within the owning surface, not cross-system authority by itself |
+| `*_truth` | authoritative truth-domain container only |
+| `*_eligible` | forbidden unless domain-qualified |
+| `*_ref` | lineage or reference identity, not authority by itself |
+
+Additional rules:
+
+- bare `eligible` is forbidden
+- domain-qualified `*_eligible` is allowed only when the domain is explicit
+- if a live-emitted name already follows a different shape, doctrine must define
+  its exact meaning rather than silently generalizing it
+
+1.3.4 Cross-System Classes and Doctrine Boundary Concepts
+
+Cross-system truth/surface classes:
+
+| Class | Meaning |
+| --- | --- |
+| `authoritative` | direct truth that may drive or close a decision boundary |
+| `bounded_approximation` | usable bounded truth, but not full authority |
+| `not_available` | emitted fail-closed reference-absence class when required truth is unavailable |
+| `descriptive_only` | research/support surface only |
+| `historical` | archive or lineage surface from prior runs/states |
+| `bootstrap_non_authoritative` | startup/readiness provisional class only |
+
+Rules:
+
+- `missing` and `unknown` are completeness states, not authority classes
+- `not_available` remains a valid emitted reference-absence class where live
+  contracts already use it (for example `market_reference_class`)
+- `descriptive_only` may explain behavior but may not outrank emitted runtime
+  truth
+
+Doctrine-only boundary concepts:
+
+| Doctrine boundary concept | Meaning | Expected live expression |
+| --- | --- | --- |
+| `truth_reference_sufficient` | truth is strong enough for live quote action | `market_reference_class` + `market_reference_mode` |
+| `quote_constructible` | quote engine has enough valid inputs to build the quote | quote/no-submit path |
+| `submit_authorized` | all gates permit live submission | wallet/risk/order authority outcome |
+| `outcome_unresolved` | lifecycle/outcome truth is not yet final | outcome layer only |
+
+These doctrine concepts explain decision boundaries.
+
+They do not authorize inventing competing emitted field names.
+
+1.3.5 Canonical Blocker-Lane Map
+
+| Canonical blocker lane | Meaning | Primary owner |
+| --- | --- | --- |
+| `stage_timing_blocked` | doctrine/stage window does not permit the action | stage policy |
+| `selection_confirmation_blocked` | selection or confirmation failed | selection/oracle gate |
+| `truth_reference_insufficient` | truth is not strong enough for live quote action | runtime reference resolution |
+| `quote_construction_failed` | truth was sufficient but the quote still could not be built | quote engine / manager boundary |
+| `submit_rejected` | quote/action existed but a submit gate rejected it | wallet/risk/order authority |
+| `outcome_unresolved` | lifecycle/outcome truth is not final | lifecycle/outcome layer |
+
+Granular live `block_reason` strings remain valid emitted contract terms.
+
+Downstream surfaces may map them into these blocker lanes.
+
+They may not:
+
+- change the owner
+- collapse unlike failures into one lane
+- use a downstream lane label to rewrite the emitted reason retroactively
+
+1.3.6 Live Receiving-End Semantic Contract
+
+| Receiver family | Example surfaces | Reads | Truth role | Forbidden reinterpretation |
+| --- | --- | --- | --- | --- |
+| Runtime status consumers | status rows, `runtime_semantics`, gauges | `runtime_state`, `active_targets_present`, `no_target_standdown`, `book_feed_required`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, suppression-cause terms | truth owner | treating posture or hint/classification output as trade actionability |
+| Runtime transition consumers | `runtime_state_transition`, lifecycle audits | `previous_runtime_state`, `runtime_state`, `previous_book_feed_required`, `book_feed_required`, `transition_reason_code`, `transition_reason_detail` | truth owner within transition domain | treating transition detail as steady-state doctrine or promotion proof |
+| Edge truth consumers | `edge_evaluation`, edge audit/runbook | `maker_allowed`, `taker_allowed`, `action_taken`, `block_reason`, `submitted`, `filled`, `result`, `evaluation_scope`, `decision_input_*`, `target_ref`, `source_target_ref`, market-reference qualifiers, `secondary_oracle_status`, `secondary_oracle_confirmation`, `financial_posture_class` | truth owner | treating stage permission as quoteability or submit authority |
+| Wallet authority consumers | wallet status, wallet health, readiness gates | `canonical_live_wallet_truth`, domain truth containers, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, canonical-live availability/detail fields, `live_truth_gap_reasons` | truth owner within wallet domain | treating wallet/startup authority as market-truth language |
+| Quote/order consumers | competitiveness context, order-manager handoff | `market_reference_class`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `target_ref`, `block_reason`, `decision_block_reason`, `decision_result`, `financial_posture_class` | truth owner for quote/submit path decisions | upgrading bounded truth to authoritative by report logic |
+| Paper-harness / realism consumers | canonical paper validation, fill artifacts, audit recipes | `execution_realism_class`, `decision_input_*`, `target_ref` | truth owner within paper-realism domain | treating realism grade as market authority or outcome completeness |
+| Outcome truth consumers | outcome truth audit and attribution layers | `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status`, linked upstream live contract names | truth owner within outcome domain | rewriting upstream runtime meaning or collapsing unlike ownership layers |
+| Report/gate consumers | reports, audits, readiness/soak/promotion gates | emitted live contract names, `promotion_eligible`, canonical blocker-lane map, linked outcome-truth terms | truth consumer | renaming, upgrading, or re-owning upstream meaning |
+| Operator/control consumers | comparison tables, diagnostic templates, metric atlases | canonical live names and mapped doctrine boundary concepts | truth consumer | using aliases that outrank canonical names |
+| Deployment/container pass-through consumers | docker/session/validation launch surfaces, artifact packaging | session/context identity terms such as `BRO_CANONICAL_SESSION_*`, `BRO_RUN_ID`, `BRO_GIT_COMMIT`, `BRO_DOCKER_IMAGE_HASH`, plus canonical live names when transported in artifacts | pass-through consumer | minting competing semantics or treating transport identity as row-level truth ownership |
+
+Deployment/container surfaces are semantic pass-through layers, not semantic
+owners.
+
+1.3.7 Compatibility Policy
+
+This packet does not:
+
+- rename emitted code fields
+- rewrite report schemas
+- delete aliases
+- replace a deployed live name with a cleaner abstract doctrine label
+
+Current mirrors such as `runtime_*` report duplicates are allowed downstream for
+now, but they are classified as mirrors, not doctrine roots.
+
+Distribution/readout names such as `*_distribution`, prefixed mirrors such as
+`runtime_*`, and report/container helper names such as `wallet_*` or `record_*`
+are descriptive/report-layer or mirror surfaces unless explicitly declared as
+live contracts.
+
+Mirror cleanup and alias collapse belong to later runtime/report packets.
+
 C. Canonical Paper Harness
 
 Responsible for simulation realism, auditability, replayability, order lifecycle fidelity, and integrity checking.
@@ -845,6 +1148,30 @@ A paper run must be auditable and replayable enough to reconstruct:
 - what it tried to do
 - what the simulated exchange did
 - how wallet state changed
+
+15.4 Scientific Proving-Lane Discipline
+
+Paper and testing must follow scientific principle, not convenience.
+
+Required proving-lane rules:
+
+- one canonical proving path per evidence claim
+- one controlled variable at a time unless the packet explicitly declares a
+  multi-variable investigation
+- lineage tuple is mandatory for evidence claims:
+  - `run_id`
+  - `git_commit`
+  - `config_fingerprint`
+  - `code_fingerprint`
+- proving-lane changes must be called out explicitly
+- if the proving lane changes, comparison claims must be downgraded unless the
+  change is part of the declared test design
+
+BRO must not:
+
+- compare runs as if they were equivalent when the proving lane changed
+- mix runtime, harness, validator, and policy changes into one evidence claim
+- treat wrapper convenience as stronger than proving-lane consistency
 
 16. Audit and Logging Workflow
 

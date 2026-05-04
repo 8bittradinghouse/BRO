@@ -21,12 +21,40 @@ Authority Order
 5. BRO_MODULE_ARCHITECTURE.txt
    - Canonical architecture boundaries and module responsibility contract.
 
-6. BRO_SITREP_DOCTRINE.txt
+6. docs/BRO_WALLET_DOCTRINE.md
+   - Canonical capital-authority, wallet-health, and deployable-capital doctrine.
+
+7. BRO_SITREP_DOCTRINE.txt
    - Operator sitrep summary for current phase and priorities.
    - Summary only. It must not contradict BRO_CANONICAL_DOCTRINE.txt.
 
-7. requirements.txt
+8. requirements.txt
    - Dependency manifest only. Not a doctrine source.
+
+Downstream BRO-Specific Policy Surfaces
+
+- `docs/DOCTRINE_RUNBOOK.md`
+  - BRO-specific downstream runtime/runbook policy surface.
+  - It may define current fighter-specific timing, stage, and execution policy.
+  - It must not silently override items `1` through `5`.
+- `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
+  - BRO-local maker pathway/reference surface.
+  - Design/pathway truth only; not runtime authority by itself.
+- `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+  - BRO-local intended maker-weapon doctrine anchor.
+  - It defines the intended late-window maker posture (`15-20s`, sweet spot
+    `10-15s`) for doctrine cleanup and support-surface alignment.
+  - It is not automatic proof that current runtime already matches that
+    posture.
+- `docs/BRO_WEAPON_NOMENCLATURE.md`
+  - Mnemonic alias surface only.
+
+Repo-Level Current Truth Screen
+
+- `docs/PROJECT_TRUTH_STATE.md`
+  - Front-of-house repo current-truth surface for active operator use.
+- `docs/CURRENT_BASELINE.md`
+  - Baseline/reference/history surface; not the top-level current-truth entrypoint.
 
 Conflict Rule
 

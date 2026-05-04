@@ -19,7 +19,32 @@ This file records naming and authority-boundary hardening applied in the wallet/
 | implicit live order capability in `mode=live` | explicit opt-in `auth.live_order_submission_enabled` + `order_capable_live` + `order_submit_eligible` | `bootstrap` / `live` |
 | source-string-based live truth assumptions | truth-domain + authority-class classified availability fields (`canonical_live_*_available`) | `live` |
 
+## Semantic Scope and Precedence
+
+- `BRO_CANONICAL_DOCTRINE.txt` is the semantic root.
+- Wallet-domain live names are authoritative inside wallet/startup authority
+  only.
+- They must not be reused as market-actionability terms.
+- `authority_status_class`, `startup_authority_ready`,
+  `authoritative_refresh_completed`, `order_capable_live`, and
+  `order_submit_eligible` are wallet/startup-domain terms only.
+- `canonical_live_wallet_truth` outranks `local_tx_lifecycle_state`,
+  `open_order_state`, and `integrity_tripwire_reconcile_state` for live wallet
+  authority.
+- Local and derived wallet surfaces may explain or protect, but they may not
+  masquerade as canonical live wallet truth.
+
 ## Notes
+
+- `authority_status_class` live wallet/startup vocabulary is:
+  - `authoritative`
+  - `bootstrap_non_authoritative`
+- `startup_authority_ready` and `authoritative_refresh_completed` are
+  wallet/startup readiness facts only; they do not create live submit
+  capability, market actionability, or weapon permission by themselves.
+- `legacy_fallback_non_authoritative` is a report/readout fallback for older or
+  incomplete wallet artifacts; it is not a live wallet authority contract term.
+- `order_submit_eligible` is a wallet/startup-domain submit-readiness term only.
 
 - Deprecated legacy surfaces are retained only at compatibility boundaries.
 - Authoritative decisions consume canonical domain surfaces, not deprecated aliases.

@@ -45,7 +45,7 @@ def _time_policy() -> Dict[str, Any]:
     return {
         "source_of_truth": "utc_wall_clock",
         "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
-        "skew_tolerance_ms": 500.0,
+        "skew_tolerance_ms": 120.0,
         "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
     }
 
@@ -821,7 +821,7 @@ def _write_scenario(
         run_id=run_id,
         phase="validate_postrun",
         session_type="paper_canonical",
-        authority_level="authoritative",
+        authority_level="observational",
         allowed_actions=["validate_postrun"],
         manifest_path=manifest_path,
         log_root=scenario_root,
@@ -1047,7 +1047,7 @@ def main() -> None:
         )
         tm = run_time_discipline_audit(
             config_path=config_path,
-            max_allowed_skew_sec=2.5,
+            max_allowed_skew_sec=0.25,
             max_status_age_sec=3153600000.0,
             min_status_rows=1,
             log_dir=scenario_dir,

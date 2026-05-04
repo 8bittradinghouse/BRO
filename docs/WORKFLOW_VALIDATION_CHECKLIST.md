@@ -1,8 +1,11 @@
 # Bro Workflow Validation Checklist
 
 > Legacy checklist snapshot retained for historical context.
-> Authoritative current validation truth is the canonical run path:
-> `./scripts/canonical_paper_session.sh` + `./scripts/canonical_paper_validation.sh <run_id> --run-contract <path>`,
+> Current public canonical paper start path is
+> `broctl paper -- --active-minutes <minutes> --wait-sec 25`.
+> Backend canonical validation truth is still carried by
+> `./scripts/canonical_paper_session.sh` +
+> `./scripts/canonical_paper_validation.sh <run_id> --run-contract <path>`,
 > with edge evidence sourced from `event_type=edge_evaluation` rows.
 
 ## Status Legend

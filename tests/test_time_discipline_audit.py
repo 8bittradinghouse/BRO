@@ -18,9 +18,58 @@ class TimeDisciplineAuditTests(unittest.TestCase):
         return {
             "source_of_truth": "utc_wall_clock",
             "fallback_logic": "source_ts_then_receive_ts_then_event_ts",
-            "skew_tolerance_ms": 1000.0,
+            "skew_tolerance_ms": 120.0,
             "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
         }
+
+    @staticmethod
+    def _write_host_time_sync_artifacts(
+        *,
+        log_dir: Path,
+        session_id: str,
+        run_id: str,
+        sample_count: int = 1,
+        offset_ms: float = 2.5,
+        jitter_ms: float = 1.5,
+        root_distance_ms: float = 36.0,
+        stratum: int = 2,
+    ) -> None:
+        report_root = log_dir / "sessions" / session_id / "reports"
+        report_root.mkdir(parents=True, exist_ok=True)
+        base_payload = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "available": True,
+            "clock_state": "synced",
+            "system_clock_synchronized": True,
+            "ntp_service_active": True,
+            "stratum": int(stratum),
+            "offset_ms": float(offset_ms),
+            "jitter_ms": float(jitter_ms),
+            "root_distance_ms": float(root_distance_ms),
+        }
+        start_payload = dict(base_payload)
+        start_payload["phase"] = "active_start"
+        stop_payload = dict(base_payload)
+        stop_payload["phase"] = "active_stop"
+        (report_root / "host_time_sync_active_start.json").write_text(
+            json.dumps(start_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (report_root / "host_time_sync_active_stop.json").write_text(
+            json.dumps(stop_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        sample_rows = []
+        for idx in range(sample_count):
+            sample_payload = dict(base_payload)
+            sample_payload["phase"] = "active_sample"
+            sample_payload["elapsed_active_sec"] = float((idx + 1) * 60)
+            sample_rows.append(sample_payload)
+        (report_root / "host_time_sync_active_samples.jsonl").write_text(
+            "\n".join(json.dumps(row, sort_keys=True) for row in sample_rows) + ("\n" if sample_rows else ""),
+            encoding="utf-8",
+        )
 
     def test_audit_passes_with_strict_clock_and_monotonic_status(self):
         with tempfile.TemporaryDirectory() as td:
@@ -226,6 +275,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / f"run_contract_{run_id}.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-contract", run_id=run_id)
 
             result = run_audit(
                 config_path=cfg_path,
@@ -241,6 +291,69 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             self.assertEqual(result["run_id_resolution"], "contract")
             self.assertTrue(bool(result["run_contract_path"]))
             self.assertEqual(result["checked_status_rows"], 2)
+            self.assertEqual(result["contract_authority_level"], "authoritative")
+
+    def test_observational_contract_does_not_require_host_time_sync_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = json.loads(json.dumps(DEFAULT_EXECUTION_CONFIG))
+            cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+            cfg["storage"]["log_dir"] = str(root / "logs")
+            cfg["preflight"]["check_clock_sync"] = True
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg_path = root / "cfg.yaml"
+            cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+            log_dir = Path(cfg["storage"]["log_dir"])
+            log_dir.mkdir(parents=True, exist_ok=True)
+            now = dt.datetime.now(dt.timezone.utc)
+            status_rows = [
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=3)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=2)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+            ]
+            status_path = log_dir / "status_2099-01-01.jsonl"
+            status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
+            contract_payload = build_run_contract(
+                session_id="sid-observational",
+                run_id="r1",
+                phase="validate_postrun",
+                session_type="paper_canonical",
+                authority_level="observational",
+                allowed_actions=[CAPABILITY_VALIDATE_POSTRUN],
+                manifest_path=(log_dir / "run_manifest_r1.json"),
+                log_root=log_dir,
+                state_root=root,
+                start_ts=(now - dt.timedelta(seconds=5)).isoformat().replace("+00:00", "Z"),
+                stop_ts=(now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                evidence_slice_start_ts=(now - dt.timedelta(seconds=5)).isoformat().replace("+00:00", "Z"),
+                evidence_slice_end_ts=(now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                status_path=str(status_path),
+                events_path="",
+                errors_path="",
+                status_slice_path=str(status_path),
+            )
+            run_contract_path = log_dir / "run_contract_r1.json"
+            write_run_contract(run_contract_path, contract_payload, allow_open=False)
+
+            result = run_audit(
+                config_path=cfg_path,
+                max_allowed_skew_sec=0.25,
+                max_status_age_sec=30.0,
+                min_status_rows=2,
+                run_id="r1",
+                run_contract_path=run_contract_path,
+            )
+            self.assertTrue(result["ok"], msg=result["findings"])
+            self.assertEqual(result["contract_authority_level"], "observational")
+            self.assertEqual(result["host_time_sync"], {})
 
     def test_audit_fails_when_time_policy_missing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -292,6 +405,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / "run_contract_r1.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-missing-policy", run_id="r1")
             result = run_audit(
                 config_path=cfg_path,
                 max_allowed_skew_sec=2.0,
@@ -302,6 +416,87 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             self.assertFalse(result["ok"])
             self.assertIn("time_policy_missing_rows", " ".join(result["findings"]))
+
+    def test_audit_fails_when_accepted_maker_submit_missing_timing_context(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = json.loads(json.dumps(DEFAULT_EXECUTION_CONFIG))
+            cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+            cfg["storage"]["log_dir"] = str(root / "logs")
+            cfg["preflight"]["check_clock_sync"] = True
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg_path = root / "cfg.yaml"
+            cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+            log_dir = Path(cfg["storage"]["log_dir"])
+            log_dir.mkdir(parents=True, exist_ok=True)
+            now = dt.datetime.now(dt.timezone.utc)
+            status_rows = [
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=3)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+                {
+                    "ts_utc": (now - dt.timedelta(seconds=2)).isoformat().replace("+00:00", "Z"),
+                    "run_id": "r1",
+                    "time_policy": self._time_policy(),
+                },
+            ]
+            status_path = log_dir / "status_2099-01-01.jsonl"
+            status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
+            event_rows = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": "r1",
+                    "submission_state": "accepted",
+                    "submission_lane": "maker",
+                    "decision_reference_ts_utc": (now - dt.timedelta(seconds=1.4)).isoformat().replace("+00:00", "Z"),
+                    "decision_to_submit_latency_ms": 14.0,
+                    "sec_to_expiry": 18.0,
+                    "ts_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_event_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_receive_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                    "ts_source_utc": (now - dt.timedelta(seconds=1.05)).isoformat().replace("+00:00", "Z"),
+                    "ts_decision_utc": (now - dt.timedelta(seconds=1.2)).isoformat().replace("+00:00", "Z"),
+                }
+            ]
+            events_path = log_dir / "events_2099-01-01.jsonl"
+            events_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+            contract_payload = build_run_contract(
+                session_id="sid-maker-context",
+                run_id="r1",
+                phase="validate_postrun",
+                session_type="paper_canonical",
+                authority_level="authoritative",
+                allowed_actions=[CAPABILITY_VALIDATE_POSTRUN],
+                manifest_path=(log_dir / "run_manifest_r1.json"),
+                log_root=log_dir,
+                state_root=root,
+                start_ts=(now - dt.timedelta(seconds=5)).isoformat().replace("+00:00", "Z"),
+                stop_ts=(now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                evidence_slice_start_ts=(now - dt.timedelta(seconds=5)).isoformat().replace("+00:00", "Z"),
+                evidence_slice_end_ts=(now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
+                status_path=str(status_path),
+                events_path=str(events_path),
+                errors_path="",
+                status_slice_path=str(status_path),
+                events_slice_path=str(events_path),
+            )
+            run_contract_path = log_dir / "run_contract_r1.json"
+            write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-maker-context", run_id="r1")
+
+            result = run_audit(
+                config_path=cfg_path,
+                max_allowed_skew_sec=0.25,
+                max_status_age_sec=30.0,
+                min_status_rows=2,
+                run_id="r1",
+                run_contract_path=run_contract_path,
+            )
+            self.assertFalse(result["ok"])
+            self.assertIn("maker_timing_rows_missing_context:1/1", " ".join(result["findings"]))
 
     def test_audit_fails_when_event_timestamp_domains_missing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -375,6 +570,11 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / "run_contract_r1.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(
+                log_dir=log_dir,
+                session_id="sid-missing-event-domain",
+                run_id="r1",
+            )
             result = run_audit(
                 config_path=cfg_path,
                 max_allowed_skew_sec=2.0,
@@ -455,6 +655,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / "run_contract_r1.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-subscribe-skew", run_id="r1")
             result = run_audit(
                 config_path=cfg_path,
                 max_allowed_skew_sec=2.5,
@@ -537,6 +738,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / "run_contract_r1.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-update-skew", run_id="r1")
             result = run_audit(
                 config_path=cfg_path,
                 max_allowed_skew_sec=2.5,
@@ -619,6 +821,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             )
             run_contract_path = log_dir / "run_contract_r1.json"
             write_run_contract(run_contract_path, contract_payload, allow_open=False)
+            self._write_host_time_sync_artifacts(log_dir=log_dir, session_id="sid-non-chainlink-skew", run_id="r1")
             result = run_audit(
                 config_path=cfg_path,
                 max_allowed_skew_sec=2.5,

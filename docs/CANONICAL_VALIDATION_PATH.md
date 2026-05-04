@@ -1,6 +1,14 @@
 # BRO Canonical Validation Path
 
-BRO paper runtime and validation are doctrine-locked to one lifecycle path for this remediation phase.
+BRO paper runtime and validation are doctrine-locked to one lifecycle path for
+this remediation phase.
+
+Public operator path:
+- `broctl paper -- --active-minutes <minutes> --wait-sec 25`
+
+Backend authoritative engine path:
+- `scripts/canonical_paper_session.sh`
+- `scripts/canonical_paper_validation.sh`
 
 ## Canonical inputs
 - Profile: `configs/profiles/paper_universal.yaml`
@@ -8,15 +16,26 @@ BRO paper runtime and validation are doctrine-locked to one lifecycle path for t
 - Env source: repo `.env`
 - Canonical paper log root: `./logs_exec/paper_universal`
 - Canonical paper state root: `./data/paper_universal/state.json`
-- Session runner path: `scripts/canonical_paper_session.sh`
-- Validation script (postrun phase): `scripts/canonical_paper_validation.sh`
+- Backend session runner path: `scripts/canonical_paper_session.sh`
+- Backend validation script (postrun phase): `scripts/canonical_paper_validation.sh`
 
-## Canonical session command
+## Public canonical paper command
 ```bash
-./scripts/canonical_paper_session.sh --active-minutes 10 --wait-sec 25
+broctl paper -- --active-minutes <minutes> --wait-sec 25
 ```
 
-The session runner is the only canonical lifecycle path and enforces explicit phases:
+Supported front-of-house evidence-run window:
+- `10` to `180` minutes
+
+`broctl paper` is the sole public front door for canonical paper.
+Only canonical paper surfaces participate in this validation path.
+
+## Backend canonical session engine
+```bash
+./scripts/canonical_paper_session.sh --active-minutes <minutes> --wait-sec 25
+```
+
+The session runner remains the authoritative lifecycle engine and enforces explicit phases:
 - `preflight`
 - `start`
 - `active`
@@ -26,7 +45,7 @@ The session runner is the only canonical lifecycle path and enforces explicit ph
 - `archive_export`
 - `complete`
 
-## Postrun validation command
+## Backend postrun replay/forensics validation command
 ```bash
 ./scripts/canonical_paper_validation.sh <run_id> --session-phase validate_postrun --run-contract <path>
 ```
@@ -56,6 +75,20 @@ Canonical postrun validators in this path:
 - `soak_hardening_gate`
 - `soak_hardening_gate_replay`
 
+Semantic boundary and transport rule:
+- `BRO_CANONICAL_DOCTRINE.txt` is the semantic root for validator-facing
+  contract language.
+- `paper_harness_audit` consumes `execution_realism_class`,
+  `decision_input_*`, and `target_ref` as paper-realism-domain truth.
+- `harness_realism_grade_semantics=descriptive_non_gating` and
+  `harness_realism_grade_authority=non_authoritative` are descriptive audit
+  metadata only.
+- `paper_claim_boundary.source_truth_semantics=legacy_alias_of_action_source_truth`
+  is a compatibility disclosure; it does not mint a new authority class.
+- transport/session identity surfaces such as `BRO_CANONICAL_SESSION_*`,
+  `BRO_RUN_ID`, `BRO_GIT_COMMIT`, and `BRO_DOCKER_IMAGE_HASH` are control or
+  lineage carriers only; they must not redefine row-level runtime semantics.
+
 `soak_hardening_gate` runs in `gate_mode: reliability` from `ops/soak_budget.yaml` for canonical postrun hard-fail semantics.
 Utilization-lane findings remain reported for operator diagnosis but do not block canonical reliability proof.
 
@@ -64,6 +97,19 @@ Paper-harness realism checks enforced in this path:
 - size-required paper fills (no implicit infinite-liquidity fallback)
 - market-data source realism (`book_updates_ws_delta`, `book_updates_rest_ratio`)
 - fill realism envelopes (`max_maker_fill_rate`, `max_taker_bonus_fill_rate`)
+- proving-lineage tuple surfaced directly in `paper_harness_audit` output:
+  - `run_id`
+  - `git_commit`
+  - `config_fingerprint_sha256`
+  - `code_fingerprint_sha256`
+
+`harness_realism_grade` is descriptive only:
+- non-gating
+- non-authoritative
+- not a substitute for findings, run integrity, determinism, or promotion proof
+- nightly soak reporting now carries the same explicit semantics:
+  - `harness_realism_grade_semantics=descriptive_non_gating`
+  - `harness_realism_grade_authority=non_authoritative`
 
 `validation_summary.json` includes determinism fields:
 - `edge_truth_determinism_ok`
@@ -86,6 +132,38 @@ It now includes both submit-scope and filled-cohort usability surfaces:
 - submit-scope: `total_outcome_records`, `complete_outcome_records`, `attribution_usability_ratio`
 - filled-cohort: `filled_total`, `filled_complete`, `filled_unknown`, `filled_complete_ratio`
 - maker-linkage observability: `maker_edge_linkage_attempted_count|resolved_count|ambiguous_count|missing_count`
+
+`outcome_truth_audit` now emits two observational lenses for taker analysis:
+- fixed-horizon lens: existing `lane_outcome_truth` remains the canonical 5000ms directional observation surface
+- commitment-window lens: `commitment_lane_outcome_truth.normal_taker` measures the last observed midpoint at or before `decision_ts + submit.sec_to_expiry`
+
+Claim-boundary rule for the new commitment lens:
+- it is still observational-only
+- it does not prove settlement truth, ledger PnL, or live-venue equivalence
+- it exists to keep commitment-style normal taker doctrine from being misread by the narrower 5000ms lens alone
+
+## Reconciliation Reporting Boundary
+- In paper mode, reconciliation may emit:
+  - `verification_level=paper_sim_verified`
+  - `verification_scope=paper_wallet_simulation_verified`
+- `mismatch_ratio_semantics=paper_wallet_simulation`
+- Those fields refer to paper-mode wallet/reconcile semantics only.
+- They do **not** elevate any non-canonical shop tooling into the canonical
+  proof lane.
+
+## Promotion Evidence Boundary
+- Promotion-grade evidence must be manifest-backed and lineage-complete.
+- Required proving-lineage tuple:
+  - `run_id`
+  - `git_commit`
+  - `config_fingerprint_sha256`
+  - `code_fingerprint_sha256`
+- Required visible fighter identity:
+  - `profile_name`
+- Promotion connectors fail closed when artifact identity is incomplete,
+  malformed, inconsistent across evidence artifacts, or not manifest-backed.
+- Config-only / backstage harness audits remain useful for diagnosis, but they
+  are not sufficient for promotion-grade claims.
 
 `websocket_hardening_audit` evidence now includes:
 - explicit `ordering_policy` surface validation

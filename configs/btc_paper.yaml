@@ -1,8 +1,8 @@
 bot_name: "Bro-BTC-Paper"
 mode: "paper"
 profile:
-  name: "paper_universal"
-  class: "canonical"
+  name: "btc_paper_example"
+  class: "degraded"
 
 asset:
   symbol: "BTC"
@@ -31,9 +31,6 @@ storage:
 
 runtime:
   guard_stop_file: "../logs_exec_btc_paper/guard_stop.txt"
-  paper_enforce_setup_lock: true
-  paper_expected_profile_name: "paper_universal"
-  paper_expected_config_fingerprint_sha256: c71223f0619090658725253a202afcd4f7ac673744725f7706290fed5243ac20
 ramp:
   reconcile_status_path: "../logs_exec_btc_paper/reconcile_latest.json"
 

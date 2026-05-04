@@ -189,12 +189,6 @@ def main() -> None:
     p_paper = sub.add_parser("paper", help="Run canonical paper profile")
     p_paper.add_argument("args", nargs=argparse.REMAINDER)
 
-    p_stress = sub.add_parser("paper-stress", help="Run paper stress profile")
-    p_stress.add_argument("args", nargs=argparse.REMAINDER)
-
-    p_discipline = sub.add_parser("paper-discipline", help="Run paper discipline profile")
-    p_discipline.add_argument("args", nargs=argparse.REMAINDER)
-
     p_promote = sub.add_parser("promote", help="Run promotion evidence gate")
     p_promote.add_argument("args", nargs=argparse.REMAINDER)
 
@@ -213,7 +207,7 @@ def main() -> None:
     p_harness = sub.add_parser("harness", help="Run paper harness integrity audit on logs")
     p_harness.add_argument("args", nargs=argparse.REMAINDER)
 
-    p_harness_qual = sub.add_parser("harness-qualify", help="Run deep paper harness qualification gate")
+    p_harness_qual = sub.add_parser("harness-qualify", help="Run backstage paper harness qualification gate")
     p_harness_qual.add_argument("args", nargs=argparse.REMAINDER)
 
     p_ci = sub.add_parser("ci", help="Alias for local CI-equivalent validation")
@@ -229,7 +223,7 @@ def main() -> None:
             list(args.args),
             ["--config", CANONICAL_PAPER_CONFIG],
         )
-    elif args.command in {"paper", "paper-stress", "paper-discipline"}:
+    elif args.command == "paper":
         _assert_canonical_paper_target(
             repo_root,
             extra=list(args.args),

@@ -22,6 +22,7 @@ from prodesk.canonical_authority import (
     CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS,
 )
 from prodesk.config import load_execution_config
+from prodesk.time_sync import capture_host_time_sync_snapshot
 from prodesk.run_contract import build_run_contract, run_contract_path, write_run_contract
 from prodesk.session_phase import (
     assert_valid_phase_transition,
@@ -138,6 +139,16 @@ def _to_container_logs_path(host_path: pathlib.Path) -> str:
     except ValueError:
         return str(host)
     return str(PurePosixPath("/logs") / PurePosixPath(*rel.parts))
+
+
+def _to_container_config_path(host_path: pathlib.Path) -> str:
+    host = pathlib.Path(host_path).resolve()
+    config_root = (ROOT_DIR / "configs").resolve()
+    try:
+        rel = host.relative_to(config_root)
+    except ValueError as exc:
+        raise RuntimeError(f"config_path_outside_configs_root:{host}") from exc
+    return str(PurePosixPath("/config") / PurePosixPath(*rel.parts))
 
 
 def _load_manifest_for_run(log_dir: pathlib.Path, run_id: str) -> Dict[str, Any]:
@@ -370,6 +381,52 @@ def _read_json_object(path: pathlib.Path) -> Optional[Dict[str, Any]]:
     return raw
 
 
+def _write_host_time_sync_artifact(
+    *,
+    report_root: pathlib.Path,
+    artifact_name: str,
+    session_id: str,
+    run_id: str,
+    phase: str,
+    requested_active_minutes: float,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "session_id": str(session_id or "").strip(),
+        "run_id": str(run_id or "").strip(),
+        "phase": str(phase or "").strip(),
+        "requested_active_minutes": float(max(0.0, float(requested_active_minutes))),
+    }
+    payload.update(capture_host_time_sync_snapshot())
+    artifact_path = (report_root / artifact_name).resolve()
+    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def _append_host_time_sync_sample_artifact(
+    *,
+    report_root: pathlib.Path,
+    artifact_name: str,
+    session_id: str,
+    run_id: str,
+    phase: str,
+    requested_active_minutes: float,
+    elapsed_active_sec: float,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "session_id": str(session_id or "").strip(),
+        "run_id": str(run_id or "").strip(),
+        "phase": str(phase or "").strip(),
+        "requested_active_minutes": float(max(0.0, float(requested_active_minutes))),
+        "elapsed_active_sec": float(max(0.0, float(elapsed_active_sec))),
+    }
+    payload.update(capture_host_time_sync_snapshot())
+    artifact_path = (report_root / artifact_name).resolve()
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    with artifact_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    return payload
+
+
 def summarize_postrun_validation(
     *,
     run_id: str,
@@ -541,9 +598,20 @@ class SessionContext:
     do_build: bool
     archive_export: bool
     max_lines_per_file: int
+    session_type: str = "paper_canonical"
+    expected_profile_name: str = "paper_universal"
+    validation_script_path: pathlib.Path = CANONICAL_VALIDATION_SCRIPT
+    validation_artifact_name: str = "canonical_paper_validation.json"
+    allow_noncanonical_config: bool = False
+    require_canonical_roots: bool = True
     log_dir: pathlib.Path = CANONICAL_LOG_DIR
     state_path: pathlib.Path = CANONICAL_STATE_PATH
     guardian_context_path: pathlib.Path = CANONICAL_GUARDIAN_CONTEXT_PATH
+    resolved_profile_name: str = ""
+    resolved_config_fingerprint_sha256: str = ""
+    container_config_path: str = ""
+    container_log_dir: str = ""
+    container_guard_stop_path: str = ""
     run_id: str = ""
     run_manifest_path: pathlib.Path = pathlib.Path()
     run_contract_path: pathlib.Path = pathlib.Path()
@@ -572,17 +640,32 @@ class SessionRunner:
         self._write_state()
 
     def _write_state(self) -> None:
+        run_manifest_path_text = ""
+        if self.ctx.run_manifest_path != pathlib.Path():
+            run_manifest_path_text = str(self.ctx.run_manifest_path)
+        run_contract_path_text = ""
+        if self.ctx.run_contract_path != pathlib.Path():
+            run_contract_path_text = str(self.ctx.run_contract_path)
         payload: Dict[str, Any] = {
             "schema_version": 1,
             "session_id": self.ctx.session_id,
             "ts_utc": utc_iso(),
             "phase": self.ctx.current_phase,
             "run_id": self.ctx.run_id,
+            "session_type": str(self.ctx.session_type or ""),
+            "expected_profile_name": str(self.ctx.expected_profile_name or ""),
+            "resolved_profile_name": str(self.ctx.resolved_profile_name or ""),
+            "effective_config_sha256": str(self.ctx.resolved_config_fingerprint_sha256 or ""),
             "config_path": str(self.ctx.config_path),
             "log_dir": str(self.ctx.log_dir),
             "state_path": str(self.ctx.state_path),
-            "run_manifest_path": str(self.ctx.run_manifest_path) if str(self.ctx.run_manifest_path) else "",
-            "run_contract_path": str(self.ctx.run_contract_path) if str(self.ctx.run_contract_path) else "",
+            "container_config_path": str(self.ctx.container_config_path or ""),
+            "container_log_dir": str(self.ctx.container_log_dir or ""),
+            "container_guard_stop_path": str(self.ctx.container_guard_stop_path or ""),
+            "validation_script_path": str(self.ctx.validation_script_path),
+            "validation_artifact_name": str(self.ctx.validation_artifact_name or ""),
+            "run_manifest_path": run_manifest_path_text,
+            "run_contract_path": run_contract_path_text,
             "postrun_validation": dict(self.ctx.postrun_validation),
             "phase_validation_surface": (
                 validation_surface_for_phase(self.ctx.current_phase)
@@ -603,6 +686,27 @@ class SessionRunner:
         }
         self.ctx.session_state_path.parent.mkdir(parents=True, exist_ok=True)
         self.ctx.session_state_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        identity_payload: Dict[str, Any] = {
+            "schema_version": 1,
+            "ts_utc": utc_iso(),
+            "session_id": self.ctx.session_id,
+            "run_id": self.ctx.run_id,
+            "session_type": str(self.ctx.session_type or ""),
+            "config_path": str(self.ctx.config_path),
+            "selected_profile_name": str(self.ctx.resolved_profile_name or self.ctx.expected_profile_name or ""),
+            "expected_profile_name": str(self.ctx.expected_profile_name or ""),
+            "effective_config_sha256": str(self.ctx.resolved_config_fingerprint_sha256 or ""),
+            "selected_log_root": str(self.ctx.log_dir),
+            "selected_state_path": str(self.ctx.state_path),
+            "container_config_path": str(self.ctx.container_config_path or ""),
+            "container_log_dir": str(self.ctx.container_log_dir or ""),
+            "container_guard_stop_path": str(self.ctx.container_guard_stop_path or ""),
+            "validation_script_path": str(self.ctx.validation_script_path),
+        }
+        (self.ctx.report_root / "session_identity.json").write_text(
+            json.dumps(identity_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         self._write_guardian_context()
 
     def _write_guardian_context(self) -> None:
@@ -615,7 +719,7 @@ class SessionRunner:
             "run_id": self.ctx.run_id,
             "run_contract_path": (
                 _to_container_logs_path(self.ctx.run_contract_path)
-                if str(self.ctx.run_contract_path)
+                if self.ctx.run_contract_path != pathlib.Path()
                 else ""
             ),
         }
@@ -778,7 +882,7 @@ class SessionRunner:
             existing["state_root"] = str(pathlib.Path(str(existing.get("state_root") or self.ctx.state_path.parent)).resolve())
             existing["session_id"] = str(existing.get("session_id") or self.ctx.session_id)
             existing["run_id"] = str(existing.get("run_id") or self.ctx.run_id)
-            existing["session_type"] = str(existing.get("session_type") or "paper_canonical")
+            existing["session_type"] = str(existing.get("session_type") or self.ctx.session_type or "paper_canonical")
             existing["authority_level"] = str(
                 existing.get("authority_level") or self.ctx.run_contract_payload.get("authority_level") or "observational"
             )
@@ -853,6 +957,9 @@ class SessionRunner:
         runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime"), dict) else {}
         storage = cfg.get("storage", {}) if isinstance(cfg.get("storage"), dict) else {}
         cfg_dir = self.ctx.config_path.parent
+        observed_fingerprint = str((cfg.get("_meta") or {}).get("effective_config_sha256") or "").strip().lower()
+        expected_fingerprint = str(runtime.get("paper_expected_config_fingerprint_sha256") or "").strip().lower()
+        expected_profile = str(runtime.get("paper_expected_profile_name") or "").strip()
         resolved_log = _resolve_runtime_path(
             config_dir=cfg_dir,
             raw_value=str(storage.get("log_dir", "")),
@@ -863,31 +970,75 @@ class SessionRunner:
             raw_value=str(storage.get("state_path", "")),
             fallback=CANONICAL_STATE_PATH,
         )
+        guard_stop_path_container = str(runtime.get("guard_stop_file") or "").strip()
         setup_lock_enabled = bool(runtime.get("paper_enforce_setup_lock", False))
 
         self.ctx.log_dir = resolved_log
         self.ctx.state_path = resolved_state
+        self.ctx.resolved_profile_name = profile_name
+        self.ctx.resolved_config_fingerprint_sha256 = observed_fingerprint
+        self.ctx.container_config_path = _to_container_config_path(self.ctx.config_path)
+        self.ctx.container_log_dir = _to_container_logs_path(resolved_log)
+        self.ctx.container_guard_stop_path = (
+            guard_stop_path_container
+            or str(PurePosixPath(self.ctx.container_log_dir) / "guard_stop.txt")
+        )
         self.ctx.initialize_paths()
 
         exit_conditions = [
             self._condition("mode_is_paper", mode == "paper", f"mode={mode or 'missing'}"),
             self._condition(
-                "profile_is_paper_universal",
-                profile_name == "paper_universal",
-                f"profile={profile_name or 'missing'}",
+                "profile_matches_expected",
+                profile_name == self.ctx.expected_profile_name,
+                f"profile={profile_name or 'missing'} expected={self.ctx.expected_profile_name or 'missing'}",
             ),
             self._condition("setup_lock_enabled", setup_lock_enabled, f"paper_enforce_setup_lock={setup_lock_enabled}"),
             self._condition(
-                "canonical_log_root",
-                self.ctx.log_dir.resolve() == CANONICAL_LOG_DIR.resolve(),
-                f"resolved={self.ctx.log_dir}",
+                "setup_lock_profile_matches_expected",
+                bool(expected_profile) and (expected_profile == profile_name),
+                f"expected={expected_profile or 'missing'} observed={profile_name or 'missing'}",
             ),
             self._condition(
-                "canonical_state_root",
-                self.ctx.state_path.resolve() == CANONICAL_STATE_PATH.resolve(),
-                f"resolved={self.ctx.state_path}",
+                "setup_lock_fingerprint_matches_meta",
+                bool(expected_fingerprint) and (expected_fingerprint == observed_fingerprint),
+                f"expected={expected_fingerprint or 'missing'} observed={observed_fingerprint or 'missing'}",
+            ),
+            self._condition(
+                "validation_script_exists",
+                pathlib.Path(self.ctx.validation_script_path).exists(),
+                str(self.ctx.validation_script_path),
             ),
         ]
+        if self.ctx.require_canonical_roots:
+            exit_conditions.extend(
+                [
+                    self._condition(
+                        "canonical_log_root",
+                        self.ctx.log_dir.resolve() == CANONICAL_LOG_DIR.resolve(),
+                        f"resolved={self.ctx.log_dir}",
+                    ),
+                    self._condition(
+                        "canonical_state_root",
+                        self.ctx.state_path.resolve() == CANONICAL_STATE_PATH.resolve(),
+                        f"resolved={self.ctx.state_path}",
+                    ),
+                ]
+            )
+        else:
+            exit_conditions.extend(
+                [
+                    self._condition(
+                        "noncanonical_log_root",
+                        self.ctx.log_dir.resolve() != CANONICAL_LOG_DIR.resolve(),
+                        f"resolved={self.ctx.log_dir}",
+                    ),
+                    self._condition(
+                        "noncanonical_state_root",
+                        self.ctx.state_path.resolve() != CANONICAL_STATE_PATH.resolve(),
+                        f"resolved={self.ctx.state_path}",
+                    ),
+                ]
+            )
         self._phase_exit(exit_conditions)
 
     def phase_start(self) -> None:
@@ -907,6 +1058,47 @@ class SessionRunner:
                 str(self.ctx.run_manifest_path),
             ),
         ]
+        sessions_root = (self.ctx.log_dir / "sessions").resolve()
+        open_conflicts: List[str] = []
+        if sessions_root.exists():
+            for state_path in sorted(sessions_root.glob("*/session_state.json")):
+                try:
+                    payload = json.loads(state_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, UnicodeError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                other_session_id = str(payload.get("session_id") or state_path.parent.name).strip()
+                if not other_session_id or other_session_id == self.ctx.session_id:
+                    continue
+                other_session_type = str(payload.get("session_type") or "").strip()
+                if other_session_type and other_session_type != str(self.ctx.session_type or "paper_canonical"):
+                    continue
+                other_phase = str(payload.get("phase") or "").strip()
+                contract_path_raw = str(payload.get("run_contract_path") or "").strip()
+                contract_phase = ""
+                contract_stop_ts = ""
+                if contract_path_raw:
+                    try:
+                        contract_payload = json.loads(pathlib.Path(contract_path_raw).resolve().read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError, UnicodeError):
+                        contract_payload = {}
+                    if isinstance(contract_payload, dict):
+                        contract_phase = str(contract_payload.get("phase") or "").strip()
+                        contract_stop_ts = str(contract_payload.get("stop_ts") or "").strip()
+                if contract_stop_ts:
+                    continue
+                if other_phase == "complete":
+                    continue
+                other_run_id = str(payload.get("run_id") or "").strip()
+                open_conflicts.append(
+                    "session="
+                    + f"{other_session_id}:run={other_run_id or 'missing'}:phase={other_phase or 'missing'}:"
+                    + f"contract_phase={contract_phase or 'missing'}"
+                )
+        if open_conflicts:
+            raise RuntimeError("concurrent_open_canonical_session:" + ";".join(open_conflicts))
+
         self._phase_enter("start", entry)
 
         provisional_start_ts = utc_iso()
@@ -915,7 +1107,7 @@ class SessionRunner:
             session_id=self.ctx.session_id,
             run_id=self.ctx.run_id,
             phase="start",
-            session_type="paper_canonical",
+            session_type=str(self.ctx.session_type or "paper_canonical"),
             authority_level="authoritative",
             allowed_actions=list(CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
             manifest_path=self.ctx.run_manifest_path,
@@ -951,15 +1143,20 @@ class SessionRunner:
             cmd.append("--no-build")
         deploy_env = {
             "BRO_CONFIG_PATH": str(self.ctx.config_path),
+            "BRO_CONFIG_CONTAINER_PATH": str(self.ctx.container_config_path),
             "BRO_LOG_DIR": str((ROOT_DIR / "logs_exec").resolve()),
             "BRO_DATA_DIR": str((ROOT_DIR / "data").resolve()),
             "BRO_INTERNAL_SESSION_CALL": "1",
             "BRO_CANONICAL_SESSION_TOKEN": str(self.ctx.session_token),
             "BRO_CANONICAL_SESSION_CONTEXT_FILE_HOST": str(self.ctx.guardian_context_path),
-            "BRO_CANONICAL_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
-            "BRO_GUARDIAN_SESSION_CONTEXT_FILE": "/logs/paper_universal/guardian_session_context.json",
+            "BRO_CANONICAL_SESSION_CONTEXT_FILE": _to_container_logs_path(self.ctx.guardian_context_path),
+            "BRO_GUARDIAN_LOG_DIR": str(self.ctx.container_log_dir),
+            "BRO_GUARDIAN_GUARD_STOP_FILE": str(self.ctx.container_guard_stop_path),
+            "BRO_GUARDIAN_SESSION_CONTEXT_FILE": _to_container_logs_path(self.ctx.guardian_context_path),
             "BRO_RUN_ID": self.ctx.run_id,
         }
+        if self.ctx.allow_noncanonical_config:
+            deploy_env["BRO_ALLOW_NONCANONICAL_PAPER_CONFIG"] = "1"
         (self.ctx.report_root / "start_command.json").write_text(
             json.dumps(
                 {
@@ -1136,9 +1333,55 @@ class SessionRunner:
             + "\n",
             encoding="utf-8",
         )
+        _write_host_time_sync_artifact(
+            report_root=self.ctx.report_root,
+            artifact_name="host_time_sync_active_start.json",
+            session_id=self.ctx.session_id,
+            run_id=self.ctx.run_id,
+            phase="active_start",
+            requested_active_minutes=self.ctx.active_minutes,
+        )
+        _append_host_time_sync_sample_artifact(
+            report_root=self.ctx.report_root,
+            artifact_name="host_time_sync_active_samples.jsonl",
+            session_id=self.ctx.session_id,
+            run_id=self.ctx.run_id,
+            phase="active_sample",
+            requested_active_minutes=self.ctx.active_minutes,
+            elapsed_active_sec=0.0,
+        )
         start_mono = time.monotonic()
-        while (time.monotonic() - start_mono) < active_wait_sec:
+        current_mono = start_mono
+        next_host_sync_sample_elapsed_sec = 60.0
+        while (current_mono - start_mono) < active_wait_sec:
             time.sleep(min(5.0, max(0.5, max(1.0, active_wait_sec) / 12.0)))
+            current_mono = time.monotonic()
+            elapsed_active_sec = max(0.0, current_mono - start_mono)
+            while elapsed_active_sec >= next_host_sync_sample_elapsed_sec:
+                _append_host_time_sync_sample_artifact(
+                    report_root=self.ctx.report_root,
+                    artifact_name="host_time_sync_active_samples.jsonl",
+                    session_id=self.ctx.session_id,
+                    run_id=self.ctx.run_id,
+                    phase="active_sample",
+                    requested_active_minutes=self.ctx.active_minutes,
+                    elapsed_active_sec=next_host_sync_sample_elapsed_sec,
+                )
+                next_host_sync_sample_elapsed_sec += 60.0
+            ps_during_active = _docker_compose_ps_lines()
+            maker_up_during_active = _service_up(ps_during_active, "bro-maker")
+            guardian_up_during_active = _service_up(ps_during_active, "bro-guardian")
+            if (not maker_up_during_active) or (not guardian_up_during_active):
+                (self.ctx.report_root / "active_compose_ps.early_exit.log").write_text(
+                    "\n".join(ps_during_active) + "\n",
+                    encoding="utf-8",
+                )
+                raise RuntimeError(
+                    "active_phase_stack_died_early:"
+                    + f"maker_up={maker_up_during_active}:guardian_up={guardian_up_during_active}:"
+                    + f"elapsed_sec={elapsed_active_sec:.3f}:"
+                    + f"active_wait_sec={active_wait_sec:.3f}"
+                )
 
         ps_before_stop = _docker_compose_ps_lines()
         maker_up_before_stop = _service_up(ps_before_stop, "bro-maker")
@@ -1158,6 +1401,14 @@ class SessionRunner:
         (self.ctx.report_root / "active_compose_ps.after_stop.log").write_text(
             "\n".join(ps_after_stop) + "\n",
             encoding="utf-8",
+        )
+        _write_host_time_sync_artifact(
+            report_root=self.ctx.report_root,
+            artifact_name="host_time_sync_active_stop.json",
+            session_id=self.ctx.session_id,
+            run_id=self.ctx.run_id,
+            phase="active_stop",
+            requested_active_minutes=self.ctx.active_minutes,
         )
 
         elapsed_total_sec = time.monotonic() - start_mono
@@ -1400,8 +1651,8 @@ class SessionRunner:
             session_id=self.ctx.session_id,
             run_id=self.ctx.run_id,
             phase="validate_postrun",
-            session_type="paper_canonical",
-            authority_level="observational",
+            session_type=str(self.ctx.session_type or "paper_canonical"),
+            authority_level="authoritative",
             allowed_actions=list(CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS),
             manifest_path=self.ctx.run_manifest_path,
             log_root=self.ctx.log_dir,
@@ -1461,8 +1712,12 @@ class SessionRunner:
         self._phase_enter("validate_postrun", entry)
 
         cmd = [
-            str(CANONICAL_VALIDATION_SCRIPT),
+            str(self.ctx.validation_script_path),
             self.ctx.run_id,
+            "--config",
+            str(self.ctx.config_path),
+            "--log-dir",
+            str(self.ctx.log_dir),
             "--session-phase",
             "validate_postrun",
             "--run-contract",
@@ -1486,8 +1741,9 @@ class SessionRunner:
                 stdout=str(exc.stdout or ""),
                 stderr=str(exc.stderr or ""),
             )
+            validation_label = pathlib.Path(str(self.ctx.validation_script_path)).stem or "paper_validation"
             timeout_note = (
-                "subprocess_timeout:canonical_paper_validation"
+                f"subprocess_timeout:{validation_label}"
                 + f":timeout_sec={float(CANONICAL_POSTRUN_VALIDATION_TIMEOUT_SEC):.1f}"
             )
         (self.ctx.report_root / "validate_postrun.stdout.log").write_text(str(proc.stdout or ""), encoding="utf-8")
@@ -1504,15 +1760,17 @@ class SessionRunner:
         )
         self.ctx.postrun_validation = dict(postrun_validation)
         report_dir.mkdir(parents=True, exist_ok=True)
-        canonical_validation_path = (report_dir / "canonical_paper_validation.json").resolve()
-        canonical_validation_payload = {
+        validation_path = (
+            report_dir / str(self.ctx.validation_artifact_name or "canonical_paper_validation.json")
+        ).resolve()
+        validation_payload = {
             "schema_version": 1,
             "ts_utc": utc_iso(),
             "session_phase": "validate_postrun",
             **postrun_validation,
         }
-        canonical_validation_path.write_text(
-            json.dumps(canonical_validation_payload, indent=2, sort_keys=True) + "\n",
+        validation_path.write_text(
+            json.dumps(validation_payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         self._write_state()
@@ -1610,6 +1868,7 @@ class SessionRunner:
         return {
             "session_id": self.ctx.session_id,
             "run_id": self.ctx.run_id,
+            "session_type": str(self.ctx.session_type or ""),
             "phase": self.ctx.current_phase,
             "postrun_validation": dict(self.ctx.postrun_validation),
             "session_state_path": str(self.ctx.session_state_path),
@@ -1618,8 +1877,8 @@ class SessionRunner:
         }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="BRO canonical paper session runner")
+def build_common_parser(*, description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--active-minutes", type=float, default=15.0, help="Active runtime duration in minutes")
     parser.add_argument("--wait-sec", type=float, default=25.0, help="Deploy wait seconds before active phase")
     parser.add_argument(
@@ -1645,6 +1904,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bound passed to postrun report tools; 0 means full-file scan",
     )
     return parser
+
+
+def build_parser() -> argparse.ArgumentParser:
+    return build_common_parser(description="BRO canonical paper session runner")
 
 
 def main() -> None:

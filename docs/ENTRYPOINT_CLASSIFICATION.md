@@ -1,15 +1,25 @@
 # BRO Entrypoint Classification (Packet C Closeout)
 
 This classification defines which operational surfaces are authoritative.
-Anything outside canonical entrypoints must be wrapper-only, internal-only, or fail-fast.
+Anything outside the public front door, backend canonical engine, or explicit
+control/replay surfaces must be wrapper-only, internal-only, or fail-fast.
 
-## CANONICAL_ENTRYPOINT
+## PUBLIC_FRONT_DOOR
+- `broctl paper`
+  - Sole public operator entrypoint for canonical paper.
+  - Current CLI syntax requires passthrough `--` before canonical session args:
+    `broctl paper -- --active-minutes <minutes> --wait-sec 25`
+
+## BACKEND_CANONICAL_ENGINE
 - `scripts/canonical_paper_session.sh`
-  - Canonical paper lifecycle: preflight -> start -> active -> validate_active -> stop -> validate_postrun -> archive_export -> complete.
+  - Canonical paper lifecycle engine:
+    preflight -> start -> active -> validate_active -> stop -> validate_postrun -> archive_export -> complete.
 - `scripts/canonical_paper_validation.sh`
-  - Canonical postrun validation path (explicit `run_id` + run contract).
+  - Canonical raw postrun replay/forensics validation path (explicit `run_id` + run contract).
 
-## WRAPPER_ONLY
+## BACKSTAGE_CONTROL_SURFACES
+- `broctl prestart`
+  - Backstage safety utility; not the public happy-path start.
 - `run.sh`
   - Thin wrapper to canonical paper session only.
 - `scripts/paper_12h_soak.sh`
@@ -37,7 +47,7 @@ Anything outside canonical entrypoints must be wrapper-only, internal-only, or f
     - `BRO_CANONICAL_SESSION_TOKEN`
     - `BRO_CANONICAL_SESSION_CONTEXT_FILE` with matching `session_token` and authoritative `session_phase`
 
-## LEGACY_ARCHIVE_CANDIDATE
+## HISTORICAL_HOST_RUNTIME_RESIDUE
 - `ops/systemd/polymarket-executor.service`
 - `ops/systemd/polymarket-guardian.service`
   - Historical host-runtime templates; not canonical paper lifecycle entrypoints.

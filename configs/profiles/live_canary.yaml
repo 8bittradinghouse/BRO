@@ -36,5 +36,9 @@ auth:
     mode: file
     path: /run/secrets/polymarket_funder
 
+wallet:
+  approval_spender_targets:
+    - CLOB_EXCHANGE
+
 ramp:
   reconcile_status_path: ../../logs_exec/live_canary/reconcile_latest.json

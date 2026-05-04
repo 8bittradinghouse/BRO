@@ -34,13 +34,17 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: a46c8c7c15cb7de36331abedc4f0e444e8c6c63e311cb2aa223b26fc383a54de
+  paper_expected_config_fingerprint_sha256: "bff661de876116b6c96315aa29280bc7432cab9a2d53b2a004af897fa516c8bd"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
-  held_preexpiry_reduce_only_sec: 90.0
-  preexpiry_emergency_taker_window_sec: 60.0
-  terminal_unwind_halt_new_risk_sec: 60.0
+  # Doctrine-aligned handoff ladder:
+  # maker new risk lives in the final 15-20s cannon window,
+  # reduce-only recovery starts at 15s,
+  # emergency taker / hard halt begin at <=7s.
+  held_preexpiry_reduce_only_sec: 15.0
+  preexpiry_emergency_taker_window_sec: 7.0
+  terminal_unwind_halt_new_risk_sec: 7.0
   dust_classifier_enforce_enabled: true
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
@@ -57,18 +61,20 @@ latency_verifier:
 # Targeted maker-gate hardening (surgical):
 # - widen queue depth tolerance modestly
 # - slightly relax expected-fill floor
+# - start reduce-only maker recovery before emergency taker is allowed
 # preserving explicit skip semantics and fail-closed behavior.
 strategy:
   max_order_size: 8000.0
   execution_quality:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
-    reduce_only_recovery_min_expected_fill_prob_floor: 0.02
-    reduce_only_recovery_max_queue_ahead_size_multiplier: 2.0
+    reduce_only_recovery_min_expected_fill_prob_floor: 0.0
+    reduce_only_recovery_max_queue_ahead_size_multiplier: 5.0
   maker_competitiveness:
     timing_gate_enabled: true
-    timing_gate_min_sec_to_expiry: 45.0
-    timing_gate_max_sec_to_expiry: 60.0
+    # Intended late-window maker cannon doctrine.
+    timing_gate_min_sec_to_expiry: 15.0
+    timing_gate_max_sec_to_expiry: 20.0
     edge_scale_enabled: true
     edge_scale_start_abs: 0.05
     edge_scale_full_abs: 0.20
@@ -79,15 +85,27 @@ strategy:
     one_sided_edge_threshold_abs: 0.18
     one_sided_allowed_stages:
       - MAKER_TAKER_SELECTIVE
+    selection_gate:
+      enabled: true
+      allowed_stages:
+        - MAKER_POSITION
+        - MAKER_TAKER_SELECTIVE
+      require_secondary_oracle_confirmation: true
+      require_one_sided_active: false
+      cannon_target_notional_usd: 350.0
+      min_depth_multiple: 0.0
+      max_same_target_submit_count_prior: 1
+      max_same_target_side_submit_count_prior: 1
 
 # Maker competitiveness sizing: enforce desk-viable minimum quote presence and
 # bind to visible depth while preserving deterministic, bounded behavior.
 sizing:
-  max_usd: 300.0
-  maker_competitive_min_notional_usd: 100.0
-  maker_competitive_max_notional_usd: 250.0
-  maker_competitive_min_shares: 200.0
-  maker_competitive_max_shares: 800.0
+  max_usd: 351.0
+  target_usd: 350.0
+  maker_competitive_min_notional_usd: 350.0
+  maker_competitive_max_notional_usd: 351.0
+  maker_competitive_min_shares: 0.0
+  maker_competitive_max_shares: 8000.0
   maker_depth_target_min_ratio: 0.15
   maker_depth_target_max_ratio: 0.30
   maker_depth_target_ratio: 0.20
@@ -97,6 +115,8 @@ sizing:
   maker_liquidity_tod_depth_multiplier: 0.6
 
 wallet:
+  paper_starting_usdc: 4000.0
+  max_notional_per_order_usdc: 351.0
   chain: polygon
   gas_asset_symbol: POL
   stable_asset_symbol: USDC.e
@@ -107,16 +127,18 @@ wallet:
   treasury_wallet_address: ""
 
 risk:
-  # Keep new exposure out of terminal windows while preserving a non-empty
-  # actionable interval in canonical maker/taker stages.
-  min_sec_to_expiry_for_new_exposure: 45.0
+  # Keep maker and shared non-taker new exposure out of the pre-expiry reduce-only
+  # interval while letting taker timing be governed by its own stage/final-window doctrine.
+  min_sec_to_expiry_for_new_exposure: 15.0
+  min_sec_to_expiry_for_new_exposure_by_lane:
+    taker: 0.0
   # Treat untradeable (< min order size) post-expiry residuals as dust candidates
   # once lifecycle obligations are otherwise clear.
   position_dust_shares_epsilon: 1.0
   # Reserve submit-rate headroom for forced pre-expiry reduce-only recovery so
   # normal flow cannot fully consume the order-rate pool.
   order_rate_recovery_reserved_slots: 12
-  max_abs_position_shares: 4000.0
+  max_abs_position_shares: 8000.0
   max_notional_per_token: 1300.0
   max_order_size: 8000.0
   dynamic_scaling:
@@ -159,11 +181,12 @@ secondary_oracle:
     poll_interval_sec: 0.5
     max_tick_age_sec: 15.0
 
-# P1 taker tightening:
-# keep high-conviction stages unchanged and only raise the selective-stage floor.
+# Taker Masamune lock:
+# canonical normal taker is a hard last-seconds commitment lane only.
 sniper:
   require_lag_verification: false
   taker:
+    target_usd: 150.0
     per_token_cooldown_sec_by_stage:
       SNIPER_PRIMARY: 0.75
     min_edge_by_stage:
@@ -172,23 +195,21 @@ sniper:
       EXTREME_ONLY: 0.25
     competitiveness:
       enabled: true
-      hard_min_target_usd: 100.0
+      hard_min_target_usd: 150.0
       hard_min_enforcement: skip_if_unachievable
       dynamic_size_enabled: true
       dynamic_size_edge_start_abs: 0.16
       dynamic_size_edge_full_abs: 0.35
-      dynamic_size_target_usd_cap: 220.0
+      dynamic_size_target_usd_cap: 150.0
       conviction_model: edge_plus_latency_score
       edge_weight: 0.65
       latency_score_weight: 0.35
       dynamic_preview_enabled: true
       final_window_enabled: true
-      final_window_sec: 60.0
-      stage_final_window_sec_by_stage:
-        MAKER_TAKER_SELECTIVE: 60.0
-        SNIPER_PRIMARY: 30.0
+      final_window_sec: 7.0
+      stage_final_window_sec_by_stage: {}
       aggressive_window_enabled: false
-      aggressive_window_sec: 10.0
+      aggressive_window_sec: 7.0
       stage_aggressiveness:
         MAKER_TAKER_SELECTIVE:
           size_mult: 1.0
@@ -197,14 +218,16 @@ sniper:
           size_mult: 1.0
           price_aggress_bps: 0.0
         EXTREME_ONLY:
-          size_mult: 1.15
+          size_mult: 1.0
           price_aggress_bps: 5.0
       price_aggress_bps_max: 8.0
       multi_oracle_boost_enabled: true
-      multi_oracle_boost_window_sec: 30.0
+      multi_oracle_boost_window_sec: 7.0
       multi_oracle_edge_threshold_abs: 0.20
-      multi_oracle_target_usd_cap: 350.0
+      multi_oracle_target_usd_cap: 150.0
       multi_oracle_capital_pct_cap: 0.18
+      allow_complement_buy_route: true
+      min_visible_fill_ratio: 0.5
       stage_priority_enabled: true
 
 storage:

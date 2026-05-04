@@ -10,11 +10,22 @@ from unittest import mock
 
 import yaml
 
+from prodesk.canonical_authority import CAPABILITY_VALIDATE_POSTRUN
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
+from prodesk.run_contract import build_run_contract, write_run_contract
 from scripts.prelive_gate import run_prelive_gate
 
 
 class PreliveGateTests(unittest.TestCase):
+    @staticmethod
+    def _time_policy() -> dict:
+        return {
+            "source_of_truth": "utc_wall_clock",
+            "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
+            "skew_tolerance_ms": 120.0,
+            "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
+        }
+
     def _write_cfg(self, root: Path, *, mode: str = "live", allow_taker: bool = True) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         # Canonical doctrine fixtures must not set both doctrine and legacy sniper freshness keys.
@@ -48,6 +59,84 @@ class PreliveGateTests(unittest.TestCase):
         now = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
         (log_dir / "status_2099-01-01.jsonl").write_text(json.dumps({"ts_utc": now, "run_id": run_id}) + "\n", encoding="utf-8")
         return run_id
+
+    def _write_host_time_sync_artifacts(self, *, root: Path, session_id: str, run_id: str, sample_count: int = 1) -> None:
+        report_root = root / "logs_exec" / "sessions" / session_id / "reports"
+        report_root.mkdir(parents=True, exist_ok=True)
+        base_payload = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "available": True,
+            "clock_state": "synced",
+            "system_clock_synchronized": True,
+            "ntp_service_active": True,
+            "stratum": 2,
+            "offset_ms": 2.5,
+            "jitter_ms": 1.5,
+            "root_distance_ms": 36.0,
+        }
+        start_payload = dict(base_payload, phase="active_start")
+        stop_payload = dict(base_payload, phase="active_stop")
+        (report_root / "host_time_sync_active_start.json").write_text(
+            json.dumps(start_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (report_root / "host_time_sync_active_stop.json").write_text(
+            json.dumps(stop_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        sample_rows = []
+        for idx in range(sample_count):
+            sample_rows.append(dict(base_payload, phase="active_sample", elapsed_active_sec=float(idx * 60)))
+        (report_root / "host_time_sync_active_samples.jsonl").write_text(
+            "\n".join(json.dumps(row, sort_keys=True) for row in sample_rows) + ("\n" if sample_rows else ""),
+            encoding="utf-8",
+        )
+
+    def _write_authoritative_time_contract(self, root: Path, run_id: str) -> Path:
+        log_dir = root / "logs_exec"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = log_dir / f"run_manifest_{run_id}.json"
+        status_path = log_dir / "status_2099-01-01.jsonl"
+        events_path = log_dir / "events_2099-01-01.jsonl"
+        if not events_path.exists():
+            events_path.write_text("", encoding="utf-8")
+        now = dt.datetime.now(dt.timezone.utc)
+        status_rows = [
+            {
+                "ts_utc": (now - dt.timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+                "run_id": run_id,
+                "time_policy": self._time_policy(),
+            }
+        ]
+        status_path.write_text("\n".join(json.dumps(row) for row in status_rows) + "\n", encoding="utf-8")
+        start_ts = (now - dt.timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        stop_ts = (now - dt.timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+        session_id = f"sid-{run_id}"
+        contract_payload = build_run_contract(
+            session_id=session_id,
+            run_id=run_id,
+            phase="validate_postrun",
+            session_type="live_prelive",
+            authority_level="authoritative",
+            allowed_actions=[CAPABILITY_VALIDATE_POSTRUN],
+            manifest_path=manifest_path,
+            log_root=log_dir,
+            state_root=root,
+            start_ts=start_ts,
+            stop_ts=stop_ts,
+            evidence_slice_start_ts=start_ts,
+            evidence_slice_end_ts=stop_ts,
+            status_path=str(status_path),
+            events_path=str(events_path),
+            errors_path="",
+            status_slice_path=str(status_path),
+            events_slice_path=str(events_path),
+        )
+        contract_path = log_dir / f"run_contract_{run_id}.json"
+        write_run_contract(contract_path, contract_payload, allow_open=False)
+        self._write_host_time_sync_artifacts(root=root, session_id=session_id, run_id=run_id)
+        return contract_path
 
     def _write_backup_bundle(self, root: Path) -> Path:
         backup_dir = root / "backups"
@@ -90,6 +179,7 @@ class PreliveGateTests(unittest.TestCase):
             root = Path(td)
             cfg_path = self._write_cfg(root, mode="live", allow_taker=True)
             run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
             backup_dir = self._write_backup_bundle(root)
             env = {
                 "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
@@ -192,6 +282,7 @@ class PreliveGateTests(unittest.TestCase):
             payload["auth"]["funder_source"] = {"mode": "file", "path": str(funder_file)}
             cfg_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
             run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
             backup_dir = self._write_backup_bundle(root)
             env = {"SECURITY_ACK": "YES"}
             with mock.patch.dict(os.environ, env, clear=False):
@@ -259,6 +350,7 @@ class PreliveGateTests(unittest.TestCase):
             payload["targets"]["token_ids"] = ["tok1"]
             cfg_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
             run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
             backup_dir = self._write_backup_bundle(root)
             env = {
                 "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
@@ -284,6 +376,41 @@ class PreliveGateTests(unittest.TestCase):
                     allow_env_secrets_in_live=True,
                 )
         self.assertTrue(result["ok"], msg=str(result["findings"]))
+
+    def test_prelive_gate_passes_run_contract_path_into_time_discipline_audit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root, mode="live", allow_taker=True)
+            run_id = self._write_manifest(root)
+            contract_path = self._write_authoritative_time_contract(root, run_id)
+            backup_dir = self._write_backup_bundle(root)
+            env = {
+                "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
+                "POLYMARKET_FUNDER": "0x" + ("b" * 40),
+                "SECURITY_ACK": "YES",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("scripts.prelive_gate.run_time_discipline_audit", return_value={"findings": []}) as audit_mock:
+                    result = run_prelive_gate(
+                        config_path=cfg_path,
+                        policy_path=Path("ops/ramp_policy.yaml"),
+                        required_stage="pilot_live",
+                        run_id=run_id,
+                        skip_readiness=True,
+                        skip_runtime_audit=True,
+                        skip_config_consistency=True,
+                        skip_manifest_check=False,
+                        manifest_max_age_hours=48.0,
+                        manifest_min_schema_version=2,
+                        skip_backup_check=False,
+                        backup_dir=backup_dir,
+                        backup_max_age_hours=48.0,
+                        skip_run_integrity_audit=True,
+                        allow_env_secrets_in_live=True,
+                    )
+        self.assertTrue(result["ok"], msg=str(result["findings"]))
+        kwargs = audit_mock.call_args.kwargs
+        self.assertEqual(Path(str(kwargs.get("run_contract_path"))).resolve(), contract_path.resolve())
 
     def test_prelive_gate_requires_explicit_run_id_when_readiness_enabled(self):
         with tempfile.TemporaryDirectory() as td:

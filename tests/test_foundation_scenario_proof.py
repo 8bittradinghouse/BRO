@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prodesk.run_contract import load_run_contract
+
 
 class FoundationScenarioProofTests(unittest.TestCase):
     def test_generates_required_realism_stress_scenarios(self):
@@ -76,7 +78,10 @@ class FoundationScenarioProofTests(unittest.TestCase):
                 self.assertIsInstance(details.get("scenario_realism_interpretation"), str)
                 self.assertTrue(bool(details.get("scenario_expectation_match")))
                 self.assertEqual(details.get("scenario_expectation_mismatches"), [])
-                self.assertTrue(Path(str(paths.get("run_contract_path", ""))).exists())
+                contract_path = Path(str(paths.get("run_contract_path", "")))
+                self.assertTrue(contract_path.exists())
+                contract_payload = load_run_contract(contract_path, allow_open=False)
+                self.assertEqual(str(contract_payload.get("authority_level") or ""), "observational")
                 self.assertTrue(Path(str(paths.get("events_path", ""))).exists())
                 self.assertIn("paper_harness_audit", audits)
                 self.assertIn("order_lifecycle_audit", audits)

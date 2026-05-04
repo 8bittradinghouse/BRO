@@ -1,8 +1,12 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 import subprocess
 import sys
+
+if os.getenv("BRO_ENABLE_LEGACY_SIMULATOR_TESTS", "").strip() != "1":
+    raise unittest.SkipTest("legacy simulator audit tests are disabled by default")
 
 from scripts.sim_harness_audit import run_audit
 

@@ -4,12 +4,6 @@ paper_harness:
   min_status_rows: 1
   max_status_age_sec: 3153600000.0
 
-sim_harness:
-  enabled: true
-  config: configs/profiles/paper_universal.yaml
-  steps: 20
-  dt_sec: 1.0
-
 fault_drill:
   # Keep disabled by default until drill evidence collection is operationalized.
   enabled: false

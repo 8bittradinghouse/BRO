@@ -7,7 +7,12 @@ import time
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from .common import parse_ts, utc_now
-from .exposure_classifier import EXPOSURE_CLASS_MEANINGFUL, is_flat_position
+from .exposure_classifier import (
+    EXPOSURE_CLASS_DUST_ELIGIBLE,
+    EXPOSURE_CLASS_DUST_QUARANTINED,
+    EXPOSURE_CLASS_MEANINGFUL,
+    is_flat_position,
+)
 from .models import BookTop, FillEvent, OrderIntent, Position, RiskDecision
 
 
@@ -36,6 +41,8 @@ class RiskEngine:
         self._valuation_hard_degraded: bool = False
         self._valuation_degraded_reasons: List[str] = []
         self._exposure_class_by_token: Dict[str, str] = {}
+        self._dust_capacity_enforce_enabled: bool = False
+        self._dust_capacity_candidate_token_ids: List[str] = []
         self._last_mark_to_market_skipped_nonflat_by_class: Dict[str, int] = {}
 
     def set_kill_switch(self, reason: str) -> None:
@@ -56,7 +63,12 @@ class RiskEngine:
             "reasons": list(self._valuation_degraded_reasons),
         }
 
-    def set_exposure_classification_state(self, *, exposure_class_by_token: Optional[Dict[str, Any]] = None) -> None:
+    def set_exposure_classification_state(
+        self,
+        *,
+        exposure_class_by_token: Optional[Dict[str, Any]] = None,
+        dust_capacity_enforce_enabled: Optional[bool] = None,
+    ) -> None:
         raw = exposure_class_by_token if isinstance(exposure_class_by_token, dict) else {}
         normalized: Dict[str, str] = {}
         for token_id, exposure_class in raw.items():
@@ -66,6 +78,23 @@ class RiskEngine:
             klass = str(exposure_class or "").strip().upper() or EXPOSURE_CLASS_MEANINGFUL
             normalized[token] = klass
         self._exposure_class_by_token = normalized
+        if dust_capacity_enforce_enabled is not None:
+            self._dust_capacity_enforce_enabled = bool(dust_capacity_enforce_enabled)
+        self._dust_capacity_candidate_token_ids = sorted(
+            token_id
+            for token_id, klass in normalized.items()
+            if str(klass).strip().upper() in {EXPOSURE_CLASS_DUST_ELIGIBLE, EXPOSURE_CLASS_DUST_QUARANTINED}
+        )
+
+    def _dust_capacity_snapshot(self) -> Dict[str, Any]:
+        cap = int(float(self.cfg.get("position_dust_token_count_cap", 0) or 0))
+        candidate_ids = list(self._dust_capacity_candidate_token_ids)
+        return {
+            "enabled": bool(self._dust_capacity_enforce_enabled and cap > 0),
+            "candidate_count": int(len(candidate_ids)),
+            "token_count_cap": int(cap),
+            "candidate_token_ids": candidate_ids,
+        }
 
     @classmethod
     def _is_flat_position(cls, net_shares: float) -> bool:
@@ -143,6 +172,20 @@ class RiskEngine:
         if not math.isfinite(out):
             return None
         return float(out)
+
+    def _resolve_min_sec_to_expiry_for_new_exposure(
+        self,
+        *,
+        submission_lane: str,
+    ) -> Tuple[float, Optional[float], str]:
+        global_threshold = self._safe_float(self.cfg.get("min_sec_to_expiry_for_new_exposure"))
+        lane_thresholds = self.cfg.get("min_sec_to_expiry_for_new_exposure_by_lane")
+        lane_override: Optional[float] = None
+        if isinstance(lane_thresholds, dict):
+            lane_override = self._safe_float(lane_thresholds.get(str(submission_lane or "").strip().lower()))
+        if lane_override is not None:
+            return float(lane_override), global_threshold, "lane_override"
+        return float(global_threshold or 0.0), global_threshold, "global"
 
     @staticmethod
     def _hour_in_window(hour: int, start_hour: int, end_hour: int) -> bool:
@@ -470,6 +513,42 @@ class RiskEngine:
             pos.sell_shares += fill.size
             pos.sold_notional += fill.size * fill.price
 
+    def settle_binary_position(self, *, token_id: str, settlement_price: float) -> Optional[Dict[str, Any]]:
+        token = str(token_id or "").strip()
+        if not token:
+            return None
+        pos = self.positions.get(token)
+        if pos is None:
+            return None
+        net_before = float(getattr(pos, "net_shares", 0.0) or 0.0)
+        if self._is_flat_position(net_before):
+            pos.net_shares = 0.0
+            return None
+        price = max(0.0, min(1.0, float(settlement_price)))
+        settlement_size_shares = abs(net_before)
+        settlement_notional_usd = settlement_size_shares * price
+        if net_before > 0.0:
+            settlement_side = "SELL"
+            pos.net_shares -= settlement_size_shares
+            pos.sell_shares += settlement_size_shares
+            pos.sold_notional += settlement_notional_usd
+        else:
+            settlement_side = "BUY"
+            pos.net_shares += settlement_size_shares
+            pos.buy_shares += settlement_size_shares
+            pos.bought_notional += settlement_notional_usd
+        if self._is_flat_position(float(pos.net_shares)):
+            pos.net_shares = 0.0
+        return {
+            "token_id": token,
+            "net_shares_before": float(net_before),
+            "net_shares_after": float(getattr(pos, "net_shares", 0.0) or 0.0),
+            "settlement_side": str(settlement_side),
+            "settlement_size_shares": float(settlement_size_shares),
+            "settlement_price": float(price),
+            "settlement_notional_usd": float(settlement_notional_usd),
+        }
+
     def validate_order(
         self,
         intent: OrderIntent,
@@ -534,6 +613,21 @@ class RiskEngine:
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
                 },
             )
+        if (
+            context_submission_lane == "taker"
+            and str(intent.side or "").strip().upper() == "SELL"
+            and (not pure_risk_reducing_intent)
+        ):
+            return RiskDecision(
+                False,
+                "normal_taker_same_token_sell_forbidden",
+                "normal taker same-token SELL is forbidden unless the intent is pure reduce-only",
+                basis={
+                    **early_basis_base,
+                    "risk_authority": "taker_side_policy",
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                },
+            )
         if financial_posture_class == "HALT_NEW_RISK" and (not pure_risk_reducing_intent):
             return RiskDecision(
                 False,
@@ -547,6 +641,28 @@ class RiskEngine:
                     "risk_authority": "terminal_unwind_halt_new_risk",
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
                     "terminal_unwind_halt_new_risk_active": True,
+                },
+            )
+        dust_capacity_snapshot = self._dust_capacity_snapshot()
+        if (
+            bool(dust_capacity_snapshot.get("enabled", False))
+            and int(dust_capacity_snapshot.get("candidate_count", 0)) >= int(
+                dust_capacity_snapshot.get("token_count_cap", 0)
+            )
+            and not pure_risk_reducing_intent
+        ):
+            return RiskDecision(
+                False,
+                "dust_token_capacity_exhausted",
+                (
+                    f"candidate_count={int(dust_capacity_snapshot.get('candidate_count', 0))}"
+                    f">=cap={int(dust_capacity_snapshot.get('token_count_cap', 0))}"
+                ),
+                basis={
+                    **early_basis_base,
+                    "risk_authority": "dust_capacity",
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                    "dust_capacity_guard": dust_capacity_snapshot,
                 },
             )
         order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
@@ -676,15 +792,20 @@ class RiskEngine:
         max_notional_base = float(self.cfg["max_notional_per_token"])
         max_abs_position_effective = max(1e-9, max_abs_position_base * float(effective_multiplier))
         max_notional_effective = max(1e-9, max_notional_base * float(effective_multiplier))
+        (
+            min_sec_to_expiry_for_new_exposure,
+            min_sec_to_expiry_for_new_exposure_global,
+            min_sec_to_expiry_for_new_exposure_source,
+        ) = self._resolve_min_sec_to_expiry_for_new_exposure(submission_lane=context_submission_lane)
         basis_base: Dict[str, Any] = {
             "risk_authority": "risk_engine_v2",
             "submission_lane": str(context_submission_lane),
             "stage": str(context_stage),
             "financial_posture_class": str(financial_posture_class),
             "sec_to_expiry": sec_to_expiry,
-            "min_sec_to_expiry_for_new_exposure": self._safe_float(
-                self.cfg.get("min_sec_to_expiry_for_new_exposure")
-            ),
+            "min_sec_to_expiry_for_new_exposure": float(min_sec_to_expiry_for_new_exposure),
+            "min_sec_to_expiry_for_new_exposure_global": min_sec_to_expiry_for_new_exposure_global,
+            "min_sec_to_expiry_for_new_exposure_source": str(min_sec_to_expiry_for_new_exposure_source),
             "edge_abs": self._safe_float(context.get("edge_abs")),
             "realized_volatility": self._safe_float(context.get("realized_volatility")),
             "dynamic_scaling": dynamic_scaling_basis,
@@ -716,7 +837,6 @@ class RiskEngine:
             ),
         }
 
-        min_sec_to_expiry_for_new_exposure = float(self.cfg.get("min_sec_to_expiry_for_new_exposure", 0.0) or 0.0)
         if require_lifecycle_context_for_decisions and (not pure_risk_reducing_intent) and sec_to_expiry is None:
             return RiskDecision(
                 False,

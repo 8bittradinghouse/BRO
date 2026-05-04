@@ -9,14 +9,12 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict
 
-import yaml
+from prodesk.config import load_execution_config
 
 
 def _load_config(path: pathlib.Path) -> Dict[str, Any]:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict):
-        return {}
-    return raw
+    loaded = load_execution_config(path.resolve())
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _latest_status_file(log_dir: pathlib.Path) -> pathlib.Path | None:

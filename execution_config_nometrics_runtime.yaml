@@ -1,7 +1,8 @@
 bot_name: Bro
 mode: paper
 profile:
-  name: paper_stress
+  # Harness audit fixture: canonical fighter name retained, degraded class intentional.
+  name: paper_universal
   class: degraded
 asset:
   symbol: BTC

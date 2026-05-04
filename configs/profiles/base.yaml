@@ -1,4 +1,4 @@
-extends: ../../execution_config.yaml
+extends: ./execution_defaults.yaml
 
 profile:
   name: base

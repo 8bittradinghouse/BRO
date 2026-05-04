@@ -17,6 +17,7 @@ from .paths import validate_runtime_write_paths
 from .secrets import SecretLoadError, load_auth_secrets
 from .security import run_security_checks
 from .state_store import load_state
+from .time_sync import capture_host_time_sync_snapshot
 
 
 def run_preflight_checks(
@@ -165,16 +166,58 @@ def run_preflight_checks(
         if failures > allowed:
             findings.append(f"market_data_check_failed:{failures}_tokens")
     if bool(preflight_cfg.get("check_clock_sync", False)):
-        skew = _clock_skew_seconds(
-            base_url=str(cfg.get("auth", {}).get("host", cfg.get("market_data", {}).get("clob_url", ""))),
-            timeout_sec=float(preflight_cfg.get("endpoint_timeout_sec", 4.0)),
-        )
-        if skew is None:
-            findings.append("clock_sync_check_unavailable")
+        host_snapshot = capture_host_time_sync_snapshot()
+        clock_state = str(host_snapshot.get("clock_state") or "unknown").strip().lower()
+        if clock_state == "synced":
+            stratum = host_snapshot.get("stratum")
+            offset_ms = host_snapshot.get("offset_ms")
+            jitter_ms = host_snapshot.get("jitter_ms")
+            root_distance_ms = host_snapshot.get("root_distance_ms")
+            max_stratum = int(preflight_cfg.get("max_clock_stratum", 3) or 3)
+            max_offset_ms = float(preflight_cfg.get("max_clock_offset_ms", 10.0) or 10.0)
+            max_jitter_ms = float(preflight_cfg.get("max_clock_jitter_ms", 10.0) or 10.0)
+            max_root_distance_ms = float(preflight_cfg.get("max_clock_root_distance_ms", 100.0) or 100.0)
+            if not isinstance(stratum, int):
+                findings.append("clock_sync_host_stratum_missing")
+            elif int(stratum) > max_stratum:
+                findings.append(f"clock_sync_host_stratum_exceeded:{int(stratum)}>max:{int(max_stratum)}")
+            if not isinstance(offset_ms, (int, float)):
+                findings.append("clock_sync_host_offset_missing")
+            elif abs(float(offset_ms)) > max_offset_ms:
+                findings.append(
+                    f"clock_sync_host_offset_exceeded:{float(offset_ms):.3f}ms>max:{float(max_offset_ms):.3f}ms"
+                )
+            if not isinstance(jitter_ms, (int, float)):
+                findings.append("clock_sync_host_jitter_missing")
+            elif float(jitter_ms) > max_jitter_ms:
+                findings.append(
+                    f"clock_sync_host_jitter_exceeded:{float(jitter_ms):.3f}ms>max:{float(max_jitter_ms):.3f}ms"
+                )
+            if not isinstance(root_distance_ms, (int, float)):
+                findings.append("clock_sync_host_root_distance_missing")
+            elif float(root_distance_ms) > max_root_distance_ms:
+                findings.append(
+                    "clock_sync_host_root_distance_exceeded:"
+                    + f"{float(root_distance_ms):.3f}ms>max:{float(max_root_distance_ms):.3f}ms"
+                )
+        elif clock_state == "unsynced":
+            findings.append("clock_sync_host_unsynced")
+        elif clock_state == "partial_visibility":
+            findings.append("clock_sync_host_partial_visibility")
         else:
-            max_skew = float(preflight_cfg.get("max_clock_skew_sec", 2.5))
-            if abs(skew) > max_skew:
-                findings.append(f"clock_skew_exceeded:{skew:.3f}s")
+            findings.append("clock_sync_host_unavailable")
+
+        if clock_state != "synced":
+            skew = _clock_skew_seconds(
+                base_url=str(cfg.get("auth", {}).get("host", cfg.get("market_data", {}).get("clob_url", ""))),
+                timeout_sec=float(preflight_cfg.get("endpoint_timeout_sec", 4.0)),
+            )
+            if skew is None:
+                findings.append("clock_sync_fallback_unavailable")
+            else:
+                max_skew = float(preflight_cfg.get("max_clock_skew_sec", 0.25) or 0.25)
+                if abs(skew) > max_skew:
+                    findings.append(f"clock_skew_fallback_exceeded:{skew:.3f}s")
     if bool(preflight_cfg.get("check_endpoint_health", False)):
         endpoint_urls = _endpoint_urls(cfg)
         timeout_sec = float(preflight_cfg.get("endpoint_timeout_sec", 4.0))

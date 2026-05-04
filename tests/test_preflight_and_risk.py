@@ -219,6 +219,91 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "valuation_hard_degraded_risk_increase_blocked")
 
+    def test_validate_order_blocks_risk_increase_when_dust_token_capacity_exhausted(self):
+        cfg = self._risk_cfg()
+        cfg["max_book_age_sec"] = 5.0
+        cfg["position_dust_token_count_cap"] = 4
+        positions = {
+            "dust1": Position(token_id="dust1", net_shares=0.2),
+            "dust2": Position(token_id="dust2", net_shares=0.2),
+            "dust3": Position(token_id="dust3", net_shares=0.2),
+            "dust4": Position(token_id="dust4", net_shares=0.2),
+            "new1": Position(token_id="new1", net_shares=0.0),
+            "held1": Position(token_id="held1", net_shares=5.0),
+        }
+        risk = RiskEngine(cfg, positions)
+        risk.set_exposure_classification_state(
+            exposure_class_by_token={
+                "dust1": "DUST_ELIGIBLE",
+                "dust2": "DUST_ELIGIBLE",
+                "dust3": "DUST_ELIGIBLE",
+                "dust4": "DUST_ELIGIBLE",
+            },
+            dust_capacity_enforce_enabled=True,
+        )
+        top_new = BookTop(
+            token_id="new1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked = risk.validate_order(
+            OrderIntent(token_id="new1", side="BUY", price=0.5, size=1.0),
+            top=top_new,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "dust_token_capacity_exhausted")
+        self.assertEqual(str((blocked.basis or {}).get("risk_authority") or ""), "dust_capacity")
+        self.assertEqual(
+            int(((blocked.basis or {}).get("dust_capacity_guard") or {}).get("candidate_count") or 0),
+            4,
+        )
+
+        top_reduce = BookTop(
+            token_id="held1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        allowed_reduce = risk.validate_order(
+            OrderIntent(token_id="held1", side="SELL", price=0.5, size=3.0),
+            top=top_reduce,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertTrue(allowed_reduce.allowed)
+
+        risk_shadow = RiskEngine(cfg, {"new1": Position(token_id="new1", net_shares=0.0)})
+        risk_shadow.set_exposure_classification_state(
+            exposure_class_by_token={
+                "dust1": "DUST_ELIGIBLE",
+                "dust2": "DUST_ELIGIBLE",
+                "dust3": "DUST_ELIGIBLE",
+                "dust4": "DUST_ELIGIBLE",
+            },
+            dust_capacity_enforce_enabled=False,
+        )
+        shadow_allowed = risk_shadow.validate_order(
+            OrderIntent(token_id="new1", side="BUY", price=0.5, size=1.0),
+            top=top_new,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+        )
+        self.assertTrue(shadow_allowed.allowed)
+
     def test_validate_order_blocks_new_exposure_when_sec_to_expiry_unknown(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
@@ -312,6 +397,56 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "new_exposure_expiry_gate_blocked")
 
+    def test_validate_order_uses_lane_specific_new_exposure_expiry_gate_for_taker(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_sec_to_expiry_for_new_exposure"] = 120.0
+        cfg["min_sec_to_expiry_for_new_exposure_by_lane"] = {"taker": 0.0}
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked_maker = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 60.0},
+        )
+        self.assertFalse(blocked_maker.allowed)
+        self.assertEqual(blocked_maker.reason, "new_exposure_expiry_gate_blocked")
+        self.assertEqual(str(blocked_maker.basis.get("min_sec_to_expiry_for_new_exposure_source") or ""), "global")
+
+        allowed_taker = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "taker", "stage": "SNIPER_PRIMARY", "sec_to_expiry": 26.0},
+        )
+        self.assertTrue(allowed_taker.allowed)
+        self.assertIsInstance(allowed_taker.basis, dict)
+        self.assertAlmostEqual(
+            float(allowed_taker.basis.get("min_sec_to_expiry_for_new_exposure")),
+            0.0,
+            places=9,
+        )
+        self.assertAlmostEqual(
+            float(allowed_taker.basis.get("min_sec_to_expiry_for_new_exposure_global")),
+            120.0,
+            places=9,
+        )
+        self.assertEqual(str(allowed_taker.basis.get("min_sec_to_expiry_for_new_exposure_source") or ""), "lane_override")
+
     def test_validate_order_requires_sec_to_expiry_when_lifecycle_context_enforced(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
@@ -359,6 +494,75 @@ class PreflightAndRiskTests(unittest.TestCase):
             },
         )
         self.assertTrue(allowed_when_disabled.allowed)
+
+    def test_validate_order_blocks_normal_taker_same_token_sell_from_flat_but_allows_reduce_only(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        positions = {"t1": Position(token_id="t1", net_shares=0.0), "t2": Position(token_id="t2", net_shares=5.0)}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        top_reduce = BookTop(
+            token_id="t2",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        blocked = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "taker",
+                "stage": "SNIPER_PRIMARY",
+                "financial_posture_class": "NORMAL",
+                "sec_to_expiry": 90.0,
+            },
+        )
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.reason, "normal_taker_same_token_sell_forbidden")
+        self.assertEqual(str((blocked.basis or {}).get("risk_authority") or ""), "taker_side_policy")
+
+        maker_allowed = risk.validate_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "financial_posture_class": "NORMAL",
+                "sec_to_expiry": 90.0,
+            },
+        )
+        self.assertTrue(maker_allowed.allowed)
+
+        reduce_only_allowed = risk.validate_order(
+            OrderIntent(token_id="t2", side="SELL", price=0.5, size=3.0),
+            top=top_reduce,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "taker",
+                "stage": "SNIPER_PRIMARY",
+                "financial_posture_class": "NORMAL",
+                "sec_to_expiry": 90.0,
+            },
+        )
+        self.assertTrue(reduce_only_allowed.allowed)
 
     def test_validate_order_halt_new_risk_blocks_increase_and_allows_pure_reduce(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
@@ -419,7 +623,8 @@ class PreflightAndRiskTests(unittest.TestCase):
             },
         )
         self.assertFalse(blocked_cross.allowed)
-        self.assertEqual(blocked_cross.reason, "terminal_unwind_halt_new_risk_blocked")
+        self.assertEqual(blocked_cross.reason, "normal_taker_same_token_sell_forbidden")
+        self.assertEqual(str((blocked_cross.basis or {}).get("risk_authority") or ""), "taker_side_policy")
 
     def test_validate_order_allows_terminal_reduce_only_notional_exemption_only_in_terminal_posture(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
@@ -831,9 +1036,14 @@ class PreflightAndRiskTests(unittest.TestCase):
         cfg["preflight"]["max_clock_skew_sec"] = 1.0
         fake_resp = mock.Mock()
         fake_resp.headers = {"Date": "Wed, 01 Jan 2020 00:00:00 GMT"}
-        with mock.patch("prodesk.preflight.requests.Session.get", return_value=fake_resp):
-            findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
-        self.assertTrue(any(x.startswith("clock_skew_exceeded:") for x in findings))
+        with mock.patch(
+            "prodesk.preflight.capture_host_time_sync_snapshot",
+            return_value={"available": False, "clock_state": "partial_visibility"},
+        ):
+            with mock.patch("prodesk.preflight.requests.Session.get", return_value=fake_resp):
+                findings = run_preflight_checks(cfg, mode_override="paper", confirm_live=False)
+        self.assertIn("clock_sync_host_partial_visibility", findings)
+        self.assertTrue(any(x.startswith("clock_skew_fallback_exceeded:") for x in findings))
 
     def test_preflight_endpoint_health_finding(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)

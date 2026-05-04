@@ -14,6 +14,8 @@ import tempfile
 import datetime as dt
 import yaml
 
+from prodesk.config import load_execution_config
+
 DEFAULT_CI_GATE_STEP_TIMEOUT_SEC = 1800.0
 DEFAULT_CI_GATE_PIP_TIMEOUT_SEC = 1800.0
 
@@ -86,7 +88,7 @@ def main() -> None:
             "editable_install_user",
             [py, "-m", "pip", "install", "--break-system-packages", "--user", "-e", "."],
         )
-    run_step("compileall", [py, "-m", "compileall", "executor.py", "observer.py", "simulator.py", "prodesk", "scripts", "tests"])
+    run_step("compileall", [py, "-m", "compileall", "executor.py", "observer.py", "prodesk", "scripts", "tests"])
     run_step("dependency_repro_audit", [py, "scripts/dependency_repro_audit.py", "--lock-manifest", "ops/dependency_lock.json"])
     run_step(
         "config_consistency_audit",
@@ -100,7 +102,6 @@ def main() -> None:
     run_step("profile_matrix_audit", [py, "scripts/profile_matrix_audit.py"])
     run_step("doctrine_truth_audit", [py, "scripts/doctrine_truth_audit.py"])
     run_step("guardian_profile_audit", [py, "scripts/guardian_profile_audit.py", "--compose", "docker-compose.yml"])
-    run_step("sim_harness_audit", [py, "scripts/sim_harness_audit.py", "--config", args.config])
     run_step("pytest", [py, "-m", "pytest", "-q"])
     run_step("security_audit", [py, "scripts/security_audit.py", "--config", args.config, "--mode", "paper"])
     with tempfile.TemporaryDirectory() as td_backup:
@@ -349,7 +350,8 @@ def main() -> None:
             ],
         )
         td_cfg = run_root / "time_cfg.yaml"
-        cfg_payload = yaml.safe_load(pathlib.Path(args.config).read_text(encoding="utf-8")) or {}
+        cfg_payload = load_execution_config(pathlib.Path(args.config).resolve())
+        cfg_payload.pop("_meta", None)
         storage = cfg_payload.get("storage", {})
         if not isinstance(storage, dict):
             storage = {}
@@ -363,6 +365,8 @@ def main() -> None:
         runtime["paper_enforce_setup_lock"] = False
         runtime["paper_expected_config_fingerprint_sha256"] = ""
         storage["log_dir"] = str(run_log_dir)
+        storage["state_path"] = str(run_root / "state.json")
+        runtime["guard_stop_file"] = str(run_log_dir / "guard_stop.txt")
         td_cfg.write_text(yaml.safe_dump(cfg_payload, sort_keys=False), encoding="utf-8")
         run_step(
             "time_discipline_audit",

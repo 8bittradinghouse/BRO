@@ -3,11 +3,26 @@ BRO PAPER HARNESS REALISM DOCTRINE (LOCKED)
 Authority: BRO Canonical Control-Plane Doctrine
 Scope: Paper harness realism semantics only
 
+Semantic Alignment:
+- `BRO_CANONICAL_DOCTRINE.txt` is the semantic root.
+- `execution_realism_class` is the emitted paper-realism contract field.
+- current emitted `execution_realism_class` values are:
+  - `bounded_approximation`
+  - `not_modeled`
+- `harness_realism_grade_semantics=descriptive_non_gating`
+- `harness_realism_grade_authority=non_authoritative`
+- `paper_claim_boundary.source_truth_semantics=legacy_alias_of_action_source_truth`
+  is a compatibility disclosure only; it is not a new authority class.
+
+Emulation Anchor:
+Canonical paper harness is BRO's emulation/proving lane for paper evidence.
+It is not a generic simulator and must not be described as one in active operator or control surfaces.
+
 Core Rule:
 Paper harness artifacts must be truthful about what is authoritative, what is bounded approximation, and what is not modeled.
 No implied venue-fidelity claims are allowed outside explicit modeled scope.
 
-Claim Classes:
+Paper Claim-Boundary Classes:
 - authoritative
 - bounded_approximation
 - not_modeled
@@ -75,6 +90,26 @@ paper_claim_boundary = {
 Non-Negotiable:
 If realism class or input provenance is missing for a decision/fill path, the harness audit must fail closed.
 
+Scientific Proving-Lane Discipline (paper-harness specific):
+- one canonical paper proving path per evidence claim
+- one controlled variable at a time unless the packet explicitly declares a multi-variable investigation
+- evidence claims must carry proving lineage tuple:
+  - run_id
+  - git_commit
+  - config_fingerprint
+  - code_fingerprint
+- if proving-lane semantics change, comparison claims must be downgraded explicitly
+
+Realism Grade Boundary:
+- harness_realism_grade is descriptive only
+- harness_realism_grade is non-gating
+- harness_realism_grade is non-authoritative
+- harness_realism_grade must not be used as a substitute for:
+  - finding_count
+  - validator determinism
+  - run integrity
+  - promotion eligibility
+
 Audit Surface Addendum (required):
 - harness_realism_grade (0-100, non-gating, machine-readable)
 - harness_realism_grade_breakdown:
@@ -83,3 +118,8 @@ Audit Surface Addendum (required):
   - taker_depth_slippage_model
   - taker_lag_emulation_with_unknown_guard
   - truth_surface_completeness
+- top-level proving-lineage surface:
+  - run_id
+  - git_commit
+  - config_fingerprint_sha256
+  - code_fingerprint_sha256

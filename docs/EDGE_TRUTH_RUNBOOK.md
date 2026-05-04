@@ -8,10 +8,36 @@ Hard rule:
 - edge truth is not a control plane
 - edge truth must never change runtime decisions
 
+Authority boundary:
+- this file defines the edge-evaluation measurement/audit contract only
+- it does not define fighter-specific runtime timing or weapon policy
+- current BRO fighter-specific runtime/timing/stage authority lives in
+  `docs/DOCTRINE_RUNBOOK.md`
+- the exact stage-eligibility contract below must match
+  `prodesk.edge_truth_contract.CANONICAL_EDGE_STAGE_POLICY`
+
 Outcome-truth boundary:
 - Outcome interpretation is governed separately by `BRO_OUTCOME_TRUTH_DOCTRINE.txt`.
 - `edge_evaluation` remains decision/execution-path evidence.
 - `result` remains reserved/null in edge truth until outcome-linkage packet fields are introduced under explicit doctrine versioning.
+
+Semantic contract alignment:
+- `BRO_CANONICAL_DOCTRINE.txt` is the semantic root for emitted edge field names.
+- `maker_allowed` and `taker_allowed` are stage-permission terms only.
+- `action_taken` is the emitted action choice for the row.
+- `block_reason` is the emitted local stop reason for the row; later surfaces may
+  map it into blocker lanes but may not rewrite its owner.
+- `secondary_oracle_status` and `secondary_oracle_confirmation` are selection
+  terms; they do not by themselves grant submit authority.
+- `market_reference_basis`, `market_reference_confidence`,
+  `market_reference_fallback_used`, and `market_reference_source_side` explain
+  how reference truth was formed; they do not replace `market_reference_class`.
+- `financial_posture_class` is lifecycle/risk posture only.
+- `target_ref` is deterministic lineage identity only.
+- `source_target_ref` is source/complement lineage identity only.
+- `decision_input_source`, `decision_input_type`, `decision_input_emulated`, and
+  `decision_input_data_class` are decision-input provenance terms, not global
+  authority classes.
 
 ## Canonical source
 - Stream: `events_*.jsonl`
@@ -30,6 +56,15 @@ Required fields:
 - `edge_value`
 - `oracle_tick_age_sec`
 - `latency_state`
+- `market_reference_mode`
+- `market_reference_basis`
+- `market_reference_confidence`
+- `market_reference_fallback_used`
+- `market_reference_source_side`
+- `market_reference_class`
+- `secondary_oracle_status`
+- `secondary_oracle_confirmation`
+- `financial_posture_class`
 - `maker_allowed` (bool)
 - `taker_allowed` (bool)
 - `action_taken` (`maker|taker|none`)
@@ -38,6 +73,7 @@ Required fields:
 - `evaluation_scope` (`maker|taker`)
 - `cycle_index` (int >= 0)
 - `decision_input_source` (nullable string)
+- `decision_input_type` (`observed_live|replayed|bounded_derived|emulated|unknown`)
 - `decision_input_emulated` (bool)
 - `decision_input_data_class` (`observed_live|observed_other|emulated|unknown`)
 
@@ -50,21 +86,37 @@ Nullable fields:
 - `order_id`
 - `block_reason` (nullable only when action is not `none`)
 - `target_ref` (non-sensitive stable identity for audits when `token_id` is redacted)
+- `source_target_ref` (non-sensitive stable identity for source/complement linkage when present)
 
 Provenance constraints:
 - `result` must stay `null` for all rows in this packet.
+- `market_reference_class` may legitimately be `authoritative`,
+  `bounded_approximation`, or `not_available` depending on emitted reference truth.
+- `market_reference_confidence` current emitted values are
+  `authoritative`, `bounded_low`, or `none`.
+- `market_reference_basis` current emitted values are
+  `direct_book_midpoint`, `ws_recent_paired_touch`, `ws_single_side_touch`, or
+  `missing`.
+  Report-only `report_book_top_pair_backfill` remains a downstream reconstructed
+  basis label, not a live emitted edge value.
+- `secondary_oracle_status` current emitted values are
+  `confirmed`, `direction_mismatch`, `disabled`, or `unknown`.
+  Compatibility input `available` must normalize to `unknown` before emission.
+- `financial_posture_class` current emitted values are
+  `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, or
+  `HALT_NEW_RISK`.
 - Opportunity-key uniqueness is enforced with identity priority:
   `token_id` when visible, otherwise `target_ref`.
 - No decision action may silently rely on emulated decision input.
   If emulated decision input exists, it must be explicitly disclosed via
   `decision_input_emulated=true` and is treated as non-promotable for harness realism.
 
-Canonical stage-policy (exact):
+Canonical audit stage-policy (exact):
 - `OBSERVE`: maker no, taker no
 - `EVALUATE`: maker no, taker no
 - `MAKER_POSITION`: maker yes, taker no
-- `MAKER_TAKER_SELECTIVE`: maker yes, taker yes
-- `SNIPER_PRIMARY`: maker no, taker yes
+- `MAKER_TAKER_SELECTIVE`: maker yes, taker no
+- `SNIPER_PRIMARY`: maker no, taker no
 - `EXTREME_ONLY`: maker no, taker yes
 - `EXPIRED`: maker no, taker no
 - `UNKNOWN`: maker no, taker no

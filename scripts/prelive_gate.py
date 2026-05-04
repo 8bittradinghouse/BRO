@@ -18,6 +18,7 @@ from prodesk.error_codes import summarize_error_codes
 from prodesk.gateway import _normalize_evm_address, _normalize_private_key
 from prodesk.repo import resolve_repo_root
 from prodesk.reporting import decision_item
+from prodesk.run_contract import run_contract_path as build_run_contract_path
 from prodesk.secrets import SecretLoadError, load_auth_secrets
 from scripts.alert_profile_audit import run_audit as run_alert_profile_audit
 from scripts.config_consistency_audit import CRITICAL_PATHS, run_audit as run_config_consistency_audit
@@ -241,7 +242,7 @@ def run_prelive_gate(
     skip_guardian_profile_audit: bool = False,
     skip_alert_profile_audit: bool = False,
     skip_time_discipline_audit: bool = False,
-    time_discipline_max_allowed_skew_sec: float = 2.5,
+    time_discipline_max_allowed_skew_sec: float = 0.25,
     skip_run_integrity_audit: bool = False,
     run_integrity_min_status_rows: int = 5,
     run_integrity_max_status_age_sec: float = 180.0,
@@ -448,10 +449,17 @@ def run_prelive_gate(
         checks["alert_profile_audit"] = {"skipped": True}
 
     if not skip_time_discipline_audit:
+        time_run_contract_path = None
+        if selected_run_id:
+            time_run_contract_path = build_run_contract_path(
+                log_dir=effective_log_dir,
+                run_id=selected_run_id,
+            )
         time_audit = run_time_discipline_audit(
             config_path=config_path,
             log_dir=effective_log_dir,
             run_id=(selected_run_id or None),
+            run_contract_path=time_run_contract_path,
             max_allowed_skew_sec=float(time_discipline_max_allowed_skew_sec),
             max_status_age_sec=315360000.0,
             min_status_rows=1,
@@ -547,7 +555,7 @@ def main() -> None:
     parser.add_argument(
         "--time-discipline-max-allowed-skew-sec",
         type=float,
-        default=2.5,
+        default=0.25,
         help="Upper bound for configured preflight.max_clock_skew_sec",
     )
     parser.add_argument("--skip-run-integrity-audit", action="store_true", help="Skip run integrity audit")

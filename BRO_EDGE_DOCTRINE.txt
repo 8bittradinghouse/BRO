@@ -24,8 +24,53 @@ No changes may introduce:
 Core Principle
 
 BRO has one edge model, one execution pathway, and one truth layer.
-Maker and taker are execution choices, not separate systems.
+Strategies may express multiple edge-execution arms inside that one pathway.
 Edge truth measures reality; it does not create it.
+
+Semantic Language Law (Edge Lane)
+
+Edge doctrine must use one language all the way through:
+
+- stage permission is not actionability
+- observation is not authorization
+- bounded truth is not authoritative truth
+- blocked is not the same as not quoteable
+
+Required rule:
+
+- edge runtime, edge telemetry, edge audits, and edge reports must not use
+  different words for the same state or the same word for different states
+- the canonical semantic root lives in `BRO_CANONICAL_DOCTRINE.txt`
+- if a live-emitted edge-contract name already exists, edge doctrine must use
+  that name and define its meaning rather than inventing a second label
+- `maker_allowed` and `taker_allowed` mean stage permission only; they do not
+  mean quoteability, submit authorization, or fill expectancy
+- `block_reason` is the emitted local stop reason for the owning edge row; later
+  surfaces may map it into blocker lanes but may not rewrite its owner
+
+If an edge lane appears buggy because two surfaces disagree about what a row
+means, treat that as a semantic-contract failure first, not as a fresh strategy
+bug by default.
+
+Timing Authority Law (Edge Lane)
+
+Latency edge is only real in combat terms when timing truth is also real.
+
+Maker and taker timing claims require combat-locked sub-second synchronized
+timing across:
+
+- host clock discipline
+- source/receive ordering truth
+- decision-to-submit evidence
+
+If these surfaces are coarse, missing, degraded, or fallback-only, edge may be
+observable but combat-grade expression is not proven.
+
+Coarse fallback timing may expose gross drift. It must not certify edge
+combat-readiness, maker timing health, or taker timing health.
+
+If timing truth is weak, edge doctrine must fail closed or downgrade the claim
+instead of inferring timing health from partial evidence.
 
 1. Edge Origin (Latency Edge)
 
@@ -42,7 +87,7 @@ This mismatch must be:
 
 - real (not assumed)
 - fresh (not stale)
-- actionable (not noise)
+- valid for expression through one authorized runtime lane (not noise)
 
 Fail-Closed Edge Input Rules
 
@@ -79,6 +124,10 @@ BRO must not:
 
 2. Edge Expression (Execution Modes)
 
+A strategy may include multiple arms of edge execution.
+
+Examples inside BRO today:
+
 Maker:
 
 - passive execution
@@ -91,31 +140,69 @@ Sniping Taker:
 
 Hard Rule:
 
-Maker and taker are not separate strategies.
+Edge-execution arms are not separate systems.
 They are branches of one canonical execution pathway.
+
+Multi-Arm Doctrine
+
+- each arm must be independently valid when its own prerequisites are satisfied
+- no arm may require another arm in order to be a valid edge-execution arm
+- all arms must plug into the same canonical control plane, wallet authority,
+  transaction authority, and reconciliation authority
+- arms may be authorized concurrently only when shared wallet safety,
+  market-quality rules, and conflict-prevention doctrine still hold
+- arms must not step on, suppress, contradict, or silently corrupt each other
+
+Weapon-Policy Boundary
+
+This file is peripheral-nervous-system doctrine, not fighter-specific weapon
+runtime policy.
+
+Therefore this file defines:
+
+- how sensory truth is formed
+- how freshness and timing truth govern action
+- how edge becomes stage-allowed and valid for expression
+- how passive vs aggressive branches are selected
+- what no arm is ever allowed to do
+- how arms plug into one shared control plane
+- the requirement that timing truth be strong enough to judge downstream maker
+  and taker timing doctrine honestly
+
+Fighter-specific weapon doctrine must live in downstream surfaces.
+
+For current BRO:
+
+- downstream runtime/runbook surface:
+  - `docs/DOCTRINE_RUNBOOK.md`
+- downstream design-input/reference surfaces:
+  - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
+    - pathway/reference support surface
+  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+    - intended maker-weapon doctrine anchor for the late-window cannon design
+    - doctrine window: final `15-20s`
+    - sweet spot: final `10-15s`
+- mnemonic alias surface:
+  - `docs/BRO_WEAPON_NOMENCLATURE.md`
+
+If a fighter has edge-execution arms but lacks both a downstream runtime
+runbook surface and downstream blueprint/reference surfaces, doctrine is
+incomplete.
 
 3. Stage-Machine Binding
 
 Execution behavior must be bound to the canonical stage machine.
 
-Canonical stage-policy binding (exact):
-
-- `OBSERVE`: maker no, taker no
-- `EVALUATE`: maker no, taker no
-- `MAKER_POSITION`: maker yes, taker no
-- `MAKER_TAKER_SELECTIVE`: maker yes, taker yes
-- `SNIPER_PRIMARY`: maker no, taker yes
-- `EXTREME_ONLY`: maker no, taker yes
-- `EXPIRED`: maker no, taker no
-- `UNKNOWN`: maker no, taker no
-
 Rules:
 
-- stage determines which execution modes are eligible
+- stage determines which execution modes are stage-allowed
 - resolver/capability model determines which actions are authorized
 - edge truth determines whether opportunity is valid
 
 All three must align before execution.
+
+Exact fighter-specific stage bindings and timing windows belong in the
+downstream fighter runtime/runbook surface, not here.
 
 4. Edge Truth Doctrine
 
@@ -165,10 +252,14 @@ Quality signals:
 
 Decision:
 
-- maker_allowed (bool)
-- taker_allowed (bool)
+- maker_allowed (bool; stage permission only)
+- taker_allowed (bool; stage permission only)
 - action_taken (maker/taker/none)
 - block_reason (if not taken)
+- decision_input_source (nullable string)
+- decision_input_type (`observed_live|replayed|bounded_derived|emulated|unknown`)
+- decision_input_emulated (bool)
+- decision_input_data_class (`observed_live|observed_other|emulated|unknown`)
 
 Outcome (if applicable):
 
@@ -181,6 +272,10 @@ Schema rules:
 - fields must be explicit, deterministic, and derived from real data
 - unknown values must be null/unavailable, never fabricated
 - result must be null-only until explicit outcome linkage is introduced in a future packet
+- emitted edge field names are live contract terms and must retain their
+  canonical meaning across runtime, audits, and reports
+- `block_reason` taxonomy must remain canonical and deterministic across
+  emitting and consuming surfaces
 
 6. No Fabrication Rule
 

@@ -1,9 +1,9 @@
 # Bro: Polymarket 5m Maker + Chainlink Lag Verifier + Near-Expiry Sniper
 
 `Bro` is a production-oriented Polymarket bot with:
-- maker core (post-only quote engine),
+- maker core (`Solar Slug Maker Cannon`; post-only quote engine),
 - Chainlink lead/lag verification,
-- optional near-expiry taker sniper (lag-gated),
+- optional near-expiry taker sniper (`Sniper Wakazashi`; lag-gated),
 - paper and live runtime paths through the same execution stack.
 
 Default posture is safe: `mode: paper`.
@@ -11,7 +11,19 @@ Default posture is safe: `mode: paper`.
 Project context and operating standards are documented in
 [`docs/PROJECT_CHARTER.md`](docs/PROJECT_CHARTER.md).
 Operator runbooks:
-`docs/PAPER_STRESS.md`, `docs/PAPER_DISCIPLINE.md`, `docs/PROMOTION.md`, `docs/LIVE_CANARY.md`, `docs/INCIDENT_RESPONSE.md`.
+`docs/CANONICAL_PAPER_SOAK_RECIPE.md`, `docs/CANONICAL_PAPER_SHORT_RUN_RECIPE.md`, `docs/PROMOTION.md`, `docs/LIVE_CANARY.md`, `docs/INCIDENT_RESPONSE.md`.
+
+## Canonical operator path
+
+- Public front door for canonical paper:
+  `broctl paper -- --active-minutes <minutes> --wait-sec 25`
+- Supported front-of-house evidence-run window:
+  `10` to `180` minutes
+- Repo-level current truth screen:
+  [`docs/PROJECT_TRUTH_STATE.md`](docs/PROJECT_TRUTH_STATE.md)
+- Backend engine surfaces:
+  `scripts/canonical_paper_session.sh` and `scripts/canonical_paper_validation.sh`
+  remain authoritative backend/replay tools, not the public happy-path start.
 
 ## What Bro does
 
@@ -19,6 +31,10 @@ Operator runbooks:
 - Maintains two-sided maker quotes with risk limits and mode controls.
 - Monitors Chainlink feed vs book reaction to arm/disarm edge usage.
 - Optionally fires IOC taker entries near expiry when edge and verification constraints pass.
+  - House shorthand:
+    - maker weapon: `Solar Slug Maker Cannon`
+    - main taker weapon: `Taker Katana`
+    - close-in sniper specialist: `Sniper Wakazashi`
 - Logs structured events/status/errors for soak, readiness, and reconciliation.
 
 ## Safety model
@@ -35,7 +51,6 @@ Operator runbooks:
 
 - `executor.py`: internal execution engine (not an operator entrypoint)
 - `observer.py`: read-only market observer (no trading path)
-- `simulator.py`: stress harness for execution stack
 - `prodesk/`: modular execution/risk/feeds/security code
 - `configs/`: BTC/SOL/XRP paper/live config examples
 - `scripts/`: readiness/security/reconciliation/backup/CI tooling
@@ -55,20 +70,10 @@ python -m pytest
 
 2. Run a canonical paper session:
 ```bash
-./scripts/canonical_paper_session.sh --active-minutes 10 --wait-sec 25
+broctl paper -- --active-minutes 10 --wait-sec 25
 ```
 
-3. Run simulator stress:
-```bash
-python simulator.py --config execution_config.yaml --scenario all --difficulty nightmare --pairs 7 --steps 900 --dt-sec 1 --out-dir ./logs_sim
-```
-The simulator now includes a MetaMask-style wallet policy emulator (fake account by default) and writes `wallet_sim_summary.json` per run with:
-- chain/account session state,
-- order/cancel signature counts,
-- blocked restricted actions (withdraw/bridge probes),
-- policy violation count (must stay `0`).
-
-4. Run CI gate locally:
+3. Run CI gate locally:
 ```bash
 python scripts/ci_gate.py
 ```
@@ -85,20 +90,21 @@ python3 -m pip install --break-system-packages --user -e .
 python3 -m pytest -q
 broctl ci
 broctl harness
-broctl harness-qualify -- --skip-fault-drill
-# policy-governed deep qualification (default policy: ops/harness_policy.yaml)
-broctl harness-qualify
 ```
 
 3. Canonical paper mode
 ```bash
-broctl prestart
-./scripts/canonical_paper_session.sh --active-minutes 10 --wait-sec 25
+broctl paper -- --active-minutes 10 --wait-sec 25
 ```
 
-4. Backward-compatible aliases
-- `broctl paper`, `broctl paper-stress`, and `broctl paper-discipline` are compatibility wrappers only.
-- Canonical evidence runs must use `./scripts/canonical_paper_session.sh`.
+4. Backstage/control surfaces
+- `broctl prestart` is a backstage safety utility.
+- `broctl harness-qualify` is an optional backstage hardening bundle.
+  Canonical harness proof remains `broctl harness` plus the canonical
+  validation path.
+- `scripts/canonical_paper_session.sh` and `scripts/canonical_paper_validation.sh` remain authoritative backend/replay tools.
+- legacy noncanonical experiment-profile/session residue is not part of active BRO identity, canonical proof, or the supported operator path.
+- stress/discipline workflows are expressed as parameterized canonical-paper recipes, not separate runtime modes.
 
 5. Promotion workflow
 ```bash
@@ -175,8 +181,6 @@ BRO supports explicit profile layering via `extends`:
 - `configs/profiles/live_canary.yaml`
 - `configs/profiles/live_pilot.yaml`
 
-`paper_stress.yaml` and `paper_discipline.yaml` are compatibility aliases to `paper_universal.yaml`.
-
 At runtime, BRO stamps effective config identity in manifests and reports:
 - `profile.name`
 - config source path chain
@@ -247,6 +251,11 @@ For a complete Vultr deployment workflow, see `README_DEPLOY_VULTR.md`.
 - `tmpfs` for `/tmp`.
 - metrics bound localhost only (`127.0.0.1:...:9108`).
 - `.env` ignored; only `.env.example` shipped.
+- Semantic contract note:
+  - `BRO_CANONICAL_DOCTRINE.txt` is the semantic root.
+  - docker/session identity surfaces such as `BRO_CANONICAL_SESSION_*`,
+    `BRO_RUN_ID`, `BRO_GIT_COMMIT`, and `BRO_DOCKER_IMAGE_HASH` transport
+    control/lineage identity only and do not redefine row-level runtime truth.
 
 ## Operations tooling
 
@@ -308,10 +317,10 @@ python scripts/performance_budget_gate.py --log-dir ./logs_exec/paper_universal 
 
 - Websocket/feed hardening audit:
 ```bash
-python scripts/websocket_hardening_audit.py --config execution_config.yaml
+python scripts/websocket_hardening_audit.py --config configs/profiles/paper_universal.yaml
 ```
 ```bash
-python scripts/websocket_hardening_audit.py --config execution_config.yaml --log-dir ./logs_exec/paper_universal --run-id <run_id>
+python scripts/websocket_hardening_audit.py --config configs/profiles/paper_universal.yaml --log-dir ./logs_exec/paper_universal --run-id <run_id>
 ```
 - Websocket reliability SLO gate (policy-driven):
 ```bash
@@ -325,7 +334,7 @@ python scripts/api_contract_drift_audit.py --samples ./ops/api_contract_samples.
 
 - Clock/time discipline audit:
 ```bash
-python scripts/time_discipline_audit.py --config execution_config.yaml
+python scripts/time_discipline_audit.py --config configs/profiles/paper_universal.yaml
 ```
 
 - Guardian launch profile audit:
@@ -335,7 +344,7 @@ python scripts/guardian_profile_audit.py --compose docker-compose.yml
 
 - Alert threshold profile audit:
 ```bash
-python scripts/alert_profile_audit.py --config execution_config.yaml
+python scripts/alert_profile_audit.py --config configs/profiles/paper_universal.yaml
 ```
 
 - Multi-profile matrix audit (BTC/SOL/XRP/docker isolation checks):
@@ -348,15 +357,16 @@ python scripts/profile_matrix_audit.py
 python scripts/prestart_gate.py --config configs/btc_paper_docker.yaml
 ```
 
-- Config consistency audit (canonical vs active docker profile):
+- Config consistency audit (canonical paper owner vs compatibility wrapper):
 ```bash
-python scripts/config_consistency_audit.py --primary execution_config.yaml --secondary config.yaml
+python scripts/config_consistency_audit.py --primary configs/profiles/paper_universal.yaml --secondary execution_config.yaml
 ```
 
-- Canonical paper session start (single authoritative lifecycle path):
+- Canonical paper start (public front door to the authoritative lifecycle path):
 ```bash
-./scripts/canonical_paper_session.sh --active-minutes 10 --wait-sec 25
+broctl paper -- --active-minutes 10 --wait-sec 25
 ```
+`scripts/canonical_paper_session.sh` remains the backend lifecycle engine.
 `scripts/deploy_paper_clean.sh` is internal-only and invoked by the canonical session runner.
 
 - Forensic snapshot for one run:
@@ -366,12 +376,7 @@ python scripts/forensic_snapshot.py --log-dir ./logs_exec/paper_universal --run-
 
 - One-command forensics bundle (summary + tails + snapshots + config fingerprint):
 ```bash
-python scripts/forensics_bundle.py --log-dir ./logs_exec/paper_universal --run-id <run_id> --config execution_config.yaml --out-dir ./exports
-```
-
-- Simulation harness audit:
-```bash
-python scripts/sim_harness_audit.py --config configs/profiles/paper_universal.yaml
+python scripts/forensics_bundle.py --log-dir ./logs_exec/paper_universal --run-id <run_id> --config configs/profiles/paper_universal.yaml --out-dir ./exports
 ```
 
 - Network fault drill evidence audit:
@@ -454,7 +459,7 @@ python scripts/desk_trade_report.py --log-dir ./logs_exec/paper_universal --date
 
 - Read-only observer:
 ```bash
-python observer.py --config config.yaml
+python observer.py --config configs/profiles/paper_universal.yaml
 ```
 
 - Microstructure analysis:

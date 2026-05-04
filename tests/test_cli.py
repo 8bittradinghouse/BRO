@@ -85,7 +85,7 @@ class BroCtlTests(unittest.TestCase):
                 "subprocess.run", side_effect=_fake_run
             ), mock.patch(
                 "sys.argv",
-                ["broctl", "prestart", "--", "--config", "configs/profiles/paper_discipline.yaml"],
+                ["broctl", "prestart", "--", "--config", "configs/profiles/paper_universal.yaml"],
             ):
                 with self.assertRaises(SystemExit) as ex:
                     cli.main()
@@ -95,70 +95,20 @@ class BroCtlTests(unittest.TestCase):
             cmd = calls[0]["cmd"]
             self.assertEqual(cmd.count("--config"), 1)
 
-    def test_paper_stress_routes_to_canonical_session_runner(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo_root = Path(td).resolve()
-            calls = []
+    def test_paper_stress_command_is_not_registered(self):
+        with self.assertRaises(SystemExit) as ex, mock.patch("sys.argv", ["broctl", "paper-stress"]):
+            cli.main()
+        self.assertEqual(ex.exception.code, 2)
 
-            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
-                calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
-                return mock.Mock(returncode=0)
+    def test_paper_discipline_command_is_not_registered(self):
+        with self.assertRaises(SystemExit) as ex, mock.patch("sys.argv", ["broctl", "paper-discipline"]):
+            cli.main()
+        self.assertEqual(ex.exception.code, 2)
 
-            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
-                "prodesk.cli.load_execution_config", return_value=self._locked_paper_cfg()
-            ), mock.patch("subprocess.run", side_effect=_fake_run), mock.patch("sys.argv", ["broctl", "paper-stress"]):
-                with self.assertRaises(SystemExit) as ex:
-                    cli.main()
-                self.assertEqual(ex.exception.code, 0)
-
-            self.assertEqual(len(calls), 1)
-            self.assertIn("scripts/canonical_paper_session.sh", calls[0]["cmd"][0])
-
-    def test_paper_stress_propagates_canonical_session_failure(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo_root = Path(td).resolve()
-            calls = []
-
-            def _fake_run(cmd, check=False, cwd=None, timeout=None):  # noqa: ANN001
-                calls.append({"cmd": list(cmd), "cwd": cwd, "check": check})
-                return mock.Mock(returncode=2)
-
-            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
-                "prodesk.cli.load_execution_config", return_value=self._locked_paper_cfg()
-            ), mock.patch("subprocess.run", side_effect=_fake_run), mock.patch("sys.argv", ["broctl", "paper-stress"]):
-                with self.assertRaises(SystemExit) as ex:
-                    cli.main()
-                self.assertEqual(ex.exception.code, 2)
-
-            self.assertEqual(len(calls), 1)
-            self.assertIn("scripts/canonical_paper_session.sh", calls[0]["cmd"][0])
-
-    def test_paper_stress_refuses_noncanonical_config_override(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo_root = Path(td).resolve()
-
-            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
-                "prodesk.cli.load_execution_config",
-                return_value=self._locked_paper_cfg(profile_name="paper_universal"),
-            ), mock.patch(
-                "sys.argv",
-                ["broctl", "paper-stress", "--", "--config", "configs/profiles/paper_discipline.yaml"],
-            ):
-                with self.assertRaises(SystemExit) as ex:
-                    cli.main()
-            self.assertIn("canonical paper mode forbids config overrides", str(ex.exception))
-
-    def test_paper_stress_refuses_when_setup_lock_disabled(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo_root = Path(td).resolve()
-            unlocked_cfg = self._locked_paper_cfg()
-            unlocked_cfg["runtime"]["paper_enforce_setup_lock"] = False
-            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
-                "prodesk.cli.load_execution_config", return_value=unlocked_cfg
-            ), mock.patch("sys.argv", ["broctl", "paper-stress"]):
-                with self.assertRaises(SystemExit) as ex:
-                    cli.main()
-            self.assertIn("paper setup lock is required but disabled", str(ex.exception))
+    def test_paper_profile_command_is_not_registered(self):
+        with self.assertRaises(SystemExit) as ex, mock.patch("sys.argv", ["broctl", "paper-profile"]):
+            cli.main()
+        self.assertEqual(ex.exception.code, 2)
 
     def test_subprocess_timeout_exits_with_124(self):
         with tempfile.TemporaryDirectory() as td:

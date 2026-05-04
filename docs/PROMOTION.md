@@ -4,6 +4,9 @@
 - Soak hardening gate green.
 - Promotion evidence gate green.
 - Reconciliation status understood (`verification_level` inspected).
+- In paper mode, `paper_sim_verified` /
+  `paper_wallet_simulation_verified` mean paper-mode wallet/reconcile semantics,
+  not proof from non-canonical shop tooling.
 
 ## Commands
 ```bash
@@ -17,4 +20,18 @@ python scripts/promotion_evidence_gate.py \
 
 ## Decision Transparency
 - Inspect `decision_trace` in `promotion_gate.json`.
-- Verify `artifact_identity` fields (run_id/config hash/git/dependency lock hash).
+- Verify promotion-grade identity fields before trusting a pass:
+  - proving-lineage tuple:
+    - `run_id`
+    - `git_commit`
+    - `config_fingerprint_sha256`
+    - `code_fingerprint_sha256`
+  - visible fighter identity:
+    - `profile_name`
+  - manifest-backed artifact identity:
+    - `manifest_present=true`
+    - `manifest_load_error=""`
+- `profile_name` is not part of the four-field proving-lineage tuple, but it
+  remains mandatory for one-fighter identity and profile-policy selection.
+- Promotion-grade evidence must be manifest-backed and lineage-complete.
+- Config-only/backstage diagnostics are not sufficient for promotion proof.

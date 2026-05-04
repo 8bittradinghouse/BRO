@@ -19,6 +19,9 @@ from prodesk.session_phase import enforce_validation_phase
 
 TIME_POLICY_REQUIRED_KEYS = ("source_of_truth", "fallback_logic", "skew_tolerance_ms", "monotonicity_rule")
 TIMESTAMP_DOMAIN_FIELDS = ("ts_event_utc", "ts_receive_utc", "ts_source_utc", "ts_decision_utc")
+HOST_SYNC_SAMPLE_ARTIFACT = "host_time_sync_active_samples.jsonl"
+HOST_SYNC_REQUIRED_BOOL_FIELDS = ("system_clock_synchronized", "ntp_service_active")
+HOST_SYNC_REQUIRED_NUMERIC_FIELDS = ("stratum", "offset_ms", "jitter_ms", "root_distance_ms")
 
 
 def _parse_ts(value: Any) -> Optional[datetime]:
@@ -173,7 +176,8 @@ def _event_domain_audit(
     cross_domain_skew_exceeded_rows = 0
     cross_domain_skew_checked_rows = 0
     cross_domain_skew_exempt_rows = 0
-    decision_before_event_rows = 0
+    decision_after_event_rows = 0
+    timing_capable_cross_domain_rows = 0
 
     for row in event_rows:
         missing_any = False
@@ -206,17 +210,18 @@ def _event_domain_audit(
             invalid_source_ts_rows += 1
         if ts_decision is None:
             invalid_decision_ts_rows += 1
-        elif ts_decision < ts_event:
-            decision_before_event_rows += 1
+        elif ts_decision > ts_event:
+            decision_after_event_rows += 1
 
         if ts_source is not None and ts_receive is not None:
-            # Chainlink feed ticks can carry source-time semantics that differ from
-            # local receive-time semantics; keep them observable but do not treat
-            # them as transport clock-skew violations in this audit.
             event_type = str(row.get("event_type") or "").strip().lower()
+            msg_type = str(row.get("msg_type") or "").strip().lower()
+            # Chainlink source timestamps describe oracle publication time, not transport-wire
+            # timing, so source->receive skew is freshness context rather than latency truth.
             if event_type == "chainlink_tick":
                 cross_domain_skew_exempt_rows += 1
                 continue
+            timing_capable_cross_domain_rows += 1
             cross_domain_skew_checked_rows += 1
             skew_ms = abs((ts_receive - ts_source).total_seconds() * 1000.0)
             if skew_ms > float(skew_tolerance_ms):
@@ -234,8 +239,10 @@ def _event_domain_audit(
         findings.append(f"event_ts_decision_invalid_rows:{invalid_decision_ts_rows}")
     if ts_event_mismatch_rows > 0:
         findings.append(f"event_ts_event_mismatch_rows:{ts_event_mismatch_rows}")
-    if decision_before_event_rows > 0:
-        findings.append(f"event_ts_decision_before_event_rows:{decision_before_event_rows}")
+    if decision_after_event_rows > 0:
+        findings.append(f"event_ts_decision_after_event_rows:{decision_after_event_rows}")
+    if timing_capable_cross_domain_rows > 0 and cross_domain_skew_checked_rows <= 0:
+        findings.append(f"event_ts_cross_domain_skew_unchecked_rows:{timing_capable_cross_domain_rows}")
     if cross_domain_skew_exceeded_rows > 0:
         findings.append(
             f"event_ts_cross_domain_skew_exceeded_rows:{cross_domain_skew_exceeded_rows}>tolerance_ms:{float(skew_tolerance_ms):.3f}"
@@ -250,12 +257,269 @@ def _event_domain_audit(
         "invalid_source_ts_rows": int(invalid_source_ts_rows),
         "invalid_decision_ts_rows": int(invalid_decision_ts_rows),
         "ts_event_mismatch_rows": int(ts_event_mismatch_rows),
-        "decision_before_event_rows": int(decision_before_event_rows),
-        "cross_domain_skew_exemption_policy": "chainlink_tick",
+        "decision_after_event_rows": int(decision_after_event_rows),
+        "cross_domain_skew_exemption_policy": "chainlink_tick[source_ts_is_oracle_publication_time]",
+        "timing_capable_cross_domain_rows": int(timing_capable_cross_domain_rows),
         "cross_domain_skew_checked_rows": int(cross_domain_skew_checked_rows),
         "cross_domain_skew_exempt_rows": int(cross_domain_skew_exempt_rows),
         "cross_domain_skew_exceeded_rows": int(cross_domain_skew_exceeded_rows),
         "cross_domain_skew_tolerance_ms": float(skew_tolerance_ms),
+    }
+    return evidence, findings
+
+
+def _contract_session_report_root(contract: Optional[Dict[str, Any]], log_dir: pathlib.Path, run_id: str) -> pathlib.Path:
+    if isinstance(contract, dict):
+        session_id = str(contract.get("session_id") or "").strip()
+        if session_id:
+            return (log_dir / "sessions" / session_id / "reports").resolve()
+    return (log_dir / "reports" / str(run_id or "").strip()).resolve()
+
+
+def _host_sync_thresholds(preflight_cfg: Dict[str, Any]) -> Dict[str, float]:
+    return {
+        "max_clock_stratum": float(preflight_cfg.get("max_clock_stratum", 3) or 3),
+        "max_clock_offset_ms": float(preflight_cfg.get("max_clock_offset_ms", 10.0) or 10.0),
+        "max_clock_jitter_ms": float(preflight_cfg.get("max_clock_jitter_ms", 10.0) or 10.0),
+        "max_clock_root_distance_ms": float(preflight_cfg.get("max_clock_root_distance_ms", 100.0) or 100.0),
+    }
+
+
+def _load_jsonl_objects(path: pathlib.Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+    except OSError:
+        return []
+    return rows
+
+
+def _read_json_object(path: pathlib.Path) -> Optional[Dict[str, Any]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def _evaluate_host_sync_payload(
+    *,
+    payload: Dict[str, Any],
+    thresholds: Dict[str, float],
+    label: str,
+) -> List[str]:
+    findings: List[str] = []
+    clock_state = str(payload.get("clock_state") or "").strip().lower()
+    if clock_state != "synced":
+        findings.append(f"host_time_sync_{label}_not_synced:{clock_state or 'unknown'}")
+    for key in HOST_SYNC_REQUIRED_BOOL_FIELDS:
+        if payload.get(key) is not True:
+            findings.append(f"host_time_sync_{label}_{key}_not_true")
+    stratum = payload.get("stratum")
+    if not isinstance(stratum, (int, float)):
+        findings.append(f"host_time_sync_{label}_stratum_missing")
+    elif float(stratum) > float(thresholds["max_clock_stratum"]):
+        findings.append(
+            f"host_time_sync_{label}_stratum_exceeded:{float(stratum):.3f}>max:{float(thresholds['max_clock_stratum']):.3f}"
+        )
+    for key in ("offset_ms", "jitter_ms", "root_distance_ms"):
+        value = payload.get(key)
+        if not isinstance(value, (int, float)):
+            findings.append(f"host_time_sync_{label}_{key}_missing")
+            continue
+        limit_key = f"max_clock_{key}"
+        limit = float(thresholds.get(limit_key, 0.0) or 0.0)
+        observed = abs(float(value)) if key == "offset_ms" else float(value)
+        if observed > limit:
+            findings.append(
+                f"host_time_sync_{label}_{key}_exceeded:{observed:.3f}>max:{float(limit):.3f}"
+            )
+    return findings
+
+
+def _host_time_sync_audit(
+    *,
+    contract: Optional[Dict[str, Any]],
+    log_dir: pathlib.Path,
+    run_id: str,
+    preflight_cfg: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str]]:
+    report_root = _contract_session_report_root(contract, log_dir, run_id)
+    start_path = (report_root / "host_time_sync_active_start.json").resolve()
+    stop_path = (report_root / "host_time_sync_active_stop.json").resolve()
+    sample_path = (report_root / HOST_SYNC_SAMPLE_ARTIFACT).resolve()
+    findings: List[str] = []
+    thresholds = _host_sync_thresholds(preflight_cfg)
+    start_payload = _read_json_object(start_path)
+    stop_payload = _read_json_object(stop_path)
+    sample_payloads = _load_jsonl_objects(sample_path)
+    if start_payload is None:
+        findings.append("host_time_sync_active_start_missing")
+    if stop_payload is None:
+        findings.append("host_time_sync_active_stop_missing")
+    if not sample_path.exists():
+        findings.append("host_time_sync_active_samples_missing")
+    elif len(sample_payloads) <= 0:
+        findings.append("host_time_sync_active_samples_empty")
+
+    if isinstance(start_payload, dict):
+        findings.extend(_evaluate_host_sync_payload(payload=start_payload, thresholds=thresholds, label="active_start"))
+    if isinstance(stop_payload, dict):
+        findings.extend(_evaluate_host_sync_payload(payload=stop_payload, thresholds=thresholds, label="active_stop"))
+
+    sample_elapsed_non_monotonic_rows = 0
+    previous_elapsed_sec: Optional[float] = None
+    for idx, payload in enumerate(sample_payloads):
+        findings.extend(_evaluate_host_sync_payload(payload=payload, thresholds=thresholds, label=f"active_sample_{idx}"))
+        elapsed_active_sec = payload.get("elapsed_active_sec")
+        if not isinstance(elapsed_active_sec, (int, float)):
+            findings.append(f"host_time_sync_active_sample_elapsed_missing:{idx}")
+            continue
+        current_elapsed_sec = float(elapsed_active_sec)
+        if previous_elapsed_sec is not None and current_elapsed_sec < previous_elapsed_sec:
+            sample_elapsed_non_monotonic_rows += 1
+        previous_elapsed_sec = current_elapsed_sec
+    if sample_elapsed_non_monotonic_rows > 0:
+        findings.append(
+            f"host_time_sync_active_sample_elapsed_non_monotonic_rows:{int(sample_elapsed_non_monotonic_rows)}"
+        )
+
+    evidence = {
+        "report_root": str(report_root),
+        "start_path": str(start_path),
+        "stop_path": str(stop_path),
+        "sample_path": str(sample_path),
+        "sample_count": int(len(sample_payloads)),
+        "thresholds": thresholds,
+    }
+    return evidence, findings
+
+
+def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[str]]:
+    findings: List[str] = []
+    sniper_taker_decision_rows = 0
+    sniper_taker_decision_missing_decision_ts_rows = 0
+    sniper_taker_decision_missing_sec_to_expiry_rows = 0
+    sniper_taker_decision_missing_timing_window_rows = 0
+    accepted_submit_rows = 0
+    accepted_submit_missing_decision_anchor_rows = 0
+    accepted_submit_missing_submit_latency_rows = 0
+    accepted_taker_submit_rows = 0
+    accepted_taker_submit_missing_context_rows = 0
+    maker_timing_rows_observed = 0
+    maker_timing_missing_context_rows = 0
+
+    for row in event_rows:
+        event_type = str(row.get("event_type") or "").strip().lower()
+        if event_type == "sniper_taker_decision":
+            sniper_taker_decision_rows += 1
+            if _parse_ts(row.get("ts_decision_utc")) is None:
+                sniper_taker_decision_missing_decision_ts_rows += 1
+            if not isinstance(row.get("sec_to_expiry"), (int, float)):
+                sniper_taker_decision_missing_sec_to_expiry_rows += 1
+            if not str(row.get("timing_window_class") or "").strip():
+                sniper_taker_decision_missing_timing_window_rows += 1
+            continue
+
+        if event_type != "order_submit":
+            if event_type == "maker_competitiveness_decision":
+                maker_timing_rows_observed += 1
+                if not isinstance(row.get("sec_to_expiry"), (int, float)) or not str(
+                    row.get("market_reference_mode") or ""
+                ).strip():
+                    maker_timing_missing_context_rows += 1
+            continue
+
+        if str(row.get("submission_state") or "").strip().lower() != "accepted":
+            continue
+        accepted_submit_rows += 1
+        if _parse_ts(row.get("decision_reference_ts_utc")) is None:
+            accepted_submit_missing_decision_anchor_rows += 1
+        latency_ms = row.get("decision_to_submit_latency_ms")
+        if not isinstance(latency_ms, (int, float)) or float(latency_ms) < 0.0:
+            accepted_submit_missing_submit_latency_rows += 1
+        submission_lane = str(row.get("submission_lane") or "").strip().lower()
+        if submission_lane == "taker":
+            accepted_taker_submit_rows += 1
+            taker_context = row.get("taker_competitiveness")
+            if (
+                not isinstance(taker_context, dict)
+                or not isinstance(row.get("sec_to_expiry"), (int, float))
+                or not str(taker_context.get("timing_window_class") or row.get("timing_window_class") or "").strip()
+                or not isinstance(latency_ms, (int, float))
+                or float(latency_ms) <= 0.0
+            ):
+                accepted_taker_submit_missing_context_rows += 1
+        elif submission_lane == "maker":
+            maker_context = row.get("maker_competitiveness")
+            maker_timing_rows_observed += 1
+            if (
+                not isinstance(maker_context, dict)
+                or not isinstance(maker_context.get("sec_to_expiry", row.get("sec_to_expiry")), (int, float))
+                or not isinstance(maker_context.get("timing_gate_min_sec_to_expiry"), (int, float))
+                or not isinstance(maker_context.get("timing_gate_max_sec_to_expiry"), (int, float))
+                or not str(
+                    (maker_context if isinstance(maker_context, dict) else {}).get("market_reference_mode") or ""
+                ).strip()
+                or not str(
+                    (maker_context if isinstance(maker_context, dict) else {}).get("market_reference_class") or ""
+                ).strip()
+            ):
+                maker_timing_missing_context_rows += 1
+
+    if sniper_taker_decision_missing_decision_ts_rows > 0:
+        findings.append(
+            f"sniper_taker_decision_missing_decision_ts_rows:{sniper_taker_decision_missing_decision_ts_rows}"
+        )
+    if sniper_taker_decision_missing_sec_to_expiry_rows > 0:
+        findings.append(
+            f"sniper_taker_decision_missing_sec_to_expiry_rows:{sniper_taker_decision_missing_sec_to_expiry_rows}"
+        )
+    if sniper_taker_decision_missing_timing_window_rows > 0:
+        findings.append(
+            f"sniper_taker_decision_missing_timing_window_rows:{sniper_taker_decision_missing_timing_window_rows}"
+        )
+    if accepted_submit_missing_decision_anchor_rows > 0:
+        findings.append(
+            f"accepted_order_submit_missing_decision_anchor_rows:{accepted_submit_missing_decision_anchor_rows}"
+        )
+    if accepted_submit_missing_submit_latency_rows > 0:
+        findings.append(
+            f"accepted_order_submit_missing_submit_latency_rows:{accepted_submit_missing_submit_latency_rows}"
+        )
+    if accepted_taker_submit_missing_context_rows > 0:
+        findings.append(
+            f"accepted_taker_submit_missing_timing_context_rows:{accepted_taker_submit_missing_context_rows}"
+        )
+    if maker_timing_rows_observed > 0 and maker_timing_missing_context_rows > 0:
+        findings.append(
+            f"maker_timing_rows_missing_context:{maker_timing_missing_context_rows}/{maker_timing_rows_observed}"
+        )
+
+    evidence = {
+        "sniper_taker_decision_rows": int(sniper_taker_decision_rows),
+        "sniper_taker_decision_missing_decision_ts_rows": int(sniper_taker_decision_missing_decision_ts_rows),
+        "sniper_taker_decision_missing_sec_to_expiry_rows": int(sniper_taker_decision_missing_sec_to_expiry_rows),
+        "sniper_taker_decision_missing_timing_window_rows": int(sniper_taker_decision_missing_timing_window_rows),
+        "accepted_submit_rows": int(accepted_submit_rows),
+        "accepted_submit_missing_decision_anchor_rows": int(accepted_submit_missing_decision_anchor_rows),
+        "accepted_submit_missing_submit_latency_rows": int(accepted_submit_missing_submit_latency_rows),
+        "accepted_taker_submit_rows": int(accepted_taker_submit_rows),
+        "accepted_taker_submit_missing_context_rows": int(accepted_taker_submit_missing_context_rows),
+        "maker_timing_rows_observed": int(maker_timing_rows_observed),
+        "maker_timing_missing_context_rows": int(maker_timing_missing_context_rows),
     }
     return evidence, findings
 
@@ -277,6 +541,7 @@ def run_audit(
     findings: List[str] = []
     warnings: List[str] = []
     preflight = cfg.get("preflight", {})
+    configured_time_policy = cfg.get("time_policy", {}) if isinstance(cfg.get("time_policy"), dict) else {}
 
     if not bool(preflight.get("check_clock_sync", False)):
         findings.append("preflight_clock_sync_disabled")
@@ -342,7 +607,12 @@ def run_audit(
         findings.append(f"status_ts_non_monotonic_rows:{non_monotonic}")
 
     time_policy_evidence, time_policy_findings = _validate_time_policy(scoped_status_rows)
-    strict_time_policy_enforcement = isinstance(contract, dict)
+    contract_authority_level = (
+        str(contract.get("authority_level") or "").strip().lower()
+        if isinstance(contract, dict)
+        else ""
+    )
+    strict_time_policy_enforcement = contract_authority_level == "authoritative"
     if strict_time_policy_enforcement:
         findings.extend(time_policy_findings)
     else:
@@ -375,11 +645,41 @@ def run_audit(
     else:
         warnings.extend(event_domain_findings)
 
+    configured_time_policy_skew_ms = float(configured_time_policy.get("skew_tolerance_ms", 0.0) or 0.0)
+    if configured_time_policy_skew_ms <= 0.0:
+        findings.append("configured_time_policy_skew_tolerance_invalid")
+    elif policy_skew_tolerance_ms > configured_time_policy_skew_ms:
+        message = (
+            "time_policy_skew_tolerance_too_loose:"
+            + f"{policy_skew_tolerance_ms:.3f}>configured_time_policy_skew_ms:{configured_time_policy_skew_ms:.3f}"
+        )
+        if strict_time_policy_enforcement:
+            findings.append(message)
+        else:
+            warnings.append(message)
+
+    critical_timing_evidence, critical_timing_findings = _critical_timing_evidence_audit(event_rows)
+    if strict_time_policy_enforcement:
+        findings.extend(critical_timing_findings)
+    else:
+        warnings.extend(critical_timing_findings)
+
+    host_time_sync_evidence: Dict[str, Any] = {}
+    if strict_time_policy_enforcement:
+        host_time_sync_evidence, host_time_sync_findings = _host_time_sync_audit(
+            contract=contract,
+            log_dir=effective_log_dir,
+            run_id=run_filter,
+            preflight_cfg=preflight,
+        )
+        findings.extend(host_time_sync_findings)
+
     if configured_skew > 0:
         configured_skew_ms = configured_skew * 1000.0
-        if policy_skew_tolerance_ms > configured_skew_ms:
+        if configured_time_policy_skew_ms > configured_skew_ms:
             message = (
-                f"time_policy_skew_tolerance_too_loose:{policy_skew_tolerance_ms:.3f}>configured_max_clock_skew_ms:{configured_skew_ms:.3f}"
+                "configured_time_policy_skew_tolerance_exceeds_fallback_skew:"
+                + f"{configured_time_policy_skew_ms:.3f}>configured_max_clock_skew_ms:{configured_skew_ms:.3f}"
             )
             if strict_time_policy_enforcement:
                 findings.append(message)
@@ -401,6 +701,7 @@ def run_audit(
         "log_dir": str(effective_log_dir),
         "configured_log_dir": str(configured_log_dir),
         "run_contract_path": resolved_contract_path,
+        "contract_authority_level": contract_authority_level,
         "run_id_filter": run_filter,
         "run_id_resolution": run_id_resolution,
         "status_source_paths": [str(path.resolve()) for path in status_paths],
@@ -410,8 +711,11 @@ def run_audit(
         "non_monotonic_rows": int(non_monotonic),
         "status_age_sec": status_age_sec,
         "configured_max_clock_skew_sec": configured_skew,
+        "configured_time_policy_skew_tolerance_ms": configured_time_policy_skew_ms,
         "time_policy": time_policy_evidence,
         "event_timestamp_domain_audit": event_domain_evidence,
+        "critical_timing_evidence": critical_timing_evidence,
+        "host_time_sync": host_time_sync_evidence,
         "finding_count": len(findings),
         "findings": findings,
         "warnings": warnings,
@@ -423,7 +727,7 @@ def run_audit(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bro clock/time discipline audit")
     parser.add_argument("--config", default="execution_config.yaml", help="Execution config path")
-    parser.add_argument("--max-allowed-skew-sec", type=float, default=2.5, help="Strict upper bound for preflight.max_clock_skew_sec")
+    parser.add_argument("--max-allowed-skew-sec", type=float, default=0.25, help="Strict upper bound for preflight.max_clock_skew_sec")
     parser.add_argument("--max-status-age-sec", type=float, default=180.0, help="Maximum allowed age of latest status ts_utc")
     parser.add_argument("--min-status-rows", type=int, default=5, help="Minimum status rows required to evaluate monotonicity")
     parser.add_argument("--log-dir", default="", help="Optional explicit status log directory override")

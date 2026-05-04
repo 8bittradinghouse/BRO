@@ -16,6 +16,9 @@ python scripts/forensics_bundle.py --log-dir ./logs_exec/paper_universal --run-i
 - Active profile and config hash from manifest/runtime identity.
 - Gate `decision_trace` for all failed checks.
 - Reconcile `verification_level` (venue_verified vs partial truth).
+- In paper mode, treat `paper_sim_verified` /
+  `paper_wallet_simulation_verified` as paper-mode wallet/reconcile semantics,
+  not proof from non-canonical shop tooling.
 - Guardian trigger reason and timestamp alignment.
 
 ## Post-Incident

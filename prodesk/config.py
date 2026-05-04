@@ -49,9 +49,9 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "held_book_not_found_backoff_sec": 10.0,
         "held_book_not_found_force_refresh_interval_sec": 120.0,
         "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
-        "held_preexpiry_reduce_only_sec": 90.0,
-        "preexpiry_emergency_taker_window_sec": 30.0,
-        "terminal_unwind_halt_new_risk_sec": 60.0,
+        "held_preexpiry_reduce_only_sec": 15.0,
+        "preexpiry_emergency_taker_window_sec": 7.0,
+        "terminal_unwind_halt_new_risk_sec": 7.0,
         "expiry_boundary_epsilon_sec": 1.0,
         "require_lifecycle_context_for_decisions": True,
         "dust_classifier_enforce_enabled": False,
@@ -237,10 +237,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "edge_weight": 0.65,
                 "latency_score_weight": 0.35,
                 "final_window_enabled": True,
-                "final_window_sec": 15.0,
+                "final_window_sec": 7.0,
                 "stage_final_window_sec_by_stage": {},
                 "aggressive_window_enabled": False,
-                "aggressive_window_sec": 10.0,
+                "aggressive_window_sec": 7.0,
                 "stage_aggressiveness": {
                     "MAKER_TAKER_SELECTIVE": {"size_mult": 1.00, "price_aggress_bps": 0.0},
                     "SNIPER_PRIMARY": {"size_mult": 1.15, "price_aggress_bps": 2.0},
@@ -249,10 +249,13 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "price_aggress_bps_max": 8.0,
                 "dynamic_preview_enabled": False,
                 "multi_oracle_boost_enabled": False,
-                "multi_oracle_boost_window_sec": 15.0,
+                "multi_oracle_boost_window_sec": 7.0,
                 "multi_oracle_edge_threshold_abs": 0.20,
                 "multi_oracle_target_usd_cap": 350.0,
                 "multi_oracle_capital_pct_cap": 0.18,
+                "normal_side_policy": "buy_expected_winner_only",
+                "allow_complement_buy_route": True,
+                "min_visible_fill_ratio": 0.5,
             },
         },
     },
@@ -288,8 +291,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         },
         "maker_competitiveness": {
             "timing_gate_enabled": False,
-            "timing_gate_min_sec_to_expiry": 45.0,
-            "timing_gate_max_sec_to_expiry": 60.0,
+            "timing_gate_min_sec_to_expiry": 15.0,
+            "timing_gate_max_sec_to_expiry": 20.0,
             "edge_scale_enabled": False,
             "edge_scale_start_abs": 0.05,
             "edge_scale_full_abs": 0.20,
@@ -299,6 +302,28 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "one_sided_enabled": False,
             "one_sided_edge_threshold_abs": 0.18,
             "one_sided_allowed_stages": ["MAKER_TAKER_SELECTIVE"],
+            "queue_pressure": {
+                "enabled": False,
+                "allowed_stages": ["MAKER_TAKER_SELECTIVE"],
+                "min_edge_abs": 0.05,
+                "inside_price_ticks": 1,
+                "favored_side_only": True,
+                "tight_spread_only": True,
+                "skip_below_geometry_floor": True,
+                "force_replace_on_adjustment": True,
+            },
+            "selection_gate": {
+                "enabled": False,
+                "allowed_stages": ["MAKER_TAKER_SELECTIVE"],
+                "require_secondary_oracle_confirmation": True,
+                "require_one_sided_active": False,
+                "min_sec_to_expiry": None,
+                "max_sec_to_expiry": None,
+                "cannon_target_notional_usd": 350.0,
+                "min_depth_multiple": 1.5,
+                "max_same_target_submit_count_prior": 1,
+                "max_same_target_side_submit_count_prior": 1,
+            },
         },
     },
     "sizing": {
@@ -364,7 +389,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "order_rate_recovery_reserved_slots": 0,
         "max_cancels_per_min": 220,
         "max_book_age_sec": 6.0,
-        "min_sec_to_expiry_for_new_exposure": 45.0,
+        "min_sec_to_expiry_for_new_exposure": 15.0,
+        "min_sec_to_expiry_for_new_exposure_by_lane": {},
         "reduce_only_terminal_min_notional_usd": 2.0,
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
@@ -455,10 +481,17 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "check_market_data": True,
         "max_market_data_failures": 0,
         "check_clock_sync": True,
-        "max_clock_skew_sec": 2.5,
+        "max_clock_skew_sec": 0.25,
+        "max_clock_offset_ms": 10.0,
+        "max_clock_jitter_ms": 10.0,
+        "max_clock_root_distance_ms": 100.0,
+        "max_clock_stratum": 3,
         "check_endpoint_health": False,
         "endpoint_timeout_sec": 4.0,
         "endpoint_urls": [],
+    },
+    "time_policy": {
+        "skew_tolerance_ms": 120.0,
     },
     "security": {
         "enabled": True,
@@ -1093,6 +1126,25 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         )
     cfg["sniper"]["taker"]["competitiveness"]["hard_min_enforcement"] = hard_min_enforcement
     cfg["sniper"]["taker"]["competitiveness"]["conviction_model"] = conviction_model
+    normal_side_policy = str(
+        taker_comp_cfg.get("normal_side_policy", "buy_expected_winner_only")
+    ).strip().lower()
+    if normal_side_policy not in {"buy_expected_winner_only"}:
+        raise ValueError(
+            "sniper.taker.competitiveness.normal_side_policy must be buy_expected_winner_only"
+        )
+    cfg["sniper"]["taker"]["competitiveness"]["normal_side_policy"] = normal_side_policy
+    allow_complement_buy_route = taker_comp_cfg.get("allow_complement_buy_route", True)
+    if not isinstance(allow_complement_buy_route, bool):
+        raise ValueError("sniper.taker.competitiveness.allow_complement_buy_route must be a bool")
+    cfg["sniper"]["taker"]["competitiveness"]["allow_complement_buy_route"] = allow_complement_buy_route
+    _require_fraction(
+        "sniper.taker.competitiveness.min_visible_fill_ratio",
+        taker_comp_cfg.get("min_visible_fill_ratio", 0.5),
+    )
+    cfg["sniper"]["taker"]["competitiveness"]["min_visible_fill_ratio"] = float(
+        taker_comp_cfg.get("min_visible_fill_ratio", 0.5) or 0.5
+    )
     stage_aggr_cfg = taker_comp_cfg.get("stage_aggressiveness", {})
     if not isinstance(stage_aggr_cfg, dict):
         raise ValueError("sniper.taker.competitiveness.stage_aggressiveness must be a mapping")
@@ -1336,6 +1388,29 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["risk"]["min_sec_to_expiry_for_new_exposure"],
         allow_zero=True,
     )
+    raw_min_sec_to_expiry_for_new_exposure_by_lane = cfg["risk"].get(
+        "min_sec_to_expiry_for_new_exposure_by_lane", {}
+    )
+    if not isinstance(raw_min_sec_to_expiry_for_new_exposure_by_lane, dict):
+        raise ValueError("risk.min_sec_to_expiry_for_new_exposure_by_lane must be a mapping")
+    normalized_min_sec_to_expiry_for_new_exposure_by_lane: Dict[str, float] = {}
+    for lane_raw, threshold_raw in raw_min_sec_to_expiry_for_new_exposure_by_lane.items():
+        lane = str(lane_raw or "").strip().lower()
+        if lane not in {"maker", "taker"}:
+            raise ValueError(
+                "risk.min_sec_to_expiry_for_new_exposure_by_lane keys must be maker or taker"
+            )
+        if lane in normalized_min_sec_to_expiry_for_new_exposure_by_lane:
+            raise ValueError(
+                "risk.min_sec_to_expiry_for_new_exposure_by_lane contains duplicate normalized keys"
+            )
+        _require_positive(
+            f"risk.min_sec_to_expiry_for_new_exposure_by_lane[{lane}]",
+            threshold_raw,
+            allow_zero=True,
+        )
+        normalized_min_sec_to_expiry_for_new_exposure_by_lane[lane] = float(threshold_raw or 0.0)
+    cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = normalized_min_sec_to_expiry_for_new_exposure_by_lane
     _require_positive(
         "risk.reduce_only_terminal_min_notional_usd",
         cfg["risk"].get("reduce_only_terminal_min_notional_usd", 0.0),
@@ -1376,6 +1451,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     )
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
+    min_sec_to_expiry_for_new_exposure_by_lane = dict(
+        cfg["risk"].get("min_sec_to_expiry_for_new_exposure_by_lane") or {}
+    )
+    maker_min_sec_to_expiry_for_new_exposure = float(
+        min_sec_to_expiry_for_new_exposure_by_lane.get("maker", min_sec_to_expiry_for_new_exposure) or 0.0
+    )
     held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
     preexpiry_emergency_taker_window_sec = float(
         cfg["runtime"].get("preexpiry_emergency_taker_window_sec", 0.0) or 0.0
@@ -1421,11 +1502,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("risk.position_dust_notional_usd_epsilon must be <= risk.max_notional_per_token")
     if (
         held_preexpiry_reduce_only_sec > 0.0
-        and min_sec_to_expiry_for_new_exposure > 0.0
-        and held_preexpiry_reduce_only_sec + 1e-9 < min_sec_to_expiry_for_new_exposure
+        and maker_min_sec_to_expiry_for_new_exposure > 0.0
+        and held_preexpiry_reduce_only_sec + 1e-9 < maker_min_sec_to_expiry_for_new_exposure
     ):
         raise ValueError(
-            "runtime.held_preexpiry_reduce_only_sec must be >= risk.min_sec_to_expiry_for_new_exposure"
+            "runtime.held_preexpiry_reduce_only_sec must be >= the effective maker "
+            "new-exposure expiry gate"
         )
     if (
         terminal_unwind_halt_new_risk_sec > 0.0
@@ -1524,7 +1606,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("metrics.port", cfg["metrics"]["port"])
     _require_positive("preflight.max_market_data_failures", cfg["preflight"]["max_market_data_failures"], allow_zero=True)
     _require_positive("preflight.max_clock_skew_sec", cfg["preflight"]["max_clock_skew_sec"], allow_zero=True)
+    _require_positive("preflight.max_clock_offset_ms", cfg["preflight"]["max_clock_offset_ms"])
+    _require_positive("preflight.max_clock_jitter_ms", cfg["preflight"]["max_clock_jitter_ms"])
+    _require_positive("preflight.max_clock_root_distance_ms", cfg["preflight"]["max_clock_root_distance_ms"])
+    _require_positive("preflight.max_clock_stratum", cfg["preflight"]["max_clock_stratum"])
     _require_positive("preflight.endpoint_timeout_sec", cfg["preflight"]["endpoint_timeout_sec"])
+    _require_positive("time_policy.skew_tolerance_ms", cfg["time_policy"]["skew_tolerance_ms"])
     _require_positive("operating_mode.window_cycles", cfg["operating_mode"]["window_cycles"])
     _require_fraction("operating_mode.caution_stale_reject_ratio", cfg["operating_mode"]["caution_stale_reject_ratio"])
     _require_fraction("operating_mode.maker_only_stale_reject_ratio", cfg["operating_mode"]["maker_only_stale_reject_ratio"])
@@ -1589,18 +1676,18 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry",
         maker_comp_cfg.get("timing_gate_max_sec_to_expiry"),
     )
-    timing_min = float(maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 45.0))
-    timing_max = float(maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 60.0))
+    timing_min = float(maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 15.0))
+    timing_max = float(maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 20.0))
     if timing_max < timing_min:
         raise ValueError(
             "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry must be >= timing_gate_min_sec_to_expiry"
         )
     if (
-        min_sec_to_expiry_for_new_exposure > 0.0
-        and min_sec_to_expiry_for_new_exposure > (timing_max + 1e-9)
+        maker_min_sec_to_expiry_for_new_exposure > 0.0
+        and maker_min_sec_to_expiry_for_new_exposure > (timing_max + 1e-9)
     ):
         raise ValueError(
-            "risk.min_sec_to_expiry_for_new_exposure must be <= "
+            "the effective maker new-exposure expiry gate must be <= "
             "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry"
         )
     _require_fraction(
@@ -1662,6 +1749,170 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
             )
         normalized_stages.append(stage_name)
     cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = sorted(set(normalized_stages))
+    queue_pressure_cfg = maker_comp_cfg.get("queue_pressure", {})
+    if not isinstance(queue_pressure_cfg, dict):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure must be a mapping")
+    queue_pressure_allowed_stages = queue_pressure_cfg.get("allowed_stages")
+    if not isinstance(queue_pressure_allowed_stages, list):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.allowed_stages must be a list")
+    normalized_queue_pressure_stages: List[str] = []
+    for idx, stage in enumerate(queue_pressure_allowed_stages):
+        stage_name = str(stage or "").strip().upper()
+        if not stage_name:
+            raise ValueError(
+                f"strategy.maker_competitiveness.queue_pressure.allowed_stages[{idx}] must be a non-empty stage name"
+            )
+        if stage_name not in canonical_allowed_stages:
+            raise ValueError(
+                "strategy.maker_competitiveness.queue_pressure.allowed_stages must only include maker-allowed stages"
+            )
+        normalized_queue_pressure_stages.append(stage_name)
+    cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["allowed_stages"] = sorted(
+        set(normalized_queue_pressure_stages)
+    )
+    _require_fraction(
+        "strategy.maker_competitiveness.queue_pressure.min_edge_abs",
+        queue_pressure_cfg.get("min_edge_abs"),
+        allow_zero=True,
+    )
+    inside_price_ticks_raw = queue_pressure_cfg.get("inside_price_ticks", 1)
+    if isinstance(inside_price_ticks_raw, bool):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer")
+    try:
+        inside_price_ticks = int(float(inside_price_ticks_raw))
+    except (TypeError, ValueError):
+        raise ValueError(
+            "strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer"
+        ) from None
+    if inside_price_ticks <= 0 or abs(float(inside_price_ticks_raw) - float(inside_price_ticks)) > 1e-9:
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer")
+    cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["inside_price_ticks"] = inside_price_ticks
+    selection_gate_cfg = maker_comp_cfg.get("selection_gate", {})
+    if not isinstance(selection_gate_cfg, dict):
+        raise ValueError("strategy.maker_competitiveness.selection_gate must be a mapping")
+    selection_gate_allowed_stages = selection_gate_cfg.get("allowed_stages")
+    if not isinstance(selection_gate_allowed_stages, list):
+        raise ValueError("strategy.maker_competitiveness.selection_gate.allowed_stages must be a list")
+    normalized_selection_gate_stages: List[str] = []
+    for idx, stage in enumerate(selection_gate_allowed_stages):
+        stage_name = str(stage or "").strip().upper()
+        if not stage_name:
+            raise ValueError(
+                f"strategy.maker_competitiveness.selection_gate.allowed_stages[{idx}] must be a non-empty stage name"
+            )
+        if stage_name not in canonical_allowed_stages:
+            raise ValueError(
+                "strategy.maker_competitiveness.selection_gate.allowed_stages must only include maker-allowed stages"
+            )
+        normalized_selection_gate_stages.append(stage_name)
+    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["allowed_stages"] = sorted(
+        set(normalized_selection_gate_stages)
+    )
+    _require_positive(
+        "strategy.maker_competitiveness.selection_gate.cannon_target_notional_usd",
+        selection_gate_cfg.get("cannon_target_notional_usd"),
+    )
+    _require_positive(
+        "strategy.maker_competitiveness.selection_gate.min_depth_multiple",
+        selection_gate_cfg.get("min_depth_multiple"),
+        allow_zero=True,
+    )
+    min_sec_to_expiry_raw = selection_gate_cfg.get("min_sec_to_expiry")
+    max_sec_to_expiry_raw = selection_gate_cfg.get("max_sec_to_expiry")
+    min_sec_to_expiry = None
+    max_sec_to_expiry = None
+    if min_sec_to_expiry_raw is not None:
+        _require_positive(
+            "strategy.maker_competitiveness.selection_gate.min_sec_to_expiry",
+            min_sec_to_expiry_raw,
+            allow_zero=True,
+        )
+        min_sec_to_expiry = float(min_sec_to_expiry_raw)
+    if max_sec_to_expiry_raw is not None:
+        _require_positive(
+            "strategy.maker_competitiveness.selection_gate.max_sec_to_expiry",
+            max_sec_to_expiry_raw,
+            allow_zero=True,
+        )
+        max_sec_to_expiry = float(max_sec_to_expiry_raw)
+    if (
+        isinstance(min_sec_to_expiry, (int, float))
+        and isinstance(max_sec_to_expiry, (int, float))
+        and float(min_sec_to_expiry) > float(max_sec_to_expiry) + 1e-9
+    ):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.min_sec_to_expiry must be <= max_sec_to_expiry"
+        )
+    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["min_sec_to_expiry"] = (
+        float(min_sec_to_expiry)
+        if isinstance(min_sec_to_expiry, (int, float))
+        else None
+    )
+    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["max_sec_to_expiry"] = (
+        float(max_sec_to_expiry)
+        if isinstance(max_sec_to_expiry, (int, float))
+        else None
+    )
+    max_same_target_submit_count_prior_raw = selection_gate_cfg.get(
+        "max_same_target_submit_count_prior",
+        1,
+    )
+    if isinstance(max_same_target_submit_count_prior_raw, bool):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
+        )
+    try:
+        max_same_target_submit_count_prior = int(
+            float(max_same_target_submit_count_prior_raw)
+        )
+    except (TypeError, ValueError):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
+        ) from None
+    if (
+        max_same_target_submit_count_prior < 0
+        or abs(
+            float(max_same_target_submit_count_prior_raw)
+            - float(max_same_target_submit_count_prior)
+        )
+        > 1e-9
+    ):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
+        )
+    cfg["strategy"]["maker_competitiveness"]["selection_gate"][
+        "max_same_target_submit_count_prior"
+    ] = max_same_target_submit_count_prior
+    max_same_target_side_submit_count_prior_raw = selection_gate_cfg.get(
+        "max_same_target_side_submit_count_prior",
+        1,
+    )
+    if isinstance(max_same_target_side_submit_count_prior_raw, bool):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
+        )
+    try:
+        max_same_target_side_submit_count_prior = int(
+            float(max_same_target_side_submit_count_prior_raw)
+        )
+    except (TypeError, ValueError):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
+        ) from None
+    if (
+        max_same_target_side_submit_count_prior < 0
+        or abs(
+            float(max_same_target_side_submit_count_prior_raw)
+            - float(max_same_target_side_submit_count_prior)
+        )
+        > 1e-9
+    ):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
+        )
+    cfg["strategy"]["maker_competitiveness"]["selection_gate"][
+        "max_same_target_side_submit_count_prior"
+    ] = max_same_target_side_submit_count_prior
 
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):
@@ -2039,6 +2290,36 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("strategy.maker_competitiveness.edge_scale_enabled must be boolean")
     if not isinstance(cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"], bool):
         raise ValueError("strategy.maker_competitiveness.one_sided_enabled must be boolean")
+    queue_pressure_cfg = cfg["strategy"]["maker_competitiveness"]["queue_pressure"]
+    if not isinstance(queue_pressure_cfg.get("enabled"), bool):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.enabled must be boolean")
+    if not isinstance(queue_pressure_cfg.get("favored_side_only"), bool):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.favored_side_only must be boolean")
+    if not isinstance(queue_pressure_cfg.get("tight_spread_only"), bool):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.tight_spread_only must be boolean")
+    if not isinstance(queue_pressure_cfg.get("skip_below_geometry_floor"), bool):
+        raise ValueError("strategy.maker_competitiveness.queue_pressure.skip_below_geometry_floor must be boolean")
+    if not isinstance(queue_pressure_cfg.get("force_replace_on_adjustment"), bool):
+        raise ValueError(
+            "strategy.maker_competitiveness.queue_pressure.force_replace_on_adjustment must be boolean"
+        )
+    selection_gate_cfg = cfg["strategy"]["maker_competitiveness"]["selection_gate"]
+    if not isinstance(selection_gate_cfg.get("enabled"), bool):
+        raise ValueError("strategy.maker_competitiveness.selection_gate.enabled must be boolean")
+    if not isinstance(selection_gate_cfg.get("require_secondary_oracle_confirmation"), bool):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.require_secondary_oracle_confirmation must be boolean"
+        )
+    if not isinstance(selection_gate_cfg.get("require_one_sided_active"), bool):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.require_one_sided_active must be boolean"
+        )
+    for field_name in ("min_sec_to_expiry", "max_sec_to_expiry"):
+        field_value = selection_gate_cfg.get(field_name)
+        if field_value is not None and not isinstance(field_value, (int, float)):
+            raise ValueError(
+                f"strategy.maker_competitiveness.selection_gate.{field_name} must be numeric or null"
+            )
     risk_dynamic_cfg = cfg["risk"]["dynamic_scaling"]
     if not isinstance(risk_dynamic_cfg.get("enabled"), bool):
         raise ValueError("risk.dynamic_scaling.enabled must be boolean")

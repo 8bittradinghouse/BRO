@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -34,6 +35,16 @@ class CiValidateTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as ex:
                     ci_validate._run_step("unit", ["echo", "ok"], cwd=cwd)
         self.assertEqual(ex.exception.code, 3)
+
+    def test_help_text_does_not_mention_legacy_simulator(self):
+        stdout = StringIO()
+        with mock.patch("sys.argv", ["ci_validate.py", "--help"]), mock.patch("sys.stdout", stdout):
+            with self.assertRaises(SystemExit) as ex:
+                ci_validate.main()
+        self.assertEqual(ex.exception.code, 0)
+        text = stdout.getvalue()
+        self.assertIn("Run backstage harness qualification", text)
+        self.assertNotIn("legacy simulator", text)
 
 
 if __name__ == "__main__":

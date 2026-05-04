@@ -2,6 +2,14 @@
 
 Purpose: give operators and engineers a shared mental model that maps automotive system concepts to BRO runtime architecture for faster diagnosis and cleaner handoffs.
 
+Semantic ABI rule:
+- `BRO_CANONICAL_DOCTRINE.txt` is the semantic root.
+- If a live-emitted contract name already exists, operators and engineers should
+  use that name rather than inventing a synonym.
+- Diagnosis may use doctrine-only boundary concepts, but it must distinguish
+  them from emitted live contract names, downstream mirrors, and
+  descriptive-only summaries.
+
 ## Core Comparison Table
 | Vehicle Part | BRO System | Primary Repo Surface | Diagnostic Meaning |
 |---|---|---|---|
@@ -54,6 +62,8 @@ Purpose: give operators and engineers a shared mental model that maps automotive
 1. Identify symptom from dashboard/report.
 2. Map symptom to one subsystem family (data, decision, capital, safety, evidence).
 3. Trace one harness upstream to first contradiction.
-4. Determine if fuse/gate tripped correctly or falsely.
-5. Classify root cause: expected protective behavior, wiring defect, data starvation, contract mismatch, or unknown.
-6. Patch only after classification and bounded proof plan.
+4. Check which emitted live contract names are carrying the truth and whether a
+   downstream mirror or descriptive surface has drifted away from them.
+5. Determine if fuse/gate tripped correctly or falsely.
+6. Classify root cause: expected protective behavior, wiring defect, data starvation, contract mismatch, or unknown.
+7. Patch only after classification and bounded proof plan.

@@ -2,7 +2,7 @@
 
 > Doc Class: `Archive`
 > Authority: historical status snapshot only (non-authoritative for current operations).
-> Current truth entrypoint: `docs/CURRENT_BASELINE.md`.
+> Current front-of-house truth entrypoint: `docs/PROJECT_TRUTH_STATE.md`.
 
 > Legacy status snapshot retained for historical reference.
 > For current canonical truth, use:

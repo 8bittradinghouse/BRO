@@ -1,11 +1,9 @@
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-from scripts.harness_qualify import _load_policy, _run_sim_harness_audit_subprocess, run_gate
+from scripts.harness_qualify import _load_policy, run_gate
 
 
 class HarnessQualifyTests(unittest.TestCase):
@@ -19,22 +17,28 @@ class HarnessQualifyTests(unittest.TestCase):
                 base[section] = values
         return base
 
+    def test_default_policy_is_paper_harness_only_plus_optional_fault_drill(self):
+        policy = _load_policy(Path("ops/harness_policy.yaml"))
+        self.assertIn("paper_harness", policy)
+        self.assertNotIn("sim_harness", policy)
+        self.assertFalse(bool(policy.get("fault_drill", {}).get("enabled", True)))
+
     def test_harness_qualify_passes_with_skips(self):
         result = run_gate(
             config_path=Path("configs/profiles/paper_universal.yaml"),
             log_dir=Path("logs_exec/paper_universal"),
             run_id="",
             policy=self._policy_with_overrides(
-                sim_harness={"enabled": False},
                 fault_drill={"enabled": False},
                 paper_harness={"run_integrity_enabled": False},
             ),
             force_skip_run_integrity=False,
-            force_skip_sim_harness=False,
             force_skip_fault_drill=False,
         )
         self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
         self.assertEqual(result["finding_count"], 0)
+        self.assertNotIn("network_fault_drill_audit", result["checks"])
+        self.assertNotIn("fault_drill", result["policy"])
 
     def test_harness_qualify_fails_required_fault_drill_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -46,12 +50,10 @@ class HarnessQualifyTests(unittest.TestCase):
                 log_dir=Path("logs_exec/paper_universal"),
                 run_id="",
                 policy=self._policy_with_overrides(
-                    sim_harness={"enabled": False},
                     paper_harness={"run_integrity_enabled": False},
                     fault_drill={"enabled": True, "drills_dir": str(drills_dir), "max_age_days": 7.0},
                 ),
                 force_skip_run_integrity=False,
-                force_skip_sim_harness=False,
                 force_skip_fault_drill=False,
             )
         self.assertFalse(result["ok"])
@@ -71,12 +73,10 @@ class HarnessQualifyTests(unittest.TestCase):
                 log_dir=Path("logs_exec/paper_universal"),
                 run_id="",
                 policy=self._policy_with_overrides(
-                    sim_harness={"enabled": False},
                     paper_harness={"run_integrity_enabled": False},
                     fault_drill={"enabled": True, "drills_dir": str(drills_dir), "max_age_days": 36500.0},
                 ),
                 force_skip_run_integrity=False,
-                force_skip_sim_harness=False,
                 force_skip_fault_drill=False,
             )
         self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
@@ -91,29 +91,14 @@ class HarnessQualifyTests(unittest.TestCase):
                 log_dir=Path("logs_exec/paper_universal"),
                 run_id="",
                 policy=self._policy_with_overrides(
-                    sim_harness={"enabled": False},
                     paper_harness={"run_integrity_enabled": False},
                     fault_drill={"enabled": True, "drills_dir": str(drills_dir), "max_age_days": 7.0},
                 ),
                 force_skip_run_integrity=False,
-                force_skip_sim_harness=False,
                 force_skip_fault_drill=True,
             )
         self.assertTrue(result["ok"])
-
-    def test_sim_harness_subprocess_timeout_is_reason_coded_failure(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo_root = Path(td).resolve()
-            with mock.patch(
-                "scripts.harness_qualify.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd=["sim_harness_audit.py"], timeout=1.0),
-            ):
-                result = _run_sim_harness_audit_subprocess(
-                    sim_config_path=Path("configs/profiles/paper_universal.yaml"),
-                    repo_root=repo_root,
-                )
-        self.assertFalse(result["ok"])
-        self.assertTrue(any(str(x).startswith("sim_harness_audit_timeout:") for x in result["findings"]))
+        self.assertEqual(result["checks"].get("network_fault_drill_audit", {}).get("reason"), "operator_skip")
 
 
 if __name__ == "__main__":
