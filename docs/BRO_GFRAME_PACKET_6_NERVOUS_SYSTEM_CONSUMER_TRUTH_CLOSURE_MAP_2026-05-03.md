@@ -507,8 +507,7 @@ No-shortcut zones:
 ## Binary Verdict
 - `Completed` for current-code consumer-truth closure
 - whole-fighter closure remains subordinate to the board sink and the
-  post-restoration `timing spine hardening` frontier and the later
-  `pilot_live` authority proof frontier
+  post-restoration `pilot_live` authority proof frontier
 
 Reason:
 - historical Packet 6 disease was real and remains preserved by the pre-cut

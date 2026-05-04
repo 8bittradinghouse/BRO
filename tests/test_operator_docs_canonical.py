@@ -141,8 +141,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
 
     def test_next_packet_plan_names_pilot_live_authority_proof_as_current_macro_frontier(self):
         text = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
-        self.assertIn("current next macro hardening frontier is `timing spine hardening`", text)
-        self.assertIn("current next proof frontier after timing hardening is `pilot_live`", text)
+        self.assertIn("latest completed post-restoration hardening lane is", text)
+        self.assertIn("`timing spine hardening`", text)
+        self.assertIn("current next macro proof frontier is `pilot_live` authority proof", text)
         self.assertNotIn("stronger-than-paper authority completion", text)
         self.assertNotIn("current next restoration lane is core fighter re-audit on clean", text)
 
@@ -153,7 +154,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Complete", audit_text)
         self.assertIn("Whole fighter:", audit_text)
         self.assertIn("Needs Work", audit_text)
-        self.assertIn("timing spine hardening", audit_text)
+        self.assertIn("timing spine hardening is now closed on current proof", audit_text)
         self.assertIn("`pilot_live` authority proof", audit_text)
         self.assertNotIn("stronger-than-paper authority completion for stronger claims", audit_text)
         self.assertIn("promotion_eligible=true", audit_text)
@@ -163,8 +164,8 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertNotIn("whole-fighter closure remains subordinate to Bones clean release truth", audit_text)
         self.assertIn("Current G-frame restoration status: `complete`", truth_text)
         self.assertIn("Current whole-fighter completion status: `still open`", truth_text)
-        self.assertIn("Current post-restoration hardening frontier: `timing spine hardening`", truth_text)
-        self.assertIn("Current next proof frontier after timing hardening: `pilot_live` authority proof", truth_text)
+        self.assertIn("Latest completed post-restoration hardening lane: `timing spine hardening`", truth_text)
+        self.assertIn("Current next proof frontier: `pilot_live` authority proof", truth_text)
         self.assertNotIn("stronger-than-paper authority completion for stronger claims", truth_text)
         self.assertIn("promotion_eligible=true", truth_text)
         self.assertIn("recommended_next_stage=pilot_live", truth_text)
@@ -191,16 +192,16 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             )
             self.assertRegex(
                 text,
-                r"timing spine hardening|Current post-restoration hardening frontier:\s+`timing spine hardening`",
-                msg=f"timing spine hardening frontier missing from {path}",
+                r"timing spine hardening|Latest completed post-restoration hardening lane:\s+`timing spine hardening`|`pilot_live` authority proof frontier",
+                msg=f"post-restoration frontier teaching missing from {path}",
             )
 
     def test_open_limitations_uses_split_close_language_for_frame_and_whole_fighter(self):
         text = (REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md").read_text(encoding="utf-8")
         self.assertIn("Current G-frame restoration status remains:", text)
         self.assertIn("Current whole-fighter completion status remains:", text)
-        self.assertIn("Current post-restoration hardening frontier remains:", text)
-        self.assertIn("Current next proof frontier after timing hardening remains:", text)
+        self.assertIn("Latest completed post-restoration hardening lane remains:", text)
+        self.assertIn("Current next proof frontier remains:", text)
         self.assertIn("`timing spine hardening`", text)
         self.assertIn("`pilot_live` authority proof", text)
         self.assertNotIn("stronger-than-paper authority completion for stronger claims", text)

@@ -119,6 +119,8 @@ CRITICAL CONTINUITY FACTS
     `656c9d42-070c-4f82-84cf-34aa333a9e7f`
   - Packet 6 Nervous-system consumer-truth closure is achieved on
     `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
+  - post-restoration timing spine hardening is closed on watched
+    authoritative proof `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
   - current post-restoration proof frontier:
     - `pilot_live` authority proof
   - BRO-local pickup authorities are:
@@ -126,6 +128,10 @@ CRITICAL CONTINUITY FACTS
     - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
     - `docs/NEXT_PACKET_PLAN.md`
   - weapons remain diagnostic-only
+  - save-point branch state:
+    - `consultant/full-snapshot-public-20260402T055838Z`
+    - pushed
+    - working tree clean
 - The latest large continuity-build thread on 2026-04-25 through 2026-04-27
   locked additional operator continuity bridge truth:
   - command card racked,
@@ -138,6 +144,11 @@ CRITICAL CONTINUITY FACTS
       `7bbde42c-003a-4f57-b59a-7ce138224075`
     - latest lane-specific closeout proof:
       `33e30bd8-e416-488e-83ce-f99c8665e7fc`
+    - latest completed timing closeout proof:
+      `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+      - `status=pass`
+      - `contract_authority_level=authoritative`
+      - `finding_count=0`
     - clean-anchor re-audit says:
       - `promotion_eligible=true`
       - `recommended_next_stage=pilot_live`

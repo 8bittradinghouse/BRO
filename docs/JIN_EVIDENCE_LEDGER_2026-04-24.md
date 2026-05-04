@@ -132,6 +132,29 @@ Core rule set status:
 - Host clock was proven healthy; timing-chain lag, not clock drift, is the active timing concern.
 - This is now part of continuity truth, not a one-off run observation.
 
+### Save Point Addendum (2026-05-04) (VERIFIED)
+- G-frame restoration remains complete on current truth; whole-fighter closure
+  remains open at the post-restoration `pilot_live` authority proof frontier.
+- Post-restoration timing spine hardening is now closed on watched
+  authoritative run `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`:
+  - `canonical_paper_validation.json`: `status=pass`,
+    `runtime_classification=VALID_ACTIVE`, `highest_passing_stage=paper`,
+    `blocking_stage=pilot_live`, `promotion_eligible=true`
+  - `time_discipline_audit.json`: `contract_authority_level=authoritative`,
+    `finding_count=0`, `sample_count=11`
+- The current committed-and-pushed workspace runtime code fingerprint exactly
+  matches that timing-closeout proof:
+  - `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
+- Tonight's packetized retightening is preserved on clean pushed branch
+  `consultant/full-snapshot-public-20260402T055838Z` with commits:
+  - `4128422` cleanup / authority + archive promotion
+  - `6eed0d0` single-authority paper pathway and timing spine
+  - `f5791be` audit/report truth semantics
+  - `53121bc` runtime execution and lifecycle steel
+- Current next move is a watched peak-hours canonical paper run for
+  `pilot_live` authority proof on the clean pushed tree, with no default maker
+  timing/gating mutation unless a fresh contradiction is proven.
+
 ### Money Packet Alignment (VERIFIED)
 - Active paper profile now uses:
   - `4000` base capital,

@@ -6,9 +6,9 @@ Current pickup point:
   `7bbde42c-003a-4f57-b59a-7ce138224075`
 - latest current-code lane-specific closeout proof:
   `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- current post-restoration hardening frontier:
+- latest completed post-restoration hardening lane:
   `timing spine hardening`
-- current next proof frontier after timing hardening:
+- current next proof frontier:
   `pilot_live` authority proof
 - governing question:
   - does the current runtime fingerprint now have a clean release anchor, and

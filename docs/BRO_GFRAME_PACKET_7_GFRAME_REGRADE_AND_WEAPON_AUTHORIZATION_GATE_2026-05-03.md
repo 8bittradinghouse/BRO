@@ -86,8 +86,7 @@ Failure-signature frame:
   `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`
 - Rack is honest on current code but still cannot certify whole-fighter
   closure by itself; the remaining open work sits above paper at the
-  post-restoration `timing spine hardening` frontier and the later
-  `pilot_live` authority proof frontier
+  post-restoration `pilot_live` authority proof frontier
 - Grip current-code paper-stage truth closure is achieved on
   `33e30bd8-e416-488e-83ce-f99c8665e7fc`; stronger live-stage claims remain
   explicitly phase-gated

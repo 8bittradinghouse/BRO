@@ -1125,10 +1125,9 @@ Whole-board reason:
   current paper specimen
 - preserved peak-session keeper packs corroborate healthy active-window frame
   behavior without replacing clean-anchor closure proof
-- but the active current-code fighter still needs post-restoration timing spine
-  hardening before the next authority claim boundary is regraded
-- after timing spine hardening, `pilot_live` authority proof above paper
-  remains the next proof frontier
+- post-restoration timing spine hardening is now closed on current proof
+- the active current-code fighter still needs `pilot_live` authority proof
+  above paper as the next proof frontier
 - peak-hours economic conclusions also remain deferred because the clean-anchor
   specimen is an overnight logic specimen
 - the freshest watched post-restoration contrast specimen points to the same
@@ -1146,11 +1145,22 @@ Not yet authorized:
 - generic weapon tuning packet
 
 Highest-ROI next board move:
-- post-restoration timing spine hardening:
-  - make host clock truth, event-skew truth, and decision-to-submit truth
-    explicit, fail-closed, and monitored through the run
-  - keep this lane separate from frame-restoration debt and weapon
-    authorization
+- `pilot_live` authority proof:
+  - run one watched peak-hours canonical paper specimen on the clean pushed
+    tree with live inspection through the full run
+  - keep maker timing and gating unchanged by default; reopen maker/shared
+    lifecycle work only if the peak-hours specimen proves a fresh current-code
+    contradiction
+- recently completed post-restoration hardening lane:
+  - timing spine hardening closed on watched authoritative run
+    `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+  - `time_discipline_audit.json` on that run says:
+    - `contract_authority_level=authoritative`
+    - `finding_count=0`
+    - `sample_count=11`
+  - current pushed workspace runtime code fingerprint exactly matches that
+    proof:
+    - `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Packet 1 authority lock:
   - `docs/BRO_GFRAME_PACKET_1_BONES_RELEASE_TRUTH_LOCK_2026-05-01.md`
 - Packet 2 spinal-cord failure chain:

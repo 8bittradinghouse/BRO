@@ -83,7 +83,7 @@ This sequence restores operator continuity first.
 It does not replace BRO-local doctrine, board, or pickup ownership once work
 returns to `/home/odah/bro/base`.
 
-Current saved BRO pickup truth for thread transfer (`2026-05-03`):
+Current saved BRO pickup truth for thread transfer (`2026-05-04`):
 - the seven-packet G-frame program is complete as a handoff-grade board-call
   block
 - Packet 1 clean current-code release-anchor closure is achieved on
@@ -94,8 +94,14 @@ Current saved BRO pickup truth for thread transfer (`2026-05-03`):
   `656c9d42-070c-4f82-84cf-34aa333a9e7f`
 - Packet 6 Nervous-system consumer-truth closure is achieved on
   `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
+- post-restoration timing spine hardening is closed on watched authoritative
+  proof `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current post-restoration proof frontier:
   - `pilot_live` authority proof
+- current proving move:
+  - watched peak-hours canonical paper run on the clean pushed tree
+  - live inspection throughout
+  - no maker timing mutation by default
 - pickup authority order for BRO-local truth:
   - `docs/PROJECT_TRUTH_STATE.md`
   - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
@@ -105,6 +111,10 @@ Current saved BRO pickup truth for thread transfer (`2026-05-03`):
   - `recommended_next_stage=pilot_live`
   - active maker continuity no longer reads like an unexplained core-frame
     choke on that specimen
+- current save-point branch state:
+  - `consultant/full-snapshot-public-20260402T055838Z`
+  - pushed
+  - working tree clean
 - weapons remain diagnostic-only
 
 Do not start code edits until the model outputs:

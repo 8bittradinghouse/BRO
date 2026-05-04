@@ -577,8 +577,7 @@ Current interpretation:
 ## Binary Verdict
 - `Completed` for current-code source-layer semantic-ownership closure
 - whole-fighter closure remains subordinate to the board sink and the
-  post-restoration `timing spine hardening` frontier and the later
-  `pilot_live` authority proof frontier
+  post-restoration `pilot_live` authority proof frontier
 
 Reason:
 - doctrine and emitter ownership were already stronger than the consumer layers

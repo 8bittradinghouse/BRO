@@ -95,6 +95,9 @@ Current saved lane:
   `656c9d42-070c-4f82-84cf-34aa333a9e7f`
 - Packet 6 Nervous-system consumer-truth closure is achieved on
   `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
+- latest completed post-restoration hardening lane:
+  - `timing spine hardening` on
+    `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current post-restoration proof frontier:
   - `pilot_live` authority proof
 - weapons remain diagnostic-only
@@ -111,6 +114,15 @@ Current runtime truth:
 - clean-anchor re-audit on that specimen says:
   - active maker continuity no longer reads like an unexplained core-frame
     choke
+- latest timing closeout proof:
+  - `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+  - `status=pass`
+  - `contract_authority_level=authoritative`
+  - `finding_count=0`
+  - `highest_passing_stage=paper`
+  - `blocking_stage=pilot_live`
+  - `maker_submits=2`
+  - `maker_fills=10`
 - latest Grip closeout proof:
   - `33e30bd8-e416-488e-83ce-f99c8665e7fc`
   - `status=pass`
@@ -118,11 +130,12 @@ Current runtime truth:
   - `blocking_stage=pilot_live`
   - `runtime_classification=VALID_ACTIVE`
 - next engineering lane:
-  - `pilot_live` authority proof
+  - watched peak-hours canonical paper proof for `pilot_live` authority
   - keep pickup authority anchored to:
     - `docs/PROJECT_TRUTH_STATE.md`
     - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
     - `docs/NEXT_PACKET_PLAN.md`
+  - do not mutate maker timing or gating by default
   - do not reopen Packets 2-6 unless a fresh live specimen proves a real
     regression
 

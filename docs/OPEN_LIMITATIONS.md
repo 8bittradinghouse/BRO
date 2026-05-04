@@ -33,10 +33,20 @@
   - `complete`
 - Current whole-fighter completion status remains:
   - `still open`
-- Current post-restoration hardening frontier remains:
+- Latest completed post-restoration hardening lane remains:
   - `timing spine hardening`
-- Current next proof frontier after timing hardening remains:
+- Current next proof frontier remains:
   - `pilot_live` authority proof
+- Latest timing-spine closeout proof remains:
+  - `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+  - `time_discipline_audit.json` says:
+    - `contract_authority_level=authoritative`
+    - `finding_count=0`
+    - `sample_count=11`
+- Current pushed tree remains:
+  - branch `consultant/full-snapshot-public-20260402T055838Z`
+  - pushed
+  - working tree clean
 - Latest clean-tree validation run `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6`
   remains a clean-tree wiring reference, not the active front-door runtime
   anchor.

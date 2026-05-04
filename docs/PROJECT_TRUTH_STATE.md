@@ -8,9 +8,9 @@
   does not replace this file as the current truth screen.
 
 ## Evidence Lock
-- Current repo commit: `519f6ed188c7bde92e674512072d34ecc9d0ba1e`
+- Current code-bearing repo commit: `53121bc3641822283ba3543d7eebb42c810eb687`
 - Current baseline tag: `bro-launch-window-continuity-baseline-20260422`
-- Latest clean-tree validation run: `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6`
+- Latest clean-tree validation run: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - Current broad current-code canonical runtime proof: `7bbde42c-003a-4f57-b59a-7ce138224075`
 - Current broad current-code report dir: `/tmp/bro_bones_clean_anchor_20260504T063100Z/logs_exec/paper_universal/reports/7bbde42c-003a-4f57-b59a-7ce138224075`
 - Current broad current-code session dir: `/tmp/bro_bones_clean_anchor_20260504T063100Z/logs_exec/paper_universal/sessions/df1c41b7-b921-4e02-982b-a6db24c79f2d`
@@ -24,17 +24,25 @@
 - Latest current-code lane-specific closeout session dir: `logs_exec/paper_universal/sessions/1da6753e-efe4-4ca4-b878-5797b17adebb`
 - Current G-frame restoration status: `complete`
 - Current whole-fighter completion status: `still open`
-- Current post-restoration hardening frontier: `timing spine hardening`
-- Current next proof frontier after timing hardening: `pilot_live` authority proof
+- Latest completed post-restoration hardening lane: `timing spine hardening`
+- Current next proof frontier: `pilot_live` authority proof
+- Latest timing-spine closeout proof: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+- Latest timing-spine closeout report dir: `logs_exec/paper_universal/reports/4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
+- Latest timing-spine closeout session dir: `logs_exec/paper_universal/sessions/d8360bec-8e02-46dd-88aa-3c599f0d784f`
 - Latest packet-1 smoke validation: `ec26dedd-84ee-4cc9-9f5f-d448ea834f9d`
 - Profile: `paper_universal`
 - Broad current-code proof config fingerprint: `6d4b4950bc89856f619325fbb8ec07fc5cc43ab78eaaf92671f3bd7be19356bc`
 - Latest clean-tree baseline code fingerprint: `3d49a999b9a5d1e748b527152cbf08711cdf4147b1339b376f298faefb26bea5`
 - Current broad current-code runtime proof code fingerprint: `492ea0b757623c0a9dade4a333c0bf743dcd05ffbaa8a3c34b24c16a22313ede`
 - Latest lane-specific closeout proof code fingerprint: `492ea0b757623c0a9dade4a333c0bf743dcd05ffbaa8a3c34b24c16a22313ede`
-- Current packet state: uncommitted post-packet G-frame restoration,
-  clean-anchor proving-path hardening, timing spine hardening, and bounded
-  thread-handoff worktree changes after this clean baseline commit.
+- Latest timing-spine closeout proof config fingerprint: `bff661de876116b6c96315aa29280bc7432cab9a2d53b2a004af897fa516c8bd`
+- Latest timing-spine closeout proof code fingerprint: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
+- Current pushed workspace runtime code fingerprint exact-match to timing closeout proof: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
+- Current pushed branch: `consultant/full-snapshot-public-20260402T055838Z`
+- Current packet state: committed-and-pushed post-packet G-frame restoration
+  retightening complete; working tree clean; next move is watched peak-hours
+  canonical paper proof for `pilot_live` authority without default maker timing
+  mutation.
 
 ## VERIFIED_CLOSED
 - Clean current-code release-anchor proving seam was diagnosed to
@@ -57,9 +65,10 @@
   `highest_passing_stage=paper`, `blocking_stage=pilot_live`, and
   `runtime_classification=VALID_ACTIVE`.
 - Clean-anchor core-fighter re-audit on
-  `7bbde42c-003a-4f57-b59a-7ce138224075` now proves the remaining open question
-  is post-restoration timing spine hardening first, then `pilot_live`
-  authority proof above paper, not an active unexplained maker-core choke:
+  `7bbde42c-003a-4f57-b59a-7ce138224075` now proves there is no active
+  unexplained maker-core choke on the clean release anchor; that proof moved
+  the open work first to timing spine hardening and now, after timing closeout,
+  to `pilot_live` authority proof above paper:
   - `canonical_paper_validation.json` says:
     - `promotion_eligible=true`
     - `recommended_next_stage=pilot_live`
@@ -76,6 +85,38 @@
       authoritative
     - `next_repair_lane="D. Peak-hours confirmation specimen"`
     - `peak_hours_economic_conclusion_allowed=false`
+- Post-restoration timing spine hardening is now closed on current proof on
+  watched authoritative run `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`:
+  - `canonical_paper_validation.json` says:
+    - `status=pass`
+    - `runtime_classification=VALID_ACTIVE`
+    - `highest_passing_stage=paper`
+    - `blocking_stage=pilot_live`
+    - `promotion_eligible=true`
+    - `recommended_next_stage=pilot_live`
+  - `time_discipline_audit.json` says:
+    - `contract_authority_level=authoritative`
+    - `finding_count=0`
+    - `sample_count=11`
+  - current pushed workspace runtime code fingerprint exactly matches that
+    timing-closeout proof:
+    - `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
+  - canonical paper setup-lock config fingerprint on that proof is:
+    - `bff661de876116b6c96315aa29280bc7432cab9a2d53b2a004af897fa516c8bd`
+  - participation on that watched specimen was:
+    - `maker_submits=2`
+    - `maker_fills=10`
+    - `normal_taker_submit_count=0`
+    - `normal_taker_fill_count=0`
+    - `recovery_taker_submit_count=0`
+    - `recovery_taker_fill_count=0`
+- Current committed-and-pushed packetized retightening stack is now preserved
+  on branch `consultant/full-snapshot-public-20260402T055838Z` with clean tree
+  state:
+  - `4128422` `chore: promote BRO authority and archive surfaces into the tracked tree`
+  - `6eed0d0` `feat: enforce single-authority paper pathway and timing spine`
+  - `f5791be` `feat: harden audit and report truth semantics`
+  - `53121bc` `feat: harden runtime execution and lifecycle steel`
 - Fresh watched post-restoration contrast specimen
   `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` proves the current open frontier is
   specimen-grade `pilot_live` authority evidence debt, not runtime integrity

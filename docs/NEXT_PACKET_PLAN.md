@@ -62,6 +62,9 @@ G-frame override:
     block
   - no further serial G-frame packet remains inside this program
 - thread-transfer snapshot:
+  - latest completed post-restoration hardening lane:
+    - `timing spine hardening` achieved on
+      `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
   - current post-restoration proof frontier:
     - `pilot_live` authority proof
   - current achieved packet-scope closures that a new thread must not silently
@@ -73,6 +76,15 @@ G-frame override:
     - Packet 5 Brain source-layer mutation closure achieved on `656c...`
     - Packet 6 Nervous-system consumer-truth closure achieved on `13fd...`
   - weapons remain diagnostic-only
+  - current proving move:
+    - watched peak-hours canonical paper run on the clean pushed tree
+    - live inspection throughout the run
+    - no maker timing or gating mutation by default unless a fresh
+      contradiction is proven
+  - current saved branch / cleanliness state:
+    - `consultant/full-snapshot-public-20260402T055838Z`
+    - pushed
+    - working tree clean
 
 Historical-lane archive rule:
 - remaining sections below may preserve continuity and comparative context
@@ -157,15 +169,18 @@ Historical-lane archive rule:
       - `peak_hours_economic_conclusion_allowed=false`
     - this specimen closes Bones clean current-code release-anchor work,
       retires the active maker-core choke reading on the clean paper specimen,
-      and moves the next macro frontier first to post-restoration timing spine
-      hardening, then to `pilot_live` authority proof
+      and moved the next macro frontier first to post-restoration timing spine
+      hardening, now closed on current proof, then to `pilot_live` authority
+      proof
   - Brain mutation closure is now source-closed on current code on fresh live
     specimen `656c9d42-070c-4f82-84cf-34aa333a9e7f`
   - Nervous-system consumer-truth closure is now materially closed on fresh
     downstream specimen `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
-  - current next macro hardening frontier is `timing spine hardening`
-  - current next proof frontier after timing hardening is `pilot_live`
-    authority proof
+  - latest completed post-restoration hardening lane is
+    `timing spine hardening`
+  - current next macro proof frontier is `pilot_live` authority proof
+  - first proving move on that frontier is a watched peak-hours canonical
+    paper run on the clean pushed tree without default maker timing mutation
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:
