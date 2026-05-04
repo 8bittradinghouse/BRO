@@ -1,0 +1,123 @@
+{
+  "packet_id": "maker_fireability_hypothesis_design_dff97a9a",
+  "specimen_run_id": "dff97a9a-9953-47e6-939f-f5f1f8814ed4",
+  "status": "analysis_only",
+  "objective": "Improve maker fireability inside the current doctrinal combat window without worsening completed-fight economics.",
+  "preserve": [
+    "timing_gate_doctrine_honesty",
+    "singlefill_strength",
+    "quote_quality_numeric_observability"
+  ],
+  "pinned_truth": {
+    "maker_window_active_row_count": 40,
+    "maker_window_submit_count": 16,
+    "maker_window_replace_guard_count": 16,
+    "maker_window_quote_quality_skip_fill_probability_count": 6,
+    "maker_window_quote_quality_skip_queue_depth_count": 2,
+    "maker_complete_bad_ratio": 0.6666666666666666,
+    "maker_multifill_complete_count": 6,
+    "maker_multifill_complete_incorrect_ratio": 1.0,
+    "maker_singlefill_correct_ratio": 0.6666666666666666
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "title": "Cadence is the next best fireability seam",
+      "truth_class": "INFERRED",
+      "support": [
+        "all observed submits already occurred inside the 50-60 second window",
+        "replace_guard_min_rest matches submit count inside the live window",
+        "timing-gate closures are mostly outside the live window"
+      ],
+      "opening_posture": "test_before_mutation"
+    },
+    {
+      "id": "H2",
+      "title": "Blind cadence relaxation can worsen multifill wound",
+      "truth_class": "INFERRED",
+      "support": [
+        "multifill_complete_incorrect_ratio is 1.0",
+        "same target families repeat inside the combat window"
+      ],
+      "opening_posture": "guarded"
+    },
+    {
+      "id": "H3",
+      "title": "Quote-quality tuning should be split by severity",
+      "truth_class": "INFERRED",
+      "support": [
+        "half of fill-probability rejects are near threshold",
+        "half of queue-depth rejects are within 50 shares",
+        "the other half are clearly bad"
+      ],
+      "opening_posture": "tiered_only"
+    }
+  ],
+  "experiment_ladder": [
+    {
+      "phase": "A",
+      "name": "truth_hardening",
+      "change_type": "instrumentation_only",
+      "runtime_mutation": false,
+      "targets": [
+        "maker_window_active_row_count",
+        "maker_window_submit_count",
+        "maker_window_replace_guard_count",
+        "maker_window_quote_quality_skip_fill_probability_count",
+        "maker_window_quote_quality_skip_queue_depth_count",
+        "per_target_submit_cadence",
+        "quote_skip_severity_bins"
+      ]
+    },
+    {
+      "phase": "B",
+      "name": "minimal_cadence_experiment",
+      "change_type": "paper_only_config_variant",
+      "runtime_mutation": true,
+      "parameter": "runtime.maker_replace_min_rest_sec",
+      "from": 3.0,
+      "to": 2.0,
+      "success_signals": [
+        "higher maker_window_submit_count",
+        "no major increase in maker_multifill_complete_incorrect_ratio",
+        "no major increase in same_target_repeat_cluster_burden"
+      ],
+      "abort_signals": [
+        "singlefill_strength degradation",
+        "repeat-target churn spike",
+        "completed bad ratio worsens without meaningful submit gain"
+      ]
+    },
+    {
+      "phase": "C",
+      "name": "split_quote_quality_experiment",
+      "change_type": "paper_only_config_variant",
+      "runtime_mutation": true,
+      "parameter_family": "strategy.execution_quality",
+      "rules": [
+        "one quality knob at a time",
+        "near-threshold only",
+        "no blanket relaxation"
+      ]
+    },
+    {
+      "phase": "D",
+      "name": "timing_window_reassessment",
+      "change_type": "later_only",
+      "runtime_mutation": true,
+      "precondition": "cadence_and_split_quality_fail_to_explain_suppressed_participation"
+    }
+  ],
+  "non_goals": [
+    "widen the timing gate first",
+    "broadly lower min_expected_fill_prob",
+    "broadly raise max_queue_ahead_size",
+    "change multiple fireability knobs at once",
+    "treat one specimen as tuning closure"
+  ],
+  "recommended_next_packet": {
+    "name": "maker_fireability_instrumentation_and_shadow_pressure",
+    "runtime_mutation": false,
+    "intent": "Promote within-window cadence and quote-skip severity truth before live tuning."
+  }
+}

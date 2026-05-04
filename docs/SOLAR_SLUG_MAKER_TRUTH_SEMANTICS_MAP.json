@@ -1,0 +1,313 @@
+{
+  "schema_name": "solar_slug_maker_truth_semantics_map",
+  "schema_version": 1,
+  "generated_utc_date": "2026-04-26",
+  "weapon_alias": "Solar Slug Maker Cannon",
+  "canonical_lane": "maker",
+  "scope": "bounded_truth_and_pathway_schematic",
+  "authority_boundary": {
+    "runtime_authority_owner": "canonical_runtime_and_doctrine",
+    "map_role": "truth_semantics_and_pathway_reference_only",
+    "allows_strategy_tuning": false,
+    "allows_runtime_behavior_change": false
+  },
+  "current_evidence_basis": {
+    "primary_runs": [
+      "8bfb70eb-c942-48eb-87ff-b9628b3098c7",
+      "e675467e-368a-49db-bc03-f35c96aebba8",
+      "ed184f61-c453-4511-a5e5-3fa24271c191"
+    ],
+    "primary_artifacts": [
+      "edge_truth_audit.json",
+      "nightly_soak_report.json",
+      "order_lifecycle_audit.json",
+      "outcome_truth_audit.json",
+      "outcome_truth_records.jsonl",
+      "FMA outputs"
+    ]
+  },
+  "truth_populations": {
+    "decision_cycle_truth": {
+      "unit": "evaluation_row",
+      "surface": "edge truth rows and maker action/no-submit summaries",
+      "example_metrics": [
+        "maker_no_submit_total_count",
+        "maker_block_reason_distribution"
+      ],
+      "misuse_risk": "Do not compare directly against fill-event or complete-outcome counts."
+    },
+    "submit_truth": {
+      "unit": "order_submit",
+      "surface": "outcome_truth_records.jsonl and maker submit counters",
+      "example_metrics": [
+        "maker_submits",
+        "maker_incomplete_record_count"
+      ],
+      "misuse_risk": "A submit population includes no-fill outcomes and should not be treated as filled-order truth."
+    },
+    "filled_order_truth": {
+      "unit": "filled_order",
+      "surface": "maker filled-order surfaces in nightly report",
+      "example_metrics": [
+        "maker_filled_orders",
+        "maker_fill_rate"
+      ],
+      "misuse_risk": "Filled-order truth is not the same as fill-event truth or complete-outcome truth."
+    },
+    "fill_event_truth": {
+      "unit": "fill_event",
+      "surface": "execution_quality_decision_reference_lane_attribution",
+      "example_metrics": [
+        "execution_capture_minus_adverse",
+        "execution_fills_scored",
+        "maker_fills"
+      ],
+      "misuse_risk": "Fill-event execution economics can look favorable even when order-level directional quality is poor."
+    },
+    "complete_outcome_truth": {
+      "unit": "complete_outcome_record",
+      "surface": "complete rows inside outcome_truth_records.jsonl and outcome_truth_audit summaries",
+      "example_metrics": [
+        "maker_complete_record_count",
+        "maker_complete_bad_ratio",
+        "maker_multifill_complete_incorrect_ratio"
+      ],
+      "misuse_risk": "Complete outcomes are a subset of submits and should be compared against incomplete records deliberately."
+    }
+  },
+  "pathways": [
+    {
+      "id": "market_reference_substrate",
+      "sequence": 1,
+      "name": "Market Reference Substrate",
+      "primary_artifacts": [
+        "nightly_soak_report.json",
+        "edge_truth_audit.json"
+      ],
+      "high_value_fields": [
+        "maker_reference_direct_midpoint_activity",
+        "maker_reference_bounded_fallback_activity",
+        "market_data_rest_ratio"
+      ],
+      "outputs_to_next_pathway": [
+        "decision_reference_context",
+        "fair_probability_context",
+        "market_data_health_context"
+      ],
+      "plain_english": "This is the ruler and feed spine the maker lane uses to see the market."
+    },
+    {
+      "id": "decision_cycle_edge_truth",
+      "sequence": 2,
+      "name": "Decision-Cycle Edge Truth",
+      "primary_artifacts": [
+        "edge_truth_audit.json",
+        "nightly_soak_report.json"
+      ],
+      "high_value_fields": [
+        "maker_no_submit_total_count",
+        "maker_no_submission_cause_distribution",
+        "maker_block_reason_distribution",
+        "maker_timing_gate_blocked_decision"
+      ],
+      "outputs_to_next_pathway": [
+        "allowed_vs_blocked_decision_truth",
+        "action_taken_truth"
+      ],
+      "plain_english": "This is the what-did-maker-see and what-did-maker-choose layer."
+    },
+    {
+      "id": "stage_and_lane_eligibility",
+      "sequence": 3,
+      "name": "Stage And Lane Eligibility",
+      "primary_artifacts": [
+        "edge_truth_audit.json",
+        "nightly_soak_report.json"
+      ],
+      "high_value_fields": [
+        "runtime_classification_name",
+        "runtime_primary_suppression_cause",
+        "maker_block_reason_distribution"
+      ],
+      "outputs_to_next_pathway": [
+        "maker_lane_authority_state"
+      ],
+      "plain_english": "This answers whether maker was allowed to act before asking whether it should have acted."
+    },
+    {
+      "id": "risk_sizing_quote_quality_friction",
+      "sequence": 4,
+      "name": "Risk Sizing Quote-Quality Friction",
+      "primary_artifacts": [
+        "nightly_soak_report.json",
+        "FMA outputs"
+      ],
+      "high_value_fields": [
+        "maker_quote_quality_skip_total_count",
+        "maker_sizing_reject_total_count",
+        "maker_replace_guard_min_rest_count",
+        "risk_reject_total_count"
+      ],
+      "outputs_to_next_pathway": [
+        "submit_feasibility_truth",
+        "pre_submit_friction_truth"
+      ],
+      "plain_english": "This is the chambering and trigger-discipline layer for maker shots."
+    },
+    {
+      "id": "submit_ownership_lifecycle",
+      "sequence": 5,
+      "name": "Submit Ownership Lifecycle",
+      "primary_artifacts": [
+        "order_lifecycle_audit.json",
+        "outcome_truth_records.jsonl"
+      ],
+      "high_value_fields": [
+        "lifecycle_order_submit_decision_missing_count",
+        "lifecycle_edge_decision_submit_missing_count",
+        "lifecycle_fill_without_submit_count",
+        "maker_lifecycle_gap_class_distribution"
+      ],
+      "outputs_to_next_pathway": [
+        "order_identity_truth",
+        "lifecycle_geometry_truth"
+      ],
+      "plain_english": "This is where maker intent becomes a tracked order lifecycle instead of a decision row."
+    },
+    {
+      "id": "fill_event_execution_surface",
+      "sequence": 6,
+      "name": "Fill-Event Execution Surface",
+      "primary_artifacts": [
+        "nightly_soak_report.json"
+      ],
+      "high_value_fields": [
+        "execution_capture_minus_adverse",
+        "execution_realized_capture",
+        "execution_adverse_selection",
+        "execution_fills_scored"
+      ],
+      "outputs_to_next_pathway": [
+        "fill_event_execution_economics"
+      ],
+      "plain_english": "This measures how fills behaved after the shot was taken, not whether the shot itself was wise."
+    },
+    {
+      "id": "outcome_truth_forensic_surface",
+      "sequence": 7,
+      "name": "Outcome-Truth Forensic Surface",
+      "primary_artifacts": [
+        "outcome_truth_audit.json",
+        "outcome_truth_records.jsonl",
+        "FMA outputs"
+      ],
+      "high_value_fields": [
+        "maker_complete_bad_ratio",
+        "maker_incomplete_bad_ratio",
+        "maker_multifill_complete_incorrect_ratio",
+        "maker_execution_rescue_overcome_count",
+        "maker_same_target_repeat_cluster_count",
+        "maker_complement_pair_cluster_count",
+        "maker_outcome_horizon_ms",
+        "maker_reference_basis_summary"
+      ],
+      "outputs_to_next_pathway": [
+        "maker_wound_anatomy",
+        "basis_and_horizon_context"
+      ],
+      "plain_english": "This is the main autopsy layer for maker losses."
+    },
+    {
+      "id": "harvest_compression_shop_tooling",
+      "sequence": 8,
+      "name": "Harvest Compression Shop Tooling",
+      "primary_artifacts": [
+        "run_index.jsonl",
+        "metric_catalog.json",
+        "maker_taker_summary.csv",
+        "anomaly_summary.json",
+        "maker_research_pack.md"
+      ],
+      "high_value_fields": [
+        "maker_truth_population_note",
+        "maker_complete_bad_ratio_summary",
+        "maker_multifill_complete_incorrect_ratio_summary",
+        "maker_fill_count_quality_distribution",
+        "maker_reference_basis_summary"
+      ],
+      "outputs_to_next_pathway": [
+        "cross_run_comparison_truth",
+        "debug_readiness",
+        "tuning_readiness"
+      ],
+      "plain_english": "This is the shop gauge cluster that joins the artifact truth into a reusable instrument."
+    }
+  ],
+  "hotspot_families": [
+    {
+      "id": "completion_bias",
+      "severity": "high",
+      "surface_family": "complete_vs_incomplete_outcomes",
+      "plain_english": "Completed maker fights skew materially worse than incomplete ones."
+    },
+    {
+      "id": "multifill_wound_geometry",
+      "severity": "high",
+      "surface_family": "fill_count_quality_distribution",
+      "plain_english": "Completed multi-fill maker fights are disproportionately incorrect in the current evidence."
+    },
+    {
+      "id": "same_target_repeat_clusters",
+      "severity": "high",
+      "surface_family": "target_cluster_summary",
+      "plain_english": "Repeated engagement against the same target family is a real wound seam."
+    },
+    {
+      "id": "complement_pair_clusters",
+      "severity": "medium_high",
+      "surface_family": "bounded_pair_heuristic",
+      "plain_english": "Some maker losses arrive as mirrored complement-pair wounds.",
+      "heuristic": true
+    },
+    {
+      "id": "execution_rescue_limits",
+      "severity": "medium_high",
+      "surface_family": "execution_rescue_ratio_summary",
+      "plain_english": "Good execution often cannot fully rescue a bad maker decision."
+    },
+    {
+      "id": "basis_horizon_sensitivity",
+      "severity": "medium",
+      "surface_family": "basis_and_horizon_context",
+      "plain_english": "Maker wound severity depends partly on the ruler used to score it."
+    }
+  ],
+  "current_high_value_gauges": [
+    "maker_complete_bad_ratio",
+    "maker_multifill_complete_incorrect_ratio",
+    "maker_fills_per_filled_order",
+    "maker_same_target_repeat_cluster_count",
+    "maker_complement_pair_cluster_count",
+    "maker_quote_quality_skip_total_count",
+    "maker_sizing_reject_total_count",
+    "maker_execution_rescue_overcome_count",
+    "maker_outcome_horizon_ms",
+    "maker_eval_basis_requires_reconstructed_midpoint_flag"
+  ],
+  "bounded_heuristics": [
+    {
+      "id": "maker_complement_pair_cluster_detection",
+      "description": "Mirrored pair detection based on near-1.0 midpoint sums, near-zero paired edge sum, opposite sides, and matched fill geometry.",
+      "canonical_truth": false
+    }
+  ],
+  "future_extension_rule": {
+    "mode": "lane_by_lane",
+    "applies_to": [
+      "Taker Katana",
+      "Sniper Wakazashi",
+      "shared_money_touching_lanes"
+    ],
+    "requires_evidence_pass_first": true
+  }
+}

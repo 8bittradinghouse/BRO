@@ -1,2 +1,0 @@
-# Backward-compatibility alias. Canonical paper profile is paper_universal.
-extends: ./paper_universal.yaml

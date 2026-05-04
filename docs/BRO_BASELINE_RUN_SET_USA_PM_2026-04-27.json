@@ -1,0 +1,112 @@
+{
+  "set_id": "bro_baseline_run_set_usa_pm_2026-04-27_a",
+  "kind": "baseline_run_set",
+  "date_utc": "2026-04-27",
+  "profile_name": "paper_universal",
+  "baseline_config_fingerprint_sha256": "bc8873395234bb1aef36b8d3f8d3d07a786ae8cad1a37f3ab1dcf18d48d293e9",
+  "code_fingerprint_sha256": "26f54c31fa5e2e93357313ed46eadc7074b77a8cc718ccef15d3bded0883c517",
+  "git_commit": "519f6ed188c7bde92e674512072d34ecc9d0ba1e",
+  "acceptance_policy": {
+    "clean_baseline": "status=pass and gate_passed=true and no warning tag recorded for this set",
+    "accepted_with_warning": "status=pass and gate_passed=true but a non-fatal warning is preserved",
+    "warning_only": "runtime useful but excluded from clean baseline because gate_passed=false or stronger warning posture"
+  },
+  "runs": [
+    {
+      "run_id": "f79550de-22f2-439a-844a-09fa27d5fc48",
+      "set_role": "clean_baseline",
+      "canonical_status": "pass",
+      "runtime_classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "gate_passed": true,
+      "soak_findings": [],
+      "maker_submits": 29.0,
+      "maker_fills": 39.0,
+      "maker_window_active_row_count": 80.0,
+      "maker_window_submit_count": 27.0,
+      "maker_window_replace_guard_count": 16.0,
+      "maker_window_quote_quality_skip_total_count": 27.0,
+      "maker_min_notional_max_shares_conflict_rows": 10.0,
+      "maker_complete_bad_ratio": 0.6842105263157895,
+      "maker_multifill_complete_incorrect_ratio": 0.5384615384615384,
+      "forge_masters_bundle_dir": "/home/odah/bro/base/logs_exec/paper_universal/forge_masters_archive_run_f79550de-22f2-439a-844a-09fa27d5fc48",
+      "fusion_core_profile_dir": "/home/odah/bro/base/logs_exec/paper_universal/fusion_core_profile_run_f79550de-22f2-439a-844a-09fa27d5fc48"
+    },
+    {
+      "run_id": "0cfbe40a-8a9c-4ff6-b094-bec6c200ef23",
+      "set_role": "warning_only",
+      "canonical_status": "policy_failed",
+      "runtime_classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "gate_passed": false,
+      "soak_findings": [
+        "performance_cycle_latency_max_too_high:3184.909226>max:2000.000000",
+        "performance_cycle_span_residual_too_high:2844.792811>max:1000.000000"
+      ],
+      "maker_submits": 18.0,
+      "maker_fills": 27.0,
+      "maker_window_active_row_count": 80.0,
+      "maker_window_submit_count": 16.0,
+      "maker_window_replace_guard_count": 32.0,
+      "maker_window_quote_quality_skip_total_count": 6.0,
+      "maker_min_notional_max_shares_conflict_rows": 0.0,
+      "maker_complete_bad_ratio": 1.0,
+      "maker_multifill_complete_incorrect_ratio": 1.0,
+      "forge_masters_bundle_dir": "/home/odah/bro/base/logs_exec/paper_universal/forge_masters_archive_run_0cfbe40a-8a9c-4ff6-b094-bec6c200ef23",
+      "fusion_core_profile_dir": "/home/odah/bro/base/logs_exec/paper_universal/fusion_core_profile_run_0cfbe40a-8a9c-4ff6-b094-bec6c200ef23"
+    },
+    {
+      "run_id": "8fabbe70-742a-4e74-b791-2f885a59a010",
+      "set_role": "clean_baseline",
+      "canonical_status": "pass",
+      "runtime_classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "gate_passed": true,
+      "soak_findings": [],
+      "maker_submits": 21.0,
+      "maker_fills": 13.0,
+      "maker_window_active_row_count": 80.0,
+      "maker_window_submit_count": 21.0,
+      "maker_window_replace_guard_count": 12.0,
+      "maker_window_quote_quality_skip_total_count": 23.0,
+      "maker_min_notional_max_shares_conflict_rows": 0.0,
+      "maker_complete_bad_ratio": 0.5,
+      "maker_multifill_complete_incorrect_ratio": 0.0,
+      "forge_masters_bundle_dir": "/home/odah/bro/base/logs_exec/paper_universal/forge_masters_archive_run_8fabbe70-742a-4e74-b791-2f885a59a010",
+      "fusion_core_profile_dir": "/home/odah/bro/base/logs_exec/paper_universal/fusion_core_profile_run_8fabbe70-742a-4e74-b791-2f885a59a010"
+    },
+    {
+      "run_id": "3f1bc263-e209-4e05-a510-1218d63d70f4",
+      "set_role": "accepted_with_warning",
+      "canonical_status": "pass",
+      "runtime_classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "gate_passed": true,
+      "soak_findings": [
+        "soak_maker_submits_too_low:24.000000<min:27.000000"
+      ],
+      "maker_submits": 24.0,
+      "maker_fills": 23.0,
+      "maker_window_active_row_count": 80.0,
+      "maker_window_submit_count": 24.0,
+      "maker_window_replace_guard_count": 31.0,
+      "maker_window_quote_quality_skip_total_count": 12.0,
+      "maker_min_notional_max_shares_conflict_rows": 14.0,
+      "maker_complete_bad_ratio": 0.75,
+      "maker_multifill_complete_incorrect_ratio": 0.75,
+      "forge_masters_bundle_dir": "/home/odah/bro/base/logs_exec/paper_universal/forge_masters_archive_run_3f1bc263-e209-4e05-a510-1218d63d70f4",
+      "fusion_core_profile_dir": "/home/odah/bro/base/logs_exec/paper_universal/fusion_core_profile_run_3f1bc263-e209-4e05-a510-1218d63d70f4"
+    }
+  ],
+  "reusable_for": [
+    "fma_dead_zone_analysis",
+    "lathe_baseline_control",
+    "future_mill_input_stock",
+    "maker_variable_change_comparison",
+    "taker_sniper_mapping_comparison"
+  ],
+  "shared_outputs": {
+    "forge_masters_archive_latest_dir": "/home/odah/bro/base/logs_exec/paper_universal/forge_masters_archive_latest",
+    "fusion_core_profile_latest_dir": "/home/odah/bro/base/logs_exec/paper_universal/fusion_core_profile_latest"
+  }
+}

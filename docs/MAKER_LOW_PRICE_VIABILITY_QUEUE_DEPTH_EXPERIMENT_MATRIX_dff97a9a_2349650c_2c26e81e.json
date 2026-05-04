@@ -1,0 +1,164 @@
+{
+  "packet_id": "maker_low_price_viability_queue_depth_forensic_dff97a9a_2349650c_2c26e81e",
+  "specimen_run_ids": [
+    "dff97a9a-9953-47e6-939f-f5f1f8814ed4",
+    "2349650c-5a83-4d65-8e7a-c2c4578c2cd6",
+    "2c26e81e-084f-4b85-854d-161d9d81c2b4"
+  ],
+  "control_run_ids": [
+    "2f607a7b-d5ec-4882-a521-9f07ca3e9dd5"
+  ],
+  "status": "analysis_only",
+  "objective": "Promote low-price viability conflict and queue-depth friction into first-class maker truth before the next paper-only mutation.",
+  "preserve": [
+    "timing_gate_doctrine_honesty",
+    "canonical_maker_replace_min_rest_sec_3p0",
+    "split_quote_quality_discipline",
+    "multifill_wound_protection"
+  ],
+  "pinned_truth": {
+    "baseline_valid_specimen": {
+      "run_id": "dff97a9a-9953-47e6-939f-f5f1f8814ed4",
+      "maker_window_active_row_count": 40,
+      "maker_window_submit_count": 16,
+      "maker_window_replace_guard_count": 16,
+      "maker_window_quote_quality_skip_total_count": 8,
+      "maker_min_notional_max_shares_conflict_rows": 0,
+      "maker_complete_bad_ratio": 0.6666666666666666,
+      "maker_multifill_complete_incorrect_ratio": 1.0
+    },
+    "friction_heavy_valid_specimen": {
+      "run_id": "2349650c-5a83-4d65-8e7a-c2c4578c2cd6",
+      "maker_window_active_row_count": 78,
+      "maker_window_submit_count": 19,
+      "maker_window_replace_guard_count": 12,
+      "maker_window_quote_quality_skip_total_count": 23,
+      "maker_min_notional_max_shares_conflict_rows": 6,
+      "maker_complete_bad_ratio": 1.0,
+      "maker_multifill_complete_incorrect_ratio": 1.0
+    },
+    "healthier_valid_specimen": {
+      "run_id": "2c26e81e-084f-4b85-854d-161d9d81c2b4",
+      "maker_window_active_row_count": 82,
+      "maker_window_submit_count": 23,
+      "maker_window_replace_guard_count": 12,
+      "maker_window_quote_quality_skip_total_count": 5,
+      "maker_min_notional_max_shares_conflict_rows": 0,
+      "maker_complete_bad_ratio": 0.6666666666666666,
+      "maker_multifill_complete_incorrect_ratio": 0.5555555555555556
+    },
+    "cadence_control": {
+      "run_id": "2f607a7b-d5ec-4882-a521-9f07ca3e9dd5",
+      "maker_window_active_row_count": 40,
+      "maker_window_submit_count": 2,
+      "maker_window_replace_guard_count": 0,
+      "maker_window_quote_quality_skip_total_count": 8,
+      "maker_min_notional_max_shares_conflict_rows": 20
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "title": "Low-price viability conflict is a specimen family, not a universal constant",
+      "truth_class": "INFERRED",
+      "support": [
+        "conflict_rows are 0 in dff97a9a and 2c26e81e",
+        "conflict_rows are 6 in 2349650c and 20 in cadence control 2f607a7b",
+        "conflict price band is pinned at 0.025..0.035 when present"
+      ],
+      "opening_posture": "shadow_only_first"
+    },
+    {
+      "id": "H2",
+      "title": "Queue depth must be split into viable near-threshold vs hard bad-depth families",
+      "truth_class": "INFERRED",
+      "support": [
+        "2349650c and 2f607a7b show hard queue-depth pressure",
+        "2c26e81e shows only light queue-depth pressure while still firing actively",
+        "queue-depth friction is not equally severe on all active target families"
+      ],
+      "opening_posture": "split_before_tuning"
+    },
+    {
+      "id": "H3",
+      "title": "The next maker mutation should not be cadence, timing, or blanket quality relaxation",
+      "truth_class": "INFERRED",
+      "support": [
+        "cadence experiment removed replace_guard_min_rest but worsened fireability",
+        "timing doctrine still looks healthy on the valid maker set",
+        "quote-quality pressure remains severity-mixed and specimen-dependent"
+      ],
+      "opening_posture": "defer_mutation"
+    }
+  ],
+  "experiment_ladder": [
+    {
+      "phase": "A",
+      "name": "low_price_viability_and_queue_depth_truth_hardening",
+      "change_type": "instrumentation_only",
+      "runtime_mutation": false,
+      "targets": [
+        "maker_window_sizing_reject_count",
+        "maker_window_sizing_reject_rate",
+        "maker_window_min_notional_max_shares_conflict_count",
+        "maker_window_low_price_conflict_price_band",
+        "maker_window_viable_target_count",
+        "maker_window_impossible_target_count",
+        "maker_window_queue_depth_near_threshold_count",
+        "maker_window_queue_depth_hard_miss_count",
+        "maker_window_queue_depth_target_summary",
+        "maker_window_viability_target_summary"
+      ]
+    },
+    {
+      "phase": "B",
+      "name": "shadow_low_price_viability_classifier",
+      "change_type": "instrumentation_only",
+      "runtime_mutation": false,
+      "success_signals": [
+        "combat-window impossible-row share becomes explicit",
+        "per-target impossible-row burden is machine-readable",
+        "low-price conflict rows can be separated from viable queue-depth pressure"
+      ]
+    },
+    {
+      "phase": "C",
+      "name": "shadow_queue_depth_split",
+      "change_type": "instrumentation_only",
+      "runtime_mutation": false,
+      "success_signals": [
+        "near-threshold vs hard queue-depth misses are split inside the active window",
+        "queue-depth burden is attributable by viable target family",
+        "impossible-stock queue friction is not mixed with viable-stock queue friction"
+      ]
+    },
+    {
+      "phase": "D",
+      "name": "select_one_next_mutation_family",
+      "change_type": "paper_only_config_or_logic_variant",
+      "runtime_mutation": true,
+      "allowed_families": [
+        "low_price_viability_geometry",
+        "tiered_queue_depth_tolerance_for_viable_near_threshold_stock"
+      ],
+      "blocked_families": [
+        "repeat_cadence_cut_first",
+        "timing_window_widening",
+        "blanket_fill_probability_relaxation",
+        "blanket_queue_depth_relaxation",
+        "multi_knob_mutation"
+      ]
+    }
+  ],
+  "non_goals": [
+    "re-run cadence as the default next experiment",
+    "treat one friction-heavy specimen as global maker law",
+    "collapse low-price conflict and queue-depth friction into one generic story",
+    "ignore multifill wound while chasing more submits"
+  ],
+  "recommended_next_packet": {
+    "name": "maker_low_price_viability_queue_depth_instrumentation_and_shadow_packet",
+    "runtime_mutation": false,
+    "intent": "Promote low-price viability and queue-depth truth into first-class surfaces before the next maker mutation."
+  }
+}

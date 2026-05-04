@@ -1,0 +1,119 @@
+{
+  "tool_id": "FM-2A1",
+  "tool_name": "Fusion Core Profiling Tool",
+  "tool_series": "FM",
+  "tool_role": "lathe",
+  "shop_class": "diagnostic_profile_shaper",
+  "status": "implemented_v7_threshold_pressure_hardened",
+  "schema_version": 6,
+  "implementation_pass_status": {
+    "foundation": "implemented",
+    "semantic_red_team_hardening": "implemented",
+    "profile_quality_promotion": "implemented",
+    "lane_maturity_and_contract_hardening": "implemented",
+    "metric_drift_diff_hardening": "implemented",
+    "calibration_and_promotion_audit_hardening": "implemented",
+    "threshold_pressure_matrix_hardening": "implemented"
+  },
+  "decoupling_contract": {
+    "hard_decoupled_from_fma": true,
+    "shares_business_logic_with_fma": false,
+    "reads_exported_artifacts_only": true
+  },
+  "scope": {
+    "lane_scope": [
+      "maker",
+      "taker",
+      "sniper"
+    ],
+    "lane_depth_policy": {
+      "maker": "full_depth_at_or_above_coverage_threshold_else_mixed_depth_partial_deep_or_bounded_depth",
+      "taker": "bounded_depth_only",
+      "sniper": "bounded_depth_only"
+    },
+    "mode_support": [
+      "specimen",
+      "corpus"
+    ],
+    "read_only": true,
+    "allows_runtime_mutation": false,
+    "allows_config_mutation": false,
+    "allows_action_recommendation": false
+  },
+  "upstream_contract": {
+    "preferred_manifest": "fma_bundle_manifest.json",
+    "supports_legacy_bundle_derivation": true,
+    "required_inputs": [
+      "run_index.jsonl",
+      "anomaly_summary.json",
+      "metric_catalog.json"
+    ],
+    "optional_inputs": [
+      "outcome_truth_records.jsonl",
+      "outcome_truth_audit.json",
+      "nightly_soak_report.json"
+    ]
+  },
+  "planned_outputs": [
+    "fusion_core_input_contract_audit.json",
+    "fusion_core_lane_readiness.json",
+    "fusion_core_profile_catalog.json",
+    "fusion_core_profile_cards.md",
+    "fusion_core_stability_matrix.json",
+    "fusion_core_calibration_audit.json",
+    "fusion_core_threshold_pressure_matrix.json",
+    "fusion_core_candidate_blanks.json",
+    "fusion_core_cohort_comparison.csv",
+    "fusion_core_profile_diff.json"
+  ],
+  "math_families_in_scope": [
+    "expected_value_conditional_expectation",
+    "stochastic_survival_hazard",
+    "microstructure_inventory_cost"
+  ],
+  "math_families_out_of_scope": [
+    "bayesian_log_odds_updating",
+    "optimization_control",
+    "risk_sizing_utility"
+  ],
+  "support_tooling": [
+    "input_contract_audit",
+    "lane_readiness",
+    "profile_explainer",
+    "profile_diff",
+    "deterministic_cohort_signature",
+    "metric_drift_diff",
+    "calibration_audit",
+    "threshold_pressure_matrix"
+  ],
+  "profile_quality_guards": [
+    "bounded_lane_grade_cap",
+    "family_signal_posture_tagging",
+    "weak_strength_signal_downgrade",
+    "low_decision_debt_rescue_ratio_exclusion",
+    "compact_cluster_blank_evidence",
+    "high_signal_headline_metric_selection",
+    "partial_deep_coverage_truth",
+    "mixed_bruise_state_distribution",
+    "contract_health_tiers",
+    "headline_metric_drift_detection",
+    "explicit_stability_policy_surface",
+    "profile_promotion_readiness_surface",
+    "lane_promotion_requirements_surface",
+    "multi_policy_grade_projection"
+  ],
+  "quality_gates": [
+    "traceable_profile_outputs",
+    "explicit_population_and_provenance_tags",
+    "strength_and_wound_family_symmetry",
+    "fail_closed_stability_grading",
+    "deterministic_profile_ids_and_output_ordering",
+    "no_policy_logic_leakage",
+    "lane_maturity_truthfulness",
+    "contract_warning_vs_clean_health",
+    "metric_drift_visibility",
+    "promotion_blocker_visibility",
+    "threshold_policy_visibility",
+    "threshold_sensitivity_visibility"
+  ]
+}

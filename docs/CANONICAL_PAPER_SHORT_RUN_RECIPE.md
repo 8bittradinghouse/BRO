@@ -1,20 +1,52 @@
-# PAPER_DISCIPLINE
+# CANONICAL_PAPER_SHORT_RUN_RECIPE
 
 ## Goal
-Backward-compatible alias for canonical paper mode.
+Canonical paper discipline recipe for short controlled runs.
+
+## Surface Class
+- Workflow/backroom recipe doc, not a separate runtime mode.
+- Public canonical paper start remains:
+  `broctl paper -- --active-minutes <minutes> --wait-sec 25`
+- Raw validation commands below remain replay/forensics/control surfaces.
 
 ## Realism Doctrine Anchor
 - Canonical realism doctrine for this harness is defined in:
   - `BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt`
+- Canonical paper harness is the emulation/proving lane for paper evidence.
+- Auxiliary shop tooling is outside canonical paper proof, promotion claims,
+  and front-of-house harness truth.
 - Required claim classes:
   - `authoritative`
   - `bounded_approximation`
   - `not_modeled`
 
+## Scientific Proving Discipline
+- one canonical proving path per evidence claim
+- one controlled variable at a time unless the packet explicitly says otherwise
+- compare runs only when the proving lane is the same
+- required lineage tuple for evidence claims:
+  - `run_id`
+  - `git_commit`
+  - `config_fingerprint_sha256`
+  - `code_fingerprint_sha256`
+
 ## Commands
 ```bash
-SESSION_JSON="$(./scripts/canonical_paper_session.sh --active-minutes 10 --wait-sec 25)"
-RUN_ID="$(printf '%s\n' "${SESSION_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')"
+broctl paper -- --active-minutes 10 --wait-sec 25
+# Use the run_id printed at completion to point MANIFEST_PATH at the matching run manifest.
+MANIFEST_PATH="./logs_exec/paper_universal/run_manifest_<run_id>.json"
+RUN_ID="$(python - "${MANIFEST_PATH}" <<'PY'
+import json, sys
+manifest_path = str(sys.argv[1]).strip()
+if not manifest_path:
+    raise SystemExit("MANIFEST_PATH is required")
+payload = json.load(open(manifest_path, "r", encoding="utf-8"))
+run_id = str(payload.get("run_id") or "").strip()
+if not run_id:
+    raise SystemExit("run_id missing in manifest")
+print(run_id)
+PY
+)"
 RUN_CONTRACT="./logs_exec/paper_universal/run_contract_${RUN_ID}.json"
 ./scripts/canonical_paper_validation.sh "${RUN_ID}" --session-phase validate_postrun --run-contract "${RUN_CONTRACT}"
 python scripts/readiness_gate.py --log-dir ./logs_exec/paper_universal --run-id "${RUN_ID}" --policy ops/ramp_policy.yaml --out ./exports/paper_universal_readiness.json
@@ -56,7 +88,15 @@ Policy source for these thresholds:
   - `decision_input_type` (`observed_live|replayed|emulated|bounded_derived|unknown`)
   - `decision_input_emulated` (bool)
   - `decision_input_data_class`
-  - `execution_realism_class` (`authoritative|bounded_approximation|not_modeled`)
+  - `execution_realism_class` (`bounded_approximation|not_modeled`)
+- Semantic distinction:
+  - `decision_input_source`, `decision_input_type`, `decision_input_emulated`,
+    and `decision_input_data_class` are live contract terms
+  - `execution_realism_class` is an audit/harness classification term, not a
+    replacement for the emitted decision-input fields
+  - harness claim classes may still use `authoritative`, but current emitted
+    `execution_realism_class` values are only `bounded_approximation` and
+    `not_modeled`
 - Paper harness realism is fail-closed for hidden emulation:
   - if emulated decision input is used, it must be explicitly disclosed
   - undisclosed decision-input emulation is a harness-audit failure
@@ -68,10 +108,12 @@ Policy source for these thresholds:
   - emulated-action rows (hard-fail by default)
   - fill-policy basis counts
   - claim-boundary summary (`paper_claim_boundary`)
+  - proving-lineage tuple (`run_id`, `git_commit`, `config_fingerprint_sha256`, `code_fingerprint_sha256`)
   - claim-boundary source truth layers:
     - `decision_source_truth` (all decision rows)
     - `action_source_truth` (action rows only)
     - `source_truth` is kept as a legacy alias of `action_source_truth` for backward-safe parsing
+  - `harness_realism_grade` is descriptive only, not authority and not a pass/fail substitute
 
 ## Maker/Taker Realism Policy Surface
 - Harness audit emits machine-readable policy objects:
@@ -109,3 +151,7 @@ Policy source for these thresholds:
 
 ## Reconcile Partial Truth
 If reconcile output has `verification_level != venue_verified`, treat it as partial evidence and do not claim venue-verified parity.
+- In paper mode, `verification_level=paper_sim_verified` and
+  `verification_scope=paper_wallet_simulation_verified` refer to paper-mode
+  wallet/reconcile semantics only.
+- They do **not** mean non-canonical shop tooling proved anything about the run.
