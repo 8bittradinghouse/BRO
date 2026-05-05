@@ -1130,8 +1130,10 @@ Whole-board reason:
   above paper as the next proof frontier
 - peak-hours economic conclusions also remain deferred because the clean-anchor
   specimen is an overnight logic specimen
-- the freshest watched post-restoration contrast specimen points to the same
-  next move: peak-hours confirmation, not runtime mutation
+- later watched current-code specimens now materially satisfy the old
+  peak-hours paper confirmation debt
+- the highest-ROI next move is no longer another default peak-hours paper
+  specimen; it is bounded `pilot_live` authority prep on the clean tree
 
 That means `BRO` is not yet a `Completed G-Frame / 8bit-worthy` fighter.
 
@@ -1146,10 +1148,11 @@ Not yet authorized:
 
 Highest-ROI next board move:
 - `pilot_live` authority proof:
-  - run one watched peak-hours canonical paper specimen on the clean pushed
-    tree with live inspection through the full run
+  - clean the tree and keep the pushed branch aligned to current proof
+  - use `prelive_gate` and the `live_canary` pathway as the first bounded move
+    on the `pilot_live` frontier
   - keep maker timing and gating unchanged by default; reopen maker/shared
-    lifecycle work only if the peak-hours specimen proves a fresh current-code
+    lifecycle work only if the current-code live-prep path proves a fresh
     contradiction
 - recently completed post-restoration hardening lane:
   - timing spine hardening closed on watched authoritative run

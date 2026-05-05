@@ -40,9 +40,10 @@
 - Current pushed workspace runtime code fingerprint exact-match to timing closeout proof: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed branch: `consultant/full-snapshot-public-20260402T055838Z`
 - Current packet state: committed-and-pushed post-packet G-frame restoration
-  retightening complete; working tree clean; next move is watched peak-hours
-  canonical paper proof for `pilot_live` authority without default maker timing
-  mutation.
+  retightening complete; working tree clean; peak-hours paper confirmation is
+  materially achieved on current proof; next move is bounded `pilot_live`
+  authority prep through clean-tree prelive/live-canary gating without default
+  maker timing mutation.
 
 ## VERIFIED_CLOSED
 - Clean current-code release-anchor proving seam was diagnosed to
@@ -83,8 +84,10 @@
     - logic findings from quote certification, launch mutation,
       execution-quality semantics, and submit-to-cancel survival remain
       authoritative
-    - `next_repair_lane="D. Peak-hours confirmation specimen"`
-    - `peak_hours_economic_conclusion_allowed=false`
+    - its `next_repair_lane="D. Peak-hours confirmation specimen"` and
+      `peak_hours_economic_conclusion_allowed=false` outputs are now historical
+      specimen-local conclusions, not the active board call after later watched
+      current-code peak-hours evidence
 - Post-restoration timing spine hardening is now closed on current proof on
   watched authoritative run `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`:
   - `canonical_paper_validation.json` says:
@@ -444,6 +447,10 @@
 - Whole-fighter completion remains open on the post-restoration `pilot_live`
   authority frontier.
 - BRO remains paper-stage only.
+- Additional watched peak-hours canonical paper specimens are no longer the
+  highest-ROI next proving move unless a fresh contradiction appears.
+- Current next proving move is bounded `pilot_live` authority prep through the
+  clean-tree `prelive_gate` / `live_canary` pathway.
 - Latest clean-tree readiness highest passing stage is `paper`; blocking stage is `pilot_live`.
 - Current broad current-code specimen `7bbde42c-003a-4f57-b59a-7ce138224075`
   preserves full proving lineage on a clean current-code release anchor while

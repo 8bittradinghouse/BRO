@@ -6,7 +6,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 REQUIRED_LOCAL_CONTINUITY_DOCS = [
     "docs/JIN_OPERATING_AGREEMENT.md",
-    "docs/JIN_EVIDENCE_LEDGER_2026-04-24.md",
+    "docs/JIN_COMMAND_CARD_2026-04-27.md",
     "docs/JIN_THREAD_RECOVERY_RUNBOOK.md",
     "docs/JIN_BOOTSTRAP_PROMPT.md",
     "docs/BRO_ENGINEERING_KERNEL.md",

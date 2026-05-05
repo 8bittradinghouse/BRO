@@ -3,6 +3,18 @@
 ## Purpose
 Evidence-backed continuity ledger for Jin/BRO operating contract recovery.
 
+## Authority Boundary
+- This ledger is a dated evidence and lineage surface.
+- It is **not** the active current-truth owner.
+- It is **not** the active pickup owner.
+- Current continuity pickup belongs to:
+  - `/home/odah/.codex/jin-pack/JIN_COMMAND_CARD_2026-04-27.md`
+- Current BRO-local truth belongs to:
+  - `/home/odah/bro/base/docs/PROJECT_TRUTH_STATE.md`
+  - `/home/odah/bro/base/docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+  - `/home/odah/bro/base/docs/NEXT_PACKET_PLAN.md`
+  - `/home/odah/bro/base/docs/OPEN_LIMITATIONS.md`
+
 ## Source Corpus
 - Cross-thread extraction root:
   - `/home/odah/backups/jin_customization_research_20260424T000000Z`
@@ -56,21 +68,22 @@ Evidence-backed continuity ledger for Jin/BRO operating contract recovery.
 11. `VERIFIED`: The clock/timing packet is closed enough for this stage; current timing conclusion is healthy host clock plus timing-chain focus rather than host drift panic.
 12. `VERIFIED`: The active paper money spec is aligned around `4000` base capital, `$350` maker orders, and `$150` taker/sniper orders.
 13. `VERIFIED`: Hidden taker choke suspicion was investigated and later downgraded to a watch item after watched runs showed clean taker fires without obvious hidden suppression.
-14. `VERIFIED`: The current active pickup point after the newest watched runs is taker truth-substrate / audit-alignment hardening rather than the older complement-path packet by itself.
-15. `VERIFIED`: Duplicate taker truth chatter and raw execution-quality gate misuse were corrected in the active repo during the latest packet.
-16. `VERIFIED`: The current taker packet is being worked through the `maker/taker interaction and end-state shape` lens rather than as an isolated taker-only lane.
-17. `VERIFIED`: A new market-family seam was identified: sibling maker inventory/open-order baggage can contaminate a committed taker lane even when future maker eligibility is already blocked.
-18. `VERIFIED`: The active repo now contains two surgical protections for that seam:
+14. `VERIFIED`: As of the `2026-04-24` restore window, the active pickup point after the newest watched runs was taker truth-substrate / audit-alignment hardening rather than the older complement-path packet by itself.
+15. `VERIFIED`: That pickup truth is now historical and has been superseded by later G-frame closeout and timing-closeout handoff truth.
+16. `VERIFIED`: Duplicate taker truth chatter and raw execution-quality gate misuse were corrected in the active repo during the latest packet.
+17. `VERIFIED`: The current taker packet is being worked through the `maker/taker interaction and end-state shape` lens rather than as an isolated taker-only lane.
+18. `VERIFIED`: A new market-family seam was identified: sibling maker inventory/open-order baggage can contaminate a committed taker lane even when future maker eligibility is already blocked.
+19. `VERIFIED`: The active repo now contains two surgical protections for that seam:
     - normal taker fail-closes with `market_family_sibling_inventory_active` when sibling market-family baggage is still live,
     - after a real normal taker fill, sibling open maker orders in that family are canceled immediately.
-19. `VERIFIED`: Focused tests for the new market-family seam packet passed.
-20. `VERIFIED`: Shoulder-regime runtime `6b69aba9-1614-4d2c-9e42-8b83106900e6` did not prove taker edge quality; it mostly provided structural truth and recovery specimens.
-21. `VERIFIED`: The new market-family gate fired only a few times in that runtime and does not currently look like a blanket choke.
-22. `VERIFIED`: The ugly `00:09:15Z` cluster in `6b69...` was recovery override behavior under `preexpiry_reduce_only_window_active`, not a clean normal taker specimen going wild.
-23. `VERIFIED`: The canonical wrapper showed a closeout/finalization seam in `6b69...`; this should be tracked separately from taker-lane truth.
-24. `VERIFIED`: `Save point` is now an explicit continuity practice: refresh the Jin pack and mirrored repo continuity docs before buggy-thread drift can redirect the work.
-25. `INFERRED`: Maintaining stable teammate tone and frequent progress updates reduces operational friction and improves decision quality under pressure.
-26. `UNKNOWN`: Any continuity claim not anchored to thread/code/artifacts remains unknown until explicitly re-validated.
+20. `VERIFIED`: Focused tests for the new market-family seam packet passed.
+21. `VERIFIED`: Shoulder-regime runtime `6b69aba9-1614-4d2c-9e42-8b83106900e6` did not prove taker edge quality; it mostly provided structural truth and recovery specimens.
+22. `VERIFIED`: The new market-family gate fired only a few times in that runtime and does not currently look like a blanket choke.
+23. `VERIFIED`: The ugly `00:09:15Z` cluster in `6b69...` was recovery override behavior under `preexpiry_reduce_only_window_active`, not a clean normal taker specimen going wild.
+24. `VERIFIED`: The canonical wrapper showed a closeout/finalization seam in `6b69...`; this should be tracked separately from taker-lane truth.
+25. `VERIFIED`: `Save point` is now an explicit continuity practice: refresh the Jin pack and approved repo bridge docs before buggy-thread drift can redirect the work.
+26. `INFERRED`: Maintaining stable teammate tone and frequent progress updates reduces operational friction and improves decision quality under pressure.
+27. `UNKNOWN`: Any continuity claim not anchored to thread/code/artifacts remains unknown until explicitly re-validated.
 
 ## Restoration Anchors (2026-04-24 Session)
 - `2026-04-24T00:28:25Z`:
@@ -121,10 +134,10 @@ Core rule set status:
 ## Mitigations
 1. Use `/home/odah/.codex/jin-pack` as single startup source.
 2. Use `JIN_BOOTSTRAP_PROMPT.md` for new-thread restoration.
-3. Load `JIN_RESTORATION_MEMO_2026-04-24.md` and `JIN_CONTINUITY_PROFILE.md` before coding.
+3. Use `JIN_COMMAND_CARD_2026-04-27.md` plus the BRO current-truth owners before coding.
 4. Run `JIN_THREAD_RECOVERY_RUNBOOK.md` for any continuity incident.
 5. Keep periodic emergency backup copies with checksums.
-6. Preserve and restate the current pickup point whenever a continuity incident occurs.
+6. Preserve and restate the current pickup owner whenever a continuity incident occurs.
 7. Distinguish mechanical wins from doctrinal wins when interpreting taker validation runs.
 
 ## Latest Runtime Evidence Addendum
@@ -151,9 +164,10 @@ Core rule set status:
   - `6eed0d0` single-authority paper pathway and timing spine
   - `f5791be` audit/report truth semantics
   - `53121bc` runtime execution and lifecycle steel
-- Current next move is a watched peak-hours canonical paper run for
-  `pilot_live` authority proof on the clean pushed tree, with no default maker
-  timing/gating mutation unless a fresh contradiction is proven.
+- Current next move is bounded `pilot_live` authority prep through
+  clean-tree `prelive_gate` / `live_canary` work, with watched peak-hours paper
+  confirmation now treated as materially achieved on current proof and no
+  default maker timing/gating mutation unless a fresh contradiction is proven.
 
 ### Money Packet Alignment (VERIFIED)
 - Active paper profile now uses:

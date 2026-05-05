@@ -7,6 +7,7 @@ continuity commands.
 Bridge boundary note:
 - this card is a continuity bridge / operator pocket surface
 - it is not a BRO doctrine root or board owner
+- it is the sole Jin-pack continuity pickup bridge owner
 - when active BRO truth matters, re-anchor to `docs/PROJECT_TRUTH_STATE.md`,
   `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`, and
   `docs/NEXT_PACKET_PLAN.md`
@@ -130,7 +131,9 @@ Current runtime truth:
   - `blocking_stage=pilot_live`
   - `runtime_classification=VALID_ACTIVE`
 - next engineering lane:
-  - watched peak-hours canonical paper proof for `pilot_live` authority
+  - clean-tree `prelive_gate` / `live_canary` prep for `pilot_live` authority
+  - watched peak-hours paper confirmation is now treated as materially achieved
+    on current proof unless a fresh contradiction appears
   - keep pickup authority anchored to:
     - `docs/PROJECT_TRUTH_STATE.md`
     - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`

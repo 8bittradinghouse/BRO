@@ -45,7 +45,15 @@ BRO is a doctrine-locked trading execution system. The operating expectation is 
 ## Continuity Documents
 For BRO continuity-sensitive work, load these first:
 1. `/home/odah/bro/base/docs/JIN_OPERATING_AGREEMENT.md`
-2. `/home/odah/bro/base/docs/JIN_EVIDENCE_LEDGER_2026-04-24.md`
+2. `/home/odah/bro/base/docs/JIN_COMMAND_CARD_2026-04-27.md`
 3. `/home/odah/bro/base/docs/JIN_THREAD_RECOVERY_RUNBOOK.md`
 4. `/home/odah/bro/base/docs/JIN_BOOTSTRAP_PROMPT.md`
 5. `/home/odah/bro/base/docs/BRO_ENGINEERING_KERNEL.md`
+6. `/home/odah/bro/base/docs/DOCTRINE_RUNBOOK.md`
+7. `/home/odah/bro/base/docs/PROJECT_TRUTH_STATE.md`
+8. `/home/odah/bro/base/docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+9. `/home/odah/bro/base/docs/NEXT_PACKET_PLAN.md`
+10. `/home/odah/bro/base/docs/OPEN_LIMITATIONS.md`
+
+Optional historical reference:
+- `/home/odah/bro/base/docs/JIN_EVIDENCE_LEDGER_2026-04-24.md`

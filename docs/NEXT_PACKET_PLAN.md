@@ -77,8 +77,11 @@ G-frame override:
     - Packet 6 Nervous-system consumer-truth closure achieved on `13fd...`
   - weapons remain diagnostic-only
   - current proving move:
-    - watched peak-hours canonical paper run on the clean pushed tree
-    - live inspection throughout the run
+    - clean the tree and keep the pushed branch aligned to current proof
+    - treat watched peak-hours paper confirmation as materially achieved on
+      current proof
+    - move to bounded `pilot_live` authority prep through
+      `prelive_gate` / `live_canary`
     - no maker timing or gating mutation by default unless a fresh
       contradiction is proven
   - current saved branch / cleanliness state:
@@ -179,8 +182,10 @@ Historical-lane archive rule:
   - latest completed post-restoration hardening lane is
     `timing spine hardening`
   - current next macro proof frontier is `pilot_live` authority proof
-  - first proving move on that frontier is a watched peak-hours canonical
-    paper run on the clean pushed tree without default maker timing mutation
+  - watched peak-hours canonical paper confirmation is now materially achieved
+    on current proof and is no longer the default next proving move
+  - first bounded move on that frontier is clean-tree `prelive_gate` /
+    `live_canary` authority prep without default maker timing mutation
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:
