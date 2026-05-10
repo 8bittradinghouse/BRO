@@ -119,6 +119,8 @@
 - Current VPS resource telemetry is now visible, but capacity planning remains evidence-driven and unresolved for future multi-BRO operation.
 - Packet 2 `Maker-Live / Economic Trust Qualification` remains unopened and
   unresolved even though Packet 1 has now closed `bounded-live-test ready`.
+- the active Packet 2 recovery/entry artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - A clean current-code release anchor now exists on
   `7bbde42c-003a-4f57-b59a-7ce138224075`, but that does not remove the
   `pilot_live` frontier or promote whole-fighter closure by itself.

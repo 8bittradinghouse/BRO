@@ -30,6 +30,8 @@
 - macro lane: `live trust qualification`
 - current lane status: `open`
 - current active implementation lane: `Packet 2 maker live trust qualification (next to open from Packet 1 closeout)`
+- active Packet 2 entry artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - core-frame restoration dependency: `complete`
 - timing spine hardening dependency: `complete`
 - watched peak-hours paper confirmation dependency: `materially achieved`
@@ -82,6 +84,45 @@
   - `GO` for current-truth lock, tree cleanup, clean-state Packet 1 rerack,
     and explicit residual-seam carry
   - `NO-GO` for generic tuning or live arming
+
+## Packet 1 Relock Spine
+Authority boundary:
+- this section preserves the current `pilot_live` packet-entry relock method
+- it does not outrank doctrine roots, packet-local owner maps, or stronger
+  current-code runtime proof
+
+Carry-forward law from Packet 1:
+- restore first, tune later
+- runtime truth outranks wrapper-green and convenience summaries
+- history explains ancestry only
+- support tools may help diagnosis but may not impersonate runtime authority
+- each packet must force one owner map before closure
+
+Required relock order for later packets:
+1. mission lock and explicit no-change list
+2. doctrine-root and current board-owner reload
+3. runtime river map:
+   - doctrine roots
+   - runtime emitters
+   - validators
+   - reports
+   - operator consumers
+   - back into the strongest owner
+4. surface classification:
+   - owner-law
+   - valid interlock
+   - compatibility bridge
+   - historical-only
+   - scar tissue
+5. contradiction matrix plus strongest falsifier list
+6. watched runtime proof with raw event/status/timing/wallet/lifecycle/outcome
+   inspection
+7. contradiction compression pass and negative-proof pass before closure
+
+Current board use:
+- Packet 1 remains the reference restoration method for `pilot_live`
+- Packet 2 and later packets inherit the method, not the taker-specific owner
+  answers
 
 ## Drift Register
 | ID | Drift | Risk | Status |
@@ -176,6 +217,8 @@
     - action-row source purity clean on both lanes
     - repaired valuation summary carries event-level bruise windows truthfully
   - next packet to open from this closeout is `Packet 2 Maker-Live`
+  - active Packet 2 recovery/entry artifact is:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
     `$20` taker shot for proving
   - that same external audit now explicitly keeps the inherited taker
     fire-condition subtree under challenge:

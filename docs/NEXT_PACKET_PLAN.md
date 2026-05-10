@@ -100,6 +100,13 @@ G-frame override:
       - combat timing doctrine verification
       - gate legitimacy sweep
       - packet-entry tribunal outputs before implementation starts
+      - Packet 1 restoration replay:
+        - reload current board owners and doctrine roots first
+        - trace doctrine -> runtime -> validators -> reports -> operator
+          consumers -> back to the strongest owner
+        - classify surfaces as owner-law, valid interlock, compatibility,
+          historical-only, or scar tissue
+        - preserve the no-change list before any slice lands
     - no maker timing/gating mutation or generic weapon tuning by default unless
       a fresh contradiction is proven
   - current saved branch / cleanliness state:
@@ -216,6 +223,12 @@ Historical-lane archive rule:
     - one-brain owner collapse is materially achieved on current code
     - recovery/handoff owner classification is now explicitly keep-now dead power
     - fresh watched closeout proof now exists on the stored bundle
+    - Packet 1 now also serves as the live-trust restoration reference method
+      for later `pilot_live` packets:
+      - restore before tuning
+      - runtime truth over wrapper-green
+      - history as ancestry only
+      - one owner map before closure
   - that first packet must force a full taker inherited-lineage split-brain map from core
     doctrine out through branch/contact surfaces and back into the true owner
   - bounded `prelive_gate` / `live_canary` work remains a proving tool inside
@@ -225,6 +238,8 @@ Historical-lane archive rule:
     2. Packet 3 `Grip-Live`
     3. Packet 4 `Bounded Live Hookup`
     4. Packet 5 `Immediate-Performance Proof`
+  - active Packet 2 recovery/entry artifact is:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:

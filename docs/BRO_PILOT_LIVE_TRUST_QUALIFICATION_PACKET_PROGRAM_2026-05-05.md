@@ -26,6 +26,8 @@ for:
 - `Packet 3` through `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+- The live working Packet 2 entry artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - latest watched current-tree health anchor is
   `6957087b-488e-4bbb-b8b9-1f215b5e33d0`:
   - stored validator bundle clean with all exits `0`
@@ -42,6 +44,45 @@ for:
   - subtree removal posture is balanced re-home-then-delete, not blind rip-out
   - old sniper-era surfaces are compatibility/readback only unless they still
     prove a real doctrine or safety job
+
+## Packet 1 Restoration Carry-Forward
+Authority boundary:
+- this section preserves the current `pilot_live` packet-entry restoration method
+- it does not replace doctrine roots, lane doctrine, or packet-local owner maps
+
+Carry-forward philosophy:
+- qualification before tuning
+- restoration before tuning
+- one concept / one term / one owner
+- emitted runtime truth outranks wrapper-green and convenience summaries
+- history is ancestry only unless current code re-proves it
+- valid safety interlocks stay; fake authority and compensator fat do not
+
+Required packet-entry replay:
+1. reload current whole-fighter and lane-local owners before reading historical
+   packets
+2. trace the lane from doctrine roots through runtime emitters, validators,
+   reports, operator consumers, and back into the strongest current owner
+3. classify every touching surface as:
+   - owner-law
+   - valid interlock
+   - compatibility bridge
+   - historical reference only
+   - scar tissue / likely purge material
+4. declare a no-change list before implementation so cleanup does not turn into
+   tuning by momentum
+5. land one seam or one tightly coupled authority set per slice unless
+   inseparability is proven
+6. reprove on watched runtime and inspect raw event, status, timing, wallet,
+   lifecycle, and outcome truth under the wrapper
+7. close only after contradiction compression, negative-proof, and explicit
+   residual carry
+
+Program law:
+- later packets may inherit Packet 1's restoration method
+- later packets must not inherit taker-specific answers without re-proving them
+- no packet may use support tools, historical packet wins, or wrapper summaries
+  to outrank stronger current-code doctrine/runtime truth
 
 ## Supporting Doctrine
 - `BRO_CANONICAL_DOCTRINE.txt`
@@ -368,6 +409,8 @@ Exit criteria:
 
 ### Packet 2: Maker-Live / Economic Trust Qualification
 - prove maker is economically safe enough to arm
+- active packet-entry artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 
 Questions to answer:
 - is maker expectancy quality acceptable?

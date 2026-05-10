@@ -475,6 +475,8 @@
 - latest closed Packet 1 artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
 - next packet to open inside that lane is `Maker-Live / Economic Trust Qualification`
+- active Packet 2 recovery/entry artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - current Packet 1 live-trust verdict:
   - `bounded-live-test ready`
   - one-brain owner collapse is materially achieved on current code
@@ -517,6 +519,14 @@
   - negative-proof pass
   - combat timing doctrine verification
   - gate legitimacy sweep
+- Packet 1 now preserves the reference relock method for later `pilot_live`
+  packets:
+  - reload current board owners and doctrine roots before history
+  - map doctrine -> runtime -> validators -> reports -> operator consumers ->
+    back to the strongest current owner
+  - classify surfaces as owner-law, valid interlock, compatibility,
+    historical-only, or scar tissue
+  - preserve an explicit no-change list before slices land
 - `prelive_gate` and `live_canary` remain bounded tools inside that lane, not
   the final authority by themselves.
 - no blueprint tuning is authorized inside Packet 1 through Packet 4

@@ -6,9 +6,11 @@ Current pickup point:
   - `pilot_live`
 - active macro lane:
   - `live trust qualification`
-- current fresh short seam specimen:
+- current watched closeout proof specimen:
+  - `run_id=6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+- historical short seam specimen:
   - `run_id=4243e263-7f5c-4bbe-bf13-68163a04f7e9`
-- current fresh timing-clean healthy specimen:
+- historical timing-clean healthy specimen:
   - `run_id=069f4459-6804-44ac-a8eb-95f511d9f787`
 - historical ancestry-only taker closeout:
   - `BRO_HANDOFF_20260405T051017Z_SNIPER_TAKER_PACKET_CLOSEOUT.md`
@@ -56,13 +58,13 @@ Current blocker being judged:
 
 ## Current Execution Status
 - packet status:
-  - `active closure implementation lane`
+  - `closed / bounded-live-test ready`
 - packet disease statement:
-  - taker lane still carries shared late-window owner-law, shared maker/taker
-    interference, and stale sniper-era consumer/config/report/test residue that
-    can let one lane step on the other or let weaker surfaces impersonate
-    stronger ones
-- current implementation ladder:
+  - taker lane had been carrying shared late-window owner-law, shared
+    maker/taker interference, and stale sniper-era
+    consumer/config/report/test residue that could let one lane step on the
+    other or let weaker surfaces impersonate stronger ones
+- as-executed restoration ladder:
   1. replace shared late-window owner-law with explicit authority truth
   2. cut maker/taker runtime interference from normal taker authority
   3. preserve the canonical taker owner path while quarantining sniper-era
@@ -113,6 +115,51 @@ Go / no-go:
 - `GO` for doctrine/runtime mapping, watched analysis, and implementation
   planning
 - `NO-GO` for generic tuning, live arming, or broad runtime mutation
+
+## Packet 1 Restoration Method Lock
+Authority boundary:
+- this section preserves the method that actually closed Packet 1
+- it does not replace doctrine roots or authorize later packets to inherit
+  taker-specific answers without re-proof
+
+Big-picture lock:
+- this packet succeeded by restoring one-brain taker truth before tuning
+- the job was to kill false owners, quarantine history, preserve valid
+  interlocks, and prove the live lane on watched runtime
+- the job was not to make taker look busy or profitable by momentum
+
+As-executed method:
+1. reload current board owners and doctrine roots before trusting historical
+   packet language
+2. trace the taker river from doctrine core through:
+   - stage/window authority
+   - runtime emitters and controller identity
+   - timing truth
+   - market-reference truth
+   - gate / guardian surfaces
+   - recovery / handoff seams
+   - report / audit / operator consumers
+   - and then back into the strongest current owner
+3. classify each touching surface as:
+   - owner-law
+   - valid interlock
+   - compatibility bridge
+   - historical-only
+   - scar tissue / purge candidate
+4. preserve an explicit no-change list so semantic cleanup cannot smuggle in
+   tuning
+5. land one seam or one tightly coupled authority set per slice
+6. reprove against watched runtime and inspect raw event, status, timing,
+   wallet, lifecycle, and outcome truth under the wrapper
+7. close only after contradiction compression, negative-proof, and explicit
+   residual carry
+
+Carry-forward law:
+- future `pilot_live` packets may inherit this restoration method
+- future packets must restate their own mission lock, owner map, no-change list,
+  contradiction matrix, and falsifier list before implementation begins
+- history stays history unless current code and watched proof make it current
+  again
 
 ## Proof Cohort
 Current doctrine/static owner set:
@@ -1285,4 +1332,5 @@ Immediate next packet work:
 2. keep the doctrine-root, two-surface stage contract, fallback verdict, and
    compatibility-bridge defer calls fixed as closed Packet 1 truth
 3. open `Packet 2 Maker-Live / Economic Trust Qualification` as the next
-   bounded `pilot_live` packet
+   bounded `pilot_live` packet through:
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`

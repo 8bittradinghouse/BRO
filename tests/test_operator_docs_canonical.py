@@ -722,6 +722,41 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertNotIn("prodesk/sniper_tool.py", packet_text)
         self.assertNotIn("| Taker/Sniper Live |", sink_text)
 
+    def test_live_trust_packet_2_maker_entry_artifact_is_wired_and_recovery_ready(self):
+        packet_path = (
+            REPO_ROOT
+            / "docs"
+            / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
+        )
+        packet_text = packet_path.read_text(encoding="utf-8")
+        program_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+        sink_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+        truth_text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
+        next_plan_text = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
+        limits_text = (REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md").read_text(encoding="utf-8")
+
+        self.assertIn("Maker Live Trust Qualification", packet_text)
+        self.assertIn("## Packet-Local Lock Card", packet_text)
+        self.assertIn("## Carry-Forward From Packet 1", packet_text)
+        self.assertIn("## Open Investigation Lanes", packet_text)
+        self.assertIn("## Immediate Recovery Pickup", packet_text)
+        self.assertIn("restore first, tune later", packet_text)
+        self.assertIn("FMA", packet_text)
+        self.assertIn("small recurring negative maker losses", packet_text)
+        self.assertIn("SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md", packet_text)
+        self.assertIn("GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md", packet_text)
+
+        packet_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
+        self.assertIn(packet_rel, program_text)
+        self.assertIn(packet_rel, sink_text)
+        self.assertIn(packet_rel, truth_text)
+        self.assertIn(packet_rel, next_plan_text)
+        self.assertIn(packet_rel, limits_text)
+
     def test_bro_canonical_doctrine_matches_current_taker_stage_authority(self):
         doctrine_text = (REPO_ROOT / "BRO_CANONICAL_DOCTRINE.txt").read_text(encoding="utf-8")
 
