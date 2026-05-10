@@ -161,6 +161,39 @@ Packet 1 restoration law that stays active here:
 
 Packet 2 inherits the method, not Packet 1's taker-specific answers.
 
+## Proof Acquisition Cadence
+Packet 2 must use the same proof-acquisition rhythm that earned trustworthy
+closure in Packet 1.
+
+Required ladder:
+1. ring tests / trigger-pull proof first
+   - prove the important guards, fail-closed seams, and owner surfaces in
+     miniature when practical
+2. watched paper specimen second
+   - collect exact-run truth on the live lane, not only local test comfort
+3. deliberate runtime stop once the needed answer is earned
+   - do not let idle continuation create false confidence or extra noise
+4. presidential full-system under-the-hood inspection
+   - raw event tape
+   - status rows / slices
+   - host time sync
+   - wallet and capital authority
+   - lifecycle truth
+   - outcome truth
+   - edge / decision math truth
+   - websocket / feed health
+   - report / wrapper closeout truth
+5. truth reconciliation before surgery or closeout
+   - runtime truth
+   - validator truth
+   - report truth
+   - wrapper mood
+   - specimen math / economic interpretation
+
+Failure rule:
+- if these disagree, Packet 2 stays in diagnosis
+- no runtime surgery or packet closeout is legal from half-merged truth
+
 ## Current Known Truths
 - `VERIFIED`: current Packet 2 truth boundary is no longer “old lag choke gone”
   in the abstract:

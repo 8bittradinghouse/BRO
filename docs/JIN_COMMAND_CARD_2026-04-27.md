@@ -143,6 +143,13 @@ Current runtime truth:
     - negative-proof pass
     - combat timing doctrine verification
     - gate legitimacy sweep
+    - diagnostic ladder:
+      - ring tests / trigger-pull proof
+      - watched paper specimen
+      - deliberate runtime stop once the needed answer is earned
+      - presidential under-the-hood inspection:
+        raw events/status, host sync, wallet/lifecycle, outcome/edge, and
+        report truth reconciliation
   - Packet 2 recurring self-hardening cadence:
     - after every 2 investigation slices
     - after watched runtime proof
