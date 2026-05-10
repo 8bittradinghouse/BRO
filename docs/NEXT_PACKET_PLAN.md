@@ -105,7 +105,7 @@ G-frame override:
   - current saved branch / cleanliness state:
     - `consultant/full-snapshot-public-20260402T055838Z`
     - pushed
-    - working tree currently carries live-trust rehardening updates
+    - working tree clean after Packet 1 closeout stack
 
 Historical-lane archive rule:
 - remaining sections below may preserve continuity and comparative context

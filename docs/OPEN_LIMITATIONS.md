@@ -54,10 +54,11 @@
 - Current pushed tree remains:
   - branch `consultant/full-snapshot-public-20260402T055838Z`
   - pushed
-  - working tree currently carries live-trust rehardening updates
-- Current `HEAD` is docs/rerack commit `000a7f4...`; the live-trust runtime /
-  config / report changes in the working tree remain uncommitted proof-seeking
-  work above that pushed tip.
+  - working tree clean after Packet 1 closeout stack
+- Current clean closeout stack is:
+  - runtime / config / report closeout packet `7bf765e...`
+  - closeout-anchor sync packet `c3c5086...`
+  - clean-state truth lock packet `907afa9...`
 - Latest clean-tree validation run `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6`
   remains a clean-tree wiring reference, not the active front-door runtime
   anchor.
