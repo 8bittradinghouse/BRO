@@ -35,8 +35,14 @@ G-frame override:
 - active next-step authority for G-frame work now lives in:
   - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
   - `docs/BRO_GFRAME_CORE_RESTORATION_PACKET_PROGRAM_2026-05-01.md`
-  - foundational packet artifacts for Packet 1, Packet 2, Packet 3, and
-    Packet 4, Packet 5, Packet 6, and Packet 7
+- completed packet artifacts for Packet 1, Packet 2, Packet 3, Packet 4,
+  Packet 5, Packet 6, and Packet 7 remain historical closure and
+  defect-lineage support only
+- historical demotion rule:
+  - all completed `BRO_GFRAME_PACKET_*` artifacts are important historical
+    closure and defect-lineage records
+  - they do not independently own the current `pilot_live` pickup
+  - they do not outrank the active `pilot_live` board/program/packet owners
 - Packet 5 operator-facing semantic rule:
   - this file is a pickup surface only
   - it does not own runtime Brain semantics
@@ -84,15 +90,21 @@ G-frame override:
     taker live-trust qualification are authorized as diagnostic proof
     work
   - current proving move:
-    - clean the tree and keep the pushed branch aligned to current proof
-    - treat watched peak-hours paper confirmation as materially achieved on
-      current proof
-    - move to the `pilot_live` live-trust qualification lane using:
+    - open Packet 2 `Maker-Live / Economic Trust Qualification` through:
+      - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
       - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
       - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-    - treat `prelive_gate` / `live_canary` as bounded tools inside that lane,
+      - `docs/PROJECT_TRUTH_STATE.md`
+      - `docs/OPEN_LIMITATIONS.md`
+    - begin with read-only mapping and truth sharpening only:
+      - maker authority census
+      - blueprint delta map
+      - support-tool vs runtime-owner split
+      - history-only demotion map
+      - small-loss anatomy trace
+    - treat `prelive_gate` / `live_canary` as bounded tools later in the lane,
       not the final authority by themselves
-    - require every packet in that lane to carry:
+    - require every packet in the lane to carry:
       - forward semantics sweep
       - reverse semantics sweep
       - contradiction compression pass
@@ -112,13 +124,17 @@ G-frame override:
   - current saved branch / cleanliness state:
     - `consultant/full-snapshot-public-20260402T055838Z`
     - pushed
-    - working tree clean after Packet 1 closeout stack
+    - verify live cleanliness with `git status`; older clean-tree statements
+      below are historical continuity records, not present-tense authority
 
 Historical-lane archive rule:
 - remaining sections below may preserve continuity and comparative context
 - they do not independently authorize the current primary lane
 - they do not outrank the G-frame override, the audit board sink, or the packet
   program
+- older sections may use then-current words like `current`, `next`, or `ready`
+  for their own dated moment; unless reflected in the top active section, read
+  them as historical archive only
 - current next move after G-frame Packet 7 is:
   - re-enter the macro father-frame restoration road using the Packet 7 board
     call

@@ -54,7 +54,8 @@
 - Current pushed tree remains:
   - branch `consultant/full-snapshot-public-20260402T055838Z`
   - pushed
-  - working tree clean after Packet 1 closeout stack
+  - clean-tree Packet 1 closeout snapshot had been achieved before later
+    continuity hardening packets; verify live cleanliness via `git status`
 - Current clean closeout stack is:
   - runtime / config / report closeout packet `7bf765e...`
   - closeout-anchor sync packet `c3c5086...`

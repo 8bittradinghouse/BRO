@@ -500,6 +500,9 @@
   - support tools may remain useful, but may not regain current owner-law
   - historical maker packets may explain ancestry only unless current code
     re-proves them
+  - completed G-frame packet artifacts remain important historical closure and
+    substrate-lineage records, but they do not own the current Packet 2 pickup
+    unless active `pilot_live` owners explicitly route through them
 - current Packet 1 live-trust verdict:
   - `bounded-live-test ready`
   - one-brain owner collapse is materially achieved on current code

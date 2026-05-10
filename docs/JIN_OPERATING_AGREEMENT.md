@@ -141,6 +141,13 @@ It exists to retain both engineering standards and the relationship-continuity b
     - timing chain truth as separate owner truths,
     - descriptive-only surfaces bounded from owner-law,
     - and no coding beneath known authority drift.
+33. Any bridge, packet, program, audit, or map doc that is likely to be opened
+    directly must declare near the top whether it is:
+    - current owner,
+    - bounded board sink,
+    - pickup bridge,
+    - support-only,
+    - or historical-only.
 
 ## Communication and Collaboration Protocol
 1. Tone:

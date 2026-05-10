@@ -1,5 +1,12 @@
 # BRO G-Frame Packet 6: Nervous System / Consumer-Truth Closure Map
 
+Historical-active boundary note:
+- this packet is a completed historical forensic and closure record
+- it remains valid for defect lineage, contrast evidence, and method
+  inheritance
+- it does not own the active `pilot_live` packet pickup or Packet 2
+  `Maker-Live` sequencing
+
 ## Authority Lock
 Current pickup point:
 - active current-code canonical runtime proof:

@@ -1,5 +1,12 @@
 # BRO G-Frame Packet 7: G-Frame Regrade And Weapon Authorization Gate
 
+Historical-active boundary note:
+- this packet is a completed historical board-call and closure record
+- it remains valid for defect lineage, contrast evidence, and method
+  inheritance
+- it does not own the active `pilot_live` packet pickup or Packet 2
+  `Maker-Live` sequencing
+
 ## Authority Lock
 Current pickup point:
 - Packets `1-6` are handoff-grade and consumable as a block.

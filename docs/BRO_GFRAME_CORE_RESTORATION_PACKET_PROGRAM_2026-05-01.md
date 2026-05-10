@@ -4,6 +4,16 @@
 This version hard-locks the core-restoration packet program to the persisted
 BRO-local rehardening gate instead of leaving the QRF behavior implicit.
 
+Historical-active boundary note:
+- this program is completed historical restoration architecture for the
+  father-frame
+- it remains important for method inheritance, closure lineage, and older
+  packet interpretation
+- it does not own the active `pilot_live` packet pickup or Packet 2
+  `Maker-Live` sequencing
+- current active lane authority lives in the `pilot_live` board/program/packet
+  owners
+
 Supporting BRO-local control doctrine:
 - `BRO_CANONICAL_DOCTRINE.txt`
 - `BRO_EDGE_DOCTRINE.txt`

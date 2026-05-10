@@ -492,6 +492,51 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             )
             self.assertIn("docs/PROJECT_TRUTH_STATE.md", text, msg=f"bridge re-anchor note missing from {path}")
 
+    def test_foundation_first_fieldcraft_law_is_reflected_in_bridge_docs(self):
+        bootstrap = (REPO_ROOT / "docs" / "JIN_BOOTSTRAP_PROMPT.md").read_text(encoding="utf-8")
+        recovery = (REPO_ROOT / "docs" / "JIN_THREAD_RECOVERY_RUNBOOK.md").read_text(encoding="utf-8")
+        command = (REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md").read_text(encoding="utf-8")
+        agreement = (REPO_ROOT / "docs" / "JIN_OPERATING_AGREEMENT.md").read_text(encoding="utf-8")
+
+        self.assertIn("Foundation first. Do not answer dirty foundations with build solutions.", bootstrap)
+        self.assertIn("foundation first / no build solutions over dirty ground", recovery)
+        self.assertIn("foundation first; no build solutions", command)
+        self.assertIn("For continuity-sensitive or capital-trust packets, proof must be earned", agreement)
+        self.assertIn("Foundation first; do not answer dirty foundations with build solutions.", agreement)
+        self.assertIn("must declare near the top whether it is", agreement)
+        self.assertIn("bounded board sink", agreement)
+        self.assertIn("historical-only", agreement)
+
+    def test_gframe_docs_mark_completed_packet_stack_as_historical_support(self):
+        audit = (REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md").read_text(encoding="utf-8")
+        program = (REPO_ROOT / "docs" / "BRO_GFRAME_CORE_RESTORATION_PACKET_PROGRAM_2026-05-01.md").read_text(encoding="utf-8")
+        next_plan = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
+        packet_paths = sorted((REPO_ROOT / "docs").glob("BRO_GFRAME_PACKET_*_2026-05-0*.md"))
+
+        self.assertIn("Historical-active boundary note:", audit)
+        self.assertIn("does not own the active `pilot_live` packet pickup", audit)
+        self.assertIn("Historical-active boundary note:", program)
+        self.assertIn("does not own the active `pilot_live` packet pickup", program)
+        self.assertGreaterEqual(len(packet_paths), 7)
+        for path in packet_paths:
+            text = path.read_text(encoding="utf-8")
+            compact = " ".join(text.split())
+            self.assertIn("Historical-active boundary note:", text, msg=f"historical boundary missing from {path}")
+            self.assertIn(
+                "does not own the active `pilot_live` packet pickup",
+                text,
+                msg=f"active pickup demotion missing from {path}",
+            )
+            self.assertIn(
+                "Packet 2 `Maker-Live` sequencing",
+                compact,
+                msg=f"maker packet demotion missing from {path}",
+            )
+        self.assertIn("historical demotion rule:", next_plan)
+        self.assertIn("do not independently own the current `pilot_live` pickup", next_plan)
+        self.assertNotIn("foundational packet artifacts for Packet 1", next_plan)
+        self.assertIn("remain historical closure and", next_plan)
+
     def test_historical_harness_audit_remains_explicitly_historical(self):
         text = (REPO_ROOT / "docs" / "BRO_PAPER_HARNESS_DIAGNOSTIC_AUDIT_2026-04-30.md").read_text(encoding="utf-8")
         self.assertIn("historical_scope_note", text)

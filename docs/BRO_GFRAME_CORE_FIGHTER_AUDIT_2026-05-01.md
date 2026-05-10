@@ -22,6 +22,14 @@ No allowed substitutes:
 - harness is fine so the fighter is fine
 - weapon symptom means weapon packet
 
+Historical-active boundary note:
+- this audit remains the supporting G-frame / whole-fighter board sink
+- it does not own the active `pilot_live` packet pickup
+- it does not own active Packet 2 `Maker-Live` sequencing
+- completed G-frame packet artifacts remain important historical closure and
+  defect-lineage records, not present-tense packet owners unless current active
+  owners explicitly route through them
+
 ## Authority Chain
 Current audit authority, highest to lowest:
 1. `docs/PROJECT_TRUTH_STATE.md` for repo-level current truth

@@ -1,5 +1,12 @@
 # BRO G-Frame Packet 1: Bones / Identity / Release-Truth Lock
 
+Historical-active boundary note:
+- this packet is a completed historical closure record
+- it remains valid for closure lineage, contrast evidence, and method
+  inheritance
+- it does not own the active `pilot_live` packet pickup or Packet 2
+  `Maker-Live` sequencing
+
 ## Authority Lock
 Current pickup point:
 - current broad current-code canonical runtime proof:
