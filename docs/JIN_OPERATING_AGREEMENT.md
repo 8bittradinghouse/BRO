@@ -123,6 +123,15 @@ It exists to retain both engineering standards and the relationship-continuity b
    - and before any ready / closeout recommendation.
 27. Prefer family-cut surgery once owner truth is mapped; do not leave residue
     by habit when a full family can be retired honestly.
+28. For continuity-sensitive or capital-trust packets, proof must be earned
+    through the diagnostic ladder:
+    - ring tests / trigger-pull proof,
+    - watched specimen,
+    - deliberate runtime stop once the needed answer is earned,
+    - presidential under-the-hood inspection,
+    - and truth reconciliation before recommendation.
+29. No runtime surgery, ready call, or closeout recommendation is legal from
+    wrapper comfort, summary mood, or half-merged truth.
 
 ## Communication and Collaboration Protocol
 1. Tone:
@@ -181,6 +190,16 @@ It exists to retain both engineering standards and the relationship-continuity b
      rough drafts by default,
    - require at least one explicit second-pass hardening / red-team review
      before treating a new build as turned in.
+6.5 Proof acquisition discipline:
+   - on continuity-sensitive or capital-trust packets, use the diagnostic
+     ladder by default:
+     - ring tests / trigger-pull proof,
+     - watched specimen,
+     - deliberate runtime stop once the needed answer is earned,
+     - presidential under-the-hood inspection,
+     - truth reconciliation before recommendation.
+   - do not let wrapper comfort, summary neatness, or one convenient surface
+     skip the ladder.
 7. Truth discipline:
    - report exactly what passed,
    - report exactly what was not tested,
