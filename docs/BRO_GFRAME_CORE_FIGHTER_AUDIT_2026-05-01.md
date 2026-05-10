@@ -805,7 +805,9 @@ Current evidence:
   - current broad current-code proof `7bbde42c-003a-4f57-b59a-7ce138224075` is
     the clean current-code release anchor
   - latest lane-specific closeout proof
-    `33e30bd8-e416-488e-83ce-f99c8665e7fc` is lane-specific closeout proof
+    `6957087b-488e-4bbb-b8b9-1f215b5e33d0` is lane-specific closeout proof
+  - latest grip-specific closeout proof
+    `33e30bd8-e416-488e-83ce-f99c8665e7fc` remains bounded grip closure proof
   - historical broad dirty-worktree proof
     `13fd56b5-3f12-48ec-a07d-04b7d83d07ac` remains supporting current-code proof
     on the earlier active anchor
@@ -1248,12 +1250,13 @@ Highest-ROI next board move:
   - until the remaining post-packet core unresolveds are no longer blocking,
     later packet verdicts remain
       `provisional / subordinate to earlier blocker`
-- current live-board update:
+  - current live-board update:
   - Packet 1 release-truth fence is now aligned to the current release-anchor
     board law:
     - `7bbde42c-003a-4f57-b59a-7ce138224075` = clean current-code release
       anchor
-    - `33e30bd8-e416-488e-83ce-f99c8665e7fc` = lane-specific closeout proof
+    - `6957087b-488e-4bbb-b8b9-1f215b5e33d0` = lane-specific closeout proof
+    - `33e30bd8-e416-488e-83ce-f99c8665e7fc` = grip-specific closeout proof
     - `13fd56b5-3f12-48ec-a07d-04b7d83d07ac` = historical broad dirty-worktree
       current-code proof
     - `4494f47e-9c0d-4ab0-80a3-141588388446` = historical contrast evidence

@@ -5,6 +5,8 @@ Current pickup point:
 - current broad current-code canonical runtime proof:
   `7bbde42c-003a-4f57-b59a-7ce138224075`
 - latest current-code lane-specific closeout proof:
+  `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+- latest grip-specific closeout proof:
   `33e30bd8-e416-488e-83ce-f99c8665e7fc`
 - latest completed post-restoration hardening lane:
   `timing spine hardening`
@@ -20,7 +22,7 @@ Authority chain:
 3. relevant BRO-local doctrine/runbook surfaces named in `Module Intake`
 4. current-code runtime proof plus manifest / contract / report artifacts
    - broad current-code proof `7bbde42c-003a-4f57-b59a-7ce138224075`
-   - lane-specific closeout proof `33e30bd8-e416-488e-83ce-f99c8665e7fc`
+   - lane-specific closeout proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 5. validator / gate / audit surfaces for the lane being judged
 6. `docs/CURRENT_BASELINE.md` as reference-only
 7. packet-local prior blockers and forensic artifacts
@@ -160,7 +162,7 @@ Current evidence anchors:
   - current broad current-code canonical runtime proof
     `7bbde42c-003a-4f57-b59a-7ce138224075`
   - latest current-code lane-specific closeout proof
-    `33e30bd8-e416-488e-83ce-f99c8665e7fc`
+    `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
   - current post-restoration hardening frontier
     `timing spine hardening`
   - current next proof frontier after timing hardening
@@ -191,9 +193,9 @@ Current evidence anchors:
       `492ea0b757623c0a9dade4a333c0bf743dcd05ffbaa8a3c34b24c16a22313ede`
 - latest lane-specific closeout proof artifact family
   - report dir:
-    `logs_exec/paper_universal/reports/33e30bd8-e416-488e-83ce-f99c8665e7fc`
+    `logs_exec/paper_universal/reports/6957087b-488e-4bbb-b8b9-1f215b5e33d0`
   - session dir:
-    `logs_exec/paper_universal/sessions/1da6753e-efe4-4ca4-b878-5797b17adebb`
+    `logs_exec/paper_universal/sessions/2c374032-023d-4563-aa19-cfc648d676f5`
   - proof class:
     - bounded lane-specific closeout proof only
     - does not certify whole-fighter closure
@@ -244,7 +246,7 @@ Stale surfaces that must not dominate judgment:
 
 ## Contradiction Matrix
 - current truth now says `7bbde...` is the broad current-code runtime anchor
-- current truth still says `33e3...` is the latest lane-specific closeout proof
+- current truth now says `6957...` is the latest lane-specific closeout proof
 - historical broad dirty-worktree proof `13fd...` previously carried the active
   current-code diagnosis on an older runtime fingerprint
 - baseline truth says the latest clean-tree validation anchor is older and
@@ -253,13 +255,13 @@ Stale surfaces that must not dominate judgment:
   host-time semantic split on a dirty current-code anchor
 - `7bbde...` is stronger on release posture and current runtime-fingerprint
   identity than `13fd...`
-- `33e3...` proves bounded lane closeout but not whole-fighter closure
+- `6957...` proves bounded lane closeout but not whole-fighter closure
 - clean baseline proof has stronger baseline release quality but weaker recency
   for the present runtime fingerprint and doctrine-restored state
 
 Resolution:
 - `7bbde...` = clean current-code release anchor
-- `33e3...` = lane-specific closeout proof
+- `6957...` = lane-specific closeout proof
 - `13fd...` = historical broad dirty-worktree current-code proof
 - `4494...` and `b0f...` = historical contrast evidence
 - clean baseline proof does not own present closure
@@ -270,7 +272,7 @@ Resolution:
 Top-down authority preservation findings:
 - `docs/PROJECT_TRUTH_STATE.md` correctly names:
   - `7bbde...` as the current broad current-code proof
-  - `33e3...` as the latest lane-specific closeout proof
+  - `6957...` as the latest lane-specific closeout proof
   - post-restoration `timing spine hardening` as the current macro hardening
     frontier
   - post-restoration `pilot_live` authority proof as the next proof frontier
@@ -428,7 +430,7 @@ Currently missing proof:
 `VERIFIED`:
 - current broad current-code proof `7bbde...` is the clean current-code release
   anchor for the live runtime fingerprint
-- latest lane-specific closeout proof `33e3...` is **lane-specific closeout
+- latest lane-specific closeout proof `6957...` is **lane-specific closeout
   proof**
 - historical broad dirty-worktree proof `13fd...` remains supporting contrast
   for the earlier downstream closure lane

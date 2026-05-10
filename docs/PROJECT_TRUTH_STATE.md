@@ -8,7 +8,7 @@
   does not replace this file as the current truth screen.
 
 ## Evidence Lock
-- Current code-bearing repo commit: `53121bc3641822283ba3543d7eebb42c810eb687`
+- Latest Packet 1 closeout code-bearing repo commit: `7bf765ecd8f83cd08955e9bce80d813bbf77d221`
 - Current baseline tag: `bro-launch-window-continuity-baseline-20260422`
 - Latest clean-tree validation run: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - Current broad current-code canonical runtime proof: `7bbde42c-003a-4f57-b59a-7ce138224075`
@@ -19,9 +19,9 @@
 - Current broad current-code promotion eligibility: `true`
 - Current broad current-code recommended next stage: `pilot_live`
 - Current broad current-code proof git commit: `24e8dcaa471f8651a5e9231fdf3564026d4294b0`
-- Latest current-code lane-specific closeout proof: `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- Latest current-code lane-specific closeout report dir: `logs_exec/paper_universal/reports/33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- Latest current-code lane-specific closeout session dir: `logs_exec/paper_universal/sessions/1da6753e-efe4-4ca4-b878-5797b17adebb`
+- Latest current-code lane-specific closeout proof: `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+- Latest current-code lane-specific closeout report dir: `logs_exec/paper_universal/reports/6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+- Latest current-code lane-specific closeout session dir: `logs_exec/paper_universal/sessions/2c374032-023d-4563-aa19-cfc648d676f5`
 - Current G-frame restoration status: `complete`
 - Current whole-fighter completion status: `still open`
 - Latest completed post-restoration hardening lane: `timing spine hardening`

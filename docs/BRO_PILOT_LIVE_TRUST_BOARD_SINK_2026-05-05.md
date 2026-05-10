@@ -12,8 +12,8 @@
 
 ## Evidence Lock
 - active branch: `consultant/full-snapshot-public-20260402T055838Z`
-- current commit: `000a7f4c1c605abbf0892edd790e6ee6cf809394`
-- current tree cleanliness: `dirty`
+- latest Packet 1 closeout packet commit: `7bf765ecd8f83cd08955e9bce80d813bbf77d221`
+- current tree cleanliness: `clean`
 - current broad proof anchor: `7bbde42c-003a-4f57-b59a-7ce138224075`
 - current timing closeout anchor: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current grip closeout anchor: `33e30bd8-e416-488e-83ce-f99c8665e7fc`
