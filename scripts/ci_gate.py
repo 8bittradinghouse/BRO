@@ -752,7 +752,7 @@ def main() -> None:
                 "10",
                 "--max-capture-gap",
                 "10",
-                "--max-sniper-fill-rate-gap",
+                "--max-taker-fill-rate-gap",
                 "0.8",
                 "--max-latency-p90-gap-ms",
                 "500",

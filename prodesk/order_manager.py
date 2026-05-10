@@ -10,6 +10,16 @@ import re
 from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 from .common import parse_float, parse_ts, utc_iso, utc_now
+from .edge_truth_contract import (
+    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+    EDGE_AUTH_NORMAL_TAKER_FIELD,
+    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
+    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
+    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+    EDGE_STAGE_BUCKET_FIELD,
+    EDGE_STAGE_EFFECTIVE_FIELD,
+    stage_surface_fields,
+)
 from .execution_quality import ExecutionQualityModel
 from .gateway import BaseGateway, GatewayError, PostOnlyRejectError
 from .logging_utils import EventLogger
@@ -68,7 +78,6 @@ COMMITMENT_ROUTINE_CANCEL_ORIGINS = frozenset(
         "tracked_token_cleanup",
         "non_target_cleanup",
         "targeted_token_cleanup",
-        "market_family_commitment_cleanup",
     }
 )
 COMMITMENT_EXCEPTIONAL_CANCEL_ORIGINS = frozenset(
@@ -364,8 +373,6 @@ class OrderManager:
         if explicit:
             return explicit
         normalized_reason = str(requested_reason or "").strip().lower()
-        if normalized_reason == "normal_taker_market_family_commitment_cleanup":
-            return "market_family_commitment_cleanup"
         if normalized_reason == COMMITMENT_CANCEL_REASON_WINDOW_ENDED:
             return "commitment_expiry_cleanup"
         return normalized_reason or "unknown"
@@ -543,9 +550,15 @@ class OrderManager:
             or competitiveness_context.get("stage")
             or ""
         ).strip().upper()
+        maker_new_risk_allowed = bool(
+            shadow_event.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, competitiveness_context.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False))
+        )
         gate_applied = bool(
             self.maker_selection_gate_enabled
-            and stage in self.maker_selection_gate_allowed_stages
+            and (
+                maker_new_risk_allowed
+                or stage in self.maker_selection_gate_allowed_stages
+            )
         )
         depth_multiple_vs_cannon_target = None
         visible_depth_notional_usd = None
@@ -816,8 +829,33 @@ class OrderManager:
             "side": str(side).strip().upper(),
             "one_sided_active": bool(competitiveness_context.get("one_sided_active", False)),
             "side_policy": str(competitiveness_context.get("side_policy") or "TWO_SIDED").strip().upper(),
-            "stage": str(desired_intent.stage or competitiveness_context.get("stage") or "").strip().upper() or "UNKNOWN",
-            "raw_stage": str(competitiveness_context.get("raw_stage") or "").strip().upper() or None,
+            **stage_surface_fields(
+                effective_stage=(
+                    desired_intent.stage
+                    or competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
+                    or competitiveness_context.get("stage")
+                ),
+                stage_bucket=(
+                    competitiveness_context.get(EDGE_STAGE_BUCKET_FIELD)
+                    or competitiveness_context.get("raw_stage")
+                ),
+            ),
+            EDGE_AUTH_MAKER_NEW_RISK_FIELD: bool(
+                competitiveness_context.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)
+            ),
+            EDGE_AUTH_NORMAL_TAKER_FIELD: bool(
+                competitiveness_context.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False)
+            ),
+            EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD: bool(
+                competitiveness_context.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
+            ),
+            EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD: bool(
+                competitiveness_context.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
+            ),
+            EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD: str(
+                competitiveness_context.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
+            ).strip().lower()
+            or "unknown",
             "cycle_index": int(cycle_index) if isinstance(cycle_index, int) else None,
             "ts_decision_utc": (
                 str(desired_intent.decision_reference_ts_utc).strip()
@@ -2987,8 +3025,12 @@ class OrderManager:
         base_size = float(size) if size is not None else float(self.base_order_size)
         competitiveness_stage = None
         if isinstance(competitiveness_context, dict):
-            raw_stage = str(competitiveness_context.get("stage") or "").strip()
-            competitiveness_stage = raw_stage.upper() if raw_stage else None
+            effective_stage = str(
+                competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
+                or competitiveness_context.get("stage")
+                or ""
+            ).strip()
+            competitiveness_stage = effective_stage.upper() if effective_stage else None
         explicit_stage = str(stage or "").strip()
         resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
         intent = OrderIntent(
@@ -3104,8 +3146,12 @@ class OrderManager:
         explicit_stage = str(stage or "").strip()
         competitiveness_stage = None
         if isinstance(competitiveness_context, dict):
-            raw_stage = str(competitiveness_context.get("stage") or "").strip()
-            competitiveness_stage = raw_stage.upper() if raw_stage else None
+            effective_stage = str(
+                competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
+                or competitiveness_context.get("stage")
+                or ""
+            ).strip()
+            competitiveness_stage = effective_stage.upper() if effective_stage else None
         resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
         base_intent = OrderIntent(
             token_id=token_id,

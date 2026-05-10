@@ -92,7 +92,7 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertFalse(stage_allows_action("OBSERVE", EDGE_ACTION_MAKER))
         self.assertFalse(stage_allows_action("SNIPER_PRIMARY", EDGE_ACTION_MAKER))
         self.assertFalse(stage_allows_action("SNIPER_PRIMARY", EDGE_ACTION_TAKER))
-        self.assertTrue(stage_allows_action("EXTREME_ONLY", EDGE_ACTION_TAKER))
+        self.assertFalse(stage_allows_action("EXTREME_ONLY", EDGE_ACTION_TAKER))
 
     def test_compute_edge_value_returns_none_when_missing_inputs(self) -> None:
         self.assertIsNone(compute_edge_value(fair_probability=None, market_probability=0.5))
@@ -113,9 +113,6 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
         self.assertTrue(is_canonical_block_reason("taker_visible_fill_ratio_below_min"))
         self.assertTrue(is_canonical_block_reason("normal_taker_same_token_sell_forbidden"))
-        self.assertTrue(is_canonical_block_reason("normal_taker_commitment_active"))
-        self.assertTrue(is_canonical_block_reason("market_family_sibling_inventory_active"))
-        self.assertTrue(is_canonical_block_reason("maker_blocked_by_normal_taker_commitment"))
         self.assertTrue(is_canonical_block_reason("complement_route_disabled_pending_validation"))
         self.assertTrue(is_canonical_block_reason("complement_token_mapping_unavailable"))
         self.assertTrue(is_canonical_block_reason("complement_token_fair_probability_unavailable"))
@@ -125,7 +122,6 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("reduce_only_recovery_waiting_for_maker_exit"))
         self.assertTrue(is_canonical_block_reason("reduce_only_recovery_size_cap_unavailable"))
         self.assertTrue(is_canonical_block_reason("reduce_only_recovery_touch_price_unavailable"))
-        self.assertTrue(is_canonical_block_reason("market_token_not_flat_and_clear"))
         self.assertTrue(is_canonical_block_reason("maker_to_taker_recovery_handoff_disabled"))
         self.assertTrue(is_canonical_block_reason("taker_recovery_disabled_in_taker_scope"))
         self.assertFalse(is_canonical_block_reason("unspecified_no_action"))

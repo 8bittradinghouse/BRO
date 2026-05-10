@@ -74,13 +74,6 @@ LANE_REGISTRY: dict[str, dict[str, Any]] = {
             "window_conversion_overview",
         ],
     },
-    "sniper": {
-        "display_name": "Sniper Wakazashi",
-        "max_depth_class": "bounded_depth",
-        "bounded_only": True,
-        "requires_deep_outcome_records_for_full_depth": False,
-        "profile_families": [],
-    },
 }
 
 STABILITY_POLICY: dict[str, Any] = {
@@ -505,8 +498,6 @@ def _build_lane_readiness(
         "mode": mode,
         "lanes": {},
     }
-    row_count = len(rows)
-    any_sniper_surface = any(any(key.startswith("sniper_") for key in row.keys()) for row in rows)
 
     maker_deep_run_count = sum(1 for payload in deep_artifacts.values() if payload.get("outcome_truth_records"))
     maker_support_rows = sum(
@@ -581,26 +572,6 @@ def _build_lane_readiness(
             }
         ],
         "promotion_path": "earn_deeper_taker_truth_mapping_before_promotion",
-    }
-
-    readiness["lanes"]["sniper"] = {
-        "display_name": LANE_REGISTRY["sniper"]["display_name"],
-        "depth_class": "bounded_depth",
-        "can_emit_profiles": any_sniper_surface,
-        "source_row_count": row_count if any_sniper_surface else 0,
-        "deep_outcome_run_count": 0,
-        "supported_profile_families": LANE_REGISTRY["sniper"]["profile_families"],
-        "reason_codes": ["sniper_bounded_depth_only", "sniper_surface_missing_in_bundle" if not any_sniper_surface else "sniper_surface_present"],
-        "promotion_blockers": ["lane_registry_bounded_only", "sniper_truth_mapping_not_earned"],
-        "promotion_requirements": [
-            {
-                "kind": "mapping_packet",
-                "metric": "sniper_truth_mapping",
-                "current": "surface_missing" if not any_sniper_surface else "bounded_summary_only",
-                "required_state": "earned_deeper_truth_mapping",
-            }
-        ],
-        "promotion_path": "earn_sniper_truth_mapping_before_promotion",
     }
     return readiness
 

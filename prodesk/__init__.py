@@ -17,7 +17,7 @@ __all__ = [
     "pyth_feed",
     "risk",
     "security",
-    "sniper_tool",
+    "taker_competitiveness",
     "state_store",
     "strategy",
     "telemetry",

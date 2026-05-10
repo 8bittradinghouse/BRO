@@ -18,6 +18,37 @@ class EdgeTruthAuditTests(unittest.TestCase):
             out = dict(row)
             if "ts_utc" not in out:
                 out["ts_utc"] = out.get("timestamp_utc")
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and str(out.get("stage") or "").strip().upper() == "EXTREME_ONLY"
+                and (not bool(out.get("reduce_only_recovery_active", False)))
+                and "maker_new_risk_allowed" not in out
+                and "normal_taker_allowed" not in out
+            ):
+                sec_value = out.get("time_remaining_sec")
+                sec = float(sec_value) if isinstance(sec_value, (int, float)) else None
+                maker_new_risk_allowed = False
+                normal_taker_allowed = False
+                authority_class = "timing_unknown"
+                if sec is None:
+                    authority_class = "timing_unknown"
+                elif sec < 0.0:
+                    authority_class = "expired_recovery_only"
+                elif sec <= 7.0 + 1e-9:
+                    normal_taker_allowed = True
+                    authority_class = "normal_taker_only"
+                elif sec <= 15.0 + 1e-9:
+                    authority_class = "reduce_only_recovery_only"
+                elif sec <= 20.0 + 1e-9:
+                    maker_new_risk_allowed = True
+                    authority_class = "maker_new_risk_only"
+                else:
+                    authority_class = "pre_late_window_existing_stage"
+                out["maker_new_risk_allowed"] = maker_new_risk_allowed
+                out["normal_taker_allowed"] = normal_taker_allowed
+                out["reduce_only_recovery_allowed"] = False
+                out["preexpiry_emergency_taker_allowed"] = False
+                out["late_window_authority_class"] = authority_class
             normalized_rows.append(out)
         payload = "\n".join(json.dumps(row, sort_keys=True) for row in normalized_rows) + "\n"
         path.write_text(payload, encoding="utf-8")

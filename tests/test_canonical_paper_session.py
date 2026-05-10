@@ -316,9 +316,14 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
                 stop_dt=stop_dt,
                 preferred_path=preferred,
             )
-            resolved = {str(p.resolve()) for p in paths}
-            self.assertIn(str((log_dir / "status_2026-03-19.jsonl").resolve()), resolved)
-            self.assertIn(str((log_dir / "status_2026-03-20.jsonl").resolve()), resolved)
+            resolved = [str(p.resolve()) for p in paths]
+            self.assertEqual(
+                resolved,
+                [
+                    str((log_dir / "status_2026-03-19.jsonl").resolve()),
+                    str((log_dir / "status_2026-03-20.jsonl").resolve()),
+                ],
+            )
 
     def test_compute_active_timing_ignores_prestart_elapsed_when_not_runtime_capped(self) -> None:
         timing = _compute_active_timing(

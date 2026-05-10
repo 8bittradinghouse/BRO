@@ -23,13 +23,11 @@
   "scope": {
     "lane_scope": [
       "maker",
-      "taker",
-      "sniper"
+      "taker"
     ],
     "lane_depth_policy": {
       "maker": "full_depth_at_or_above_coverage_threshold_else_mixed_depth_partial_deep_or_bounded_depth",
-      "taker": "bounded_depth_only",
-      "sniper": "bounded_depth_only"
+      "taker": "bounded_depth_only"
     },
     "mode_support": [
       "specimen",

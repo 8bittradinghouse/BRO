@@ -135,6 +135,32 @@ def _event(
         "ts_decision_utc": ts_utc,
     }
     row.update(extra)
+    if str(event_type).strip() == "edge_evaluation":
+        evaluation_scope = str(row.get("evaluation_scope") or "").strip().lower()
+        maker_allowed = bool(row.get("maker_allowed", False))
+        taker_allowed = bool(row.get("taker_allowed", False))
+        recovery_active = bool(row.get("reduce_only_recovery_active", False))
+        if "maker_new_risk_allowed" not in row:
+            row["maker_new_risk_allowed"] = bool(
+                evaluation_scope == "maker" and maker_allowed and (not recovery_active)
+            )
+        if "normal_taker_allowed" not in row:
+            row["normal_taker_allowed"] = bool(
+                evaluation_scope == "taker" and taker_allowed and (not recovery_active)
+            )
+        row.setdefault("reduce_only_recovery_allowed", bool(recovery_active))
+        row.setdefault("preexpiry_emergency_taker_allowed", False)
+        if "late_window_authority_class" not in row:
+            if bool(row.get("preexpiry_emergency_taker_allowed", False)):
+                row["late_window_authority_class"] = "preexpiry_emergency_recovery_only"
+            elif bool(row.get("reduce_only_recovery_allowed", False)):
+                row["late_window_authority_class"] = "reduce_only_recovery_only"
+            elif bool(row.get("normal_taker_allowed", False)):
+                row["late_window_authority_class"] = "normal_taker_only"
+            elif bool(row.get("maker_new_risk_allowed", False)):
+                row["late_window_authority_class"] = "maker_new_risk_only"
+            else:
+                row["late_window_authority_class"] = "authority_closed"
     return row
 
 
@@ -441,7 +467,7 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
                 "side": "BUY",
                 "price": 0.5,
                 "size": 6.0,
-                "reason_code": "sniper_taker_chainlink",
+                "reason_code": "taker_chainlink",
                 "execution_preference": "taker_only",
                 "market_id": "m-reconnect",
                 "window_id": "2026-03-30T00:01",
@@ -649,7 +675,7 @@ def _thin_liquidity_partial_fill_scenario_rows(
                 "side": "BUY",
                 "price": 0.5,
                 "size": 10.0,
-                "reason_code": "sniper_taker_chainlink",
+                "reason_code": "taker_chainlink",
                 "execution_preference": "taker_only",
                 "market_id": "m-thin",
                 "window_id": "2026-03-30T00:04",

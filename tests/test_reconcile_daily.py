@@ -16,7 +16,7 @@ class ReconcileDailyTests(unittest.TestCase):
             events_path = root / "events_2026-03-03.jsonl"
             events = [
                 {"run_id": run_id, "event_type": "order_submit", "order_id": "o1", "reason": "maker_quote"},
-                {"run_id": run_id, "event_type": "order_submit", "order_id": "o2", "reason": "sniper_taker_chainlink"},
+                {"run_id": run_id, "event_type": "order_submit", "order_id": "o2", "reason": "taker_chainlink"},
                 {"run_id": run_id, "event_type": "fill", "order_id": "o1", "token_id": "t1", "side": "BUY", "price": 0.5, "size": 10},
                 {"run_id": run_id, "event_type": "fill", "order_id": "o2", "token_id": "t1", "side": "SELL", "price": 0.6, "size": 5},
             ]

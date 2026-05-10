@@ -31,6 +31,10 @@ from scripts.readiness_gate import (
 from scripts.run_integrity_audit import run_audit as run_integrity_audit
 from scripts.websocket_reliability_gate import run_gate as run_websocket_reliability_gate
 
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_SOAK_BUDGET_PATH = (ROOT_DIR / "ops" / "soak_budget.yaml").resolve()
+DEFAULT_RAMP_POLICY_PATH = (ROOT_DIR / "ops" / "ramp_policy.yaml").resolve()
+
 
 def _f(value: Any, default: float) -> float:
     try:
@@ -121,6 +125,17 @@ def _metric_epsilon(
     return max(0.0, default_min_eps if kind == "min" else default_max_eps)
 
 
+def _resolve_repo_owned_path(path: pathlib.Path, *, repo_default: pathlib.Path) -> pathlib.Path:
+    if path.is_absolute():
+        return path.resolve()
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    if str(path).strip():
+        return (ROOT_DIR / path).resolve()
+    return repo_default.resolve()
+
+
 def run_gate(
     *,
     log_dir: pathlib.Path,
@@ -130,7 +145,8 @@ def run_gate(
     session_phase: str = "validate_postrun",
 ) -> Dict[str, Any]:
     normalized_phase = enforce_validation_phase(validation_name="soak_hardening_gate", session_phase=session_phase)
-    budget = _load_budget(budget_path.resolve())
+    resolved_budget_path = _resolve_repo_owned_path(pathlib.Path(budget_path), repo_default=DEFAULT_SOAK_BUDGET_PATH)
+    budget = _load_budget(resolved_budget_path)
     findings: List[str] = []
     decision_trace: List[Dict[str, Any]] = []
 
@@ -215,7 +231,10 @@ def run_gate(
     )
     findings.extend(str(x) for x in websocket.get("findings", []))
 
-    policy_path = pathlib.Path(str(readiness_cfg.get("policy", "ops/ramp_policy.yaml"))).resolve()
+    policy_path = _resolve_repo_owned_path(
+        pathlib.Path(str(readiness_cfg.get("policy", "ops/ramp_policy.yaml"))),
+        repo_default=DEFAULT_RAMP_POLICY_PATH,
+    )
     required_stage = str(readiness_cfg.get("required_stage", "paper")).strip() or "paper"
     readiness_lines = max(
         0,
@@ -388,7 +407,6 @@ def run_gate(
         soak_cfg.get("max_held_unpriceable_unrecovered_count"),
         1_000_000.0,
     )
-    max_book_updates_rest_ratio = _f(ws_cfg.get("max_book_updates_rest_ratio"), 1.0)
     min_book_updates_ws_delta = _f(ws_cfg.get("min_book_updates_ws_delta"), 0.0)
     min_book_updates_total_delta = _f(ws_cfg.get("min_book_updates_total_delta"), 0.0)
     duration = _f(report.get("duration_minutes"), 0.0)
@@ -423,7 +441,7 @@ def run_gate(
         execution_quality_capture_minus_adverse_source = (
             "execution_quality_decision_reference_lane_attribution.total."
             "immediate_capture_minus_adverse"
-        )
+    )
     book_updates_ws_delta = _f(market_data_source.get("book_updates_ws_delta"), 0.0)
     book_updates_rest_delta = _f(market_data_source.get("book_updates_rest_delta"), 0.0)
     book_updates_total_delta = _f(market_data_source.get("book_updates_total_delta"), 0.0)
@@ -972,34 +990,6 @@ def run_gate(
             note=f"ws primary source continuity eps={ws_updates_min_eps:.6f}",
         )
     )
-    rest_ratio_max_eps = _metric_epsilon(
-        "book_updates_rest_ratio",
-        kind="max",
-        default_min_eps=default_min_eps,
-        default_max_eps=default_max_eps,
-        metric_eps_cfg=metric_eps_cfg,
-    )
-    rest_ratio_pass = _passes_max(book_updates_rest_ratio, max_book_updates_rest_ratio, rest_ratio_max_eps)
-    if not rest_ratio_pass:
-        findings.append(
-            f"soak_book_updates_rest_ratio_too_high:{book_updates_rest_ratio:.6f}>max:{max_book_updates_rest_ratio:.6f}"
-        )
-    decision_trace.append(
-        decision_item(
-            check="soak_book_updates_rest_ratio",
-            level="hard_fail",
-            metric="book_updates_rest_ratio",
-            comparator="max",
-            value=book_updates_rest_ratio,
-            threshold=max_book_updates_rest_ratio,
-            passed=rest_ratio_pass,
-            note=(
-                f"ws_delta={book_updates_ws_delta:.6f} rest_delta={book_updates_rest_delta:.6f} "
-                + f"eps={rest_ratio_max_eps:.6f}"
-            ),
-        )
-    )
-
     unique = sorted(set(findings))
     reliability_findings = [f for f in unique if _lane_for_finding(f) == "reliability"]
     utilization_findings = [f for f in unique if _lane_for_finding(f) == "utilization"]
@@ -1027,7 +1017,7 @@ def run_gate(
                 "soak duration/uptime/error rows",
                 "valuation/lifecycle counter coherence and anomaly budgets",
                 "active-target meaningful participation when targets are present",
-                "market-data source realism ratios",
+                "market-data liveliness floors",
                 "execution-quality immediate capture-minus-adverse floor when configured",
                 "maker/taker bonus execution-path minimums",
             ],
@@ -1056,7 +1046,7 @@ def run_gate(
         "run_contract_path": str(run_contract_path.resolve()) if isinstance(run_contract_path, pathlib.Path) else "",
         "run_id": selected_run_id or "",
         "artifact_identity": build_artifact_identity(log_dir=resolved_log_dir, run_id=selected_run_id),
-        "budget_path": str(budget_path.resolve()),
+        "budget_path": str(resolved_budget_path),
         "integrity": integrity,
         "performance": performance,
         "websocket": websocket,

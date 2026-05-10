@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,28 @@ from scripts.paper_harness_audit import run_audit
 
 
 class PaperHarnessAuditTests(unittest.TestCase):
+    def test_paper_harness_audit_resolves_repo_owned_paths_outside_repo_cwd(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(repo_root.parent.parent)
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=None,
+                run_id="",
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+                budget_path=Path("ops/soak_budget.yaml"),
+            )
+        finally:
+            os.chdir(old_cwd)
+        self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
+        self.assertEqual(
+            str((result.get("checks") or {}).get("market_data_policy_source") or ""),
+            str((repo_root / "ops" / "soak_budget.yaml").resolve()),
+        )
+
     def test_paper_harness_audit_passes_canonical_profile(self):
         result = run_audit(
             config_path=Path("configs/profiles/paper_universal.yaml"),
@@ -182,7 +205,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 set(result.get("findings", [])),
             )
 
-    def test_paper_harness_audit_flags_high_rest_fallback_ratio(self):
+    def test_paper_harness_audit_warns_on_high_rest_fallback_ratio(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "audit-rest-ratio"
@@ -265,10 +288,17 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 max_status_age_sec=3153600000.0,
                 budget_path=budget_path,
             )
-            self.assertFalse(result["ok"])
-            self.assertTrue(
+            self.assertTrue(result["ok"], msg=result.get("findings", []))
+            self.assertFalse(
                 any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
+            )
+            self.assertTrue(
+                any(
+                    "paper_harness_book_updates_rest_ratio_watch_high:" in warning
+                    for warning in result.get("warnings", [])
+                ),
+                msg=result.get("warnings", []),
             )
 
     def test_paper_harness_audit_uses_soak_budget_as_threshold_source(self):
@@ -354,10 +384,17 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 max_status_age_sec=3153600000.0,
                 budget_path=budget_path,
             )
-            self.assertFalse(result["ok"])
-            self.assertTrue(
+            self.assertTrue(result["ok"], msg=result.get("findings", []))
+            self.assertFalse(
                 any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
+            )
+            self.assertTrue(
+                any(
+                    "paper_harness_book_updates_rest_ratio_watch_high:" in warning
+                    for warning in result.get("warnings", [])
+                ),
+                msg=result.get("warnings", []),
             )
 
     def test_paper_harness_audit_downgrades_high_rest_ratio_to_warning_for_short_window(self):
@@ -435,7 +472,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
             self.assertTrue(
                 any(
-                    "paper_harness_book_updates_rest_ratio_high_short_window:" in warning
+                    "paper_harness_book_updates_rest_ratio_watch_high_short_window:" in warning
                     for warning in result.get("warnings", [])
                 ),
                 msg=result.get("warnings", []),
@@ -454,6 +491,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
                                 "action_taken": "maker",
+                                "book_source": "ws",
                                 "decision_input_emulated": True,
                                 "decision_input_data_class": "emulated",
                             }
@@ -519,8 +557,6 @@ class PaperHarnessAuditTests(unittest.TestCase):
         self.assertIs(claim_boundary.get("live_pnl_equivalence"), False)
         self.assertIn(claim_boundary.get("decision_source_truth"), {"authoritative", "bounded_approximation"})
         self.assertIn(claim_boundary.get("action_source_truth"), {"authoritative", "bounded_approximation"})
-        self.assertEqual(claim_boundary.get("source_truth"), claim_boundary.get("action_source_truth"))
-        self.assertEqual(claim_boundary.get("source_truth_semantics"), "legacy_alias_of_action_source_truth")
         self.assertEqual(realism_summary.get("maker_realism_class"), "bounded_approximation")
         self.assertEqual(realism_summary.get("taker_realism_class"), "bounded_approximation")
         self.assertGreaterEqual(int(result.get("harness_realism_grade", 0)), 80)
@@ -621,6 +657,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
                                 "action_taken": "taker",
+                                "book_source": "ws",
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_live",
                             }
@@ -635,7 +672,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "side": "BUY",
                                 "price": 0.5,
                                 "size": 5.0,
-                                "reason_code": "sniper_taker_chainlink",
+                                "reason_code": "taker_chainlink",
                                 "execution_preference": "taker_only",
                                 "market_id": "m-1",
                                 "window_id": "w-1",
@@ -706,6 +743,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:01Z",
                                 "action_taken": "taker",
+                                "book_source": "ws",
                                 "decision_input_source": "ws",
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_live",
@@ -730,8 +768,6 @@ class PaperHarnessAuditTests(unittest.TestCase):
         claim_boundary = result.get("checks", {}).get("paper_claim_boundary", {})
         self.assertEqual(claim_boundary.get("decision_source_truth"), "bounded_approximation")
         self.assertEqual(claim_boundary.get("action_source_truth"), "authoritative")
-        self.assertEqual(claim_boundary.get("source_truth"), "authoritative")
-        self.assertEqual(claim_boundary.get("source_truth_semantics"), "legacy_alias_of_action_source_truth")
 
     def test_paper_harness_audit_rejects_invalid_execution_realism_value(self):
         with tempfile.TemporaryDirectory() as td:
@@ -744,6 +780,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2099-01-01T00:00:00Z",
                         "action_taken": "maker",
+                        "book_source": "ws",
                         "decision_input_source": "ws",
                         "decision_input_emulated": False,
                         "decision_input_data_class": "observed_live",
@@ -767,6 +804,77 @@ class PaperHarnessAuditTests(unittest.TestCase):
             "paper_harness_edge_execution_realism_class_invalid:1",
             set(result.get("findings", [])),
         )
+
+    def test_paper_harness_audit_fails_on_non_ws_action_rows_and_surfaces_lane_counts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "audit-action-row-source-purity"
+            (root / "events_2099-01-01.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "event_type": "edge_evaluation",
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:00Z",
+                                "action_taken": "maker",
+                                "book_source": "ws",
+                                "decision_input_emulated": False,
+                                "decision_input_data_class": "observed_live",
+                                "decision_input_type": "observed_live",
+                                "execution_realism_class": "not_modeled",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "event_type": "edge_evaluation",
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:01Z",
+                                "action_taken": "taker",
+                                "book_source": "rest",
+                                "decision_input_emulated": False,
+                                "decision_input_data_class": "observed_live",
+                                "decision_input_type": "observed_live",
+                                "execution_realism_class": "bounded_approximation",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "event_type": "edge_evaluation",
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:02Z",
+                                "action_taken": "none",
+                                "book_source": "rest",
+                                "block_reason": "taker_requires_ws_book_source",
+                                "decision_input_emulated": False,
+                                "decision_input_data_class": "observed_live",
+                                "decision_input_type": "observed_live",
+                                "execution_realism_class": "bounded_approximation",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id=run_id,
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "paper_harness_action_row_non_ws_source:maker=0:taker=1",
+            set(result.get("findings", [])),
+        )
+        source_state = result.get("checks", {}).get("paper_source_degradation_state", {})
+        self.assertEqual(int(source_state.get("maker_action_rows_total", 0)), 1)
+        self.assertEqual(int(source_state.get("maker_action_rows_non_ws", 0)), 0)
+        self.assertEqual(int(source_state.get("taker_action_rows_total", 0)), 1)
+        self.assertEqual(int(source_state.get("taker_action_rows_non_ws", 0)), 1)
 
 
 if __name__ == "__main__":

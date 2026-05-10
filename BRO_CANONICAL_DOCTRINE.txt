@@ -593,7 +593,7 @@ A valid conceptual intent is:
 - side = YES
 - requested_size = 25 USDC.e
 - reason = sniper_edge
-- stage = SNIPER_PRIMARY
+- stage = EXTREME_ONLY
 - execution_preference = taker_only
 - mode = canonical
 
@@ -673,11 +673,13 @@ Earlier stage where maker placement may be allowed if doctrine conditions suppor
 
 MAKER_TAKER_SELECTIVE
 
-Intermediate stage where both maker and taker logic may be conditionally allowed, depending on edge and market quality.
+Intermediate stage where maker logic may still be allowed under doctrine
+conditions. Canonical live taker authority is not active in this stage.
 
 SNIPER_PRIMARY
 
-Late stage where BRO primarily seeks short-horizon taker execution only. Maker logic is disallowed.
+Late diagnostic staging band. In canonical live doctrine, maker and taker
+entry are both forbidden in this stage.
 
 EXTREME_ONLY
 
@@ -701,7 +703,7 @@ Required stage doctrines:
 - unknown stage fails closed
 - oracle-derived fair value is required
 - maker participation is restricted to earlier stages
-- SNIPER_PRIMARY is taker-only
+- SNIPER_PRIMARY is diagnostic-only in canonical live doctrine
 - EXTREME_ONLY requires stronger edge than earlier stages
 - degraded and canonical modes must remain explicitly separated
 - expired stage forbids new trade entry
@@ -813,7 +815,9 @@ Taker flow:
 8. Reconciliation updates free vs locked capital.
 9. Window state records execution outcome.
 
-SNIPER_PRIMARY must be taker-only. No passive maker logic is allowed in that stage.
+SNIPER_PRIMARY is diagnostic-only in canonical live doctrine. It must not be
+treated as live taker authority, and no passive maker logic is allowed there
+either.
 
 7.3.1 Taker Competitiveness Gate (Deterministic, Bounded)
 
@@ -826,7 +830,9 @@ Required semantics:
   - no under-floor submit path is permitted
 - final execution window is explicit and deterministic:
   - final window may be enabled globally and overridden per stage
-  - SNIPER_PRIMARY may use a stricter stage-local final window than other taker stages
+  - stage-local final-window overrides are reserved for explicit diagnostic or
+    non-production investigation and must not create canonical live taker
+    authority outside `EXTREME_ONLY <=7s`
   - optional final-10s aggressive sub-window may be enabled
   - outside-window attempts are blocked with explicit reason (`taker_outside_final_window`)
 - dynamic feasibility preview is advisory-only when enabled:
@@ -845,7 +851,7 @@ Required semantics:
 
 Truth and audit surfaces must include:
 
-- `sniper_taker_decision` with conviction, edge, timing window class, aggressiveness level, and block reason
+- `taker_decision` with conviction, edge, timing window class, aggressiveness level, and block reason
 - explicit static vs dynamic predicted executability fields (`submit_capable_static`, `submit_capable_dynamic_predicted`)
 - submit-level competitiveness payload (`taker_competitiveness`) on accepted taker orders
 - report-level distributions: edge buckets, conviction buckets, timing windows, lag classes, aggressiveness counters, multi-oracle status/confirmation/boost counts, and stage-level net breakout
@@ -1215,7 +1221,7 @@ These are hard doctrine rules and should be encoded as invariants where possible
 - Oracle-derived fair-value context is required.
 - Unknown or inconsistent stage fails closed.
 - All trades must pass all three gates.
-- SNIPER_PRIMARY is taker-only.
+- SNIPER_PRIMARY is diagnostic-only in canonical live doctrine.
 - Maker participation is limited to earlier permitted stages.
 - EXTREME_ONLY requires stronger edge than normal stages.
 - Poor market quality means skip.

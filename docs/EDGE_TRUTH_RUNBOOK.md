@@ -23,7 +23,8 @@ Outcome-truth boundary:
 
 Semantic contract alignment:
 - `BRO_CANONICAL_DOCTRINE.txt` is the semantic root for emitted edge field names.
-- `maker_allowed` and `taker_allowed` are stage-permission terms only.
+- `maker_allowed` and `taker_allowed` are emitted lane-action booleans for the row.
+- `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, and `preexpiry_emergency_taker_allowed` carry the Packet 1 late-window authority contract.
 - `action_taken` is the emitted action choice for the row.
 - `block_reason` is the emitted local stop reason for the row; later surfaces may
   map it into blocker lanes but may not rewrite its owner.
@@ -67,6 +68,11 @@ Required fields:
 - `financial_posture_class`
 - `maker_allowed` (bool)
 - `taker_allowed` (bool)
+- `maker_new_risk_allowed` (bool)
+- `normal_taker_allowed` (bool)
+- `reduce_only_recovery_allowed` (bool)
+- `preexpiry_emergency_taker_allowed` (bool)
+- `late_window_authority_class` (string)
 - `action_taken` (`maker|taker|none`)
 - `submitted` (bool)
 - `filled` (bool)
@@ -117,7 +123,7 @@ Canonical audit stage-policy (exact):
 - `MAKER_POSITION`: maker yes, taker no
 - `MAKER_TAKER_SELECTIVE`: maker yes, taker no
 - `SNIPER_PRIMARY`: maker no, taker no
-- `EXTREME_ONLY`: maker no, taker yes
+- `EXTREME_ONLY`: maker no, taker no
 - `EXPIRED`: maker no, taker no
 - `UNKNOWN`: maker no, taker no
 

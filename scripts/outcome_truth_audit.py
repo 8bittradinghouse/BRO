@@ -11,6 +11,7 @@ import pathlib
 from bisect import bisect_right
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.error_codes import summarize_error_codes
 from prodesk.jsonl_utils import DEFAULT_MAX_LINES_PER_FILE, load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
@@ -274,7 +275,7 @@ def _submit_scope_hint(row: Dict[str, Any]) -> str:
     execution_preference = str(row.get("execution_preference") or "").strip().lower()
     if reason.startswith("mm_quote:"):
         return "maker"
-    if "sniper_taker" in reason:
+    if is_taker_reason(reason):
         return "taker"
     if execution_preference == "taker_only":
         return "taker"

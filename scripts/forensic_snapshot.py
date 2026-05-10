@@ -9,6 +9,7 @@ import json
 import pathlib
 from typing import Any, Dict, Optional
 
+from prodesk.edge_truth_contract import is_taker_submit_event_type
 from prodesk.run_contract import (
     apply_contract_bounds,
     resolve_run_contract,
@@ -112,9 +113,9 @@ def run_snapshot(
     pnl_min: Optional[float] = None
     pnl_max: Optional[float] = None
 
-    sniper_mode_max = 0.0
-    sniper_tokens_max = 0.0
-    sniper_lag_verified_max = 0.0
+    taker_mode_max = 0.0
+    taker_tokens_max = 0.0
+    taker_lag_verified_max = 0.0
     latency_state_max = 0.0
     latency_samples_max = 0.0
     latency_inactive_max = 0.0
@@ -124,7 +125,7 @@ def run_snapshot(
         "order_submit": 0,
         "order_cancel": 0,
         "risk_reject": 0,
-        "sniper_taker_submit": 0,
+        "taker_submit": 0,
         "edge_evaluation": 0,
         "kill_switch_cancel_all": 0,
         "alert_policy_auto_stop": 0,
@@ -171,10 +172,17 @@ def run_snapshot(
         pnl_min = pnl if pnl_min is None else min(pnl_min, pnl)
         pnl_max = pnl if pnl_max is None else max(pnl_max, pnl)
 
-        sniper_mode_max = max(sniper_mode_max, _to_float(row.get("gauge.sniper_mode_active")))
-        sniper_tokens_max = max(sniper_tokens_max, _to_float(row.get("gauge.sniper_token_count")))
-        sniper_lag_verified_max = max(
-            sniper_lag_verified_max, _to_float(row.get("gauge.sniper_lag_verified_token_count"))
+        taker_mode_max = max(
+            taker_mode_max,
+            _to_float(row.get("gauge.taker_mode_active")),
+        )
+        taker_tokens_max = max(
+            taker_tokens_max,
+            _to_float(row.get("gauge.taker_token_count")),
+        )
+        taker_lag_verified_max = max(
+            taker_lag_verified_max,
+            _to_float(row.get("gauge.taker_lag_verified_token_count")),
         )
         latency_state_max = max(latency_state_max, _to_float(row.get("gauge.latency_verifier_state")))
         latency_samples_max = max(latency_samples_max, _to_float(row.get("gauge.latency_verifier_sample_count")))
@@ -184,7 +192,9 @@ def run_snapshot(
 
     for row in scoped_event_rows:
         event_type = str(row.get("event_type") or "")
-        if event_type in event_counts:
+        if is_taker_submit_event_type(event_type):
+            event_counts["taker_submit"] += 1
+        elif event_type in event_counts:
             event_counts[event_type] += 1
         if event_type == "edge_evaluation":
             action = str(row.get("action_taken") or "").strip().lower()
@@ -233,10 +243,10 @@ def run_snapshot(
             "min": pnl_min,
             "max": pnl_max,
         },
-        "sniper": {
-            "sniper_mode_max": sniper_mode_max,
-            "sniper_token_count_max": sniper_tokens_max,
-            "sniper_lag_verified_token_count_max": sniper_lag_verified_max,
+        "taker": {
+            "taker_mode_max": taker_mode_max,
+            "taker_token_count_max": taker_tokens_max,
+            "taker_lag_verified_token_count_max": taker_lag_verified_max,
         },
         "latency": {
             "latency_state_max": latency_state_max,

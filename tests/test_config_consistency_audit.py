@@ -17,10 +17,8 @@ class ConfigConsistencyAuditTests(unittest.TestCase):
             body = (
                 "runtime:\n"
                 "  paper_passive_touch_fill_enabled: true\n"
-                "sniper:\n"
+                "taker:\n"
                 "  enabled: true\n"
-                "  taker:\n"
-                "    enabled: true\n"
             )
             self._write(primary, body)
             self._write(secondary, body)
@@ -29,8 +27,7 @@ class ConfigConsistencyAuditTests(unittest.TestCase):
                 secondary,
                 [
                     "runtime.paper_passive_touch_fill_enabled",
-                    "sniper.enabled",
-                    "sniper.taker.enabled",
+                    "taker.enabled",
                 ],
             )
             self.assertTrue(report["ok"])
@@ -41,13 +38,13 @@ class ConfigConsistencyAuditTests(unittest.TestCase):
             root = Path(td)
             primary = root / "a.yaml"
             secondary = root / "b.yaml"
-            self._write(primary, "sniper:\n  enabled: true\n")
-            self._write(secondary, "sniper:\n  enabled: false\n")
-            report = run_audit(primary, secondary, ["sniper.enabled", "sniper.custom_missing"])
+            self._write(primary, "taker:\n  enabled: true\n")
+            self._write(secondary, "taker:\n  enabled: false\n")
+            report = run_audit(primary, secondary, ["taker.enabled", "taker.custom_missing"])
             self.assertFalse(report["ok"])
             findings = "\n".join(report["findings"])
-            self.assertIn("value_mismatch:sniper.enabled", findings)
-            self.assertIn("primary_missing:sniper.custom_missing", findings)
+            self.assertIn("value_mismatch:taker.enabled", findings)
+            self.assertIn("primary_missing:taker.custom_missing", findings)
 
 
 if __name__ == "__main__":

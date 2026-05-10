@@ -27,8 +27,8 @@ Fresh specimen used for this plan:
   valid manifest.
 - `VERIFIED`: `FM-2A1` resolved that bundle as `specimen` mode automatically.
 - `VERIFIED`: specimen mode emitted no `strong` grades.
-- `VERIFIED`: maker remained `full_depth`, taker stayed `bounded_depth`, and
-  sniper stayed bounded and dormant.
+- `VERIFIED`: maker remained `full_depth`, and the integrated taker/sniper
+  lane stayed `bounded_depth` under the canonical `taker` surface.
 - `VERIFIED`: profile diff correctly showed specimen-vs-corpus downgrades rather
   than silently pretending one-run truth was corpus-grade truth.
 

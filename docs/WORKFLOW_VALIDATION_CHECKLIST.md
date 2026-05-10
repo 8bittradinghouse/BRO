@@ -33,7 +33,7 @@
 | 9 | Maker Quote Engine | PASS | `nightly.json` maker submits/fills |
 | 10 | Quote Quality Filter | PASS | `events_*`: `quote_quality_skip` |
 | 11 | Risk Gate Pre-Order | PASS | `events_*`: `risk_reject` reason distribution |
-| 12 | Taker Sniper Arming | PASS | `events_*`: `sniper_mode_transition`, `edge_evaluation` (`action_taken=none`, taxonomy `block_reason`) |
+| 12 | Taker Sniper Arming | PASS | `events_*`: `taker_mode_transition`, `edge_evaluation` (`action_taken=none`, taxonomy `block_reason`) |
 | 13 | Taker Sniper Execution | PASS | `nightly.json` taker submits/fills |
 | 14 | Order Lifecycle Tracking | PASS | event counts: submit/cancel/fill consistency; no orphan fills |
 | 15 | Position and Exposure State | PASS | status positions + risk reject behavior |

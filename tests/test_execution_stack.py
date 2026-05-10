@@ -11,6 +11,7 @@ from executor import ExecutionRunner
 from prodesk.chainlink_feed import ChainlinkTick
 from prodesk.common import utc_iso
 from prodesk.config import DEFAULT_EXECUTION_CONFIG, load_execution_config, validate_execution_config
+from prodesk.edge_truth_contract import EVENT_TAKER_DECISION, TAKER_CHAINLINK_REASON
 from prodesk.gateway import PaperGateway, PostOnlyRejectError
 from prodesk.latency_verifier import LatencySnapshot
 from prodesk.logging_utils import EventLogger
@@ -172,8 +173,7 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 15.0, places=9)
         lane_overrides = dict(risk.get("min_sec_to_expiry_for_new_exposure_by_lane") or {})
         self.assertAlmostEqual(float(lane_overrides.get("taker")), 0.0, places=9)
-        sniper = dict(cfg.get("sniper") or {})
-        taker = dict(sniper.get("taker") or {})
+        taker = dict(cfg.get("taker") or {})
         competitiveness = dict(taker.get("competitiveness") or {})
         self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 7.0, places=9)
         stage_windows = dict(competitiveness.get("stage_final_window_sec_by_stage") or {})
@@ -228,30 +228,32 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertAlmostEqual(float(wallet.get("paper_starting_usdc") or 0.0), 4000.0, places=9)
         self.assertAlmostEqual(float(wallet.get("max_notional_per_order_usdc") or 0.0), 351.0, places=9)
         self.assertAlmostEqual(float(risk.get("max_abs_position_shares") or 0.0), 8000.0, places=9)
-        self.assertAlmostEqual(float(taker.get("target_usd") or 0.0), 150.0, places=9)
-        self.assertAlmostEqual(float(competitiveness.get("hard_min_target_usd") or 0.0), 150.0, places=9)
+        self.assertAlmostEqual(float(taker.get("target_usd") or 0.0), 20.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("hard_min_target_usd") or 0.0), 20.0, places=9)
         self.assertAlmostEqual(
             float(competitiveness.get("dynamic_size_target_usd_cap") or 0.0),
-            150.0,
+            20.0,
             places=9,
         )
+        self.assertEqual(bool(competitiveness.get("dynamic_size_enabled")), False)
         self.assertAlmostEqual(
             float(competitiveness.get("multi_oracle_target_usd_cap") or 0.0),
-            150.0,
+            20.0,
             places=9,
         )
         self.assertTrue(bool(competitiveness.get("allow_complement_buy_route", False)))
         self.assertAlmostEqual(float(competitiveness.get("min_visible_fill_ratio") or 0.0), 0.5, places=9)
-        stage_aggressiveness = dict(competitiveness.get("stage_aggressiveness") or {})
-        extreme_only = dict(stage_aggressiveness.get("EXTREME_ONLY") or {})
-        self.assertAlmostEqual(float(extreme_only.get("size_mult") or 0.0), 1.0, places=9)
+        self.assertAlmostEqual(float(taker.get("min_edge") or 0.0), 0.11, places=9)
+        self.assertEqual(dict(taker.get("min_edge_by_stage") or {}), {})
+        self.assertEqual(dict(taker.get("per_token_cooldown_sec_by_stage") or {}), {})
+        self.assertEqual(dict(competitiveness.get("stage_aggressiveness") or {}), {})
         expected = str(runtime.get("paper_expected_config_fingerprint_sha256") or "").strip().lower()
         observed = str((cfg.get("_meta") or {}).get("effective_config_sha256") or "").strip().lower()
         self.assertEqual(expected, observed)
 
     def test_config_rejects_unknown_min_sec_to_expiry_lane_override(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {"sniper": 0.0}
+        cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {"legacy": 0.0}
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -530,7 +532,7 @@ class ExecutionStackTests(unittest.TestCase):
     def test_config_allows_setup_lock_when_profile_and_fingerprint_match(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["sniper"]["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
+        cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
         cfg["runtime"]["paper_enforce_setup_lock"] = True
         cfg["runtime"]["paper_expected_profile_name"] = str(cfg["profile"]["name"])
         cfg["runtime"]["paper_expected_config_fingerprint_sha256"] = "a" * 64
@@ -548,14 +550,14 @@ class ExecutionStackTests(unittest.TestCase):
     def test_config_rejects_invalid_maker_competitiveness_one_sided_stage(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = ["SNIPER_PRIMARY"]
+        cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = ["EXTREME_ONLY"]
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
     def test_config_rejects_invalid_maker_queue_pressure_stage(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["allowed_stages"] = ["SNIPER_PRIMARY"]
+        cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["allowed_stages"] = ["EXTREME_ONLY"]
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -574,20 +576,27 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
-    def test_config_rejects_invalid_sniper_stage_window_boost_alignment(self):
+    def test_config_rejects_invalid_taker_stage_window_boost_alignment(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        taker_comp = cfg["sniper"]["taker"]["competitiveness"]
-        taker_comp["stage_final_window_sec_by_stage"] = {"SNIPER_PRIMARY": 12.0}
+        taker_comp = cfg["taker"]["competitiveness"]
+        taker_comp["stage_final_window_sec_by_stage"] = {"EXTREME_ONLY": 6.0}
         taker_comp["multi_oracle_boost_window_sec"] = 15.0
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
-    def test_config_rejects_invalid_sniper_stage_cooldown_key(self):
+    def test_config_rejects_invalid_taker_stage_cooldown_key(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["sniper"]["taker"]["per_token_cooldown_sec_by_stage"] = {"INVALID_STAGE": 0.75}
+        cfg["taker"]["per_token_cooldown_sec_by_stage"] = {"LEGACY_STAGE": 0.75}
         with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_invalid_taker_min_edge_stage_key(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["taker"]["min_edge_by_stage"] = {"MAKER_TAKER_SELECTIVE": 0.20}
+        with self.assertRaisesRegex(ValueError, "taker.min_edge_by_stage is retired"):
             validate_execution_config(cfg)
 
     def test_config_rejects_wallet_chain_outside_polygon(self):
@@ -681,11 +690,13 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
-    def test_config_rejects_taker_stage_aggressiveness_size_mult_below_one(self):
+    def test_config_rejects_taker_stage_aggressiveness_current_authority(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["sniper"]["taker"]["competitiveness"]["stage_aggressiveness"]["SNIPER_PRIMARY"]["size_mult"] = 0.9
-        with self.assertRaises(ValueError):
+        cfg["taker"]["competitiveness"]["stage_aggressiveness"] = {
+            "EXTREME_ONLY": {"size_mult": 0.9, "price_aggress_bps": 0.0}
+        }
+        with self.assertRaisesRegex(ValueError, "stage_aggressiveness is retired for current configs"):
             validate_execution_config(cfg)
 
     def test_strategy_emits_two_sided_quotes(self):
@@ -2822,7 +2833,7 @@ class ExecutionStackTests(unittest.TestCase):
         stage_info_by_token = {
             "t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 12.0, "allow_maker": False},
             "t2": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 55.0, "allow_maker": True},
-            "t3": {"stage": "SNIPER_PRIMARY", "sec_to_expiry": 19.5, "allow_maker": False},
+            "t3": {"stage": "EXTREME_ONLY", "sec_to_expiry": 19.5, "allow_maker": False},
             "t4": {"stage": "EXPIRED", "sec_to_expiry": -1.0, "allow_maker": False},
         }
         books = {
@@ -3607,12 +3618,12 @@ class ExecutionStackTests(unittest.TestCase):
             )
             canceled = manager.cancel_orders_for_tokens(
                 {"t1"},
-                reason="normal_taker_market_family_commitment_cleanup",
+                reason="targeted_token_cleanup",
             )
             self.assertEqual(canceled, 0)
             self.assertEqual(len(gateway.get_open_orders()), 1)
             suppressed_rows = self._read_event_rows(Path(tmp.name), event_type="order_cancel_suppressed")
-            self.assertEqual(str(suppressed_rows[-1].get("request_origin") or ""), "market_family_commitment_cleanup")
+            self.assertEqual(str(suppressed_rows[-1].get("request_origin") or ""), "targeted_token_cleanup")
         finally:
             if events is not None:
                 events.close()
@@ -4881,7 +4892,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage="SNIPER_PRIMARY",
+                stage="EXTREME_ONLY",
             )
             with mock.patch.object(
                 manager,
@@ -4908,7 +4919,7 @@ class ExecutionStackTests(unittest.TestCase):
                 risk_reject_rows[-1],
             )
             self.assertEqual(str(row.get("submission_lane") or ""), "maker")
-            self.assertEqual(str(row.get("stage") or ""), "SNIPER_PRIMARY")
+            self.assertEqual(str(row.get("stage") or ""), "EXTREME_ONLY")
             self.assertEqual(str(row.get("stage_source") or ""), "intent")
             self.assertIsNone(row.get("stage_unknown_reason"))
         finally:
@@ -4964,7 +4975,7 @@ class ExecutionStackTests(unittest.TestCase):
                     top,
                     open_orders_for_token=[],
                     open_orders_total=0,
-                    risk_context={"stage": "SNIPER_PRIMARY", "submission_lane": "maker"},
+                    risk_context={"stage": "EXTREME_ONLY", "submission_lane": "maker"},
                 )
             self.assertIsNone(placed)
             self.assertEqual(reject_reason, "sizing_reject")
@@ -4985,7 +4996,7 @@ class ExecutionStackTests(unittest.TestCase):
                 risk_reject_rows[-1],
             )
             self.assertEqual(str(row.get("submission_lane") or ""), "maker")
-            self.assertEqual(str(row.get("stage") or ""), "SNIPER_PRIMARY")
+            self.assertEqual(str(row.get("stage") or ""), "EXTREME_ONLY")
             self.assertEqual(str(row.get("stage_source") or ""), "risk_context")
             self.assertIsNone(row.get("stage_unknown_reason"))
         finally:
@@ -5661,10 +5672,10 @@ class ExecutionStackTests(unittest.TestCase):
                 size=10.0,
                 target_usd=None,
                 top=top,
-                reason="sniper_taker_chainlink",
-                stage="SNIPER_PRIMARY",
+                reason=TAKER_CHAINLINK_REASON,
+                stage="EXTREME_ONLY",
                 decision_reference_ts_utc="2026-01-01T00:00:00.000Z",
-                competitiveness_context={"stage": "SNIPER_PRIMARY"},
+                competitiveness_context={"stage": "EXTREME_ONLY"},
             )
             self.assertTrue(bool(outcome.get("submitted", False)))
             events.close()
@@ -5679,12 +5690,12 @@ class ExecutionStackTests(unittest.TestCase):
                     row = json.loads(line)
                     if str(row.get("event_type") or "") != "order_submit":
                         continue
-                    if str(row.get("reason") or "").strip().lower() != "sniper_taker_chainlink":
+                    if str(row.get("reason") or "").strip().lower() != TAKER_CHAINLINK_REASON:
                         continue
                     stage_values.append(str(row.get("stage") or ""))
                     decision_to_submit_latency_ms.append(float(row.get("decision_to_submit_latency_ms") or 0.0))
 
-            self.assertEqual(stage_values, ["SNIPER_PRIMARY"])
+            self.assertEqual(stage_values, ["EXTREME_ONLY"])
             self.assertEqual(len(decision_to_submit_latency_ms), 1)
             self.assertGreater(decision_to_submit_latency_ms[0], 0.0)
         finally:
@@ -6311,7 +6322,7 @@ class ExecutionStackTests(unittest.TestCase):
                 size=10.0,
                 tif="IOC",
                 post_only=False,
-                reason="sniper_taker_chainlink",
+                reason=TAKER_CHAINLINK_REASON,
                 oracle_tick_age_sec=3.0,
                 token_median_lag_ms=None,
             ),
@@ -6354,7 +6365,7 @@ class ExecutionStackTests(unittest.TestCase):
                 size=10.0,
                 tif="IOC",
                 post_only=False,
-                reason="sniper_taker_chainlink",
+                reason=TAKER_CHAINLINK_REASON,
                 oracle_tick_age_sec=3.0,
                 token_median_lag_ms=5000.0,
             ),
@@ -7787,7 +7798,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_builds_chainlink_fair_probability_and_taker_snipes(self):
+    def test_runner_builds_chainlink_fair_probability_and_canonical_taker_only_snipes_inside_final_window(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -7799,7 +7810,7 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_strike_by_token"] = {"t1": 65000.0}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["require_lag_verification"] = True
+            cfg["taker"]["require_lag_verification"] = True
             cfg["latency_verifier"]["min_samples"] = 1
             cfg["latency_verifier"]["hit_threshold_ms"] = 1.0
             cfg["latency_verifier"]["armed_min_median_ms"] = 1.0
@@ -7807,9 +7818,9 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["latency_verifier"]["probation_min_median_ms"] = 1.0
             cfg["latency_verifier"]["probation_min_hit_rate"] = 1.0
             cfg["latency_verifier"]["arm_consecutive_cycles"] = 1
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["order_size"] = 5.0
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["order_size"] = 5.0
             cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -7842,9 +7853,9 @@ class ExecutionStackTests(unittest.TestCase):
                 latency_snapshot = runner.latency_verifier.snapshot(active_tokens=["t1"])
                 fair = runner._build_fair_probability_map(books, latency_snapshot=latency_snapshot)
                 self.assertIn("t1", fair)
-                sniper_ctx = runner._sniper_context()
-                self.assertTrue(sniper_ctx["active"])
-                out = runner._run_sniper_taker(
+                taker_ctx = runner._taker_context()
+                self.assertTrue(taker_ctx["active"])
+                out_closed = runner._run_taker(
                     books=books,
                     fair_probability_by_token=fair,
                     token_ids=["t1"],
@@ -7853,7 +7864,17 @@ class ExecutionStackTests(unittest.TestCase):
                     latency_snapshot=latency_snapshot,
                     lag_verified_token_ids=["t1"],
                 )
-                self.assertGreaterEqual(out["submitted"], 1)
+                self.assertEqual(out_closed["submitted"], 0)
+                out_live = runner._run_taker(
+                    books=books,
+                    fair_probability_by_token=fair,
+                    token_ids=["t1"],
+                    stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                    oracle_tick_age_sec=0.0,
+                    latency_snapshot=latency_snapshot,
+                    lag_verified_token_ids=["t1"],
+                )
+                self.assertGreaterEqual(out_live["submitted"], 1)
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -8202,16 +8223,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_prioritizes_highest_edge(self):
+    def test_runner_taker_prioritizes_highest_edge(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1", "t2"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["min_edge"] = 0.001
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8249,13 +8270,13 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1", "t2"],
                         stage_info_by_token={
-                            "t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0},
-                            "t2": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0},
+                            "t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                            "t2": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1", "t2"],
@@ -8270,17 +8291,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_negative_edge_same_token_sell(self):
+    def test_runner_taker_blocks_negative_edge_same_token_sell(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8306,11 +8327,11 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("negative-edge normal taker SELL should be blocked"),
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.40},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0}},
+                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -8324,17 +8345,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_routes_negative_edge_to_complement_buy(self):
+    def test_runner_taker_routes_negative_edge_to_complement_buy(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8382,7 +8403,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
@@ -8425,18 +8446,18 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_latches_normal_commitment_after_first_fill(self):
+    def test_runner_taker_does_not_latch_same_token_commitment_after_first_fill(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["per_token_cooldown_sec"] = 0.0
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["per_token_cooldown_sec"] = 0.0
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8467,28 +8488,27 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    first = runner._run_sniper_taker(
+                    first = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.60},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0}},
+                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
-                    second = runner._run_sniper_taker(
+                    second = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.60},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 9.0}},
+                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
 
                 self.assertEqual(first["submitted"], 1)
-                self.assertIn("t1", runner._normal_taker_commitment_token_ids)
-                self.assertEqual(second["submitted"], 0)
-                self.assertEqual(len(placed), 1)
-                self.assertIn("normal_taker_commitment_active", emitted_block_reasons)
+                self.assertEqual(second["submitted"], 1)
+                self.assertEqual(len(placed), 2)
+                self.assertNotIn("normal_taker_authority_closed", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -8497,17 +8517,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_cancels_sibling_open_orders_after_commitment_fill(self):
+    def test_runner_taker_does_not_cancel_sibling_open_orders_after_fill(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8553,7 +8573,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "cancel_orders_for_tokens",
                     return_value=1,
                 ) as cancel_mock:
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token={"t_yes": 0.60, "t_no": 0.40},
                         token_ids=["t_yes", "t_no"],
@@ -8566,10 +8586,7 @@ class ExecutionStackTests(unittest.TestCase):
                     )
 
                 self.assertEqual(out["submitted"], 1)
-                cancel_mock.assert_called_once_with(
-                    {"t_no"},
-                    reason="normal_taker_market_family_commitment_cleanup",
-                )
+                cancel_mock.assert_not_called()
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -8578,17 +8595,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_when_market_family_sibling_inventory_active(self):
+    def test_runner_taker_allows_submit_with_sibling_inventory_present(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8629,25 +8646,24 @@ class ExecutionStackTests(unittest.TestCase):
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=AssertionError("family-conflicted taker should not submit"),
+                    return_value={"submitted": True, "fills_accepted": 0, "order_id": "ord-t-yes"},
                 ), mock.patch.object(
                     runner,
                     "_emit_edge_evaluation",
                     side_effect=_capture_edge_eval,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token={"t_yes": 0.60, "t_no": 0.40},
                         token_ids=["t_yes", "t_no"],
                         stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0},
+                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
                     )
-                self.assertEqual(out["submitted"], 0)
-                self.assertIn("market_family_sibling_inventory_active", emitted_block_reasons)
+                self.assertEqual(out["submitted"], 1)
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -8656,18 +8672,18 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_complement_buy_when_route_disabled(self):
+    def test_runner_taker_blocks_complement_buy_when_route_disabled(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = False
-            cfg["sniper"]["taker"]["competitiveness"]["allow_complement_buy_route"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = False
+            cfg["taker"]["competitiveness"]["allow_complement_buy_route"] = False
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8719,7 +8735,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
@@ -8742,17 +8758,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_routes_negative_edge_to_complement_buy_with_competitiveness_enabled(self):
+    def test_runner_taker_routes_negative_edge_to_complement_buy_with_competitiveness_enabled(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["competitiveness"]["enabled"] = True
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8795,7 +8811,7 @@ class ExecutionStackTests(unittest.TestCase):
                 original_log_event = runner.events.log_event
 
                 def _capture_log_event(event_type, payload):
-                    if str(event_type) == "sniper_taker_decision":
+                    if str(event_type) == EVENT_TAKER_DECISION:
                         decision_rows.append(dict(payload))
                     return original_log_event(event_type, payload)
 
@@ -8808,7 +8824,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "log_event",
                     side_effect=_capture_log_event,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
@@ -8838,21 +8854,21 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_complement_buy_uses_source_token_score(self):
+    def test_runner_taker_complement_buy_uses_source_token_score(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["target_usd"] = 150.0
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = True
-            cfg["sniper"]["taker"]["competitiveness"]["allow_complement_buy_route"] = True
-            cfg["sniper"]["taker"]["competitiveness"]["hard_min_target_usd"] = 20.0
-            cfg["sniper"]["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 150.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["allow_complement_buy_route"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 20.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
             cfg["latency_verifier"]["score_enabled"] = True
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -8910,7 +8926,7 @@ class ExecutionStackTests(unittest.TestCase):
                 original_log_event = runner.events.log_event
 
                 def _capture_log_event(event_type, payload):
-                    if str(event_type) == "sniper_taker_decision":
+                    if str(event_type) == EVENT_TAKER_DECISION:
                         decision_rows.append(dict(payload))
                     return original_log_event(event_type, payload)
 
@@ -8934,7 +8950,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "token_score",
                     side_effect=_fake_token_score,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
@@ -8976,30 +8992,30 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_meaningless_visible_fill_when_ratio_below_floor(self):
+    def test_runner_taker_blocks_meaningless_visible_fill_when_ratio_below_floor(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["taker"]["target_usd"] = 150.0
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 150.0
             cfg["strategy"]["max_order_size"] = 8000.0
             cfg["sizing"]["max_usd"] = 351.0
             cfg["wallet"]["max_notional_per_order_usdc"] = 351.0
             cfg["risk"]["max_order_size"] = 8000.0
             cfg["risk"]["max_abs_position_shares"] = 8000.0
-            cfg["sniper"]["taker"]["competitiveness"]["enabled"] = True
-            cfg["sniper"]["taker"]["competitiveness"]["hard_min_target_usd"] = 150.0
-            cfg["sniper"]["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
-            cfg["sniper"]["taker"]["competitiveness"]["final_window_sec"] = 60.0
-            cfg["sniper"]["taker"]["competitiveness"]["stage_final_window_sec_by_stage"] = {
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 150.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
+            cfg["taker"]["competitiveness"]["final_window_sec"] = 60.0
+            cfg["taker"]["competitiveness"]["stage_final_window_sec_by_stage"] = {
                 "EXTREME_ONLY": 60.0
             }
-            cfg["sniper"]["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
+            cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9020,7 +9036,7 @@ class ExecutionStackTests(unittest.TestCase):
                 decision_rows: list[dict[str, object]] = []
 
                 def _capture_log_event(event_type, payload):
-                    if str(event_type) == "sniper_taker_decision":
+                    if str(event_type) == EVENT_TAKER_DECISION:
                         decision_rows.append(dict(payload))
 
                 with mock.patch.object(
@@ -9032,11 +9048,11 @@ class ExecutionStackTests(unittest.TestCase):
                     "log_event",
                     side_effect=_capture_log_event,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token={"t1": 0.999},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 10.0}},
+                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -9069,16 +9085,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_forces_reduce_only_side_in_recovery_mode(self):
+    def test_runner_taker_forces_reduce_only_side_in_recovery_mode(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9101,7 +9117,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("dead-power taker recovery must not place a reduce-only taker order"),
                 ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9130,17 +9146,17 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_recovery_submit_without_lag_verification(self):
+    def test_runner_taker_allows_recovery_submit_without_lag_verification(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
-            cfg["sniper"]["require_lag_verification"] = True
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["require_lag_verification"] = True
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9173,7 +9189,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9203,16 +9219,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_recovery_submit_in_non_normal_mode(self):
+    def test_runner_taker_allows_recovery_submit_in_non_normal_mode(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9245,7 +9261,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9276,16 +9292,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_non_recovery_still_blocked_in_non_normal_mode(self):
+    def test_runner_taker_non_recovery_still_blocked_in_non_normal_mode(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9313,7 +9329,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("non-recovery taker submit should be blocked in non-normal mode"),
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9339,16 +9355,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_recovery_submit_with_one_sided_touch_and_missing_midpoint(self):
+    def test_runner_taker_allows_recovery_submit_with_one_sided_touch_and_missing_midpoint(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.5  # should be bypassed in recovery mode
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.5  # should be bypassed in recovery mode
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9381,7 +9397,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9411,15 +9427,15 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_recovery_submit_when_fair_probability_missing(self):
+    def test_runner_taker_allows_recovery_submit_when_fair_probability_missing(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9450,7 +9466,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={},
                         token_ids=["t1"],
@@ -9480,15 +9496,15 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_recovery_bypasses_token_score_gate(self):
+    def test_runner_taker_recovery_bypasses_token_score_gate(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = True
             cfg["latency_verifier"]["score_min_for_taker"] = 0.95
             cfg["storage"]["log_dir"] = td
@@ -9528,7 +9544,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "token_score",
                     return_value=0.0,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={},
                         token_ids=["t1"],
@@ -9559,15 +9575,15 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_recovery_submit_with_rest_book_source(self):
+    def test_runner_taker_allows_recovery_submit_with_rest_book_source(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9598,7 +9614,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books={"t1": top},
                         fair_probability_by_token={},
                         token_ids=["t1"],
@@ -9660,46 +9676,6 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertNotIn("t1", gated_normal)
         self.assertEqual(prereq_failures_normal.get("t1"), "maker_requires_ws_book_source")
 
-    def test_normal_taker_commitment_market_gate_blocks_maker_for_committed_market(self):
-        prereq_failures: dict[str, str] = {}
-        gated = ExecutionRunner._apply_normal_taker_commitment_market_gate(
-            maker_eligible_tokens={"yes1", "no1", "other1"},
-            token_market_key_by_token={
-                "yes1": "cond-1|2026-04-24T00:05:00Z|95000|YES",
-                "no1": "cond-1|2026-04-24T00:05:00Z|95000|NO",
-                "other1": "cond-2|2026-04-24T00:10:00Z|95000|YES",
-            },
-            normal_taker_commitment_token_ids={"yes1"},
-            maker_prereq_failure_by_token=prereq_failures,
-        )
-        self.assertEqual(gated, {"other1"})
-        self.assertEqual(prereq_failures.get("yes1"), "maker_blocked_by_normal_taker_commitment")
-        self.assertEqual(prereq_failures.get("no1"), "maker_blocked_by_normal_taker_commitment")
-        self.assertNotIn("other1", prereq_failures)
-
-    def test_normal_taker_market_family_conflict_snapshot_detects_sibling_inventory(self):
-        snapshot = ExecutionRunner._normal_taker_market_family_conflict_snapshot(
-            decision_token_id="yes1",
-            token_market_key_by_token={
-                "yes1": "cond-1|2026-04-24T00:05:00Z|95000|YES",
-                "no1": "cond-1|2026-04-24T00:05:00Z|95000|NO",
-                "other1": "cond-2|2026-04-24T00:10:00Z|95000|YES",
-            },
-            positions={
-                "no1": Position(token_id="no1", net_shares=-25.0),
-                "other1": Position(token_id="other1", net_shares=-100.0),
-            },
-            open_order_token_ids={"other1"},
-            min_meaningful_net_shares=10.0,
-        )
-        self.assertTrue(bool(snapshot.get("active")))
-        self.assertEqual(str(snapshot.get("market_base_key") or ""), "cond-1|2026-04-24T00:05:00Z|95000")
-        self.assertEqual(snapshot.get("sibling_token_ids"), ["no1"])
-        self.assertEqual(snapshot.get("conflict_token_ids"), ["no1"])
-        self.assertEqual(snapshot.get("position_conflict_token_ids"), ["no1"])
-        self.assertEqual(snapshot.get("open_order_conflict_token_ids"), [])
-        self.assertAlmostEqual(float(snapshot.get("max_abs_net_shares") or 0.0), 25.0, places=9)
-
     def test_build_maker_handoff_no_submission_reason_by_token_merges_prereq_failures(self):
         merged = ExecutionRunner._build_maker_handoff_no_submission_reason_by_token(
             maker_no_submission_reason_by_token={"t1": "risk_reject", "t2": "replace_cancel_unavailable"},
@@ -9718,16 +9694,16 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertTrue(ExecutionRunner._maker_reduce_only_exit_blocked("maker_timing_gate_closed"))
         self.assertFalse(ExecutionRunner._maker_reduce_only_exit_blocked("maker_requires_ws_book_source"))
 
-    def test_runner_sniper_taker_blocks_when_reduce_only_touch_price_is_missing(self):
+    def test_runner_taker_blocks_when_reduce_only_touch_price_is_missing(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9754,7 +9730,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "executor.validate_edge_inputs",
                     return_value=mock.Mock(valid=True, reason_code="", detail=None),
                 ), mock.patch("executor.compute_edge_value", return_value=0.2):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9783,16 +9759,84 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_waits_for_maker_exit_when_preexpiry_recovery_has_no_emergency_trigger(self):
+    def test_runner_taker_recovery_handoff_keeps_dead_power_with_bounded_market_reference(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=None,
+                    best_ask_size=None,
+                )
+                books = {"t1": top}
+                fair = {"t1": 0.8}
+                emitted_rows: list[dict] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_rows.append(dict(kwargs))
+
+                with mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
+                    out = runner._run_taker(
+                        books=books,
+                        fair_probability_by_token=fair,
+                        token_ids=["t1"],
+                        stage_info_by_token={
+                            "t1": {
+                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "sec_to_expiry": 45.0,
+                                "allow_taker": True,
+                                "reduce_only_recovery_active": True,
+                                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                                "reduce_only_side": "SELL",
+                                "reduce_only_size_cap_shares": 2.0,
+                                "expired_reduce_only_grace_active": True,
+                            }
+                        },
+                        oracle_tick_age_sec=0.0,
+                        lag_verified_token_ids=["t1"],
+                    )
+
+                self.assertEqual(out["submitted"], 0)
+                self.assertEqual(len(emitted_rows), 1)
+                row = emitted_rows[0]
+                self.assertEqual(str(row.get("block_reason") or ""), "maker_to_taker_recovery_handoff_disabled")
+                self.assertEqual(str(row.get("market_reference_mode") or ""), "bounded_single_side_touch")
+                self.assertEqual(str(row.get("market_reference_class") or ""), "bounded_approximation")
+                self.assertTrue(bool(row.get("market_reference_fallback_used")))
+            finally:
+                runner.events.close()
+                runner.book_client.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_waits_for_maker_exit_when_preexpiry_recovery_has_no_emergency_trigger(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9820,7 +9864,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("taker recovery must stay dead power without a valid live taker scope"),
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9852,16 +9896,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_preexpiry_emergency_when_maker_exit_is_blocked(self):
+    def test_runner_taker_blocks_preexpiry_emergency_when_maker_exit_is_blocked(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9894,7 +9938,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "log_event",
                     side_effect=_capture_event,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -9950,9 +9994,9 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -9986,7 +10030,7 @@ class ExecutionStackTests(unittest.TestCase):
                     side_effect=_capture_event,
                 ):
                     for _ in range(2):
-                        out = runner._run_sniper_taker(
+                        out = runner._run_taker(
                             books=books,
                             fair_probability_by_token=fair,
                             token_ids=["t1"],
@@ -10040,9 +10084,9 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["t1", "t2"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10086,7 +10130,7 @@ class ExecutionStackTests(unittest.TestCase):
                     side_effect=_capture_event,
                 ):
                     for token_id in ["t1", "t2"]:
-                        out = runner._run_sniper_taker(
+                        out = runner._run_taker(
                             books=books,
                             fair_probability_by_token=fair,
                             token_ids=[token_id],
@@ -10127,16 +10171,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_preexpiry_emergency_when_maker_timing_gate_closed(self):
+    def test_runner_taker_blocks_preexpiry_emergency_when_maker_timing_gate_closed(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10159,7 +10203,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("timing-gate handoff into taker recovery must stay disabled"),
                 ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10193,16 +10237,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_timing_gate_handoff_override_before_emergency_window(self):
+    def test_runner_taker_blocks_timing_gate_handoff_override_before_emergency_window(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10235,7 +10279,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "log_event",
                     side_effect=_capture_event,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10277,16 +10321,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_non_timing_maker_handoff_before_emergency_window(self):
+    def test_runner_taker_blocks_non_timing_maker_handoff_before_emergency_window(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10314,7 +10358,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("non-timing maker block must not revive taker recovery"),
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10346,16 +10390,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_same_market_reentry_when_commitment_not_flat_and_clear(self):
+    def test_runner_taker_allows_same_market_reentry_when_timing_and_truth_allow(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10363,7 +10407,6 @@ class ExecutionStackTests(unittest.TestCase):
             runner = ExecutionRunner(cfg)
             try:
                 runner.token_market_key_by_token = {"t1": "cond-1|2026-04-24T00:05:00Z|95000|YES"}
-                runner._normal_taker_commitment_token_ids.add("t1")
                 runner.risk.positions["t1"] = Position(token_id="t1", net_shares=25.0)
                 top = BookTop(
                     token_id="t1",
@@ -10384,9 +10427,9 @@ class ExecutionStackTests(unittest.TestCase):
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=AssertionError("committed market must not accept a second normal taker shot"),
+                    return_value={"submitted": True, "fills_accepted": 0, "order_id": "ord-t1"},
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10395,15 +10438,14 @@ class ExecutionStackTests(unittest.TestCase):
                                 "stage": "EXTREME_ONLY",
                                 "sec_to_expiry": 5.0,
                                 "allow_taker": True,
-                                "normal_taker_commitment_hold_active": True,
                             }
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
-                self.assertEqual(out["submitted"], 0)
+                self.assertEqual(out["submitted"], 1)
                 self.assertEqual(out["fills_accepted"], 0)
-                self.assertIn("normal_taker_commitment_active", emitted_block_reasons)
+                self.assertNotIn("normal_taker_authority_closed", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -10412,16 +10454,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_allows_different_market_while_other_market_is_committed(self):
+    def test_runner_taker_allows_different_market_while_other_market_is_live(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t2"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10432,7 +10474,6 @@ class ExecutionStackTests(unittest.TestCase):
                     "t1": "cond-1|2026-04-24T00:05:00Z|95000|YES",
                     "t2": "cond-2|2026-04-24T00:10:00Z|95000|YES",
                 }
-                runner._normal_taker_commitment_token_ids.add("t1")
                 runner.risk.positions["t1"] = Position(token_id="t1", net_shares=25.0)
                 top = BookTop(
                     token_id="t2",
@@ -10456,7 +10497,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ), mock.patch.object(runner, "_emit_edge_evaluation", return_value=None):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t2"],
@@ -10481,16 +10522,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_emergency_unwind_logs_block_reason_when_touch_price_missing(self):
+    def test_runner_taker_emergency_unwind_logs_block_reason_when_touch_price_missing(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10530,7 +10571,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "executor.validate_edge_inputs",
                     return_value=mock.Mock(valid=True, reason_code="", detail=None),
                 ), mock.patch("executor.compute_edge_value", return_value=0.2):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10577,16 +10618,16 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_sniper_taker_blocks_submit_when_reduce_only_size_cap_is_below_min_order_size(self):
+    def test_runner_taker_blocks_submit_when_reduce_only_size_cap_is_below_min_order_size(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["sniper"]["taker"]["enabled"] = True
-            cfg["sniper"]["taker"]["min_edge"] = 0.001
-            cfg["sniper"]["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
@@ -10621,7 +10662,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "place_taker_order_with_outcome",
                     side_effect=_fake_place_taker_order_with_outcome,
                 ):
-                    out = runner._run_sniper_taker(
+                    out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
@@ -10920,7 +10961,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_token_stage_info_promotes_late_window_to_maker_stage_without_taker_interference(self):
+    def test_token_stage_info_enforces_recovery_only_authority_in_mid_extreme_window(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -10941,12 +10982,20 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.token_strike_by_token[token_id] = 50000.0
                 runner.token_market_key_by_token[token_id] = "mk-late-maker"
                 stage_info = runner._token_stage_info(token_id)  # pylint: disable=protected-access
+                self.assertEqual(str(stage_info.get("effective_stage") or ""), "EXTREME_ONLY")
+                self.assertEqual(str(stage_info.get("stage_bucket") or ""), "EXTREME_ONLY")
                 self.assertEqual(str(stage_info.get("raw_stage") or ""), "EXTREME_ONLY")
-                self.assertEqual(str(stage_info.get("stage") or ""), "MAKER_TAKER_SELECTIVE")
+                self.assertEqual(str(stage_info.get("stage") or ""), "EXTREME_ONLY")
                 self.assertTrue(bool(stage_info.get("maker_timing_gate_open")))
-                self.assertTrue(bool(stage_info.get("maker_timing_stage_override_active")))
-                self.assertTrue(bool(stage_info.get("allow_maker")))
+                self.assertFalse(bool(stage_info.get("maker_timing_stage_override_active")))
+                self.assertFalse(bool(stage_info.get("allow_maker")))
                 self.assertFalse(bool(stage_info.get("allow_taker")))
+                self.assertFalse(bool(stage_info.get("maker_new_risk_allowed")))
+                self.assertFalse(bool(stage_info.get("normal_taker_allowed")))
+                self.assertEqual(
+                    str(stage_info.get("late_window_authority_class") or ""),
+                    "reduce_only_recovery_only",
+                )
             finally:
                 runner.events.close()
                 runner.book_client.close()
@@ -11210,7 +11259,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_token_stage_info_suppresses_preexpiry_recovery_for_normal_taker_commitment_hold(self):
+    def test_token_stage_info_keeps_preexpiry_recovery_active_for_live_held_position(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -11229,12 +11278,13 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.token_strike_by_token[token_id] = 50000.0
                 runner.token_market_key_by_token[token_id] = "mk-held-preexpiry"
                 runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
-                runner._normal_taker_commitment_token_ids.add(token_id)  # pylint: disable=protected-access
                 stage_info = runner._token_stage_info(token_id)  # pylint: disable=protected-access
-                self.assertFalse(bool(stage_info.get("reduce_only_recovery_active")))
-                self.assertFalse(bool(stage_info.get("preexpiry_reduce_only_active")))
-                self.assertTrue(bool(stage_info.get("normal_taker_commitment_hold_active")))
-                self.assertEqual(str(stage_info.get("reduce_only_recovery_reason") or ""), "")
+                self.assertTrue(bool(stage_info.get("reduce_only_recovery_active")))
+                self.assertTrue(bool(stage_info.get("preexpiry_reduce_only_active")))
+                self.assertEqual(
+                    str(stage_info.get("reduce_only_recovery_reason") or ""),
+                    "preexpiry_reduce_only_window_active",
+                )
                 self.assertTrue(bool(stage_info.get("allow_maker")))
                 self.assertFalse(bool(stage_info.get("allow_taker")))
             finally:
@@ -11245,7 +11295,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_token_stage_info_reenables_preexpiry_recovery_for_commitment_hold_when_posture_not_normal(self):
+    def test_token_stage_info_keeps_preexpiry_recovery_active_when_posture_not_normal(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -11264,12 +11314,10 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.token_strike_by_token[token_id] = 50000.0
                 runner.token_market_key_by_token[token_id] = "mk-held-preexpiry"
                 runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
-                runner._normal_taker_commitment_token_ids.add(token_id)  # pylint: disable=protected-access
                 runner._financial_posture_class = "HALT_NEW_RISK"  # pylint: disable=protected-access
                 stage_info = runner._token_stage_info(token_id)  # pylint: disable=protected-access
                 self.assertTrue(bool(stage_info.get("reduce_only_recovery_active")))
                 self.assertTrue(bool(stage_info.get("preexpiry_reduce_only_active")))
-                self.assertFalse(bool(stage_info.get("normal_taker_commitment_hold_active")))
                 self.assertEqual(
                     str(stage_info.get("reduce_only_recovery_reason") or ""),
                     "preexpiry_reduce_only_window_active",

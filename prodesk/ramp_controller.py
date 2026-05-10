@@ -8,7 +8,7 @@ from typing import Any, Dict
 class RampSnapshot:
     enabled: bool
     target_usd: float
-    sniper_allowed: bool
+    taker_allowed: bool
     changed: bool
     reason: str
 
@@ -26,10 +26,10 @@ class SizeRampController:
         )
         self.downshift_disarmed_ratio = float(cfg.get("downshift_disarmed_ratio", 0.60))
         self.downshift_reconcile_mismatch_ratio = float(cfg.get("downshift_reconcile_mismatch_ratio", 0.05))
-        self.disable_sniper_on_breach = bool(cfg.get("disable_sniper_on_breach", True))
+        self.disable_taker_on_breach = bool(cfg.get("disable_taker_on_breach", True))
 
         self.target_usd = max(self.start_usd, min(float(base_target_usd), self.max_usd))
-        self.sniper_allowed = True
+        self.taker_allowed = True
         self._cycles = 0
         self._reject_sum = 0.0
         self._stale_oracle_sum = 0.0
@@ -48,7 +48,7 @@ class SizeRampController:
             return RampSnapshot(
                 enabled=False,
                 target_usd=self.target_usd,
-                sniper_allowed=True,
+                taker_allowed=True,
                 changed=False,
                 reason="disabled",
             )
@@ -62,7 +62,7 @@ class SizeRampController:
             return RampSnapshot(
                 enabled=True,
                 target_usd=self.target_usd,
-                sniper_allowed=self.sniper_allowed,
+                taker_allowed=self.taker_allowed,
                 changed=False,
                 reason="collecting_window",
             )
@@ -78,7 +78,7 @@ class SizeRampController:
             or avg_reconcile_mismatch >= self.downshift_reconcile_mismatch_ratio
         )
         old_target = self.target_usd
-        old_sniper_allowed = self.sniper_allowed
+        old_taker_allowed = self.taker_allowed
         reason = "window_healthy"
 
         if breached:
@@ -90,11 +90,11 @@ class SizeRampController:
                 + f"disarmed={avg_disarmed:.3f},"
                 + f"reconcile={avg_reconcile_mismatch:.3f}"
             )
-            if self.disable_sniper_on_breach:
-                self.sniper_allowed = False
+            if self.disable_taker_on_breach:
+                self.taker_allowed = False
         else:
             self.target_usd = min(self.max_usd, self.target_usd + self.step_usd)
-            self.sniper_allowed = True
+            self.taker_allowed = True
             reason = (
                 "upshift:"
                 + f"reject={avg_reject:.3f},"
@@ -108,11 +108,11 @@ class SizeRampController:
         self._stale_oracle_sum = 0.0
         self._disarmed_sum = 0.0
         self._reconcile_mismatch_sum = 0.0
-        changed = (self.target_usd != old_target) or (self.sniper_allowed != old_sniper_allowed)
+        changed = (self.target_usd != old_target) or (self.taker_allowed != old_taker_allowed)
         return RampSnapshot(
             enabled=True,
             target_usd=self.target_usd,
-            sniper_allowed=self.sniper_allowed,
+            taker_allowed=self.taker_allowed,
             changed=changed,
             reason=reason,
         )

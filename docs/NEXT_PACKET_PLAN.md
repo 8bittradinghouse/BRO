@@ -67,6 +67,10 @@ G-frame override:
       `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
   - current post-restoration proof frontier:
     - `pilot_live` authority proof
+  - active macro lane inside that frontier:
+    - `live trust qualification`
+  - Packet 1 is the only active implementation lane now; downstream packets
+    remain sequenced but inactive until Packet 1 closes honestly
   - current achieved packet-scope closures that a new thread must not silently
     reopen:
     - Packet 1 clean current-code release-anchor closure achieved on
@@ -75,19 +79,32 @@ G-frame override:
       `33e30bd8-e416-488e-83ce-f99c8665e7fc`
     - Packet 5 Brain source-layer mutation closure achieved on `656c...`
     - Packet 6 Nervous-system consumer-truth closure achieved on `13fd...`
-  - weapons remain diagnostic-only
+  - weapons remain diagnostic-only for tuning/aggression work; maker and
+    taker live-trust qualification are authorized as diagnostic proof
+    work
   - current proving move:
     - clean the tree and keep the pushed branch aligned to current proof
     - treat watched peak-hours paper confirmation as materially achieved on
       current proof
-    - move to bounded `pilot_live` authority prep through
-      `prelive_gate` / `live_canary`
-    - no maker timing or gating mutation by default unless a fresh
-      contradiction is proven
+    - move to the `pilot_live` live-trust qualification lane using:
+      - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+      - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+    - treat `prelive_gate` / `live_canary` as bounded tools inside that lane,
+      not the final authority by themselves
+    - require every packet in that lane to carry:
+      - forward semantics sweep
+      - reverse semantics sweep
+      - contradiction compression pass
+      - negative-proof pass
+      - combat timing doctrine verification
+      - gate legitimacy sweep
+      - packet-entry tribunal outputs before implementation starts
+    - no maker timing/gating mutation or generic weapon tuning by default unless
+      a fresh contradiction is proven
   - current saved branch / cleanliness state:
     - `consultant/full-snapshot-public-20260402T055838Z`
     - pushed
-    - working tree clean
+    - working tree currently carries live-trust rehardening updates
 
 Historical-lane archive rule:
 - remaining sections below may preserve continuity and comparative context
@@ -106,8 +123,9 @@ Historical-lane archive rule:
     - `blocking_stage=pilot_live`
     - rack remains an honest proving witness even with bounded harness/soak
       realism-pressure findings on the same run
-    - the bounded realism split remains descriptive-only (`100` harness audit
-      vs `60` nightly)
+    - the bounded realism split remains descriptive-only (`100` canonical
+      `paper_harness_audit.harness_realism_grade` vs nightly
+      `exercised_harness_realism.grade=60`)
     - rack is not the active next restoration lane; later post-packet board
       sync moves the current next restoration lane to Bones clean current-code
       release anchor
@@ -184,8 +202,28 @@ Historical-lane archive rule:
   - current next macro proof frontier is `pilot_live` authority proof
   - watched peak-hours canonical paper confirmation is now materially achieved
     on current proof and is no longer the default next proving move
-  - first bounded move on that frontier is clean-tree `prelive_gate` /
-    `live_canary` authority prep without default maker timing mutation
+  - active macro lane on that frontier is `live trust qualification`
+  - the lane is now governed by:
+    - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+    - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+  - first packet inside that lane is `Taker Live / Economic and Firing
+    Trust Qualification`
+  - active packet artifact:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+  - current Packet 1 verdict is explicit:
+    - `Needs work`
+    - one-brain owner collapse is materially achieved on current code
+    - recovery/handoff owner classification is now explicitly keep-now dead power
+    - bounded-live-test readiness is not yet earned
+  - that first packet must force a full taker inherited-lineage split-brain map from core
+    doctrine out through branch/contact surfaces and back into the true owner
+  - bounded `prelive_gate` / `live_canary` work remains a proving tool inside
+    the lane without default maker timing mutation
+  - fixed downstream lane order after Packet 1 is now:
+    1. Packet 2 `Grip-Live`
+    2. Packet 3 `Maker-Live`
+    3. Packet 4 `Bounded Live Hookup`
+    4. Packet 5 `Immediate-Performance Proof`
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:
@@ -484,15 +522,19 @@ Current truth:
 - taker remains the primary engineering lane
 - the current packet is taker doctrine forging with maker/taker interaction and end-state-shape still in scope where it affects taker truth
 - this is still not a broad maker review
+- for the active `EXTREME_ONLY` surgery packet, this file is historical/reference
+  only and does not outrank the current packet-local self-hardening pack or
+  active Packet 1 board owners
 - accepted normal taker is now hard-canonical:
   - hard `<=7s` window
   - fixed `$150` shot
   - ride to resolution
 - taker-side recovery is now dead-power doctrine for accepted normal taker
 - maker-originated handoff into taker recovery is not valid canonical taker authority
-- market ownership is now symmetric:
+- historical packet-era interpretation at that point was:
   - maker and taker may run simultaneously across different market bases
-  - once one lane owns a market base, the other must stand down there until it is flat and clear
+  - once one lane "owns" a market base, the other stands down there until it is flat and clear
+  - later Packet 1 doctrine review rejected that interpretation as a misunderstanding of maker/taker independence
 - the fresh maintenance-era health run proved BRO starts, runs, fills, closes, and validates cleanly after the workshop cleanup
 - that health run did **not** prove premium normal taker edge quality
 - first proof run `c0defa2e-254f-46e1-81bc-d5d80851f2a5` validated the first `Taker Katana` slice:
@@ -501,7 +543,12 @@ Current truth:
   - `determinism_consistent=true`
   - `execution_error=false`
   - `status=policy_failed`
-  - sole blocking finding was `book_updates_rest_ratio 0.352033 > 0.350000`
+  - under the older whole-stream source-mix hard-fail contract, the sole
+    blocking finding was `book_updates_rest_ratio 0.352033 > 0.350000`
+  - current source-purity law is narrower:
+    - whole-stream `book_updates_rest_ratio` remains watch/descriptive truth
+    - hard source-purity closure belongs only to action-row
+      `edge_evaluation` records with `action_taken in {maker,taker}`
 - latest healthy proof run `3ab39523-e4f3-4e98-9c90-862f8ec33b80` tightened the result to a clean pass:
   - `validation_summary.json`: `ok=true`, `overall_exit_code=0`
   - `canonical_paper_validation`: `status=pass`, `runtime_classification=VALID_ACTIVE`, `reports_complete=true`, all validator exit codes `0`
@@ -510,14 +557,29 @@ Current truth:
     - `recovery_override_submits=0`
     - `maker_to_taker_recovery_handoff_disabled=144`
     - `waiting_for_maker_exit=0`
-    - `same_market_lane_collisions=0`
+- latest watched current-tree specimen `fa32bb8f-3736-4130-9a5b-042291584bef`
+  now provides the stronger clean health anchor:
+  - stored validator bundle `ok=true` with all validator and replay-validator
+    exits `0`
+  - maker `2 submits / 10 fills`
+  - taker `2 submits / 2 fills`
+  - action-row source purity clean on both lanes
+  - accepted taker fires occurred at:
+    - `edge_value=0.19544432109812604`
+    - `edge_value=0.2648914731995672`
+    against canonical `required_min_edge=0.11`
+- latest remaining seam on that specimen is report-scope, not runtime failure:
+  - event tape records short-lived `valuation_degraded=true` windows around
+    settlement
+  - status-sampled nightly/readiness bruise state still reports `none`
+  - current nightly valuation bruise owner samples `status_rows`, so
+    sub-status-interval bruises can be missed
 - latest 60-minute stability specimen `8bfb70eb-c942-48eb-87ff-b9628b3098c7` extended the health proof:
   - `canonical_paper_validation`: `status=pass`, `runtime_classification=VALID_ACTIVE`, all validator exit codes `0`
   - `nightly_soak_report` showed:
     - `maker_submits=61`
     - `maker_fills=77`
     - `maker_to_taker_recovery_handoff_disabled=828`
-    - `same_market_lane_collisions=0`
     - `waiting_for_maker_exit=0`
     - `recovery_taker_submit_count=0`
     - `valuation_hard_degraded_enter_count=10`
@@ -538,7 +600,6 @@ Current truth:
     - `maker_submits=14`
     - `maker_fills=12`
     - `maker_to_taker_recovery_handoff_disabled=160`
-    - `same_market_lane_collisions=0`
     - `waiting_for_maker_exit=0`
   - compression proof:
     - authoritative blocked count remained `160`
@@ -618,7 +679,7 @@ Current next-step doctrine:
      - support future tuning/debug packets without re-deriving the lane
    - Boundary:
      - maker only for now
-     - future taker/sniper/shared schematics should be earned lane-by-lane after real evidence passes
+     - future taker/shared schematics should be earned lane-by-lane after real evidence passes
    - next likely lane after this closure:
      - bounded maker tuning-hypothesis design
      - keep it analysis-first until major design/risk decisions earn explicit signoff
@@ -800,7 +861,7 @@ Current next-step doctrine:
      - the shop now has reusable baseline stock for dead-zone `FMA` and
        `FM-2A1` work
      - maker remains the richest immediate exploitation lane
-     - taker/sniper can still benefit later from the same pack as comparison
+     - taker can still benefit later from the same pack as comparison
        stock, but this set does not replace their own mapping packets
    - next likely lane after this closure:
      - exploit the baseline set inside the maker low-price viability /
@@ -1306,7 +1367,6 @@ Macro phase-line truth:
 - the phase sequence is:
   - harden `Maker`
   - harden `Taker`
-  - harden `Sniper`
   - harden wallet authority
   - run the `predeployment` packet built with `Nova`
   - if predeployment passes:
@@ -1390,9 +1450,10 @@ Fresh operational-health anchor:
 - validator status: all validator exit codes `0`
 - readiness result: highest passing stage `paper`, blocking stage `pilot_live`
 
-Pebble found and fixed during the health packet:
-- `market_family_sibling_inventory_active` was being emitted by runtime but was missing from the shared canonical block-reason taxonomy
-- the canonical taxonomy has now been patched so runtime and audit law agree again
+Historical note from the health packet:
+- a market-family gate was briefly added during runtime hardening and later
+  judged to be a misunderstanding of maker/taker independence doctrine
+- current Packet 1 runtime has removed that market-ownership / wait family
 
 Important non-overclaim:
 - this health packet proved BRO stood back up cleanly after maintenance

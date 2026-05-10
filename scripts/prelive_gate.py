@@ -134,7 +134,7 @@ def _wallet_env_findings(cfg: Dict[str, Any]) -> list[str]:
     findings: list[str] = []
     auth = cfg.get("auth", {})
     security = cfg.get("security", {})
-    sniper = cfg.get("sniper", {})
+    taker = cfg.get("taker", {})
 
     pk_env = str(auth.get("private_key_env", "POLYMARKET_PRIVATE_KEY")).strip()
     funder_env = str(auth.get("funder_env", "POLYMARKET_FUNDER")).strip()
@@ -166,10 +166,10 @@ def _wallet_env_findings(cfg: Dict[str, Any]) -> list[str]:
     if bool(security.get("require_live_security_ack", True)) and ack_value != ack_expected:
         findings.append(f"security_ack_mismatch:{ack_env}")
 
-    taker_enabled = bool(sniper.get("taker", {}).get("enabled", False))
+    effective_taker_enabled = bool(taker.get("enabled", False))
     allow_taker = bool(auth.get("allow_taker", False))
-    if taker_enabled and not allow_taker:
-        findings.append("auth_taker_mismatch:sniper.taker.enabled=true but auth.allow_taker=false")
+    if effective_taker_enabled and not allow_taker:
+        findings.append("auth_taker_mismatch:taker.enabled=true but auth.allow_taker=false")
 
     return findings
 

@@ -17,8 +17,8 @@ from scripts.order_lifecycle_audit import run_audit
 class OrderLifecycleAuditTests(unittest.TestCase):
     def _write_config(self, root: Path, log_dir: Path) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
-        cfg["sniper"]["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
+        cfg["taker"].pop("max_chainlink_tick_age_sec", None)
+        cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
         cfg["storage"]["log_dir"] = str(log_dir)
         cfg["targets"]["discovery"]["enabled"] = True
         cfg_path = root / "cfg.yaml"

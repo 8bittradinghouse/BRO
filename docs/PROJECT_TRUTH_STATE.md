@@ -26,6 +26,7 @@
 - Current whole-fighter completion status: `still open`
 - Latest completed post-restoration hardening lane: `timing spine hardening`
 - Current next proof frontier: `pilot_live` authority proof
+- Current active macro lane inside that frontier: `live trust qualification`
 - Latest timing-spine closeout proof: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - Latest timing-spine closeout report dir: `logs_exec/paper_universal/reports/4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - Latest timing-spine closeout session dir: `logs_exec/paper_universal/sessions/d8360bec-8e02-46dd-88aa-3c599f0d784f`
@@ -39,11 +40,20 @@
 - Latest timing-spine closeout proof code fingerprint: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed workspace runtime code fingerprint exact-match to timing closeout proof: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed branch: `consultant/full-snapshot-public-20260402T055838Z`
-- Current packet state: committed-and-pushed post-packet G-frame restoration
-  retightening complete; working tree clean; peak-hours paper confirmation is
-  materially achieved on current proof; next move is bounded `pilot_live`
-  authority prep through clean-tree prelive/live-canary gating without default
-  maker timing mutation.
+- Current `HEAD` commit: `000a7f4c1c605abbf0892edd790e6ee6cf809394`
+- Current direct local artifact-availability note:
+  - latest timing closeout / lane-closeout / smoke / contrast artifacts remain locally readable
+  - the referenced broad clean-anchor `7bbde42c-003a-4f57-b59a-7ce138224075` report/session path is not currently present on disk in this workspace
+  - current belief in that anchor is therefore doc-backed and fingerprint-backed, not directly artifact-readable locally
+- Current packet state: peak-hours paper confirmation is materially achieved on
+  current proof; the active next move is the bounded `pilot_live` live-trust
+  qualification lane; the working tree currently carries live-trust
+  rehardening updates and must not be represented as clean until recommitted:
+  - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+  - the current working-tree live-trust semantics are ahead of the accessible packet-era runtime artifacts and therefore remain code-backed/test-backed until a fresh watched run re-proves them
+  - companion deep relock audit:
+    - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
 ## VERIFIED_CLOSED
 - Clean current-code release-anchor proving seam was diagnosed to
@@ -362,20 +372,28 @@
   - `highest_passing_stage=paper`
   - `blocking_stage=pilot_live`
   - `runtime_classification=VALID_ACTIVE`
-  - `paper_harness_audit` keeps proving lineage honest while surfacing one
-    bounded realism-pressure finding:
+  - `paper_harness_audit` kept proving lineage honest while surfacing one
+    bounded realism-pressure finding under the older whole-stream source-mix
+    hard-fail contract:
     - `ok=false`
     - `finding_count=1`
     - `findings=['paper_harness_book_updates_rest_ratio_high:0.393103>max:0.350000']`
     - `proving_lineage_complete=true`
     - `manifest_present=true`
+  - current source-purity contract is tighter and narrower:
+    - whole-stream `book_updates_rest_ratio` remains watch/descriptive truth
+    - hard source-purity closure now belongs only to action-row
+      `edge_evaluation` records with `action_taken in {maker,taker}`
+    - `soak_hardening_gate` no longer co-owns this blocker lane through a
+      parallel REST-ratio hard fail
   - descriptive realism remains explicitly bounded:
-    - harness audit `harness_realism_grade=100`
-    - nightly report `harness_realism_grade=60`
-    - both surfaces label the grade `descriptive_non_gating` and
-      `non_authoritative`
-  - readiness and soak remain aligned with the same paper/pilot frontier while
-    surfacing bounded realism pressure:
+    - harness audit canonical `harness_realism_grade=100`
+    - nightly report exercised-only `exercised_harness_realism.grade=60`
+    - both surfaces remain `descriptive_non_gating` and
+      `non_authoritative`, but they no longer claim the same metric under the
+      same contract name
+  - readiness and soak remained aligned with the same paper/pilot frontier
+    while surfacing bounded realism pressure under that older contract:
     - `readiness_gate.metrics.quote_uptime_ratio=0.18949293894558247`
     - `readiness_gate.metrics.runtime_meaningful_participation=1.0`
     - `soak_hardening_gate.findings=['soak_book_updates_rest_ratio_too_high:0.393103>max:0.350000','soak_maker_fill_rate_too_high:1.000000>max:0.850000','soak_maker_submits_too_low:6.000000<min:21.000000']`
@@ -449,8 +467,77 @@
 - BRO remains paper-stage only.
 - Additional watched peak-hours canonical paper specimens are no longer the
   highest-ROI next proving move unless a fresh contradiction appears.
-- Current next proving move is bounded `pilot_live` authority prep through the
-  clean-tree `prelive_gate` / `live_canary` pathway.
+- Current next proving move is bounded `pilot_live` live-trust qualification:
+  - taker live trust
+  - wallet live trust
+  - maker live trust
+  - then bounded live hookup
+  - then immediate-performance proof after bounded hookup is clean
+- Packet 1 focus inside that lane is a full taker inherited-lineage cleanup map
+  from core doctrine out through branch/contact surfaces and back into the true
+  owner
+- Packet 1 is the only active implementation lane now; downstream packets stay
+  sequenced but inactive until Packet 1 closes honestly
+- active Packet 1 artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+- current Packet 1 live-trust verdict:
+  - `Needs work`
+  - one-brain owner collapse is materially achieved on current code
+  - recovery/handoff owner classification is now explicitly keep-now dead power
+  - active `EXTREME_ONLY` surgery packet now enters through
+    `docs/EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md`
+  - current first bounded paper slice is:
+    - canonical top-level `taker.min_edge=0.11`
+    - fixed `$20` taker proving shot remains active
+    - no dynamic-size authority on canonical taker target sizing
+    - no conviction-owned candidate ranking authority on the canonical taker
+      path
+    - stage-local taker threshold and stage-local aggression authority are dead
+      in current runtime/config truth
+    - taker bounded single-side ws market reference is now live; fully missing
+      ws market reference still fail-closes as `market_probability_missing`
+  - latest watched 20-minute current-tree specimen is now:
+    - `fa32bb8f-3736-4130-9a5b-042291584bef`
+    - stored `validation_summary.json`: `ok=true`, `overall_exit_code=0`, all
+      validator and replay-validator exits `0`
+    - maker `2 submits / 10 fills`
+    - taker `2 submits / 2 fills`
+    - action-row source purity clean:
+      - maker `2/0 non_ws`
+      - taker `2/0 non_ws`
+    - real accepted taker fires at:
+      - `edge_value=0.19544432109812604`
+      - `edge_value=0.2648914731995672`
+      against canonical `required_min_edge=0.11`
+  - latest closure residual on that specimen is narrow:
+    - transient event-level `valuation_degraded=true` windows can occur around
+      settlement while status-sampled nightly/readiness bruise state still
+      reports `none`
+    - this is a report-scope / observability seam, not a validator-bundle
+      failure or proven runtime sickness
+  - immediate next move from that proof is:
+    - lock current truth
+    - clean the tree
+    - rerack Packet 1 closure on a clean state, or repair the valuation-summary
+      seam first if literal no-half-truth closure is required
+  - bounded-live-test readiness is not yet earned
+- maker/taker remain diagnostic-only for tuning/aggression work, but
+  maker and taker live-trust qualification are authorized as
+  diagnostic proof work
+- every packet in the lane must include:
+  - forward semantics sweep
+  - reverse semantics sweep
+  - contradiction compression pass
+  - negative-proof pass
+  - combat timing doctrine verification
+  - gate legitimacy sweep
+- `prelive_gate` and `live_canary` remain bounded tools inside that lane, not
+  the final authority by themselves.
+- no blueprint tuning is authorized inside Packet 1 through Packet 4
+- no generic weapon tuning is authorized while Packet 1 remains open
+- hookup truth is weaker than order-capable live truth; bounded live hookup
+  remains blocked until canonical live nonce and pending-wallet-tx truth are
+  present on the approved live path
 - Latest clean-tree readiness highest passing stage is `paper`; blocking stage is `pilot_live`.
 - Current broad current-code specimen `7bbde42c-003a-4f57-b59a-7ce138224075`
   preserves full proving lineage on a clean current-code release anchor while
@@ -511,8 +598,10 @@
     - `metrics.runtime_meaningful_participation=1.0`
   - `soak_hardening_gate.json` preserves the same readiness frontier and adds
     only bounded realism / policy findings
-  - `paper_harness_audit.json` stays lineage-complete and aligned, with only
+  - `paper_harness_audit.json` stays lineage-complete and aligned; the old
     `paper_harness_book_updates_rest_ratio_high:0.393103>max:0.350000`
+    sample remains historical evidence of the prior whole-stream contract,
+    not current hard-fail law
   - fresh harvest replay bundle
     `logs_exec/paper_universal/metric_harvest/packet6_13fd56b5` does not
     resurrect the old second dialect
@@ -591,8 +680,9 @@
     - `secondary_oracle_status=confirmed`
     - `secondary_oracle_confirmation=true`
     - non-null `secondary_fair_probability`
-  - same-time null-oracle duplicates are taker-scope
-    `stage_disallow_taker` rows, not a proven maker-scope owner split
+  - same-time null-oracle duplicates are taker-scope authority-closed rows
+    (`stage_disallow_taker` on older specimens; `normal_taker_authority_closed`
+    on current canonical Packet 1 code), not a proven maker-scope owner split
   - `maker_fight_admission_shadow` matched the maker-scope rows on this
     specimen
   - the broader executor/shadow owner split therefore remains unproven

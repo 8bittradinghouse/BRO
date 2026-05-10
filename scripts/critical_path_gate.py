@@ -34,8 +34,8 @@ def run_gate() -> Dict[str, Any]:
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        # Canonical doctrine fixtures must not set both doctrine and legacy sniper freshness keys.
-        cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+        # Canonical doctrine fixtures must not set both doctrine and deprecated taker freshness keys.
+        cfg["taker"].pop("max_chainlink_tick_age_sec", None)
         cfg["mode"] = "live"
         cfg["targets"]["discovery"]["enabled"] = False
         cfg["targets"]["token_ids"] = ["tok1"]

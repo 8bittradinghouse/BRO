@@ -76,11 +76,11 @@ def run_snapshot(
         "execution_capture_minus_adverse": float(
             (report.get("execution_quality", {}) or {}).get("capture_minus_adverse", 0.0)
         ),
-        "sniper_submits": float((report.get("sniper", {}) or {}).get("submits", 0.0)),
-        "sniper_fills": float((report.get("sniper", {}) or {}).get("fills", 0.0)),
-        "sniper_fill_rate": float((report.get("sniper", {}) or {}).get("fill_rate", 0.0)),
-        "sniper_midpoint_win_rate_proxy": float(
-            (report.get("sniper", {}) or {}).get("midpoint_win_rate_proxy", 0.0)
+        "taker_submits": float((report.get("taker", report.get("taker", {})) or {}).get("submits", 0.0)),
+        "taker_fills": float((report.get("taker", report.get("taker", {})) or {}).get("fills", 0.0)),
+        "taker_fill_rate": float((report.get("taker", report.get("taker", {})) or {}).get("fill_rate", 0.0)),
+        "taker_midpoint_win_rate_proxy": float(
+            (report.get("taker", report.get("taker", {})) or {}).get("midpoint_win_rate_proxy", 0.0)
         ),
         "quote_uptime_ratio": float(report.get("quote_uptime_ratio", 0.0)),
         "error_rows": float(report.get("error_rows", 0.0)),

@@ -31,9 +31,9 @@ class ForensicSnapshotTests(unittest.TestCase):
                     "counter.risk_reject_notional_cap": 1,
                     "counter.risk_reject_stale_book": 1,
                     "gauge.total_pnl": 1.0,
-                    "gauge.sniper_mode_active": 0.0,
-                    "gauge.sniper_token_count": 0.0,
-                    "gauge.sniper_lag_verified_token_count": 0.0,
+                    "gauge.taker_mode_active": 0.0,
+                    "gauge.taker_token_count": 0.0,
+                    "gauge.taker_lag_verified_token_count": 0.0,
                     "gauge.latency_verifier_state": 2.0,
                     "gauge.latency_verifier_sample_count": 100.0,
                     "gauge.latency_sampling_inactive_cycles": 0.0,
@@ -53,9 +53,9 @@ class ForensicSnapshotTests(unittest.TestCase):
                     "counter.risk_reject_notional_cap": 3,
                     "counter.risk_reject_stale_book": 1,
                     "gauge.total_pnl": -0.5,
-                    "gauge.sniper_mode_active": 1.0,
-                    "gauge.sniper_token_count": 2.0,
-                    "gauge.sniper_lag_verified_token_count": 1.0,
+                    "gauge.taker_mode_active": 1.0,
+                    "gauge.taker_token_count": 2.0,
+                    "gauge.taker_lag_verified_token_count": 1.0,
                     "gauge.latency_verifier_state": 2.0,
                     "gauge.latency_verifier_sample_count": 150.0,
                     "gauge.latency_sampling_inactive_cycles": 0.0,
@@ -65,12 +65,12 @@ class ForensicSnapshotTests(unittest.TestCase):
                 {"run_id": run_id, "event_type": "fill"},
                 {"run_id": run_id, "event_type": "order_submit"},
                 {"run_id": run_id, "event_type": "order_cancel"},
-                {"run_id": run_id, "event_type": "sniper_taker_submit"},
+                {"run_id": run_id, "event_type": "taker_submit"},
                 {
                     "run_id": run_id,
                     "event_type": "edge_evaluation",
                     "action_taken": "none",
-                    "block_reason": "sniper_constraints",
+                    "block_reason": "edge_below_min",
                 },
             ]
 
@@ -81,11 +81,11 @@ class ForensicSnapshotTests(unittest.TestCase):
             self.assertEqual(report["execution"]["fills"], 5)
             self.assertEqual(report["execution"]["orders_submitted"], 7)
             self.assertEqual(report["risk"]["risk_rejects"], 9)
-            self.assertEqual(report["events"]["sniper_taker_submit"], 1)
-            self.assertEqual(report["edge_block_breakdown"]["sniper_constraints"], 1)
+            self.assertEqual(report["events"]["taker_submit"], 1)
+            self.assertEqual(report["edge_block_breakdown"]["edge_below_min"], 1)
             self.assertEqual(report["pnl"]["first"], 1.0)
             self.assertEqual(report["pnl"]["last"], -0.5)
-            self.assertEqual(report["sniper"]["sniper_mode_max"], 1.0)
+            self.assertEqual(report["taker"]["taker_mode_max"], 1.0)
 
     def test_run_snapshot_contract_bounds_limit_rows(self):
         with tempfile.TemporaryDirectory() as td:

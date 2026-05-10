@@ -101,7 +101,11 @@ Current saved lane:
     `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current post-restoration proof frontier:
   - `pilot_live` authority proof
-- weapons remain diagnostic-only
+- active macro lane inside that frontier:
+  - `live trust qualification`
+- weapons remain diagnostic-only for tuning/aggression work
+- maker and taker live-trust qualification are authorized as diagnostic
+  proof work
 
 Current runtime truth:
 - broad current-code proving anchor:
@@ -131,14 +135,32 @@ Current runtime truth:
   - `blocking_stage=pilot_live`
   - `runtime_classification=VALID_ACTIVE`
 - next engineering lane:
-  - clean-tree `prelive_gate` / `live_canary` prep for `pilot_live` authority
+  - govern the lane with:
+    - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+    - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+  - qualify live trust for:
+    - taker
+    - wallet
+    - maker
+    - then bounded live hookup
+  - Packet 1 focus is a full taker inherited-lineage cleanup map from core
+    doctrine out through branch/contact surfaces and back into the true owner
+  - `prelive_gate` / `live_canary` are bounded tools inside that lane, not the
+    final authority by themselves
+  - every packet in that lane must include:
+    - forward semantics sweep
+    - reverse semantics sweep
+    - contradiction compression pass
+    - negative-proof pass
+    - combat timing doctrine verification
+    - gate legitimacy sweep
   - watched peak-hours paper confirmation is now treated as materially achieved
     on current proof unless a fresh contradiction appears
   - keep pickup authority anchored to:
     - `docs/PROJECT_TRUTH_STATE.md`
     - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
     - `docs/NEXT_PACKET_PLAN.md`
-  - do not mutate maker timing or gating by default
+  - do not mutate maker timing/gating or do generic weapon tuning by default
   - do not reopen Packets 2-6 unless a fresh live specimen proves a real
     regression
 

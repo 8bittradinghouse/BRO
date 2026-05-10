@@ -72,9 +72,13 @@ PY
 ## Reality-Emulation Guardrails
 - Paper maker orders enforce post-only semantics: crossed post-only GTC orders are rejected (`post_only_reject`) instead of silently resting.
 - Paper fills require explicit touch size. Missing `best_bid_size` / `best_ask_size` is treated as zero available liquidity (fail-closed), not optimistic infinite depth.
-- Canonical soak gating enforces market-data source realism:
+- Canonical validation enforces market-data liveliness and action-lane source purity:
   - minimum websocket book-update continuity
-  - bounded REST fallback ratio
+  - minimum total book-update continuity
+  - action-row `edge_evaluation` records with `action_taken in {maker,taker}`
+    must stay `book_source=ws`
+  - whole-stream REST ratio remains a watch/descriptive metric, not the hard
+    source-purity blocker
 - Canonical soak gating enforces fill realism envelopes:
   - `max_maker_fill_rate`
   - `max_taker_bonus_fill_rate`
@@ -112,7 +116,6 @@ Policy source for these thresholds:
   - claim-boundary source truth layers:
     - `decision_source_truth` (all decision rows)
     - `action_source_truth` (action rows only)
-    - `source_truth` is kept as a legacy alias of `action_source_truth` for backward-safe parsing
   - `harness_realism_grade` is descriptive only, not authority and not a pass/fail substitute
 
 ## Maker/Taker Realism Policy Surface

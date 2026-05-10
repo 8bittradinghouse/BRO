@@ -16,11 +16,16 @@ from prodesk.edge_truth_contract import (
     EDGE_ACTION_MAKER,
     EDGE_ACTION_NONE,
     EDGE_ACTION_TAKER,
+    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+    EDGE_AUTH_NORMAL_TAKER_FIELD,
+    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
+    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
     EDGE_ACTIONS,
     EDGE_BLOCK_REASONS,
     EDGE_EVAL_SCOPE_MAKER,
     EDGE_EVAL_SCOPE_TAKER,
     EDGE_EVAL_SCOPES,
+    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
     EdgeInputSnapshot,
     compute_edge_value,
     is_canonical_block_reason,
@@ -65,7 +70,7 @@ AUDIT_RULE_SET = (
     "required_types_and_ranges",
     "scope_and_action_vocabulary",
     "row_run_id_matches_selected_run",
-    "eligibility_matches_stage_policy",
+    "eligibility_matches_authority_contract",
     "action_requires_eligible_stage_field",
     "no_action_requires_canonical_block_reason",
     "action_requires_submission",
@@ -310,7 +315,7 @@ def run_audit(
     latency_cfg = cfg.get("latency_verifier", {}) if isinstance(cfg.get("latency_verifier"), dict) else {}
     oracle_max_tick_age_sec = float(doctrine_cfg.get("oracle_max_tick_age_sec", 1.5))
     require_latency_for_maker = bool(latency_cfg.get("require_armed_for_maker", True))
-    require_latency_for_taker = bool(latency_cfg.get("require_armed_for_sniper", True))
+    require_latency_for_taker = bool(latency_cfg.get("require_armed_for_taker", True))
 
     all_rows: List[Dict[str, Any]] = []
     resolved_contract_path = ""
@@ -393,23 +398,55 @@ def run_audit(
             findings.append(f"{row_prefix}_submitted_not_bool")
         if not isinstance(filled, bool):
             findings.append(f"{row_prefix}_filled_not_bool")
-        expected_maker_allowed, expected_taker_allowed = stage_policy(stage)
-        if (
-            isinstance(maker_allowed, bool)
-            and (not reduce_only_recovery_active)
-            and bool(maker_allowed) != bool(expected_maker_allowed)
-        ):
-            findings.append(
-                f"{row_prefix}_maker_allowed_stage_policy_mismatch:{stage}:{maker_allowed}:{expected_maker_allowed}"
+        has_explicit_authority_contract = any(
+            field in row
+            for field in (
+                EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+                EDGE_AUTH_NORMAL_TAKER_FIELD,
+                EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
+                EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
+                EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
             )
-        if (
-            isinstance(taker_allowed, bool)
-            and (not reduce_only_recovery_active)
-            and bool(taker_allowed) != bool(expected_taker_allowed)
-        ):
-            findings.append(
-                f"{row_prefix}_taker_allowed_stage_policy_mismatch:{stage}:{taker_allowed}:{expected_taker_allowed}"
-            )
+        )
+        expected_maker_allowed = None
+        expected_taker_allowed = None
+        if has_explicit_authority_contract:
+            expected_maker_allowed = bool(
+                row.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)
+            ) or bool(row.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False))
+            expected_taker_allowed = bool(row.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
+            if (
+                isinstance(maker_allowed, bool)
+                and bool(maker_allowed) != bool(expected_maker_allowed)
+            ):
+                findings.append(
+                    f"{row_prefix}_maker_allowed_authority_contract_mismatch:{maker_allowed}:{expected_maker_allowed}"
+                )
+            if (
+                isinstance(taker_allowed, bool)
+                and bool(taker_allowed) != bool(expected_taker_allowed)
+            ):
+                findings.append(
+                    f"{row_prefix}_taker_allowed_authority_contract_mismatch:{taker_allowed}:{expected_taker_allowed}"
+                )
+        else:
+            expected_maker_allowed, expected_taker_allowed = stage_policy(stage)
+            if (
+                isinstance(maker_allowed, bool)
+                and (not reduce_only_recovery_active)
+                and bool(maker_allowed) != bool(expected_maker_allowed)
+            ):
+                findings.append(
+                    f"{row_prefix}_maker_allowed_stage_policy_mismatch:{stage}:{maker_allowed}:{expected_maker_allowed}"
+                )
+            if (
+                isinstance(taker_allowed, bool)
+                and (not reduce_only_recovery_active)
+                and bool(taker_allowed) != bool(expected_taker_allowed)
+            ):
+                findings.append(
+                    f"{row_prefix}_taker_allowed_stage_policy_mismatch:{stage}:{taker_allowed}:{expected_taker_allowed}"
+                )
 
         cycle_index = row.get("cycle_index")
         if not isinstance(cycle_index, int) or int(cycle_index) < 0:
@@ -506,7 +543,11 @@ def run_audit(
 
         if action != EDGE_ACTION_NONE:
             action_rows += 1
-            if (not reduce_only_recovery_active) and (not stage_allows_action(stage, action)):
+            if (
+                (not reduce_only_recovery_active)
+                and (not has_explicit_authority_contract)
+                and (not stage_allows_action(stage, action))
+            ):
                 findings.append(f"{row_prefix}_stage_action_mismatch:{stage}:{action}")
             if submitted is not True:
                 findings.append(f"{row_prefix}_action_without_submission")

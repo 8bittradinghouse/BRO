@@ -30,6 +30,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct script invocation path
     from nightly_soak_report import build_report
 
 DEFAULT_REPORT_MAX_LINES_PER_FILE = 50000
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_RAMP_POLICY_PATH = (ROOT_DIR / "ops" / "ramp_policy.yaml").resolve()
+DEFAULT_EXECUTION_CONFIG_PATH = (ROOT_DIR / "execution_config.yaml").resolve()
 
 KNOWN_METRICS = {
     "status_rows",
@@ -167,6 +170,17 @@ def _resolve_effective_log_dir(log_dir: pathlib.Path) -> pathlib.Path:
         rel = PurePosixPath(raw).relative_to("/logs")
         return (host_root / pathlib.Path(*rel.parts)).resolve()
     return log_dir.resolve()
+
+
+def _resolve_repo_owned_path(path: pathlib.Path, *, repo_default: pathlib.Path) -> pathlib.Path:
+    if path.is_absolute():
+        return path.resolve()
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    if str(path).strip():
+        return (ROOT_DIR / path).resolve()
+    return repo_default.resolve()
 
 
 def _parse_criterion_key(key: str) -> Tuple[str, str]:
@@ -621,7 +635,10 @@ def main() -> None:
     args = parser.parse_args()
 
     if bool(args.check_writable_paths or args.check_writable_paths_only):
-        cfg_path = pathlib.Path(str(args.config).strip() or "execution_config.yaml").resolve()
+        cfg_path = _resolve_repo_owned_path(
+            pathlib.Path(str(args.config).strip() or "execution_config.yaml"),
+            repo_default=DEFAULT_EXECUTION_CONFIG_PATH,
+        )
         cfg = load_execution_config(cfg_path)
         path_findings = validate_runtime_write_paths(cfg)
         if path_findings:
@@ -638,7 +655,7 @@ def main() -> None:
         raise SystemExit("readiness_gate requires --run-id")
 
     log_dir = _resolve_effective_log_dir(pathlib.Path(args.log_dir))
-    policy_path = pathlib.Path(args.policy).resolve()
+    policy_path = _resolve_repo_owned_path(pathlib.Path(str(args.policy)), repo_default=DEFAULT_RAMP_POLICY_PATH)
     policy = _load_policy(policy_path)
     run_id = str(args.run_id).strip() or None
     result = run_readiness_gate(

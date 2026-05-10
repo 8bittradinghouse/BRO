@@ -1,5 +1,7 @@
+import json
 import pathlib
 import re
+import subprocess
 import unittest
 
 
@@ -46,6 +48,15 @@ REMOVED_LOCAL_MIRROR_DOCS = [
     "docs/README_INDEX.md",
     "docs/ROBB_FOUNDER_TRUTHS_2026-04-25.md",
     "docs/TEAM_DADDY_JIN_FIELD_GUIDE_2026-04-26.md",
+]
+ACTIVE_LIVE_TRUST_AUTHORITY_DOCS = [
+    REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md",
+    REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md",
+    REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md",
+    REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
+    REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
 ]
 
 
@@ -306,9 +317,24 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_validation_path_marks_harness_realism_grade_descriptive_and_lineage_explicit(self):
         text = (REPO_ROOT / "docs" / "CANONICAL_VALIDATION_PATH.md").read_text(encoding="utf-8")
         self.assertIn("harness_realism_grade` is descriptive only", text)
+        self.assertIn("`exercised_harness_realism`", text)
         self.assertIn("code_fingerprint_sha256", text)
         self.assertIn("Promotion-grade evidence must be manifest-backed", text)
         self.assertIn("`profile_name`", text)
+
+    def test_current_truth_docs_distinguish_canonical_harness_grade_from_nightly_exercised_realism(self):
+        targets = [
+            REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md",
+            REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md",
+            REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md",
+        ]
+        for path in targets:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("exercised_harness_realism", text, msg=f"nightly exercised realism owner missing from {path}")
+            self.assertNotIn("nightly report `harness_realism_grade=60`", text, msg=f"stale nightly canonical-grade wording still present in {path}")
+        next_plan_text = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
+        self.assertIn("older whole-stream source-mix hard-fail contract", next_plan_text)
+        self.assertIn("hard source-purity closure belongs only to action-row", next_plan_text)
 
     def test_promotion_doc_requires_manifest_backed_lineage_complete_identity(self):
         text = (REPO_ROOT / "docs" / "PROMOTION.md").read_text(encoding="utf-8")
@@ -403,7 +429,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("current BRO fighter-specific runtime/timing/stage authority lives in", text)
         self.assertIn("`MAKER_TAKER_SELECTIVE`: maker yes, taker no", text)
         self.assertIn("`SNIPER_PRIMARY`: maker no, taker no", text)
-        self.assertIn("`EXTREME_ONLY`: maker no, taker yes", text)
+        self.assertIn("`EXTREME_ONLY`: maker no, taker no", text)
 
     def test_bro_local_continuity_subset_exists(self):
         for rel in REQUIRED_LOCAL_CONTINUITY_DOCS:
@@ -495,6 +521,272 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_agents_preflight_includes_bro_engineering_kernel(self):
         text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("/home/odah/bro/base/docs/BRO_ENGINEERING_KERNEL.md", text)
+
+    def test_live_trust_active_authority_docs_share_one_interpretation_language(self):
+        texts = {
+            path: path.read_text(encoding="utf-8")
+            for path in ACTIVE_LIVE_TRUST_AUTHORITY_DOCS
+        }
+        combined = "\n".join(texts.values())
+
+        self.assertIn("live trust qualification", combined)
+        self.assertIn("taker live-trust qualification", combined)
+        self.assertIn("authorized diagnostic proof work", combined)
+        self.assertIn("Taker Live / Economic and Firing Trust Qualification", combined)
+        self.assertNotIn("taker/sniper", combined)
+        self.assertNotIn("Taker/Sniper", combined)
+        self.assertNotIn("maker/taker/sniper", combined)
+        self.assertNotIn("`Sniper`: diagnostic-only", combined)
+        self.assertNotIn("`Taker`: diagnostic-only", combined)
+
+        for path, text in texts.items():
+            self.assertNotIn("no middle category", text, msg=f"stale no-middle-category language still present in {path}")
+
+        bounded_tool_docs = [
+            REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md",
+            REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md",
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
+            REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
+        ]
+        for path in bounded_tool_docs:
+            text = texts[path]
+            self.assertIn("prelive_gate", text, msg=f"prelive gate bounded-tool language missing from {path}")
+            self.assertIn("live_canary", text, msg=f"live_canary bounded-tool language missing from {path}")
+            self.assertRegex(
+                text,
+                r"bounded (tools?|proving tools?)",
+                msg=f"bounded-tool classification missing from {path}",
+            )
+            self.assertRegex(
+                text,
+                r"not\s+(the\s+)?final(\s+live)?\s+authorit",
+                msg=f"final-authority boundary missing from {path}",
+            )
+
+        program_path = REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md"
+        program_text = texts[program_path]
+        self.assertIn("prelive_gate", program_text)
+        self.assertIn("live_canary", program_text)
+        self.assertIn("final authority: observed truth under real conditions, not gate-green alone", program_text)
+
+        generic_tuning_docs = [
+            REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md",
+            REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md",
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md",
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
+            REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
+        ]
+        for path in generic_tuning_docs:
+            self.assertIn("generic weapon tuning", texts[path], msg=f"generic weapon tuning boundary missing from {path}")
+
+        limitation_phrases = json.loads((REPO_ROOT / "docs" / "DOCTRINE_LIMITATION_PHRASES.json").read_text(encoding="utf-8"))
+        wallet_blocker_docs = [
+            REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md",
+            REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md",
+        ]
+        for path in wallet_blocker_docs:
+            text = texts[path]
+            for key in (
+                "canonical_live_nonce_truth_unavailable",
+                "canonical_live_pending_wallet_tx_truth_unavailable",
+                "strict_order_capable_live_fail_closed",
+            ):
+                self.assertIn(
+                    limitation_phrases[key],
+                    text,
+                    msg=f"wallet live blocker phrase {key} missing from {path}",
+                )
+
+        sink_text = texts[REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md"]
+        next_plan_text = texts[REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md"]
+        self.assertIn("hookup truth", program_text)
+        self.assertIn("order-capable live truth", program_text)
+        self.assertIn("Contradiction Compression Pass", program_text)
+        self.assertIn("Negative-Proof Pass", program_text)
+        self.assertIn(
+            "1. `Taker Live / Economic and Firing Trust Qualification`",
+            program_text,
+        )
+        self.assertIn(
+            "2. `Grip-Live / Wallet Live Trust Qualification`",
+            program_text,
+        )
+        self.assertIn(
+            "Packet 1 `Taker Live / Economic and Firing Trust Qualification`",
+            sink_text,
+        )
+        self.assertIn("split-brain", program_text)
+        self.assertRegex(
+            next_plan_text,
+            r"first packet inside that lane is `Taker Live / Economic and Firing\s+Trust Qualification`",
+        )
+        self.assertRegex(program_text, r"smaller proofable\s+slices")
+        self.assertRegex(
+            program_text,
+            r"one seam or one\s+tightly coupled authority set per slice",
+        )
+        self.assertIn("no weaker replacement of a stronger existing doctrine or validator surface", program_text)
+        self.assertIn("Stronger existing doctrine or validator surfaces must not be replaced", sink_text)
+        self.assertIn("contradiction compression pass", sink_text)
+        self.assertIn("negative-proof pass", sink_text)
+
+        repo_dirty = bool(
+            subprocess.check_output(
+                ["git", "-C", str(REPO_ROOT), "status", "--short"],
+                text=True,
+            ).strip()
+        )
+        if repo_dirty:
+            self.assertIn("current tree cleanliness: `dirty`", sink_text)
+            for path, text in texts.items():
+                self.assertNotIn(
+                    "working tree clean",
+                    text,
+                    msg=f"dirty repo is still being described as clean in {path}",
+                )
+        else:
+            self.assertIn("current tree cleanliness: `clean`", sink_text)
+            self.assertNotIn("working tree currently carries live-trust rehardening updates", combined)
+
+    def test_live_trust_packet_1_taker_artifact_is_wired_and_complete(self):
+        packet_path = (
+            REPO_ROOT
+            / "docs"
+            / "BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md"
+        )
+        packet_text = packet_path.read_text(encoding="utf-8")
+        program_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+        sink_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+        truth_text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
+        next_plan_text = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
+
+        self.assertIn("Taker Live Trust Qualification", packet_text)
+        self.assertIn("## Doctrine-Root Contradiction Verdict", packet_text)
+        self.assertIn("## Stage/Config Dead-By-Construction Census", packet_text)
+        self.assertIn("## Compensator-Fat / Scar-Tissue Census", packet_text)
+        self.assertIn("## Sniper-Derived Taker Surface Map", packet_text)
+        self.assertIn("## External Blueprint Audit: Taker Sword Blueprint", packet_text)
+        self.assertIn("## Null-Hypothesis Subtree Removal Verdict", packet_text)
+        self.assertIn("## Historical Closure Quarantine", packet_text)
+        self.assertIn("## Bounded Implementation Ladder", packet_text)
+        self.assertIn("BRO_HANDOFF_20260405T051017Z_SNIPER_TAKER_PACKET_CLOSEOUT.md", packet_text)
+
+        packet_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md"
+        self.assertIn(packet_rel, program_text)
+        self.assertIn(packet_rel, sink_text)
+        self.assertIn(packet_rel, truth_text)
+        self.assertIn(packet_rel, next_plan_text)
+
+        self.assertIn("Current verdict:", packet_text)
+        self.assertIn("- `Needs work`", packet_text)
+        self.assertIn("Packet 1 `Taker Live` now carries an explicit `Needs work` verdict", sink_text)
+        self.assertIn("recovery/handoff owner classification is now explicitly keep-now dead power", sink_text)
+        self.assertIn("keep-now explicit two-surface contract", packet_text)
+        self.assertIn("`effective_stage` is the live authority / action surface", packet_text)
+        self.assertIn("`stage_bucket` is the raw timing-lineage / diagnostic surface", packet_text)
+        self.assertIn("CANONICAL_EDGE_STAGE_POLICY", packet_text)
+        self.assertIn("current live late-window authority instead comes from the explicit runtime", packet_text)
+        self.assertIn("top-level `taker.min_edge`", packet_text)
+        self.assertIn("build_taker_competitiveness_policy(...)", packet_text)
+        self.assertIn("TakerCompetitivenessConfig", packet_text)
+        self.assertIn("TakerCompetitivenessEngine", packet_text)
+        self.assertIn("prodesk/taker_competitiveness.py", packet_text)
+        self.assertIn("removed sniper-family wrappers/events", packet_text)
+        self.assertIn("quarantine as history only", packet_text)
+        self.assertIn("fire-condition subtree under challenge:", sink_text)
+        self.assertIn("helper/config/event compatibility mass is purge material after migration", sink_text)
+        self.assertIn("`multi_oracle_edge_threshold_abs`", sink_text)
+        self.assertIn("`min_visible_fill_ratio`", sink_text)
+        self.assertIn("`final_window_enabled` / `final_window_sec`", sink_text)
+        self.assertIn("`dynamic_preview_enabled`", sink_text)
+        self.assertIn("EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md", sink_text)
+        self.assertIn("canonical top-level `taker.min_edge=0.11`", sink_text)
+        self.assertIn("raw `EXTREME_ONLY` bucket still exists, but it no longer owns", sink_text)
+        self.assertIn("no longer lets maker timing steal late `EXTREME_ONLY`", sink_text)
+        self.assertIn("no longer lets legacy `execution_cutoff_sec` suppress", sink_text)
+        self.assertIn("taker activation and `_run_taker()` now share one canonical stage-window", sink_text)
+        self.assertIn("raw `EXTREME_ONLY` stage policy is no longer the live owner", sink_text)
+        self.assertIn("Packet 1 removed taker-driven shared `OrderManager` soft-rate budget", sink_text)
+        self.assertIn("maker-side `tracked_token_cleanup` / orphan cleanup still runs", sink_text)
+        self.assertIn("keep-now explicit two-surface contract", sink_text)
+        self.assertNotIn("`taker.min_edge_by_stage.EXTREME_ONLY`", packet_text)
+        self.assertNotIn("canonical paper `required_min_edge=0.11`", packet_text)
+
+        self.assertNotIn("required_min_edge=0.18", packet_text)
+        self.assertNotIn("legacy `sniper_taker_decision` remains", packet_text)
+        self.assertNotIn("legacy bridge inputs `sniper.enabled` + `sniper.taker.enabled`", packet_text)
+        self.assertNotIn("prodesk/sniper_tool.py", packet_text)
+        self.assertNotIn("| Taker/Sniper Live |", sink_text)
+
+    def test_bro_canonical_doctrine_matches_current_taker_stage_authority(self):
+        doctrine_text = (REPO_ROOT / "BRO_CANONICAL_DOCTRINE.txt").read_text(encoding="utf-8")
+
+        self.assertIn("SNIPER_PRIMARY is diagnostic-only in canonical live doctrine", doctrine_text)
+        self.assertIn(
+            "stage-local final-window overrides are reserved for explicit diagnostic or",
+            doctrine_text,
+        )
+        self.assertIn("`taker_decision` with conviction", doctrine_text)
+        self.assertIn(
+            "Canonical live taker authority is not active in this stage.",
+            doctrine_text,
+        )
+        self.assertNotIn("SNIPER_PRIMARY is taker-only", doctrine_text)
+        self.assertNotIn("SNIPER_PRIMARY must be taker-only", doctrine_text)
+        self.assertNotIn(
+            "SNIPER_PRIMARY may use a stricter stage-local final window than other taker stages",
+            doctrine_text,
+        )
+        self.assertNotIn(
+            "legacy `sniper_taker_decision` remains a compatibility alias",
+            doctrine_text,
+        )
+        self.assertNotIn(
+            "legacy `taker_decision` remains a compatibility alias",
+            doctrine_text,
+        )
+
+    def test_doctrine_runbook_spells_out_maker_taker_market_reference_asymmetry(self):
+        runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
+
+        self.assertIn("maker market-reference uses:", runbook_text)
+        self.assertIn("bounded_single_side_touch", runbook_text)
+        self.assertIn("taker market-reference uses:", runbook_text)
+        self.assertIn(
+            "`bounded_single_side_touch` when midpoint is unavailable and exactly one ws side is present",
+            runbook_text,
+        )
+        self.assertIn(
+            "fully missing ws market reference remains explicit fail-closed `market_probability_missing`",
+            runbook_text,
+        )
+
+    def test_doctrine_runbook_names_effective_stage_and_stage_bucket_as_stage_signals(self):
+        runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
+
+        self.assertIn("`effective_stage` and `stage_bucket`", runbook_text)
+        self.assertIn("legacy `stage` and `raw_stage` as compatibility aliases only", runbook_text)
+        self.assertIn("`taker_decision` event", runbook_text)
+        self.assertIn("`extreme_only_on_arrival`", runbook_text)
+        self.assertNotIn("legacy `sniper_taker_decision` remains a compatibility alias", runbook_text)
+        self.assertNotIn("legacy `taker_decision` remains a compatibility alias", runbook_text)
+        self.assertNotIn("`sniper_primary_on_arrival`", runbook_text)
+
+    def test_doctrine_and_packet_name_timing_gate_handoff_override_recovery_path(self):
+        runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
+        packet_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("timing-gate handoff override path", runbook_text)
+        self.assertIn("does not restore normal taker live authority", runbook_text)
+        self.assertIn("timing_gate_handoff_override_active=true", packet_text)
+        self.assertIn("outside the nominal `<=7s` emergency window", packet_text)
+        self.assertIn("`maker_to_taker_recovery_handoff_disabled`", packet_text)
 
 
 if __name__ == "__main__":

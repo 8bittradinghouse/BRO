@@ -243,48 +243,96 @@ class ExecutorHardeningTests(unittest.TestCase):
             )
         )
 
-    def test_sniper_context_falls_back_when_expiry_metadata_missing_and_allowed(self):
+    def test_taker_context_falls_back_when_expiry_metadata_missing_and_allowed(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.token_ids = ["t1", "t2"]
         runner.token_expiry_dt_by_token = {}
-        runner.sniper_window_start_sec = 600.0
-        runner.sniper_window_end_sec = 10.0
-        runner.sniper_require_lag_verification = True
-        runner.sniper_allow_without_expiry_metadata = True
+        runner.taker_arming_horizon_sec = 600.0
+        runner.taker_execution_cutoff_sec = 10.0
+        runner.taker_require_lag_verification = True
+        runner.taker_allow_without_expiry_metadata = True
         runner._lag_verified = lambda _token_id: True
 
-        ctx = ExecutionRunner._sniper_context(runner)
+        ctx = ExecutionRunner._taker_context(runner)
         self.assertTrue(ctx["active"])
         self.assertEqual(set(ctx["token_ids"]), {"t1", "t2"})
         self.assertEqual(set(ctx["near_token_ids"]), {"t1", "t2"})
 
-    def test_sniper_context_stays_blocked_when_expiry_metadata_missing_and_not_allowed(self):
+    def test_taker_context_stays_blocked_when_expiry_metadata_missing_and_not_allowed(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.token_ids = ["t1", "t2"]
         runner.token_expiry_dt_by_token = {}
-        runner.sniper_window_start_sec = 600.0
-        runner.sniper_window_end_sec = 10.0
-        runner.sniper_require_lag_verification = True
-        runner.sniper_allow_without_expiry_metadata = False
+        runner.taker_arming_horizon_sec = 600.0
+        runner.taker_execution_cutoff_sec = 10.0
+        runner.taker_require_lag_verification = True
+        runner.taker_allow_without_expiry_metadata = False
         runner._lag_verified = lambda _token_id: True
 
-        ctx = ExecutionRunner._sniper_context(runner)
+        ctx = ExecutionRunner._taker_context(runner)
         self.assertFalse(ctx["active"])
         self.assertEqual(ctx["token_ids"], [])
 
-    def test_sniper_context_falls_back_when_no_tokens_in_window_and_allowed(self):
+    def test_taker_context_falls_back_when_no_tokens_in_window_and_allowed(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.token_ids = ["t1"]
         runner.token_expiry_dt_by_token = {"t1": dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=5)}
-        runner.sniper_window_start_sec = 600.0
-        runner.sniper_window_end_sec = 10.0
-        runner.sniper_require_lag_verification = True
-        runner.sniper_allow_without_expiry_metadata = True
+        runner.taker_arming_horizon_sec = 600.0
+        runner.taker_execution_cutoff_sec = 10.0
+        runner.taker_require_lag_verification = True
+        runner.taker_allow_without_expiry_metadata = True
         runner._lag_verified = lambda _token_id: True
 
-        ctx = ExecutionRunner._sniper_context(runner)
+        ctx = ExecutionRunner._taker_context(runner)
         self.assertTrue(ctx["active"])
         self.assertEqual(ctx["token_ids"], ["t1"])
+
+    def test_taker_context_keeps_true_late_window_tokens_below_legacy_cutoff(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.token_ids = ["t1", "t2"]
+        runner.token_expiry_dt_by_token = {
+            "t1": dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=6),
+            "t2": dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=12),
+        }
+        runner.taker_arming_horizon_sec = 600.0
+        runner.taker_execution_cutoff_sec = 10.0
+        runner.taker_require_lag_verification = True
+        runner.taker_allow_without_expiry_metadata = False
+        runner._lag_verified = lambda _token_id: True
+
+        ctx = ExecutionRunner._taker_context(runner)
+        self.assertTrue(ctx["active"])
+        self.assertEqual(set(ctx["near_token_ids"]), {"t1", "t2"})
+        self.assertEqual(set(ctx["token_ids"]), {"t1", "t2"})
+
+    def test_taker_stage_window_token_ids_use_stage_eligible_window_tokens(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner._unique_ordered = ExecutionRunner._unique_ordered
+
+        token_ids = ExecutionRunner._taker_stage_window_token_ids(
+            runner,
+            taker_ctx={
+                "near_token_ids": ["obs", "live", "live", "unverified"],
+                "token_ids": ["live"],
+            },
+            taker_stage_tokens={"live", "unverified"},
+        )
+
+        self.assertEqual(token_ids, ["live", "unverified"])
+
+    def test_taker_stage_window_token_ids_falls_back_to_active_tokens_when_near_missing(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner._unique_ordered = ExecutionRunner._unique_ordered
+
+        token_ids = ExecutionRunner._taker_stage_window_token_ids(
+            runner,
+            taker_ctx={
+                "near_token_ids": [],
+                "token_ids": ["t1", "t2", "t1"],
+            },
+            taker_stage_tokens={"t2", "t1"},
+        )
+
+        self.assertEqual(token_ids, ["t1", "t2"])
 
     def test_ws_slo_degraded_cycle_flags_disconnect_and_stale_age(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)

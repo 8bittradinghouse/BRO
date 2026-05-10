@@ -22,14 +22,14 @@ class FusionCoreProfilingToolSpecTests(unittest.TestCase):
         self.assertEqual(payload.get("implementation_pass_status", {}).get("threshold_pressure_matrix_hardening"), "implemented")
 
         scope = payload.get("scope", {})
-        self.assertEqual(scope.get("lane_scope"), ["maker", "taker", "sniper"])
+        self.assertEqual(scope.get("lane_scope"), ["maker", "taker"])
         self.assertTrue(bool(scope.get("read_only")))
         self.assertFalse(bool(scope.get("allows_runtime_mutation")))
         self.assertFalse(bool(scope.get("allows_config_mutation")))
         self.assertFalse(bool(scope.get("allows_action_recommendation")))
         self.assertEqual(scope.get("lane_depth_policy", {}).get("maker"), "full_depth_at_or_above_coverage_threshold_else_mixed_depth_partial_deep_or_bounded_depth")
         self.assertEqual(scope.get("lane_depth_policy", {}).get("taker"), "bounded_depth_only")
-        self.assertEqual(scope.get("lane_depth_policy", {}).get("sniper"), "bounded_depth_only")
+        self.assertNotIn("sniper", scope.get("lane_depth_policy", {}))
 
     def test_spec_keeps_fma_contract_surface_and_policy_math_out_of_scope(self):
         payload = json.loads(SPEC_PATH.read_text(encoding="utf-8"))

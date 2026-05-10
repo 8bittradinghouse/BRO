@@ -20,7 +20,7 @@ import signal
 import sys
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Collection, Dict, List, Mapping, Optional, Tuple
 
 from prodesk.alerts import AlertNotifier
 from prodesk.book_feed import MarketBookFeed, MarketBookFeedError
@@ -35,6 +35,15 @@ from prodesk.canonical_authority import (
 from prodesk.common import parse_float, parse_ts, utc_iso, utc_now
 from prodesk.config import load_execution_config, validate_execution_config
 from prodesk.edge_truth_contract import (
+    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+    EDGE_AUTH_NORMAL_TAKER_FIELD,
+    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
+    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
+    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+    EDGE_STAGE_BUCKET_FIELD,
+    EVENT_TAKER_DECISION,
+    EVENT_TAKER_STAGE_WINDOW_SEMANTIC_CHECK,
+    EVENT_TAKER_SUBMIT,
     EDGE_ACTIONS,
     EDGE_ACTION_MAKER,
     EDGE_ACTION_NONE,
@@ -42,8 +51,11 @@ from prodesk.edge_truth_contract import (
     EDGE_EVAL_SCOPE_MAKER,
     EDGE_EVAL_SCOPES,
     EDGE_EVAL_SCOPE_TAKER,
+    TAKER_CHAINLINK_REASON,
+    authority_surface_fields,
     compute_edge_value,
     is_canonical_block_reason,
+    stage_surface_fields,
     validate_edge_inputs,
     EdgeInputSnapshot,
     stage_policy as edge_stage_policy,
@@ -85,7 +97,13 @@ from prodesk.risk import RiskEngine
 from prodesk.runtime_semantics import cycle_semantics, runtime_state_to_gauge
 from prodesk.state_store import load_state, save_state
 from prodesk.strategy import MarketMakingStrategy
-from prodesk.sniper_tool import SniperCandidate, SniperDecision, SniperTool, SniperToolConfig
+from prodesk.taker_competitiveness import (
+    TakerCandidate,
+    TakerDecision,
+    TakerCompetitivenessConfig,
+    TakerCompetitivenessEngine,
+    build_taker_competitiveness_policy,
+)
 from prodesk.telemetry import Telemetry
 from prodesk.time_sync import capture_host_time_sync_snapshot
 from prodesk.tx_manager import TransactionManager
@@ -103,6 +121,10 @@ STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
 STAGE_EXTREME_ONLY = "EXTREME_ONLY"
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
+CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset(
+    stage_name
+    for stage_name in (STAGE_EXTREME_ONLY,)
+)
 HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE = "preexpiry_fetch_failure"
 HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED = "postexpiry_market_retired"
 HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP = "unknown_data_gap"
@@ -490,7 +512,7 @@ class ExecutionRunner:
         doctrine_cfg = self.cfg.get("doctrine", {})
         self.doctrine_mode = str(doctrine_cfg.get("mode", "canonical")).strip().lower() or "canonical"
         self.doctrine_oracle_max_tick_age_sec = float(
-            doctrine_cfg.get("oracle_max_tick_age_sec", self.cfg.get("sniper", {}).get("max_chainlink_tick_age_sec", 1.5))
+            doctrine_cfg.get("oracle_max_tick_age_sec", self.cfg.get("taker", {}).get("max_chainlink_tick_age_sec", 1.5))
         )
         self.doctrine_maker_allow_bounded_single_side_reference = bool(
             doctrine_cfg.get("maker_allow_bounded_single_side_reference", True)
@@ -518,6 +540,21 @@ class ExecutionRunner:
             "fallback_claim_class": "bounded_approximation",
             "missing_fallback_behavior": "fail_closed_market_probability_missing",
         }
+        self._taker_market_reference_policy: Dict[str, Any] = {
+            "direct_mode": "direct_midpoint",
+            "paired_fallback_mode": "disabled",
+            "bounded_fallback_mode": "bounded_single_side_touch",
+            "activation_requires": [
+                "doctrine_mode_canonical",
+                "evaluation_scope_taker",
+                "book_source_ws",
+                "midpoint_present_or_single_side_present",
+            ],
+            "direct_claim_class": "authoritative",
+            "fallback_claim_class": "bounded_approximation",
+            "missing_claim_class": "not_available",
+            "missing_fallback_behavior": "fail_closed_market_probability_missing",
+        }
         preflight_cfg = self.cfg.get("preflight", {}) if isinstance(self.cfg.get("preflight"), dict) else {}
         time_policy_cfg = self.cfg.get("time_policy", {}) if isinstance(self.cfg.get("time_policy"), dict) else {}
         self._time_policy: Dict[str, Any] = {
@@ -543,30 +580,22 @@ class ExecutionRunner:
         self._last_stage_by_token: Dict[str, str] = {}
         self._last_degraded_expiry_fallback_active = False
 
-        sniper_cfg = self.cfg.get("sniper", {})
-        self.sniper_enabled = bool(sniper_cfg.get("enabled", False))
-        self.sniper_arming_horizon_sec = float(
-            sniper_cfg.get("arming_horizon_sec", sniper_cfg.get("window_start_sec", 20.0))
+        taker_cfg = self.cfg.get("taker", {})
+        self.taker_arming_horizon_sec = float(taker_cfg.get("arming_horizon_sec", 20.0))
+        self.taker_execution_cutoff_sec = float(taker_cfg.get("execution_cutoff_sec", 15.0))
+        self.taker_late_fire_priority_band_sec = float(
+            taker_cfg.get("late_fire_priority_band_sec", min(self.taker_execution_cutoff_sec, 5.0))
         )
-        self.sniper_execution_cutoff_sec = float(
-            sniper_cfg.get("execution_cutoff_sec", sniper_cfg.get("window_end_sec", 15.0))
-        )
-        self.sniper_late_fire_priority_band_sec = float(
-            sniper_cfg.get("late_fire_priority_band_sec", min(self.sniper_execution_cutoff_sec, 5.0))
-        )
-        # Backward-compatible aliases used by some tests.
-        self.sniper_window_start_sec = self.sniper_arming_horizon_sec
-        self.sniper_window_end_sec = self.sniper_execution_cutoff_sec
-        self.sniper_allow_without_expiry_metadata = bool(sniper_cfg.get("allow_without_expiry_metadata", False))
-        self.sniper_poll_interval_sec = float(sniper_cfg.get("poll_interval_sec", 0.2))
-        self.sniper_max_actions_per_cycle = int(sniper_cfg.get("max_actions_per_cycle", 16))
-        self.sniper_cancel_stale_action_budget = int(sniper_cfg.get("cancel_stale_action_budget", 6))
-        self.sniper_cancel_orphan_action_budget = int(sniper_cfg.get("cancel_orphan_action_budget", 12))
-        self.sniper_order_rate_soft_limit_pct = float(sniper_cfg.get("order_rate_soft_limit_pct", 1.0))
-        self.sniper_cancel_rate_soft_limit_pct = float(sniper_cfg.get("cancel_rate_soft_limit_pct", 1.0))
-        self.sniper_require_lag_verification = bool(sniper_cfg.get("require_lag_verification", True))
-        self.sniper_max_chainlink_tick_age_sec = float(sniper_cfg.get("max_chainlink_tick_age_sec", 1.5))
-        self.sniper_fair_vol_scale = float(sniper_cfg.get("fair_vol_scale", 1.0))
+        self.taker_allow_without_expiry_metadata = bool(taker_cfg.get("allow_without_expiry_metadata", False))
+        self.taker_poll_interval_sec = float(taker_cfg.get("poll_interval_sec", 0.2))
+        self.taker_max_actions_per_cycle = int(taker_cfg.get("max_actions_per_cycle", 16))
+        self.taker_cancel_stale_action_budget = int(taker_cfg.get("cancel_stale_action_budget", 6))
+        self.taker_cancel_orphan_action_budget = int(taker_cfg.get("cancel_orphan_action_budget", 12))
+        self.taker_order_rate_soft_limit_pct = float(taker_cfg.get("order_rate_soft_limit_pct", 1.0))
+        self.taker_cancel_rate_soft_limit_pct = float(taker_cfg.get("cancel_rate_soft_limit_pct", 1.0))
+        self.taker_require_lag_verification = bool(taker_cfg.get("require_lag_verification", True))
+        self.taker_max_chainlink_tick_age_sec = float(taker_cfg.get("max_chainlink_tick_age_sec", 1.5))
+        self.taker_fair_vol_scale = float(taker_cfg.get("fair_vol_scale", 1.0))
         self.chainlink_latency_sample_mid_move_min_delta = float(
             self.cfg.get("chainlink", {}).get(
                 "latency_sample_mid_move_min_delta",
@@ -575,44 +604,29 @@ class ExecutionRunner:
         )
         verifier_cfg = dict(self.cfg.get("latency_verifier", {}))
         if "window_samples" not in verifier_cfg:
-            verifier_cfg["window_samples"] = int(sniper_cfg.get("lag_window_samples", 300))
+            verifier_cfg["window_samples"] = int(taker_cfg.get("lag_window_samples", 300))
         if "min_samples" not in verifier_cfg:
-            verifier_cfg["min_samples"] = int(sniper_cfg.get("lag_min_samples", 80))
+            verifier_cfg["min_samples"] = int(taker_cfg.get("lag_min_samples", 80))
         if "hit_threshold_ms" not in verifier_cfg:
-            verifier_cfg["hit_threshold_ms"] = float(sniper_cfg.get("lag_hit_threshold_ms", 120.0))
+            verifier_cfg["hit_threshold_ms"] = float(taker_cfg.get("lag_hit_threshold_ms", 120.0))
         if "armed_min_median_ms" not in verifier_cfg:
-            verifier_cfg["armed_min_median_ms"] = float(sniper_cfg.get("lag_min_median_ms", 120.0))
+            verifier_cfg["armed_min_median_ms"] = float(taker_cfg.get("lag_min_median_ms", 120.0))
         if "armed_min_hit_rate" not in verifier_cfg:
-            verifier_cfg["armed_min_hit_rate"] = float(sniper_cfg.get("lag_min_hit_rate", 0.6))
+            verifier_cfg["armed_min_hit_rate"] = float(taker_cfg.get("lag_min_hit_rate", 0.6))
         self.latency_verifier = LatencyVerifier(verifier_cfg)
-        taker_cfg = sniper_cfg.get("taker", {})
-        self.sniper_taker_enabled = bool(taker_cfg.get("enabled", False))
-        self.sniper_taker_min_edge = float(taker_cfg.get("min_edge", 0.015))
-        raw_min_edge_by_stage = taker_cfg.get("min_edge_by_stage", {})
-        self.sniper_taker_min_edge_by_stage: Dict[str, float] = {}
-        if isinstance(raw_min_edge_by_stage, dict):
-            for stage_name, edge_value in raw_min_edge_by_stage.items():
-                normalized_stage = str(stage_name or "").strip().upper()
-                if not normalized_stage:
-                    continue
-                try:
-                    normalized_edge = float(edge_value)
-                except (TypeError, ValueError):
-                    continue
-                if normalized_edge < 0.0:
-                    continue
-                self.sniper_taker_min_edge_by_stage[normalized_stage] = normalized_edge
-        self.sniper_taker_extreme_edge_mult = float(taker_cfg.get("extreme_edge_mult", 2.0))
-        self.sniper_taker_order_size = float(taker_cfg.get("order_size", 20.0))
+        self.taker_enabled = bool(taker_cfg.get("enabled", False))
+        self.taker_min_edge = float(taker_cfg.get("min_edge", 0.015))
+        self.taker_extreme_edge_mult = float(taker_cfg.get("extreme_edge_mult", 2.0))
+        self.taker_order_size = float(taker_cfg.get("order_size", 20.0))
         self.sizing_mode = str(self.cfg.get("sizing", {}).get("mode", "shares")).strip().lower()
-        self.sniper_taker_target_usd = float(
+        self.taker_target_usd = float(
             taker_cfg.get("target_usd", self.cfg.get("sizing", {}).get("target_usd", 5.0))
         )
-        self._active_target_usd = float(self.cfg.get("sizing", {}).get("target_usd", self.sniper_taker_target_usd))
+        self._active_target_usd = float(self.cfg.get("sizing", {}).get("target_usd", self.taker_target_usd))
         ramp_cfg = self.cfg.get("ramp", {})
         self.ramp = SizeRampController(ramp_cfg, base_target_usd=self._active_target_usd)
         self._active_target_usd = float(self.ramp.target_usd)
-        self._sniper_ramp_allowed = bool(self.ramp.sniper_allowed)
+        self._taker_ramp_allowed = bool(self.ramp.taker_allowed)
         reconcile_status_path_raw = str(ramp_cfg.get("reconcile_status_path", "")).strip()
         if reconcile_status_path_raw:
             self.ramp_reconcile_status_path: Optional[pathlib.Path] = pathlib.Path(reconcile_status_path_raw).resolve()
@@ -621,14 +635,14 @@ class ExecutionRunner:
         self._reconcile_status_poll_interval_sec = 15.0
         self._last_reconcile_status_poll_mono = 0.0
         self._cached_reconcile_mismatch_ratio = 0.0
-        self.sniper_taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
-        self.sniper_taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
+        self.taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
+        self.taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
         raw_taker_stage_cooldown = taker_cfg.get("per_token_cooldown_sec_by_stage", {})
-        self.sniper_taker_per_token_cooldown_sec_by_stage: Dict[str, float] = {}
+        self.taker_per_token_cooldown_sec_by_stage: Dict[str, float] = {}
         if isinstance(raw_taker_stage_cooldown, dict):
             for stage_name, value in raw_taker_stage_cooldown.items():
                 normalized_stage = str(stage_name or "").strip().upper()
-                if not normalized_stage:
+                if not normalized_stage or normalized_stage not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
                     continue
                 try:
                     cooldown_sec = float(value)
@@ -636,36 +650,36 @@ class ExecutionRunner:
                     continue
                 if cooldown_sec < 0.0:
                     continue
-                self.sniper_taker_per_token_cooldown_sec_by_stage[normalized_stage] = cooldown_sec
+                self.taker_per_token_cooldown_sec_by_stage[normalized_stage] = cooldown_sec
         taker_competitiveness_cfg = (
             taker_cfg.get("competitiveness", {}) if isinstance(taker_cfg.get("competitiveness", {}), dict) else {}
         )
-        self.sniper_taker_competitiveness_cfg = SniperToolConfig.from_mapping(taker_competitiveness_cfg)
-        self.sniper_tool = SniperTool(self.sniper_taker_competitiveness_cfg)
+        self.taker_competitiveness_cfg = build_taker_competitiveness_policy(taker_competitiveness_cfg)
+        self.taker_competitiveness_engine = TakerCompetitivenessEngine(self.taker_competitiveness_cfg)
         risk_max_order_size = self.cfg.get("risk", {}).get("max_order_size")
-        self.sniper_taker_max_order_size_shares = float(risk_max_order_size or 0.0)
-        self.sniper_taker_sizing_max_usd = float(self.cfg.get("sizing", {}).get("max_usd", self.sniper_taker_target_usd))
-        self.sniper_taker_wallet_max_notional_per_order_usdc = float(
+        self.taker_max_order_size_shares = float(risk_max_order_size or 0.0)
+        self.taker_sizing_max_usd = float(self.cfg.get("sizing", {}).get("max_usd", self.taker_target_usd))
+        self.taker_wallet_max_notional_per_order_usdc = float(
             self.cfg.get("wallet", {}).get("max_notional_per_order_usdc", 0.0)
         )
-        multi_oracle_capital_pct_cap = float(self.sniper_taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
-        wallet_cfg_for_sniper = self.cfg.get("wallet", {})
-        if not isinstance(wallet_cfg_for_sniper, dict):
-            wallet_cfg_for_sniper = {}
-        paper_starting_usdc = parse_float(wallet_cfg_for_sniper.get("paper_starting_usdc"))
-        protected_usdc_reserve = parse_float(wallet_cfg_for_sniper.get("protected_usdc_reserve"))
+        multi_oracle_capital_pct_cap = float(self.taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
+        wallet_cfg_for_taker = self.cfg.get("wallet", {})
+        if not isinstance(wallet_cfg_for_taker, dict):
+            wallet_cfg_for_taker = {}
+        paper_starting_usdc = parse_float(wallet_cfg_for_taker.get("paper_starting_usdc"))
+        protected_usdc_reserve = parse_float(wallet_cfg_for_taker.get("protected_usdc_reserve"))
         capital_base_usd = None
         if paper_starting_usdc is not None:
             capital_base_usd = max(0.0, float(paper_starting_usdc))
             if protected_usdc_reserve is not None:
                 capital_base_usd = max(0.0, capital_base_usd - max(0.0, float(protected_usdc_reserve)))
-        self.sniper_taker_multi_oracle_cap_usd: Optional[float] = None
-        self.sniper_taker_multi_oracle_cap_source = "disabled"
-        self.sniper_taker_multi_oracle_cap_authority_class = "none"
+        self.taker_multi_oracle_cap_usd: Optional[float] = None
+        self.taker_multi_oracle_cap_source = "disabled"
+        self.taker_multi_oracle_cap_authority_class = "none"
         if multi_oracle_capital_pct_cap > 0.0 and isinstance(capital_base_usd, float) and capital_base_usd > 0.0:
-            self.sniper_taker_multi_oracle_cap_usd = float(multi_oracle_capital_pct_cap * capital_base_usd)
-            self.sniper_taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
-            self.sniper_taker_multi_oracle_cap_authority_class = "derived"
+            self.taker_multi_oracle_cap_usd = float(multi_oracle_capital_pct_cap * capital_base_usd)
+            self.taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
+            self.taker_multi_oracle_cap_authority_class = "derived"
         maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
         if not isinstance(maker_comp_cfg, dict):
             maker_comp_cfg = {}
@@ -702,7 +716,7 @@ class ExecutionRunner:
         self.chainlink_symbol_for_targets = str(
             self.cfg.get("chainlink", {}).get("symbol_for_targets", chainlink_symbols[0] if chainlink_symbols else "")
         ).lower()
-        self._sniper_active = False
+        self._taker_active = False
         self._last_latency_state: str = STATE_DISARMED
         self._latency_sampling_inactive_cycles = 0
         self._latency_sampling_inactive_log_interval_sec = 60.0
@@ -723,7 +737,6 @@ class ExecutionRunner:
             disarmed=True,
         )
         self._last_taker_submit_mono_by_token: Dict[str, float] = {}
-        self._normal_taker_commitment_token_ids: set[str] = set()
         operating_mode_cfg = self.cfg.get("operating_mode", {})
         self.operating_mode = OperatingModeController(operating_mode_cfg)
         self.operating_mode_ws_slo_enforce = bool(operating_mode_cfg.get("ws_slo_enforce_health", True))
@@ -816,7 +829,7 @@ class ExecutionRunner:
         )
         self.wallet.register_nonce_authority(self.tx_manager.nonce_authority())
         self.wallet.register_pending_tx_provider(self.tx_manager.pending_tx_snapshot)
-        self._refresh_sniper_multi_oracle_cap_from_wallet()
+        self._refresh_taker_multi_oracle_cap_from_wallet()
 
         md = self.cfg["market_data"]
         self.book_client = RestBookClient(
@@ -848,7 +861,7 @@ class ExecutionRunner:
         )
         self.manager.sizing_target_usd = float(self._active_target_usd)
         if self.sizing_mode == "notional":
-            self.sniper_taker_target_usd = float(self._active_target_usd)
+            self.taker_target_usd = float(self._active_target_usd)
         raw_seen_trade_ids = state.get("seen_trade_ids", [])
         if not isinstance(raw_seen_trade_ids, list):
             raw_seen_trade_ids = []
@@ -859,6 +872,134 @@ class ExecutionRunner:
         self.stop_requested = False
         self.consecutive_failures = 0
         self.last_kill_switch_state = False
+
+    @property
+    def taker_enabled(self) -> bool:
+        return bool(getattr(self, "_taker_enabled", False))
+
+    @taker_enabled.setter
+    def taker_enabled(self, value: Any) -> None:
+        self._taker_enabled = bool(value)
+
+    @property
+    def taker_min_edge(self) -> float:
+        return float(getattr(self, "_taker_min_edge", 0.0))
+
+    @taker_min_edge.setter
+    def taker_min_edge(self, value: Any) -> None:
+        self._taker_min_edge = float(value)
+
+    @property
+    def taker_extreme_edge_mult(self) -> float:
+        return float(getattr(self, "_taker_extreme_edge_mult", 0.0))
+
+    @taker_extreme_edge_mult.setter
+    def taker_extreme_edge_mult(self, value: Any) -> None:
+        self._taker_extreme_edge_mult = float(value)
+
+    @property
+    def taker_order_size(self) -> float:
+        return float(getattr(self, "_taker_order_size", 0.0))
+
+    @taker_order_size.setter
+    def taker_order_size(self, value: Any) -> None:
+        self._taker_order_size = float(value)
+
+    @property
+    def taker_target_usd(self) -> float:
+        return float(getattr(self, "_taker_target_usd", 0.0))
+
+    @taker_target_usd.setter
+    def taker_target_usd(self, value: Any) -> None:
+        self._taker_target_usd = float(value)
+
+    @property
+    def taker_max_orders_per_cycle(self) -> int:
+        return int(getattr(self, "_taker_max_orders_per_cycle", 0))
+
+    @taker_max_orders_per_cycle.setter
+    def taker_max_orders_per_cycle(self, value: Any) -> None:
+        self._taker_max_orders_per_cycle = int(value)
+
+    @property
+    def taker_per_token_cooldown_sec(self) -> float:
+        return float(getattr(self, "_taker_per_token_cooldown_sec", 0.0))
+
+    @taker_per_token_cooldown_sec.setter
+    def taker_per_token_cooldown_sec(self, value: Any) -> None:
+        self._taker_per_token_cooldown_sec = float(value)
+
+    @property
+    def taker_per_token_cooldown_sec_by_stage(self) -> Dict[str, float]:
+        return getattr(self, "_taker_per_token_cooldown_sec_by_stage", {})
+
+    @taker_per_token_cooldown_sec_by_stage.setter
+    def taker_per_token_cooldown_sec_by_stage(self, value: Any) -> None:
+        self._taker_per_token_cooldown_sec_by_stage = dict(value or {})
+
+    @property
+    def taker_competitiveness_cfg(self) -> TakerCompetitivenessConfig:
+        return getattr(self, "_taker_competitiveness_cfg")
+
+    @taker_competitiveness_cfg.setter
+    def taker_competitiveness_cfg(self, value: TakerCompetitivenessConfig) -> None:
+        self._taker_competitiveness_cfg = value
+
+    @property
+    def taker_competitiveness_engine(self) -> TakerCompetitivenessEngine:
+        return getattr(self, "_taker_competitiveness_engine")
+
+    @taker_competitiveness_engine.setter
+    def taker_competitiveness_engine(self, value: TakerCompetitivenessEngine) -> None:
+        self._taker_competitiveness_engine = value
+
+    @property
+    def taker_max_order_size_shares(self) -> float:
+        return float(getattr(self, "_taker_max_order_size_shares", 0.0))
+
+    @taker_max_order_size_shares.setter
+    def taker_max_order_size_shares(self, value: Any) -> None:
+        self._taker_max_order_size_shares = float(value)
+
+    @property
+    def taker_sizing_max_usd(self) -> float:
+        return float(getattr(self, "_taker_sizing_max_usd", 0.0))
+
+    @taker_sizing_max_usd.setter
+    def taker_sizing_max_usd(self, value: Any) -> None:
+        self._taker_sizing_max_usd = float(value)
+
+    @property
+    def taker_wallet_max_notional_per_order_usdc(self) -> float:
+        return float(getattr(self, "_taker_wallet_max_notional_per_order_usdc", 0.0))
+
+    @taker_wallet_max_notional_per_order_usdc.setter
+    def taker_wallet_max_notional_per_order_usdc(self, value: Any) -> None:
+        self._taker_wallet_max_notional_per_order_usdc = float(value)
+
+    @property
+    def taker_multi_oracle_cap_usd(self) -> Optional[float]:
+        return getattr(self, "_taker_multi_oracle_cap_usd", None)
+
+    @taker_multi_oracle_cap_usd.setter
+    def taker_multi_oracle_cap_usd(self, value: Optional[float]) -> None:
+        self._taker_multi_oracle_cap_usd = value
+
+    @property
+    def taker_multi_oracle_cap_source(self) -> str:
+        return str(getattr(self, "_taker_multi_oracle_cap_source", "disabled"))
+
+    @taker_multi_oracle_cap_source.setter
+    def taker_multi_oracle_cap_source(self, value: Any) -> None:
+        self._taker_multi_oracle_cap_source = str(value)
+
+    @property
+    def taker_multi_oracle_cap_authority_class(self) -> str:
+        return str(getattr(self, "_taker_multi_oracle_cap_authority_class", "none"))
+
+    @taker_multi_oracle_cap_authority_class.setter
+    def taker_multi_oracle_cap_authority_class(self, value: Any) -> None:
+        self._taker_multi_oracle_cap_authority_class = str(value)
 
     @staticmethod
     def _empty_state() -> Dict[str, Any]:
@@ -1132,7 +1273,7 @@ class ExecutionRunner:
     def _fair_probability_up(self, *, spot: float, strike: float, sec_to_expiry: float) -> float:
         # Smooth logistic mapping of spot-vs-strike to up probability.
         t = max(1.0, sec_to_expiry)
-        width = max(20.0, self.sniper_fair_vol_scale * 90.0 * (t / 300.0) ** 0.5)
+        width = max(20.0, self.taker_fair_vol_scale * 90.0 * (t / 300.0) ** 0.5)
         z = max(-20.0, min(20.0, (spot - strike) / width))
         return 1.0 / (1.0 + math.exp(-z))
 
@@ -2822,15 +2963,10 @@ class ExecutionRunner:
     def _lag_verified(self, token_id: str) -> bool:
         return self.latency_verifier.token_is_verified(token_id)
 
-    def _sniper_context(self) -> Dict[str, Any]:
+    def _taker_context(self) -> Dict[str, Any]:
         now = utc_now()
         doctrine_mode = str(getattr(self, "doctrine_mode", "degraded")).strip().lower() or "degraded"
-        arming_horizon_sec = float(
-            getattr(self, "sniper_arming_horizon_sec", getattr(self, "sniper_window_start_sec", 20.0))
-        )
-        execution_cutoff_sec = float(
-            getattr(self, "sniper_execution_cutoff_sec", getattr(self, "sniper_window_end_sec", 15.0))
-        )
+        arming_horizon_sec = float(getattr(self, "taker_arming_horizon_sec", 20.0))
         near_tokens: Dict[str, float] = {}
         degraded_expiry_fallback_active = False
         for token_id in self.token_ids:
@@ -2840,10 +2976,14 @@ class ExecutionRunner:
             sec_to_expiry = (expiry - now).total_seconds()
             if sec_to_expiry < 0:
                 continue
-            if execution_cutoff_sec <= sec_to_expiry <= arming_horizon_sec:
+            # Canonical taker reachability is now owned by stage truth plus the
+            # taker final window, not by the legacy sniper execution-cutoff
+            # shell. Keep the broad arming horizon for monitoring/telemetry, but
+            # do not let the old cutoff suppress true late-window taker tokens.
+            if sec_to_expiry <= arming_horizon_sec:
                 near_tokens[token_id] = sec_to_expiry
-        if not near_tokens and self.sniper_allow_without_expiry_metadata and doctrine_mode == "degraded":
-            # Paper/runtime fallback: keep sniper evaluable when expiry metadata is absent
+        if not near_tokens and self.taker_allow_without_expiry_metadata and doctrine_mode == "degraded":
+            # Paper/runtime fallback: keep taker evaluable when expiry metadata is absent
             # or when no targets are inside the configured window.
             fallback_tokens: list[str] = []
             for token_id in self.token_ids:
@@ -2862,7 +3002,7 @@ class ExecutionRunner:
                         "ts_utc": utc_iso(),
                         "run_id": getattr(self, "run_id", ""),
                         "doctrine_mode": doctrine_mode,
-                        "path": "sniper_allow_without_expiry_metadata",
+                        "path": "taker_allow_without_expiry_metadata",
                         "active": degraded_expiry_fallback_active,
                         "reason": (
                             "degraded_expiry_fallback_enabled"
@@ -2883,7 +3023,7 @@ class ExecutionRunner:
             }
 
         lag_verified_tokens = [token_id for token_id in near_tokens.keys() if self._lag_verified(token_id)]
-        active_tokens = lag_verified_tokens if self.sniper_require_lag_verification else list(near_tokens.keys())
+        active_tokens = lag_verified_tokens if self.taker_require_lag_verification else list(near_tokens.keys())
         sec_to_expiry_min = min(near_tokens.values())
         if active_tokens:
             sec_to_expiry_min = min(near_tokens[token_id] for token_id in active_tokens)
@@ -2896,6 +3036,103 @@ class ExecutionRunner:
             "lag_verified_token_count": len(lag_verified_tokens),
             "degraded_expiry_fallback_active": degraded_expiry_fallback_active,
         }
+
+    def _taker_stage_window_token_ids(
+        self,
+        *,
+        taker_ctx: Mapping[str, Any],
+        taker_stage_tokens: Collection[str],
+    ) -> list[str]:
+        """Canonical taker reachability set for runtime evaluation.
+
+        Keep the raw near-window shell for diagnostics/telemetry, but only hand
+        stage-eligible window tokens into the taker runtime path. This removes
+        the old activation-vs-execution split without widening taker authority
+        beyond the current stage law.
+        """
+
+        window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("near_token_ids", [])) if str(token_id).strip()]
+        if not window_token_ids:
+            window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("token_ids", [])) if str(token_id).strip()]
+        if not window_token_ids:
+            return []
+        taker_stage_token_set = {str(token_id).strip() for token_id in taker_stage_tokens if str(token_id).strip()}
+        if not taker_stage_token_set:
+            return []
+        return [
+            token_id
+            for token_id in self._unique_ordered(window_token_ids)
+            if token_id in taker_stage_token_set
+        ]
+
+    def _late_window_authority_fields(
+        self,
+        *,
+        raw_stage: str,
+        sec_to_expiry: Optional[float],
+        reduce_only_recovery_active: bool,
+        hold_active: bool,
+        stage_known: bool,
+    ) -> Dict[str, Any]:
+        default_maker_allowed, default_taker_allowed = edge_stage_policy(raw_stage)
+        maker_new_risk_allowed = bool(default_maker_allowed)
+        normal_taker_allowed = bool(default_taker_allowed)
+        authority_class = "pre_late_window_existing_stage"
+        sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+
+        if sec is None or not stage_known:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = False
+            authority_class = "timing_unknown"
+        elif sec < 0.0:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = False
+            authority_class = "expired_recovery_only"
+        elif sec <= 7.0 + 1e-9:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = True
+            authority_class = "normal_taker_only"
+        elif sec <= 15.0 + 1e-9:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = False
+            authority_class = "reduce_only_recovery_only"
+        elif sec <= 20.0 + 1e-9:
+            maker_new_risk_allowed = True
+            normal_taker_allowed = False
+            authority_class = "maker_new_risk_only"
+
+        preexpiry_emergency_taker_allowed = bool(
+            reduce_only_recovery_active
+            and isinstance(sec, float)
+            and sec >= 0.0
+            and float(self.preexpiry_emergency_taker_window_sec) > 0.0
+            and sec <= (float(self.preexpiry_emergency_taker_window_sec) + 1e-9)
+        )
+
+        if reduce_only_recovery_active:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = False
+            authority_class = (
+                "preexpiry_emergency_recovery_only"
+                if preexpiry_emergency_taker_allowed
+                else "reduce_only_recovery_only"
+            )
+            if isinstance(sec, float) and sec < 0.0:
+                authority_class = "expired_recovery_only"
+
+        if hold_active:
+            maker_new_risk_allowed = False
+            normal_taker_allowed = False
+            preexpiry_emergency_taker_allowed = False
+            authority_class = "observe_hold"
+
+        return authority_surface_fields(
+            maker_new_risk_allowed=maker_new_risk_allowed,
+            normal_taker_allowed=normal_taker_allowed,
+            reduce_only_recovery_allowed=reduce_only_recovery_active,
+            preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
+            late_window_authority_class=authority_class,
+        )
 
     @staticmethod
     def _stage_name_for_sec_to_expiry(sec_to_expiry: Optional[float]) -> str:
@@ -2919,37 +3156,34 @@ class ExecutionRunner:
     def _stage_policy(stage: str) -> Tuple[bool, bool]:
         return edge_stage_policy(stage)
 
-    def _resolve_taker_required_min_edge(self, stage: str) -> float:
-        normalized_stage = str(stage or "").strip().upper()
-        explicit_stage_edge = self.sniper_taker_min_edge_by_stage.get(normalized_stage)
-        if explicit_stage_edge is not None:
-            return float(explicit_stage_edge)
-        required_min_edge = float(self.sniper_taker_min_edge)
-        if normalized_stage == STAGE_EXTREME_ONLY:
-            required_min_edge = float(self.sniper_taker_min_edge) * max(
-                1.0, float(self.sniper_taker_extreme_edge_mult)
-            )
-        return required_min_edge
+    def _resolve_taker_required_min_edge(
+        self,
+        stage: str,
+        *,
+        normal_taker_allowed: Optional[bool] = None,
+    ) -> float:
+        del stage
+        del normal_taker_allowed
+        # Current live taker threshold authority is top-level taker.min_edge
+        # only. Stage-local threshold leaves and extreme-only fallback
+        # multipliers are retired authority residue and no longer arm taker.
+        return float(self.taker_min_edge)
 
     def _resolve_taker_cooldown_sec(self, stage: str) -> float:
-        normalized_stage = str(stage or "").strip().upper()
-        explicit_stage_cooldown = self.sniper_taker_per_token_cooldown_sec_by_stage.get(normalized_stage)
-        if isinstance(explicit_stage_cooldown, (int, float)):
-            return max(0.0, float(explicit_stage_cooldown))
-        return max(0.0, float(self.sniper_taker_per_token_cooldown_sec))
+        del stage
+        return max(0.0, float(self.taker_per_token_cooldown_sec))
 
-    def _emit_sniper_stage_window_semantic_check(self) -> None:
-        if not bool(self.sniper_taker_competitiveness_cfg.enabled):
+    def _emit_taker_stage_window_semantic_check(self) -> None:
+        if not bool(self.taker_competitiveness_cfg.enabled):
             return
 
-        def _effective_window(stage_name: str) -> float:
-            stage_windows = self.sniper_taker_competitiveness_cfg.stage_final_window_sec_by_stage
-            candidate = stage_windows.get(stage_name)
-            if isinstance(candidate, (int, float)) and float(candidate) > 0.0:
-                return float(candidate)
-            return float(self.sniper_taker_competitiveness_cfg.final_window_sec)
-
-        # Stage bands are authoritative from _stage_name_for_sec_to_expiry.
+        canonical_window_sec = max(
+            0.0,
+            min(7.0, float(self.taker_competitiveness_cfg.final_window_sec)),
+        )
+        # Stage bands remain lineage/diagnostic buckets from
+        # _stage_name_for_sec_to_expiry(); only the EXTREME_ONLY row may carry
+        # current normal taker authority and only for the <=7s commitment lane.
         stage_bands: Dict[str, Tuple[float, float]] = {
             STAGE_MAKER_TAKER_SELECTIVE: (30.0, 60.0),
             STAGE_SNIPER_PRIMARY: (20.0, 30.0),
@@ -2958,9 +3192,15 @@ class ExecutionRunner:
         rows: Dict[str, Dict[str, Any]] = {}
         dead_count = 0
         for stage_name, (lower_exclusive, upper_inclusive) in stage_bands.items():
-            _, stage_allows_taker = edge_stage_policy(stage_name)
-            effective_window_sec = _effective_window(stage_name)
-            semantically_live = bool(stage_allows_taker and effective_window_sec > lower_exclusive)
+            stage_allows_taker = bool(
+                stage_name == STAGE_EXTREME_ONLY
+                and canonical_window_sec > 0.0
+            )
+            effective_window_sec = canonical_window_sec if stage_allows_taker else 0.0
+            semantically_live = bool(
+                stage_allows_taker
+                and effective_window_sec > lower_exclusive
+            )
             semantic_dead_reason = None
             if not stage_allows_taker:
                 semantic_dead_reason = "stage_disallow_taker"
@@ -2979,12 +3219,13 @@ class ExecutionRunner:
             }
 
         self.events.log_event(
-            "sniper_stage_window_semantic_check",
+            EVENT_TAKER_STAGE_WINDOW_SEMANTIC_CHECK,
             {
                 "ts_utc": utc_iso(),
                 "run_id": self.run_id,
-                "final_window_enabled": bool(self.sniper_taker_competitiveness_cfg.final_window_enabled),
-                "default_final_window_sec": float(self.sniper_taker_competitiveness_cfg.final_window_sec),
+                "final_window_enabled": bool(self.taker_competitiveness_cfg.final_window_enabled),
+                "default_final_window_sec": float(self.taker_competitiveness_cfg.final_window_sec),
+                "canonical_live_final_window_sec": float(canonical_window_sec),
                 "stage_rows": rows,
                 "semantic_dead_by_construction_count": int(dead_count),
                 "semantic_status": ("ok" if dead_count == 0 else "warn"),
@@ -3013,14 +3254,14 @@ class ExecutionRunner:
             return None
         px = float(price)
         caps: List[float] = []
-        if self.sniper_taker_sizing_max_usd > 0.0:
-            caps.append(float(self.sniper_taker_sizing_max_usd))
-        if self.sniper_taker_wallet_max_notional_per_order_usdc > 0.0:
-            caps.append(float(self.sniper_taker_wallet_max_notional_per_order_usdc))
+        if self.taker_sizing_max_usd > 0.0:
+            caps.append(float(self.taker_sizing_max_usd))
+        if self.taker_wallet_max_notional_per_order_usdc > 0.0:
+            caps.append(float(self.taker_wallet_max_notional_per_order_usdc))
         strategy_share_cap = float(getattr(self.manager, "strategy_max_order_size", 0.0) or 0.0)
         if strategy_share_cap > 0.0:
             caps.append(strategy_share_cap * px)
-        risk_share_cap = float(self.sniper_taker_max_order_size_shares or 0.0)
+        risk_share_cap = float(self.taker_max_order_size_shares or 0.0)
         if risk_share_cap > 0.0:
             caps.append(risk_share_cap * px)
         if not caps:
@@ -3129,7 +3370,6 @@ class ExecutionRunner:
                 settlement_price=float(settlement_value),
                 ts_utc=utc_iso(),
             )
-            self._normal_taker_commitment_token_ids.discard(token)
             self.telemetry.incr("binary_position_settled")
             settled_count += 1
             self.events.log_event(
@@ -3160,28 +3400,28 @@ class ExecutionRunner:
             )
         return settled_count
 
-    def _refresh_sniper_multi_oracle_cap_from_wallet(self) -> None:
-        pct_cap = float(self.sniper_taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
+    def _refresh_taker_multi_oracle_cap_from_wallet(self) -> None:
+        pct_cap = float(self.taker_competitiveness_cfg.multi_oracle_capital_pct_cap)
         if pct_cap <= 0.0:
-            self.sniper_taker_multi_oracle_cap_usd = None
-            self.sniper_taker_multi_oracle_cap_source = "disabled"
-            self.sniper_taker_multi_oracle_cap_authority_class = "none"
+            self.taker_multi_oracle_cap_usd = None
+            self.taker_multi_oracle_cap_source = "disabled"
+            self.taker_multi_oracle_cap_authority_class = "none"
             return
         wallet_contract = self.wallet.status_contract()
         authority_class = str(wallet_contract.get("authority_status_class") or "").strip().lower()
         deployable_capital = parse_float(wallet_contract.get("deployable_capital"))
         if authority_class == "authoritative" and isinstance(deployable_capital, (int, float)) and deployable_capital > 0.0:
-            self.sniper_taker_multi_oracle_cap_usd = float(pct_cap * float(deployable_capital))
-            self.sniper_taker_multi_oracle_cap_source = "wallet_deployable_capital_authoritative"
-            self.sniper_taker_multi_oracle_cap_authority_class = "live"
+            self.taker_multi_oracle_cap_usd = float(pct_cap * float(deployable_capital))
+            self.taker_multi_oracle_cap_source = "wallet_deployable_capital_authoritative"
+            self.taker_multi_oracle_cap_authority_class = "live"
             return
-        if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float)) and self.sniper_taker_multi_oracle_cap_usd > 0.0:
-            self.sniper_taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
-            self.sniper_taker_multi_oracle_cap_authority_class = "derived"
+        if isinstance(self.taker_multi_oracle_cap_usd, (int, float)) and self.taker_multi_oracle_cap_usd > 0.0:
+            self.taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
+            self.taker_multi_oracle_cap_authority_class = "derived"
             return
-        self.sniper_taker_multi_oracle_cap_usd = None
-        self.sniper_taker_multi_oracle_cap_source = "wallet_contract_unavailable"
-        self.sniper_taker_multi_oracle_cap_authority_class = "bootstrap"
+        self.taker_multi_oracle_cap_usd = None
+        self.taker_multi_oracle_cap_source = "wallet_contract_unavailable"
+        self.taker_multi_oracle_cap_authority_class = "bootstrap"
 
     def _maker_timing_gate_open(self, sec_to_expiry: Optional[float]) -> bool:
         if not self.maker_comp_timing_gate_enabled:
@@ -3429,13 +3669,6 @@ class ExecutionRunner:
         raw_stage = stage
         maker_timing_gate_open = bool(self._maker_timing_gate_open(sec_to_expiry))
         maker_timing_stage_override_active = False
-        if (
-            self.maker_comp_timing_gate_enabled
-            and maker_timing_gate_open
-            and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}
-        ):
-            maker_timing_stage_override_active = bool(stage != STAGE_MAKER_TAKER_SELECTIVE)
-            stage = STAGE_MAKER_TAKER_SELECTIVE
         if not market_key:
             stage = STAGE_UNKNOWN
         expired_reduce_only_grace_active = (
@@ -3450,6 +3683,13 @@ class ExecutionRunner:
             sec_to_expiry=sec_to_expiry,
             expired_reduce_only_grace_active=bool(expired_reduce_only_grace_active),
         )
+        authority_fields = self._late_window_authority_fields(
+            raw_stage=raw_stage,
+            sec_to_expiry=sec_to_expiry,
+            reduce_only_recovery_active=bool(reduce_only_recovery.get("active", False)),
+            hold_active=False,
+            stage_known=bool(market_key) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED},
+        )
         if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
             entry_mono = self._market_entry_mono_by_token.get(token_id)
             entry_cycle = self._market_entry_cycle_by_token.get(token_id)
@@ -3462,11 +3702,32 @@ class ExecutionRunner:
                 if hold_active:
                     stage = STAGE_OBSERVE
                     reason = f"observe_hold_active:{raw_stage}"
-        allow_maker, allow_taker = self._stage_policy(stage)
+        if hold_active:
+            authority_fields = authority_surface_fields(
+                maker_new_risk_allowed=False,
+                normal_taker_allowed=False,
+                reduce_only_recovery_allowed=bool(reduce_only_recovery.get("active", False)),
+                preexpiry_emergency_taker_allowed=False,
+                late_window_authority_class="observe_hold",
+            )
+        elif not market_key or stage in {STAGE_UNKNOWN, STAGE_EXPIRED}:
+            authority_fields = authority_surface_fields(
+                maker_new_risk_allowed=False,
+                normal_taker_allowed=False,
+                reduce_only_recovery_allowed=bool(reduce_only_recovery.get("active", False)),
+                preexpiry_emergency_taker_allowed=False,
+                late_window_authority_class=(
+                    "expired_recovery_only" if stage == STAGE_EXPIRED else "timing_unknown"
+                ),
+            )
+
+        allow_maker = bool(authority_fields.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)) or bool(
+            authority_fields.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
+        )
+        allow_taker = bool(authority_fields.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
         if bool(reduce_only_recovery.get("active", False)) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
             # Recovery lifecycle tracking stays live, but taker authority does not.
             # Cleanup must not silently route back through taker scope.
-            allow_maker, allow_taker = True, False
             recovery_reason = str(reduce_only_recovery.get("reason") or "").strip()
             if recovery_reason:
                 if reason:
@@ -3479,8 +3740,7 @@ class ExecutionRunner:
         if verdict == "fail" and not reason:
             reason = "stage_not_tradeable"
         return {
-            "stage": stage,
-            "raw_stage": raw_stage,
+            **stage_surface_fields(effective_stage=stage, stage_bucket=raw_stage),
             "sec_to_expiry": sec_to_expiry,
             "maker_timing_gate_open": bool(maker_timing_gate_open),
             "maker_timing_stage_override_active": bool(maker_timing_stage_override_active),
@@ -3503,10 +3763,8 @@ class ExecutionRunner:
             ),
             "reduce_only_net_shares": float(reduce_only_recovery.get("net_shares", 0.0) or 0.0),
             "reduce_only_open_order_present": bool(reduce_only_recovery.get("open_order_present", False)),
-            "normal_taker_commitment_hold_active": bool(
-                reduce_only_recovery.get("normal_taker_commitment_hold_active", False)
-            ),
             "held_preexpiry_reduce_only_sec": float(reduce_only_recovery.get("preexpiry_window_sec", 0.0) or 0.0),
+            **authority_fields,
             "allow_maker": allow_maker,
             "allow_taker": allow_taker,
             "doctrine_gate_verdict": verdict,
@@ -3526,6 +3784,15 @@ class ExecutionRunner:
             base_reason = str(info.get("reason", ""))
             allow_maker = bool(info.get("allow_maker", False))
             allow_taker = bool(info.get("allow_taker", False))
+            maker_new_risk_allowed = bool(info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False))
+            normal_taker_allowed = bool(info.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
+            reduce_only_recovery_allowed = bool(info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False))
+            preexpiry_emergency_taker_allowed = bool(
+                info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
+            )
+            late_window_authority_class = str(
+                info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
+            ).strip().lower() or "unknown"
             prereq_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
             maker_prereq_ok = not bool(prereq_reason)
             verdict = base_verdict
@@ -3533,7 +3800,18 @@ class ExecutionRunner:
             if self.doctrine_mode == "canonical" and allow_maker and prereq_reason:
                 verdict = "fail"
                 reason = prereq_reason
-            signature = (stage, verdict, reason, allow_maker, allow_taker)
+            signature = (
+                stage,
+                verdict,
+                reason,
+                allow_maker,
+                allow_taker,
+                maker_new_risk_allowed,
+                normal_taker_allowed,
+                reduce_only_recovery_allowed,
+                preexpiry_emergency_taker_allowed,
+                late_window_authority_class,
+            )
             if self._last_doctrine_signature_by_token.get(token_id) == signature:
                 continue
             prev_stage = self._last_stage_by_token.get(token_id)
@@ -3561,12 +3839,21 @@ class ExecutionRunner:
                     "token_id": token_id,
                     "market_key": str(info.get("market_key", "")),
                     "doctrine_mode": self.doctrine_mode,
-                    "stage": stage,
-                    "raw_stage": str(info.get("raw_stage", stage)),
+                    **stage_surface_fields(
+                        effective_stage=stage,
+                        stage_bucket=info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")),
+                    ),
                     "sec_to_expiry": info.get("sec_to_expiry"),
                     "observe_hold_active": bool(info.get("observe_hold_active", False)),
                     "observe_hold_cycles_remaining": int(info.get("observe_hold_cycles_remaining", 0)),
                     "observe_hold_seconds_remaining": float(info.get("observe_hold_seconds_remaining", 0.0)),
+                    **authority_surface_fields(
+                        maker_new_risk_allowed=maker_new_risk_allowed,
+                        normal_taker_allowed=normal_taker_allowed,
+                        reduce_only_recovery_allowed=reduce_only_recovery_allowed,
+                        preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
+                        late_window_authority_class=late_window_authority_class,
+                    ),
                     "maker_allowed": allow_maker,
                     "maker_prereq_ok": maker_prereq_ok,
                     "taker_allowed": allow_taker,
@@ -3707,6 +3994,80 @@ class ExecutionRunner:
                     "decision_input_data_class_override": "observed_other",
                 }
 
+        return {
+            "market_probability": None,
+            "market_reference_mode": "missing",
+            "market_reference_basis": "missing",
+            "market_reference_confidence": "none",
+            "market_reference_fallback_used": False,
+            "market_reference_source_side": "none",
+            "market_reference_class": "not_available",
+            "decision_input_type_override": None,
+            "decision_input_data_class_override": None,
+        }
+
+    def _resolve_taker_market_reference(
+        self,
+        *,
+        top: Any,
+    ) -> Dict[str, Any]:
+        midpoint: Optional[float] = None
+        if top is not None and isinstance(getattr(top, "midpoint", None), (int, float)):
+            midpoint = float(getattr(top, "midpoint"))
+        if midpoint is not None:
+            return {
+                "market_probability": midpoint,
+                "market_reference_mode": "direct_midpoint",
+                "market_reference_basis": "direct_book_midpoint",
+                "market_reference_confidence": "authoritative",
+                "market_reference_fallback_used": False,
+                "market_reference_source_side": "none",
+                "market_reference_class": "authoritative",
+                "decision_input_type_override": None,
+                "decision_input_data_class_override": None,
+            }
+        bid_price = (
+            float(getattr(top, "best_bid_price"))
+            if top is not None and isinstance(getattr(top, "best_bid_price", None), (int, float))
+            else None
+        )
+        ask_price = (
+            float(getattr(top, "best_ask_price"))
+            if top is not None and isinstance(getattr(top, "best_ask_price", None), (int, float))
+            else None
+        )
+        has_bid = bid_price is not None
+        has_ask = ask_price is not None
+        fallback_allowed = bool(
+            self.doctrine_mode == "canonical"
+            and self._book_source_is_ws(top)
+            and (has_bid ^ has_ask)
+        )
+        if fallback_allowed:
+            if has_bid and not has_ask:
+                return {
+                    "market_probability": float(bid_price),
+                    "market_reference_mode": "bounded_single_side_touch",
+                    "market_reference_basis": "ws_single_side_touch",
+                    "market_reference_confidence": "bounded_low",
+                    "market_reference_fallback_used": True,
+                    "market_reference_source_side": "bid",
+                    "market_reference_class": "bounded_approximation",
+                    "decision_input_type_override": "bounded_derived",
+                    "decision_input_data_class_override": "observed_other",
+                }
+            if has_ask and not has_bid:
+                return {
+                    "market_probability": float(ask_price),
+                    "market_reference_mode": "bounded_single_side_touch",
+                    "market_reference_basis": "ws_single_side_touch",
+                    "market_reference_confidence": "bounded_low",
+                    "market_reference_fallback_used": True,
+                    "market_reference_source_side": "ask",
+                    "market_reference_class": "bounded_approximation",
+                    "decision_input_type_override": "bounded_derived",
+                    "decision_input_data_class_override": "observed_other",
+                }
         return {
             "market_probability": None,
             "market_reference_mode": "missing",
@@ -3977,180 +4338,6 @@ class ExecutionRunner:
             return str(base_key).strip()
         return normalized
 
-    @classmethod
-    def _apply_normal_taker_commitment_market_gate(
-        cls,
-        *,
-        maker_eligible_tokens: set[str],
-        token_market_key_by_token: Dict[str, str],
-        normal_taker_commitment_token_ids: set[str],
-        maker_prereq_failure_by_token: Dict[str, str],
-    ) -> set[str]:
-        committed_market_bases = {
-            cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
-            for token_id in normal_taker_commitment_token_ids
-            if cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
-        }
-        if not committed_market_bases:
-            return set(maker_eligible_tokens)
-
-        gated_tokens: set[str] = set()
-        for token_id in maker_eligible_tokens:
-            market_base_key = cls._market_base_key_from_market_key(token_market_key_by_token.get(token_id, ""))
-            if market_base_key and market_base_key in committed_market_bases:
-                maker_prereq_failure_by_token.setdefault(token_id, "maker_blocked_by_normal_taker_commitment")
-                continue
-            gated_tokens.add(token_id)
-        return gated_tokens
-
-    @classmethod
-    def _normal_taker_market_family_conflict_snapshot(
-        cls,
-        *,
-        decision_token_id: str,
-        token_market_key_by_token: Dict[str, str],
-        positions: Dict[str, Position],
-        open_order_token_ids: set[str],
-        min_meaningful_net_shares: float,
-    ) -> Dict[str, Any]:
-        token = str(decision_token_id or "").strip()
-        market_key = str(token_market_key_by_token.get(token, "")).strip()
-        market_base_key = cls._market_base_key_from_market_key(market_key)
-        if not token or not market_base_key:
-            return {
-                "active": False,
-                "market_base_key": market_base_key,
-                "sibling_token_ids": [],
-                "conflict_token_ids": [],
-                "position_conflict_token_ids": [],
-                "open_order_conflict_token_ids": [],
-                "max_abs_net_shares": 0.0,
-            }
-
-        min_net = max(1e-9, float(min_meaningful_net_shares or 0.0))
-        sibling_token_ids: List[str] = []
-        conflict_token_ids: List[str] = []
-        position_conflict_token_ids: List[str] = []
-        open_order_conflict_token_ids: List[str] = []
-        max_abs_net_shares = 0.0
-
-        for candidate_id, candidate_market_key in token_market_key_by_token.items():
-            sibling = str(candidate_id or "").strip()
-            if not sibling or sibling == token:
-                continue
-            if cls._market_base_key_from_market_key(candidate_market_key) != market_base_key:
-                continue
-            sibling_token_ids.append(sibling)
-            pos = positions.get(sibling)
-            net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0) if pos is not None else 0.0
-            max_abs_net_shares = max(max_abs_net_shares, abs(net_shares))
-            position_conflict = abs(net_shares) + 1e-9 >= min_net
-            open_order_conflict = sibling in open_order_token_ids
-            if position_conflict:
-                position_conflict_token_ids.append(sibling)
-            if open_order_conflict:
-                open_order_conflict_token_ids.append(sibling)
-            if position_conflict or open_order_conflict:
-                conflict_token_ids.append(sibling)
-
-        return {
-            "active": bool(conflict_token_ids),
-            "market_base_key": market_base_key,
-            "sibling_token_ids": sibling_token_ids,
-            "conflict_token_ids": conflict_token_ids,
-            "position_conflict_token_ids": position_conflict_token_ids,
-            "open_order_conflict_token_ids": open_order_conflict_token_ids,
-            "max_abs_net_shares": float(max_abs_net_shares),
-        }
-
-    def _market_base_occupancy_snapshot(
-        self,
-        *,
-        decision_token_id: str,
-        min_meaningful_net_shares: float,
-    ) -> Dict[str, Any]:
-        token = str(decision_token_id or "").strip()
-        market_key = str(self.token_market_key_by_token.get(token, "")).strip()
-        market_base_key = self._market_base_key_from_market_key(market_key)
-        if not token or not market_base_key:
-            return {
-                "active": False,
-                "self_active": False,
-                "market_base_key": market_base_key,
-                "self_open_order_present": False,
-                "self_unresolved_lifecycle_obligation": False,
-                "self_net_shares_abs": 0.0,
-                "conflict_token_ids": [],
-                "position_conflict_token_ids": [],
-                "open_order_conflict_token_ids": [],
-                "unresolved_lifecycle_conflict_token_ids": [],
-                "max_abs_net_shares": 0.0,
-            }
-
-        min_net = max(1e-9, float(min_meaningful_net_shares or 0.0))
-        open_order_token_ids = self._open_order_token_ids()
-        conflict_token_ids: List[str] = []
-        position_conflict_token_ids: List[str] = []
-        open_order_conflict_token_ids: List[str] = []
-        unresolved_lifecycle_conflict_token_ids: List[str] = []
-        max_abs_net_shares = 0.0
-        self_open_order_present = False
-        self_unresolved_lifecycle_obligation = False
-        self_net_shares_abs = 0.0
-
-        for candidate_id, candidate_market_key in self.token_market_key_by_token.items():
-            candidate = str(candidate_id or "").strip()
-            if not candidate:
-                continue
-            if self._market_base_key_from_market_key(candidate_market_key) != market_base_key:
-                continue
-            pos = self.risk.positions.get(candidate)
-            net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0) if pos is not None else 0.0
-            max_abs_net_shares = max(max_abs_net_shares, abs(net_shares))
-            open_order_present = candidate in open_order_token_ids
-            lifecycle_flags = self._token_lifecycle_obligation_flags(
-                token_id=candidate,
-                open_order_present=bool(open_order_present),
-            )
-            unresolved_lifecycle_obligation = bool(lifecycle_flags.get("unresolved_lifecycle_obligation", False))
-            position_conflict = bool(abs(net_shares) + 1e-9 >= min_net)
-            candidate_active = bool(
-                position_conflict
-                or open_order_present
-                or unresolved_lifecycle_obligation
-            )
-            if candidate == token:
-                self_open_order_present = bool(open_order_present)
-                self_unresolved_lifecycle_obligation = bool(unresolved_lifecycle_obligation)
-                self_net_shares_abs = float(abs(net_shares))
-            if not candidate_active:
-                continue
-            conflict_token_ids.append(candidate)
-            if position_conflict:
-                position_conflict_token_ids.append(candidate)
-            if open_order_present:
-                open_order_conflict_token_ids.append(candidate)
-            if unresolved_lifecycle_obligation:
-                unresolved_lifecycle_conflict_token_ids.append(candidate)
-
-        return {
-            "active": bool(conflict_token_ids),
-            "self_active": bool(
-                self_open_order_present
-                or self_unresolved_lifecycle_obligation
-                or (self_net_shares_abs + 1e-9 >= min_net)
-            ),
-            "market_base_key": market_base_key,
-            "self_open_order_present": bool(self_open_order_present),
-            "self_unresolved_lifecycle_obligation": bool(self_unresolved_lifecycle_obligation),
-            "self_net_shares_abs": float(self_net_shares_abs),
-            "conflict_token_ids": sorted(conflict_token_ids),
-            "position_conflict_token_ids": sorted(position_conflict_token_ids),
-            "open_order_conflict_token_ids": sorted(open_order_conflict_token_ids),
-            "unresolved_lifecycle_conflict_token_ids": sorted(unresolved_lifecycle_conflict_token_ids),
-            "max_abs_net_shares": float(max_abs_net_shares),
-        }
-
     @staticmethod
     def _build_maker_handoff_no_submission_reason_by_token(
         *,
@@ -4179,6 +4366,7 @@ class ExecutionRunner:
         source_target_ref: Optional[str] = None,
         evaluation_scope: str,
         stage: str,
+        raw_stage: Optional[str] = None,
         time_remaining_sec: Optional[float],
         fair_probability: Optional[float],
         market_probability: Optional[float],
@@ -4191,6 +4379,11 @@ class ExecutionRunner:
         block_reason: Optional[str],
         submitted: bool,
         filled: bool,
+        maker_new_risk_allowed: Optional[bool] = None,
+        normal_taker_allowed: Optional[bool] = None,
+        reduce_only_recovery_allowed: Optional[bool] = None,
+        preexpiry_emergency_taker_allowed: Optional[bool] = None,
+        late_window_authority_class: Optional[str] = None,
         result: Optional[Any] = None,
         cycle_index: Optional[int] = None,
         order_id: Optional[str] = None,
@@ -4206,6 +4399,7 @@ class ExecutionRunner:
         market_reference_class: Optional[str] = None,
         decision_input_type_override: Optional[str] = None,
         decision_input_data_class_override: Optional[str] = None,
+        required_min_edge: Optional[float] = None,
         taker_submit_reject_reason: Optional[str] = None,
         reduce_only_recovery_active: Optional[bool] = None,
         reduce_only_recovery_reason: Optional[str] = None,
@@ -4268,7 +4462,10 @@ class ExecutionRunner:
             "source_target_ref": normalized_source_target_ref,
             "evaluation_scope": normalized_scope,
             "cycle_index": (int(cycle_index) if cycle_index is not None else int(self._doctrine_cycle_index)),
-            "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+            **stage_surface_fields(
+                effective_stage=stage,
+                stage_bucket=raw_stage,
+            ),
             "time_remaining_sec": (
                 float(time_remaining_sec) if isinstance(time_remaining_sec, (int, float)) else None
             ),
@@ -4277,10 +4474,24 @@ class ExecutionRunner:
                 float(market_probability) if isinstance(market_probability, (int, float)) else None
             ),
             "edge_value": (float(edge_value) if isinstance(edge_value, (int, float)) else None),
+            "required_min_edge": (
+                float(required_min_edge) if isinstance(required_min_edge, (int, float)) else None
+            ),
             "oracle_tick_age_sec": (
                 float(oracle_tick_age_sec) if isinstance(oracle_tick_age_sec, (int, float)) else None
             ),
             "latency_state": str(latency_state or "").strip().lower() or None,
+            **authority_surface_fields(
+                maker_new_risk_allowed=(
+                    maker_allowed if maker_new_risk_allowed is None else maker_new_risk_allowed
+                ),
+                normal_taker_allowed=(
+                    taker_allowed if normal_taker_allowed is None else normal_taker_allowed
+                ),
+                reduce_only_recovery_allowed=bool(reduce_only_recovery_allowed),
+                preexpiry_emergency_taker_allowed=bool(preexpiry_emergency_taker_allowed),
+                late_window_authority_class=late_window_authority_class,
+            ),
             "maker_allowed": bool(maker_allowed),
             "taker_allowed": bool(taker_allowed),
             "action_taken": normalized_action,
@@ -4557,6 +4768,7 @@ class ExecutionRunner:
                 target_ref=self._target_ref_for_token(token_id),
                 evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
                 stage=stage,
+                raw_stage=info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")),
                 time_remaining_sec=time_remaining_sec if isinstance(time_remaining_sec, (int, float)) else None,
                 fair_probability=fair_probability if isinstance(fair_probability, (int, float)) else None,
                 market_probability=market_probability if isinstance(market_probability, (int, float)) else None,
@@ -4565,6 +4777,11 @@ class ExecutionRunner:
                 latency_state=latency_state,
                 maker_allowed=maker_allowed,
                 taker_allowed=taker_allowed,
+                maker_new_risk_allowed=info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD),
+                normal_taker_allowed=info.get(EDGE_AUTH_NORMAL_TAKER_FIELD),
+                reduce_only_recovery_allowed=info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD),
+                preexpiry_emergency_taker_allowed=info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD),
+                late_window_authority_class=info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD),
                 action_taken=action_taken,
                 block_reason=block_reason,
                 submitted=submitted,
@@ -4616,7 +4833,7 @@ class ExecutionRunner:
         if sec_to_expiry <= 20.0:
             return "extreme_only_on_arrival"
         if sec_to_expiry <= 30.0:
-            return "sniper_primary_on_arrival"
+            return "extreme_only_on_arrival"
         return "normal_on_arrival"
 
     @staticmethod
@@ -4651,7 +4868,6 @@ class ExecutionRunner:
         self.last_midpoint_ts_mono_by_token.pop(token_id, None)
         self.last_volatility_by_token.pop(token_id, None)
         self._last_taker_submit_mono_by_token.pop(token_id, None)
-        self._normal_taker_commitment_token_ids.discard(token_id)
         self._last_doctrine_signature_by_token.pop(token_id, None)
         self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
         self._last_stage_by_token.pop(token_id, None)
@@ -4799,7 +5015,7 @@ class ExecutionRunner:
         if self._preexpiry_emergency_taker_repeat_pending >= 25:
             self._flush_preexpiry_emergency_taker_repeat_summary()
 
-    def _run_sniper_taker(
+    def _run_taker(
         self,
         *,
         books: Dict[str, Any],
@@ -4812,9 +5028,9 @@ class ExecutionRunner:
         oracle_tick_age_sec: Optional[float] = None,
         latency_snapshot: Optional[LatencySnapshot] = None,
         mode_state: str = MODE_NORMAL,
-        lag_ready_for_sniper: bool = True,
+        lag_ready_for_taker: bool = True,
         lag_verified_token_ids: Optional[list[str]] = None,
-        sniper_ramp_allowed: bool = True,
+        taker_ramp_allowed: bool = True,
         cycle_index: Optional[int] = None,
         oracle_fresh: bool = True,
         maker_submitted_token_ids: Optional[set[str]] = None,
@@ -4833,7 +5049,7 @@ class ExecutionRunner:
         fills_accepted_total = 0
         submitted_token_ids: set[str] = set()
         filled_token_ids: set[str] = set()
-        max_orders = max(0, int(self.sniper_taker_max_orders_per_cycle))
+        max_orders = max(0, int(self.taker_max_orders_per_cycle))
         stage_info_by_token = stage_info_by_token or {}
         lag_verified_set = {str(x) for x in (lag_verified_token_ids or [])}
         maker_submitted_token_ids = {str(token_id) for token_id in (maker_submitted_token_ids or set())}
@@ -4847,30 +5063,16 @@ class ExecutionRunner:
             if isinstance(latency_snapshot, LatencySnapshot)
             else str(self._last_latency_state or "").strip().lower()
         )
-        competitiveness_enabled = bool(self.sniper_taker_competitiveness_cfg.enabled)
+        competitiveness_enabled = bool(self.taker_competitiveness_cfg.enabled)
         stable_cycle_index = int(self._doctrine_cycle_index if cycle_index is None else cycle_index)
         secondary_fair_probability_by_token = dict(secondary_fair_probability_by_token or {})
         secondary_oracle_base_status = str(secondary_oracle_base_status or "unknown").strip().lower() or "unknown"
 
         # Use limited taker budget on strongest edge opportunities first.
         token_order = sorted({str(token_id) for token_id in token_ids})
-        stage_priority_rank = {
-            STAGE_SNIPER_PRIMARY: 0,
-            STAGE_MAKER_TAKER_SELECTIVE: 1,
-            STAGE_EXTREME_ONLY: 2,
-        }
         token_order.sort(
             key=lambda token_id: (
-                (
-                    int(
-                        stage_priority_rank.get(
-                            str((stage_info_by_token.get(token_id) or {}).get("stage") or STAGE_UNKNOWN).strip().upper(),
-                            99,
-                        )
-                    )
-                    if bool(self.sniper_taker_competitiveness_cfg.stage_priority_enabled)
-                    else 0
-                ),
+                0,
                 -abs(
                     float(
                         compute_edge_value(
@@ -4886,11 +5088,11 @@ class ExecutionRunner:
         active_token_ids = {str(token_id).strip() for token_id in token_order if str(token_id).strip()}
         open_order_token_ids = self._open_order_token_ids()
         normal_side_policy = (
-            str(self.sniper_taker_competitiveness_cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
+            str(self.taker_competitiveness_cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
             or "buy_expected_winner_only"
         )
-        allow_complement_buy_route = bool(self.sniper_taker_competitiveness_cfg.allow_complement_buy_route)
-        min_visible_fill_ratio = max(0.0, float(self.sniper_taker_competitiveness_cfg.min_visible_fill_ratio))
+        allow_complement_buy_route = bool(self.taker_competitiveness_cfg.allow_complement_buy_route)
+        min_visible_fill_ratio = max(0.0, float(self.taker_competitiveness_cfg.min_visible_fill_ratio))
 
         def _build_route_block_decision(
             *,
@@ -4902,17 +5104,17 @@ class ExecutionRunner:
             token_score_value: Optional[float],
             block_reason_value: str,
             side_class_value: str,
-        ) -> SniperDecision:
+        ) -> TakerDecision:
             edge_abs_value = abs(float(edge_signed_value)) if isinstance(edge_signed_value, (int, float)) else 0.0
-            conviction_score_value = self.sniper_tool._conviction(
+            conviction_score_value = self.taker_competitiveness_engine._conviction(
                 edge_abs=edge_abs_value,
                 token_score=token_score_value,
             )
-            timing_window_class_value = self.sniper_tool._timing_window_class(
+            timing_window_class_value = self.taker_competitiveness_engine._timing_window_class(
                 str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                 decision_sec_to_expiry,
             )
-            return SniperDecision(
+            return TakerDecision(
                 token_id=str(decision_token_id),
                 stage=str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                 should_submit=False,
@@ -4945,7 +5147,7 @@ class ExecutionRunner:
                 normal_taker_side_class=str(side_class_value or "unknown"),
             )
 
-        def _log_sniper_taker_decision(
+        def _log_taker_decision(
             *,
             source_token_id: str,
             submit_token_id: str,
@@ -4960,16 +5162,18 @@ class ExecutionRunner:
             submit_token_score_value: Optional[float],
             cooldown_sec_value: float,
             complement_token_id: Optional[str],
-            decision_row: SniperDecision,
+            stage_bucket_value: Optional[str],
+            decision_row: TakerDecision,
         ) -> None:
             decision_ts_utc = utc_iso()
             self.events.log_event(
-                "sniper_taker_decision",
+                EVENT_TAKER_DECISION,
                 {
                     "ts_utc": decision_ts_utc,
                     "ts_event_utc": decision_ts_utc,
                     "ts_decision_utc": decision_ts_utc,
                     "run_id": self.run_id,
+                    "submission_lane": "taker",
                     "token_id": str(submit_token_id),
                     "source_token_id": str(source_token_id),
                     "submit_token_id": str(submit_token_id),
@@ -4998,6 +5202,10 @@ class ExecutionRunner:
                         else None
                     ),
                     "cooldown_sec_applied": float(cooldown_sec_value),
+                    **stage_surface_fields(
+                        effective_stage=decision_row.stage,
+                        stage_bucket=stage_bucket_value,
+                    ),
                     **decision_row.as_event_payload(),
                 },
             )
@@ -5005,9 +5213,6 @@ class ExecutionRunner:
         for token_id in token_order:
             info = stage_info_by_token.get(token_id, {})
             stage = str(info.get("stage", STAGE_UNKNOWN))
-            default_maker_allowed, default_taker_allowed = edge_stage_policy(stage)
-            maker_allowed = bool(info.get("allow_maker", default_maker_allowed))
-            taker_allowed = bool(info.get("allow_taker", default_taker_allowed))
             time_remaining_sec = info.get("sec_to_expiry")
             sec_to_expiry = (
                 float(time_remaining_sec)
@@ -5015,6 +5220,51 @@ class ExecutionRunner:
                 else None
             )
             reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
+            stage_bucket = str(
+                info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage", stage)) or stage or STAGE_UNKNOWN
+            ).strip().upper() or STAGE_UNKNOWN
+            authority_field_defaults = self._late_window_authority_fields(
+                raw_stage=stage_bucket,
+                sec_to_expiry=sec_to_expiry,
+                reduce_only_recovery_active=reduce_only_recovery_active,
+                hold_active=False,
+                stage_known=stage not in {STAGE_UNKNOWN, STAGE_EXPIRED},
+            )
+            maker_new_risk_allowed = bool(
+                info.get(
+                    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+                    authority_field_defaults.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False),
+                )
+            )
+            normal_taker_allowed = bool(
+                info.get(
+                    EDGE_AUTH_NORMAL_TAKER_FIELD,
+                    authority_field_defaults.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False),
+                )
+            )
+            reduce_only_recovery_allowed = bool(
+                info.get(
+                    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
+                    authority_field_defaults.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False),
+                )
+            )
+            preexpiry_emergency_taker_allowed = bool(
+                info.get(
+                    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
+                    authority_field_defaults.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False),
+                )
+            )
+            late_window_authority_class = str(
+                info.get(
+                    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+                    authority_field_defaults.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD, "unknown"),
+                )
+                or "unknown"
+            ).strip().lower() or "unknown"
+            maker_allowed = bool(
+                info.get("allow_maker", maker_new_risk_allowed or reduce_only_recovery_allowed)
+            )
+            taker_allowed = bool(info.get("allow_taker", normal_taker_allowed))
             reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
             reduce_only_side = str(info.get("reduce_only_side") or "NONE").strip().upper() or "NONE"
             reduce_only_size_cap_shares = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
@@ -5022,9 +5272,6 @@ class ExecutionRunner:
                 info.get("reduce_only_size_cap_below_min_order_size", False)
             )
             expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
-            normal_taker_commitment_hold_active = bool(
-                info.get("normal_taker_commitment_hold_active", False)
-            )
             maker_submitted_for_token = token_id in maker_submitted_token_ids
             maker_no_submission_reason = str(maker_no_submission_reason_by_token.get(token_id) or "")
             maker_reduce_only_exit_blocked = bool(
@@ -5071,7 +5318,8 @@ class ExecutionRunner:
                     else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
                 )
             top = books.get(token_id)
-            midpoint = top.midpoint if top is not None else None
+            market_reference = self._resolve_taker_market_reference(top=top)
+            midpoint = market_reference.get("market_probability")
             fair = fair_probability_by_token.get(token_id)
             edge = compute_edge_value(
                 fair_probability=fair,
@@ -5083,6 +5331,7 @@ class ExecutionRunner:
             decision_time_remaining_sec = time_remaining_sec
             decision_sec_to_expiry = sec_to_expiry
             decision_top = top
+            decision_market_reference = market_reference
             decision_midpoint = midpoint
             decision_fair = fair
             decision_edge = edge
@@ -5098,16 +5347,16 @@ class ExecutionRunner:
             )
             validation = validate_edge_inputs(
                 EdgeInputSnapshot(
-                    fair_probability=fair,
-                    market_probability=midpoint,
-                    time_remaining_sec=time_remaining_sec,
-                    oracle_tick_age_sec=oracle_tick_age_sec,
+                fair_probability=fair,
+                market_probability=midpoint,
+                time_remaining_sec=time_remaining_sec,
+                oracle_tick_age_sec=oracle_tick_age_sec,
                     latency_state=latency_state,
                     stage=stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
-                require_latency_state=bool(self.latency_verifier.require_armed_for_sniper),
+                require_latency_state=bool(self.latency_verifier.require_armed_for_taker),
             )
 
             action_taken = EDGE_ACTION_NONE
@@ -5117,13 +5366,14 @@ class ExecutionRunner:
             emitted_order_id: Optional[str] = None
             taker_submit_reject_reason: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
-            required_min_edge = self._resolve_taker_required_min_edge(stage)
-            decision: Optional[SniperDecision] = None
+            required_min_edge = self._resolve_taker_required_min_edge(
+                stage,
+                normal_taker_allowed=normal_taker_allowed,
+            )
+            decision: Optional[TakerDecision] = None
 
-            if not self.sniper_enabled:
-                block_reason = "sniper_disabled"
-            elif not self.sniper_taker_enabled:
-                block_reason = "sniper_taker_disabled"
+            if not self.taker_enabled:
+                block_reason = "taker_disabled"
             elif max_orders <= 0:
                 block_reason = "taker_budget_disabled"
             elif mode_state == MODE_MAKER_ONLY and (not taker_recovery_override_active):
@@ -5132,12 +5382,12 @@ class ExecutionRunner:
                 block_reason = "operating_mode_safe_stop"
             elif mode_state != MODE_NORMAL and (not taker_recovery_override_active):
                 block_reason = "operating_mode_non_normal"
-            elif not lag_ready_for_sniper:
+            elif not lag_ready_for_taker:
                 block_reason = "latency_not_armed"
-            elif not sniper_ramp_allowed:
-                block_reason = "ramp_sniper_disabled"
+            elif not taker_ramp_allowed:
+                block_reason = "ramp_taker_disabled"
             elif (
-                self.sniper_require_lag_verification
+                self.taker_require_lag_verification
                 and token_id not in lag_verified_set
                 and (not taker_recovery_override_active)
             ):
@@ -5149,7 +5399,7 @@ class ExecutionRunner:
                     else "taker_recovery_disabled_in_taker_scope"
                 )
             elif not taker_allowed:
-                block_reason = "stage_disallow_taker"
+                block_reason = "normal_taker_authority_closed"
             elif not oracle_fresh:
                 block_reason = "oracle_unavailable_or_stale"
             elif (
@@ -5200,9 +5450,8 @@ class ExecutionRunner:
                                 else None
                             )
                             decision_top = books.get(decision_token_id)
-                            decision_midpoint = (
-                                decision_top.midpoint if decision_top is not None else None
-                            )
+                            decision_market_reference = self._resolve_taker_market_reference(top=decision_top)
+                            decision_midpoint = decision_market_reference.get("market_probability")
                             decision_fair = fair_probability_by_token.get(decision_token_id)
                             decision_edge = compute_edge_value(
                                 fair_probability=decision_fair,
@@ -5231,7 +5480,7 @@ class ExecutionRunner:
                                         evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                                     ),
                                     oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
-                                    require_latency_state=bool(self.latency_verifier.require_armed_for_sniper),
+                                    require_latency_state=bool(self.latency_verifier.require_armed_for_taker),
                                 )
                                 if not complement_validation.valid:
                                     block_reason = str(complement_validation.reason_code or "")
@@ -5242,38 +5491,6 @@ class ExecutionRunner:
                                     normal_taker_side_class = "complement_edge_not_positive"
                                 elif float(decision_edge) < float(required_min_edge):
                                     block_reason = "edge_below_min"
-                market_base_occupancy = (
-                    self._market_base_occupancy_snapshot(
-                        decision_token_id=decision_token_id,
-                        min_meaningful_net_shares=float(self.risk_min_order_size_shares),
-                    )
-                    if block_reason is None and (not taker_recovery_override_active)
-                    else {"active": False, "self_active": False}
-                )
-                if bool(market_base_occupancy.get("self_active", False)) and (
-                    str(decision_token_id or "").strip() not in self._normal_taker_commitment_token_ids
-                ):
-                    block_reason = "market_token_not_flat_and_clear"
-                    if str(normal_taker_side_class or "").strip().lower() == "unknown":
-                        normal_taker_side_class = "market_base_self_conflict"
-                market_family_conflict = (
-                    self._normal_taker_market_family_conflict_snapshot(
-                        decision_token_id=decision_token_id,
-                        token_market_key_by_token=self.token_market_key_by_token,
-                        positions=self.risk.positions,
-                        open_order_token_ids=open_order_token_ids,
-                        min_meaningful_net_shares=float(self.risk_min_order_size_shares),
-                    )
-                    if (
-                        block_reason is None
-                        and (not taker_recovery_override_active)
-                    )
-                    else {"active": False}
-                )
-                if bool(market_family_conflict.get("active", False)):
-                    block_reason = "market_family_sibling_inventory_active"
-                    if str(normal_taker_side_class or "").strip().lower() == "unknown":
-                        normal_taker_side_class = "market_family_conflict"
                 if taker_recovery_override_active:
                     if reduce_only_size_cap_below_min_order_size:
                         block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
@@ -5288,11 +5505,6 @@ class ExecutionRunner:
                     decision_stage if not taker_recovery_override_active else stage
                 )
                 if (
-                    (not taker_recovery_override_active)
-                    and str(decision_token_id or "").strip() in self._normal_taker_commitment_token_ids
-                ):
-                    block_reason = "normal_taker_commitment_active"
-                elif (
                     last_submit is not None
                     and (now_mono - last_submit) < cooldown_sec
                 ):
@@ -5331,7 +5543,7 @@ class ExecutionRunner:
                             block_reason_value=str(block_reason),
                             side_class_value=normal_taker_side_class,
                         )
-                        _log_sniper_taker_decision(
+                        _log_taker_decision(
                             source_token_id=decision_source_token_id,
                             submit_token_id=decision_token_id,
                             source_midpoint=(
@@ -5367,8 +5579,12 @@ class ExecutionRunner:
                             confidence_score_value=float(confidence_score),
                             source_token_score_value=float(source_confidence_score),
                             submit_token_score_value=float(submit_confidence_score),
-                            cooldown_sec_value=float(cooldown_sec),
-                            complement_token_id=complement_token_id,
+                                    cooldown_sec_value=float(cooldown_sec),
+                                    complement_token_id=complement_token_id,
+                                    stage_bucket_value=decision_info.get(
+                                        EDGE_STAGE_BUCKET_FIELD,
+                                        decision_info.get("raw_stage"),
+                                    ),
                             decision_row=decision,
                         )
                     if block_reason is None and submitted >= max_orders:
@@ -5402,7 +5618,7 @@ class ExecutionRunner:
                             multi_oracle_status = secondary_oracle_base_status
                             multi_oracle_confirmation = False
                             if (not taker_recovery_override_active) and competitiveness_enabled and bool(
-                                self.sniper_taker_competitiveness_cfg.multi_oracle_boost_enabled
+                                self.taker_competitiveness_cfg.multi_oracle_boost_enabled
                             ):
                                 secondary_fair = secondary_fair_probability_by_token.get(decision_token_id)
                                 if secondary_oracle_base_status == "disabled":
@@ -5430,7 +5646,7 @@ class ExecutionRunner:
                                         multi_oracle_confirmation = bool(same_direction)
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
                             if competitiveness_enabled and (not taker_recovery_override_active):
-                                self._refresh_sniper_multi_oracle_cap_from_wallet()
+                                self._refresh_taker_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
                                     price=float(touch_price)
                                 )
@@ -5440,14 +5656,14 @@ class ExecutionRunner:
                                     "predicted_reject_reason": None,
                                     "preview_authority": "none",
                                 }
-                                if bool(self.sniper_taker_competitiveness_cfg.dynamic_preview_enabled):
+                                if bool(self.taker_competitiveness_cfg.dynamic_preview_enabled):
                                     dynamic_preview = self.manager.preview_taker_dynamic_feasible_target(
                                         token_id=decision_token_id,
                                         side=side,
                                         price=float(touch_price),
                                         target_usd_cap=static_max_feasible_target_usd,
                                         top=decision_top_for_submit,
-                                        reason="sniper_taker_chainlink",
+                                        reason=TAKER_CHAINLINK_REASON,
                                         stage=decision_stage,
                                         realized_volatility=(
                                             realized_volatility_by_token.get(decision_token_id)
@@ -5464,9 +5680,9 @@ class ExecutionRunner:
                                             "edge_abs": abs(float(decision_edge)),
                                         },
                                     )
-                                decision = self.sniper_tool.evaluate_batch(
+                                decision = self.taker_competitiveness_engine.evaluate_batch(
                                     candidates=[
-                                        SniperCandidate(
+                                        TakerCandidate(
                                             token_id=decision_token_id,
                                             stage=str(decision_stage or STAGE_UNKNOWN),
                                             sec_to_expiry=(
@@ -5476,7 +5692,7 @@ class ExecutionRunner:
                                             ),
                                             edge_value=float(decision_edge),
                                             required_min_edge=float(required_min_edge),
-                                            base_target_usd=float(self.sniper_taker_target_usd),
+                                            base_target_usd=float(self.taker_target_usd),
                                             top_best_bid_price=(
                                                 float(decision_top_for_submit.best_bid_price)
                                                 if isinstance(decision_top_for_submit.best_bid_price, (int, float))
@@ -5505,9 +5721,9 @@ class ExecutionRunner:
                                             multi_oracle_confirmation=bool(multi_oracle_confirmation),
                                             multi_oracle_status=str(multi_oracle_status),
                                             multi_oracle_cap_usd=(
-                                                float(self.sniper_taker_multi_oracle_cap_usd)
-                                                if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))
-                                                and self.sniper_taker_multi_oracle_cap_usd > 0.0
+                                                float(self.taker_multi_oracle_cap_usd)
+                                                if isinstance(self.taker_multi_oracle_cap_usd, (int, float))
+                                                and self.taker_multi_oracle_cap_usd > 0.0
                                                 else None
                                             ),
                                         )
@@ -5562,7 +5778,7 @@ class ExecutionRunner:
                                         normal_side_policy=normal_side_policy,
                                         normal_taker_side_class="complement_buy",
                                     )
-                                _log_sniper_taker_decision(
+                                _log_taker_decision(
                                     source_token_id=decision_source_token_id,
                                     submit_token_id=decision_token_id,
                                     source_midpoint=(
@@ -5600,6 +5816,10 @@ class ExecutionRunner:
                                     submit_token_score_value=float(submit_confidence_score),
                                     cooldown_sec_value=float(cooldown_sec),
                                     complement_token_id=complement_token_id,
+                                    stage_bucket_value=decision_info.get(
+                                        EDGE_STAGE_BUCKET_FIELD,
+                                        decision_info.get("raw_stage"),
+                                    ),
                                     decision_row=decision,
                                 )
                                 if decision.dynamic_size_capped_by_risk:
@@ -5639,7 +5859,7 @@ class ExecutionRunner:
                                 submit_target_usd = (
                                     float(decision.target_usd_resolved)
                                     if competitiveness_enabled and decision is not None
-                                    else float(self.sniper_taker_target_usd)
+                                    else float(self.taker_target_usd)
                                 )
                                 if taker_recovery_override_active:
                                     recovery_target_usd = float(reduce_only_size_cap_shares) * float(submit_price)
@@ -5736,10 +5956,10 @@ class ExecutionRunner:
                                     token_id=(decision_token_id if not taker_recovery_override_active else token_id),
                                     side=submit_side,
                                     price=submit_price,
-                                    size=(float(self.sniper_taker_order_size) if self.sizing_mode == "shares" else None),
+                                    size=(float(self.taker_order_size) if self.sizing_mode == "shares" else None),
                                     target_usd=submit_target_usd,
                                     top=decision_top_for_submit,
-                                    reason="sniper_taker_chainlink",
+                                    reason=TAKER_CHAINLINK_REASON,
                                     stage=str((decision_stage if not taker_recovery_override_active else stage) or STAGE_UNKNOWN),
                                     target_ref=decision_target_ref,
                                     decision_reference_midpoint=(
@@ -5777,78 +5997,19 @@ class ExecutionRunner:
                                     if fills_accepted > 0:
                                         was_filled = True
                                         filled_token_ids.add(actual_submit_token_id)
-                                        if not taker_recovery_override_active:
-                                            self._normal_taker_commitment_token_ids.add(actual_submit_token_id)
-                                            sibling_snapshot = self._normal_taker_market_family_conflict_snapshot(
-                                                decision_token_id=actual_submit_token_id,
-                                                token_market_key_by_token=self.token_market_key_by_token,
-                                                positions=self.risk.positions,
-                                                open_order_token_ids=self._open_order_token_ids(),
-                                                min_meaningful_net_shares=float(self.risk_min_order_size_shares),
-                                            )
-                                            sibling_token_ids = {
-                                                str(item).strip()
-                                                for item in sibling_snapshot.get("sibling_token_ids", [])
-                                                if str(item).strip()
-                                            }
-                                            canceled_sibling_orders = 0
-                                            if sibling_token_ids:
-                                                canceled_sibling_orders = int(
-                                                    self.manager.cancel_orders_for_tokens(
-                                                        sibling_token_ids,
-                                                        reason="normal_taker_market_family_commitment_cleanup",
-                                                    )
-                                                )
-                                            self.events.log_event(
-                                                "normal_taker_market_family_cleanup",
-                                                {
-                                                    "ts_utc": utc_iso(),
-                                                    "run_id": self.run_id,
-                                                    "commitment_token_id": actual_submit_token_id,
-                                                    "market_base_key": str(
-                                                        sibling_snapshot.get("market_base_key") or ""
-                                                    ),
-                                                    "sibling_token_ids": sorted(sibling_token_ids),
-                                                    "conflict_token_ids": sorted(
-                                                        {
-                                                            str(item).strip()
-                                                            for item in sibling_snapshot.get("conflict_token_ids", [])
-                                                            if str(item).strip()
-                                                        }
-                                                    ),
-                                                    "position_conflict_token_ids": sorted(
-                                                        {
-                                                            str(item).strip()
-                                                            for item in sibling_snapshot.get(
-                                                                "position_conflict_token_ids", []
-                                                            )
-                                                            if str(item).strip()
-                                                        }
-                                                    ),
-                                                    "open_order_conflict_token_ids": sorted(
-                                                        {
-                                                            str(item).strip()
-                                                            for item in sibling_snapshot.get(
-                                                                "open_order_conflict_token_ids", []
-                                                            )
-                                                            if str(item).strip()
-                                                        }
-                                                    ),
-                                                    "canceled_sibling_order_count": int(canceled_sibling_orders),
-                                                },
-                                            )
                                     fills_accepted_total += max(0, fills_accepted)
                                     emitted_order_id = str(outcome.get("order_id") or "").strip() or None
                                     submit_payload: Dict[str, Any] = {
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
+                                        "submission_lane": "taker",
                                         "token_id": actual_submit_token_id,
                                         "source_token_id": decision_source_token_id,
                                         "order_id": emitted_order_id,
                                         "side": submit_side,
                                         "price": float(submit_price),
                                         "size": (
-                                            float(self.sniper_taker_order_size)
+                                            float(self.taker_order_size)
                                             if self.sizing_mode == "shares"
                                             else None
                                         ),
@@ -5917,7 +6078,7 @@ class ExecutionRunner:
                                                 ),
                                             }
                                         )
-                                    self.events.log_event("sniper_taker_submit", submit_payload)
+                                    self.events.log_event(EVENT_TAKER_SUBMIT, submit_payload)
                                 else:
                                     block_reason = "taker_submit_rejected"
                                     taker_submit_reject_reason = (
@@ -5975,6 +6136,10 @@ class ExecutionRunner:
                     }
                 )
 
+            event_market_reference = (
+                decision_market_reference if not taker_recovery_override_active else market_reference
+            )
+
             self._emit_edge_evaluation(
                 token_id=(decision_token_id if not taker_recovery_override_active else token_id),
                 target_ref=decision_target_ref,
@@ -5982,6 +6147,11 @@ class ExecutionRunner:
                 source_target_ref=self._target_ref_for_token(decision_source_token_id),
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                 stage=(decision_stage if not taker_recovery_override_active else stage),
+                raw_stage=(
+                    decision_info.get(EDGE_STAGE_BUCKET_FIELD, decision_info.get("raw_stage"))
+                    if not taker_recovery_override_active
+                    else info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage"))
+                ),
                 time_remaining_sec=(
                     decision_time_remaining_sec
                     if isinstance(decision_time_remaining_sec, (int, float))
@@ -6002,6 +6172,11 @@ class ExecutionRunner:
                 latency_state=latency_state,
                 maker_allowed=maker_allowed,
                 taker_allowed=taker_allowed,
+                maker_new_risk_allowed=maker_new_risk_allowed,
+                normal_taker_allowed=normal_taker_allowed,
+                reduce_only_recovery_allowed=reduce_only_recovery_allowed,
+                preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
+                late_window_authority_class=late_window_authority_class,
                 action_taken=action_taken,
                 block_reason=block_reason,
                 submitted=was_submitted,
@@ -6010,40 +6185,13 @@ class ExecutionRunner:
                 cycle_index=stable_cycle_index,
                 order_id=emitted_order_id,
                 book_source=(self._book_source(decision_top if not taker_recovery_override_active else top) or None),
-                market_reference_mode=(
-                    "direct_midpoint"
-                    if isinstance(
-                        decision_midpoint if not taker_recovery_override_active else midpoint,
-                        (int, float),
-                    )
-                    else "missing"
-                ),
-                market_reference_basis=(
-                    "direct_book_midpoint"
-                    if isinstance(
-                        decision_midpoint if not taker_recovery_override_active else midpoint,
-                        (int, float),
-                    )
-                    else "missing"
-                ),
-                market_reference_confidence=(
-                    "authoritative"
-                    if isinstance(
-                        decision_midpoint if not taker_recovery_override_active else midpoint,
-                        (int, float),
-                    )
-                    else "none"
-                ),
-                market_reference_fallback_used=False,
-                market_reference_source_side="none",
-                market_reference_class=(
-                    "authoritative"
-                    if isinstance(
-                        decision_midpoint if not taker_recovery_override_active else midpoint,
-                        (int, float),
-                    )
-                    else "not_available"
-                ),
+                market_reference_mode=str(event_market_reference.get("market_reference_mode") or ""),
+                market_reference_basis=str(event_market_reference.get("market_reference_basis") or ""),
+                market_reference_confidence=str(event_market_reference.get("market_reference_confidence") or ""),
+                market_reference_fallback_used=bool(event_market_reference.get("market_reference_fallback_used", False)),
+                market_reference_source_side=str(event_market_reference.get("market_reference_source_side") or "none"),
+                market_reference_class=str(event_market_reference.get("market_reference_class") or ""),
+                required_min_edge=float(required_min_edge),
                 taker_submit_reject_reason=taker_submit_reject_reason,
                 reduce_only_recovery_active=reduce_only_recovery_active,
                 reduce_only_recovery_reason=reduce_only_recovery_reason,
@@ -6264,8 +6412,23 @@ class ExecutionRunner:
             )
         context: Dict[str, Any] = {
             "submission_lane": str(submission_lane or "unknown"),
-            "stage": stage_value,
-            "raw_stage": str(lifecycle_info.get("raw_stage") or stage_value).strip().upper() or stage_value,
+            **stage_surface_fields(
+                effective_stage=stage_value,
+                stage_bucket=lifecycle_info.get(EDGE_STAGE_BUCKET_FIELD, lifecycle_info.get("raw_stage")),
+            ),
+            **authority_surface_fields(
+                maker_new_risk_allowed=bool(lifecycle_info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)),
+                normal_taker_allowed=bool(lifecycle_info.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False)),
+                reduce_only_recovery_allowed=bool(
+                    lifecycle_info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
+                ),
+                preexpiry_emergency_taker_allowed=bool(
+                    lifecycle_info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
+                ),
+                late_window_authority_class=str(
+                    lifecycle_info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
+                ),
+            ),
             "financial_posture_class": str(resolved_posture),
             "sec_to_expiry": sec_to_expiry,
             "lifecycle_context_present": bool(lifecycle_context_present),
@@ -6290,9 +6453,6 @@ class ExecutionRunner:
             "reduce_only_net_shares": float(lifecycle_info.get("reduce_only_net_shares", 0.0) or 0.0),
             "reduce_only_open_order_present": bool(lifecycle_info.get("reduce_only_open_order_present", False)),
             "preexpiry_reduce_only_active": bool(lifecycle_info.get("preexpiry_reduce_only_active", False)),
-            "normal_taker_commitment_hold_active": bool(
-                lifecycle_info.get("normal_taker_commitment_hold_active", False)
-            ),
             "held_preexpiry_reduce_only_sec": float(lifecycle_info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0),
         }
         if isinstance(edge_abs, (int, float)):
@@ -6355,30 +6515,6 @@ class ExecutionRunner:
         pos = self.risk.positions.get(token_id)
         return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
 
-    def _normal_taker_commitment_hold_active(
-        self,
-        *,
-        token_id: str,
-        sec_to_expiry: Optional[float],
-        open_order_present: bool,
-        net_shares: Optional[float] = None,
-    ) -> bool:
-        token = str(token_id or "").strip()
-        if not token or token not in self._normal_taker_commitment_token_ids:
-            return False
-        if open_order_present:
-            return False
-        if not isinstance(sec_to_expiry, (int, float)) or float(sec_to_expiry) < 0.0:
-            return False
-        financial_posture = str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper()
-        if financial_posture != FINANCIAL_POSTURE_NORMAL:
-            return False
-        shares = net_shares
-        if not isinstance(shares, (int, float)):
-            pos = self.risk.positions.get(token)
-            shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
-        return abs(float(shares or 0.0)) > 1e-9
-
     def _token_lifecycle_obligation_flags(
         self,
         *,
@@ -6436,15 +6572,8 @@ class ExecutionRunner:
         )
         pos = self.risk.positions.get(token)
         net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
-        normal_taker_commitment_hold_active = self._normal_taker_commitment_hold_active(
-            token_id=token,
-            sec_to_expiry=sec,
-            open_order_present=bool(open_orders_flag),
-            net_shares=net_shares,
-        )
         preexpiry_reduce_only_active = bool(
-            (not normal_taker_commitment_hold_active)
-            and isinstance(sec, (int, float))
+            isinstance(sec, (int, float))
             and float(sec) >= 0.0
             and float(self.held_preexpiry_reduce_only_sec) > 0.0
             and float(sec) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
@@ -6464,7 +6593,6 @@ class ExecutionRunner:
             "forced_refresh_pending": bool(forced_refresh_pending),
             "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
             "preexpiry_reduce_only_active": bool(preexpiry_reduce_only_active),
-            "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
             "held_unpriceable_tracking_active": bool(held_unpriceable_tracking_active),
             "sec_to_expiry": (float(sec) if isinstance(sec, (int, float)) else None),
         }
@@ -6499,15 +6627,8 @@ class ExecutionRunner:
         open_order_present = token in self._open_order_token_ids()
         held_present = open_order_present or (abs(net_shares) > 1e-9)
         sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
-        normal_taker_commitment_hold_active = self._normal_taker_commitment_hold_active(
-            token_id=token,
-            sec_to_expiry=sec,
-            open_order_present=bool(open_order_present),
-            net_shares=net_shares,
-        )
         preexpiry_active = bool(
             held_present
-            and (not normal_taker_commitment_hold_active)
             and isinstance(sec, float)
             and sec >= 0.0
             and float(self.held_preexpiry_reduce_only_sec) > 0.0
@@ -6542,7 +6663,6 @@ class ExecutionRunner:
                 "net_shares": float(net_shares),
                 "open_order_present": bool(open_order_present),
                 "preexpiry_active": False,
-                "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
                 "expired_grace_active": bool(expired_reduce_only_grace_active),
                 "sec_to_expiry": sec_to_expiry,
                 "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
@@ -6563,7 +6683,6 @@ class ExecutionRunner:
             "net_shares": float(net_shares),
             "open_order_present": bool(open_order_present),
             "preexpiry_active": bool(preexpiry_active),
-            "normal_taker_commitment_hold_active": bool(normal_taker_commitment_hold_active),
             "expired_grace_active": bool(expired_reduce_only_grace_active),
             "sec_to_expiry": sec_to_expiry,
             "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
@@ -6994,7 +7113,6 @@ class ExecutionRunner:
             self._market_entry_cycle_by_token.pop(token_id, None)
             self._last_stage_by_token.pop(token_id, None)
             self._last_taker_submit_mono_by_token.pop(token_id, None)
-            self._normal_taker_commitment_token_ids.discard(token_id)
             self._last_doctrine_signature_by_token.pop(token_id, None)
             self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
             self._clear_maker_ws_touch_cache(token_id)
@@ -7088,10 +7206,10 @@ class ExecutionRunner:
             "runtime_key_values": {
                 "mode": str(self.cfg.get("mode", "")),
                 "target_usd": float(self.cfg.get("sizing", {}).get("target_usd", 0.0)),
-                "sniper_arming_horizon_sec": float(self.cfg.get("sniper", {}).get("arming_horizon_sec", 0.0)),
-                "sniper_execution_cutoff_sec": float(self.cfg.get("sniper", {}).get("execution_cutoff_sec", 0.0)),
-                "sniper_late_fire_priority_band_sec": float(
-                    self.cfg.get("sniper", {}).get("late_fire_priority_band_sec", 0.0)
+                "taker_arming_horizon_sec": float(self.cfg.get("taker", {}).get("arming_horizon_sec", 0.0)),
+                "taker_execution_cutoff_sec": float(self.cfg.get("taker", {}).get("execution_cutoff_sec", 0.0)),
+                "taker_late_fire_priority_band_sec": float(
+                    self.cfg.get("taker", {}).get("late_fire_priority_band_sec", 0.0)
                 ),
                 "risk_max_abs_position_shares": float(self.cfg.get("risk", {}).get("max_abs_position_shares", 0.0)),
                 "risk_max_notional_per_token": float(self.cfg.get("risk", {}).get("max_notional_per_token", 0.0)),
@@ -7275,7 +7393,7 @@ class ExecutionRunner:
                 "run_id": self.run_id,
             },
         )
-        self._emit_sniper_stage_window_semantic_check()
+        self._emit_taker_stage_window_semantic_check()
         cfg_meta = self.cfg.get("_meta", {}) if isinstance(self.cfg.get("_meta"), dict) else {}
         LOG.info(
             "Active profile: %s | Config fingerprint: %s | Config sources: %s",
@@ -7339,9 +7457,9 @@ class ExecutionRunner:
                 self._apply_external_guard_stop()
                 self.manager.sizing_target_usd = float(self._active_target_usd)
                 if self.sizing_mode == "notional":
-                    self.sniper_taker_target_usd = float(self._active_target_usd)
+                    self.taker_target_usd = float(self._active_target_usd)
                 self.telemetry.set_gauge("active_target_usd", float(self._active_target_usd))
-                self.telemetry.set_gauge("sniper_ramp_allowed", 1.0 if self._sniper_ramp_allowed else 0.0)
+                self.telemetry.set_gauge("taker_ramp_allowed", 1.0 if self._taker_ramp_allowed else 0.0)
                 phase_market_started = time.monotonic()
 
                 if mode_state == MODE_SAFE_STOP and not self.risk.kill_switch:
@@ -7900,48 +8018,58 @@ class ExecutionRunner:
                     STAGE_EXPIRED: 0,
                     STAGE_UNKNOWN: 0,
                 }
+                stage_bucket_counts = {
+                    STAGE_OBSERVE: 0,
+                    STAGE_EVALUATE: 0,
+                    STAGE_MAKER_POSITION: 0,
+                    STAGE_MAKER_TAKER_SELECTIVE: 0,
+                    STAGE_SNIPER_PRIMARY: 0,
+                    STAGE_EXTREME_ONLY: 0,
+                    STAGE_EXPIRED: 0,
+                    STAGE_UNKNOWN: 0,
+                }
                 doctrine_gate_fail_count = 0
                 for info in stage_info_by_token.values():
                     stage_name = str(info.get("stage", STAGE_UNKNOWN))
                     stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+                    stage_bucket_name = str(
+                        info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")) or STAGE_UNKNOWN
+                    )
+                    stage_bucket_counts[stage_bucket_name] = stage_bucket_counts.get(stage_bucket_name, 0) + 1
                     if str(info.get("doctrine_gate_verdict", "fail")) != "pass":
                         doctrine_gate_fail_count += 1
                 for stage_name, count in stage_counts.items():
                     self.telemetry.set_gauge(f"doctrine_stage_count.{stage_name.lower()}", float(count))
+                for stage_name, count in stage_bucket_counts.items():
+                    self.telemetry.set_gauge(
+                        f"doctrine_stage_bucket_count.{stage_name.lower()}",
+                        float(count),
+                    )
                 self.telemetry.set_gauge("doctrine_gate_fail_count", float(doctrine_gate_fail_count))
                 self.telemetry.set_gauge(
                     "doctrine_unknown_stage_token_count",
                     float(sum(1 for info in stage_info_by_token.values() if str(info.get("stage")) == STAGE_UNKNOWN)),
                 )
 
-                sniper_ctx = self._sniper_context()
-                degraded_expiry_fallback_active = bool(sniper_ctx.get("degraded_expiry_fallback_active", False))
+                taker_ctx = self._taker_context()
+                degraded_expiry_fallback_active = bool(taker_ctx.get("degraded_expiry_fallback_active", False))
                 self.telemetry.set_gauge(
                     "doctrine_degraded_expiry_fallback_active",
                     1.0 if degraded_expiry_fallback_active else 0.0,
                 )
-                near_tokens = list(sniper_ctx.get("near_token_ids", []))
+                near_tokens = list(taker_ctx.get("near_token_ids", []))
                 if not near_tokens:
-                    near_tokens = list(sniper_ctx.get("token_ids", []))
-                self.telemetry.set_gauge("sniper_near_token_count", float(len(near_tokens)))
-                lag_ready_for_sniper = (not self.latency_verifier.require_armed_for_sniper) or latency_snapshot.armed
-                candidate_sniper_tokens = list(sniper_ctx.get("token_ids", []))
-                if self.sniper_require_lag_verification:
-                    candidate_sniper_tokens = list(sniper_ctx.get("lag_verified_token_ids", []))
-                if not lag_ready_for_sniper:
-                    candidate_sniper_tokens = []
-                if self.latency_verifier.score_enabled:
-                    candidate_sniper_tokens = [
-                        token_id
-                        for token_id in candidate_sniper_tokens
-                        if self.latency_verifier.token_score(token_id) >= self.latency_verifier.score_min_for_taker
-                    ]
-                candidate_sniper_tokens = [token_id for token_id in candidate_sniper_tokens if token_id in taker_stage_tokens]
-                if not self._sniper_ramp_allowed:
-                    candidate_sniper_tokens = []
+                    near_tokens = list(taker_ctx.get("token_ids", []))
+                self.telemetry.set_gauge("taker_near_token_count", float(len(near_tokens)))
+                lag_ready_for_taker = (not self.latency_verifier.require_armed_for_taker) or latency_snapshot.armed
+                taker_runtime_token_ids = self._taker_stage_window_token_ids(
+                    taker_ctx=taker_ctx,
+                    taker_stage_tokens=taker_stage_tokens,
+                )
+                candidate_taker_tokens = list(taker_runtime_token_ids)
                 if mode_state in {MODE_MAKER_ONLY, MODE_SAFE_STOP}:
-                    candidate_sniper_tokens = []
-                sniper_active = bool(candidate_sniper_tokens) and self.sniper_enabled
+                    candidate_taker_tokens = []
+                taker_active = bool(candidate_taker_tokens) and self.taker_enabled
                 fair_probability_by_token = self._build_fair_probability_map(
                     books,
                     latency_snapshot=latency_snapshot,
@@ -8010,12 +8138,6 @@ class ExecutionRunner:
                         maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                         maker_reduce_only_recovery_tokens=maker_reduce_only_recovery_tokens,
                     )
-                    maker_eligible_tokens = self._apply_normal_taker_commitment_market_gate(
-                        maker_eligible_tokens=maker_eligible_tokens,
-                        token_market_key_by_token=self.token_market_key_by_token,
-                        normal_taker_commitment_token_ids=self._normal_taker_commitment_token_ids,
-                        maker_prereq_failure_by_token=maker_prereq_failure_by_token,
-                    )
                 self.telemetry.set_gauge(
                     "doctrine_maker_prereq_failure_count",
                     float(len(maker_prereq_failure_by_token)),
@@ -8024,18 +8146,12 @@ class ExecutionRunner:
                     stage_info_by_token,
                     maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                 )
-                if sniper_active:
-                    effective_poll_interval = min(poll_interval, self.sniper_poll_interval_sec)
-                    max_actions_override = max(self._base_runtime_actions_per_cycle, self.sniper_max_actions_per_cycle)
-                    stale_action_budget = max(stale_action_budget, self.sniper_cancel_stale_action_budget)
-                    orphan_action_budget = max(1, self.sniper_cancel_orphan_action_budget)
-                    self.manager.set_soft_rate_limits(
-                        self.sniper_order_rate_soft_limit_pct,
-                        self.sniper_cancel_rate_soft_limit_pct,
-                    )
-                    self.telemetry.incr("sniper_active_cycles")
-                else:
-                    self.manager.set_soft_rate_limits(base_order_soft_limit, base_cancel_soft_limit)
+                if taker_active:
+                    # Keep taker lane-local. Normal taker authority must not
+                    # rewrite whole-cycle pacing or shared maker-manager rate
+                    # limits just because the final-fire lane is active.
+                    self.telemetry.incr("taker_active_cycles")
+                self.manager.set_soft_rate_limits(base_order_soft_limit, base_cancel_soft_limit)
                 mode_size_mult = self.operating_mode.size_multiplier()
                 mode_spread_mult = self.operating_mode.spread_multiplier()
                 if mode_size_mult <= 0.0 and not self.risk.kill_switch:
@@ -8045,33 +8161,36 @@ class ExecutionRunner:
                         size_multiplier_by_token[token_id] = max(0.01, size_multiplier_by_token[token_id] * mode_size_mult)
                         spread_multiplier_by_token[token_id] = max(0.5, spread_multiplier_by_token[token_id] * mode_spread_mult)
                     if mode_state == MODE_MAKER_ONLY:
-                        sniper_active = False
-                        candidate_sniper_tokens = []
-                if not sniper_active:
-                    self.manager.set_soft_rate_limits(base_order_soft_limit, base_cancel_soft_limit)
-                self.telemetry.set_gauge("sniper_mode_active", 1.0 if sniper_active else 0.0)
-                self.telemetry.set_gauge("sniper_token_count", float(len(candidate_sniper_tokens)))
+                        taker_active = False
+                        candidate_taker_tokens = []
+                if taker_active:
+                    effective_poll_interval = min(
+                        effective_poll_interval,
+                        max(0.0, float(self.taker_poll_interval_sec)),
+                    )
+                self.telemetry.set_gauge("taker_mode_active", 1.0 if taker_active else 0.0)
+                self.telemetry.set_gauge("taker_token_count", float(len(candidate_taker_tokens)))
                 self.telemetry.set_gauge("operating_mode_size_mult", mode_size_mult)
                 self.telemetry.set_gauge("operating_mode_spread_mult", mode_spread_mult)
-                sec_to_expiry_min = sniper_ctx.get("sec_to_expiry_min")
+                sec_to_expiry_min = taker_ctx.get("sec_to_expiry_min")
                 if isinstance(sec_to_expiry_min, (int, float)):
-                    self.telemetry.set_gauge("sniper_sec_to_expiry_min", float(sec_to_expiry_min))
+                    self.telemetry.set_gauge("taker_sec_to_expiry_min", float(sec_to_expiry_min))
                 self.telemetry.set_gauge(
-                    "sniper_lag_verified_token_count",
-                    float(sniper_ctx.get("lag_verified_token_count", 0)),
+                    "taker_lag_verified_token_count",
+                    float(taker_ctx.get("lag_verified_token_count", 0)),
                 )
-                if sniper_active != self._sniper_active:
-                    self._sniper_active = sniper_active
+                if taker_active != self._taker_active:
+                    self._taker_active = taker_active
                     self.events.log_event(
-                        "sniper_mode_transition",
+                        "taker_mode_transition",
                         {
                             "ts_utc": utc_iso(),
                             "run_id": self.run_id,
-                            "active": sniper_active,
-                            "token_count": len(candidate_sniper_tokens),
-                            "token_ids": candidate_sniper_tokens,
+                            "active": taker_active,
+                            "token_count": len(candidate_taker_tokens),
+                            "token_ids": candidate_taker_tokens,
                             "sec_to_expiry_min": sec_to_expiry_min,
-                            "lag_verified_token_count": sniper_ctx.get("lag_verified_token_count", 0),
+                            "lag_verified_token_count": taker_ctx.get("lag_verified_token_count", 0),
                             "lag_state": latency_snapshot.state,
                             "effective_poll_interval_sec": effective_poll_interval,
                             "max_actions_override": max_actions_override,
@@ -8245,7 +8364,7 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("taker_submitted_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_fills_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_filled_token_count_last_cycle", 0.0)
-                lag_verified_token_ids = [str(x) for x in list(sniper_ctx.get("lag_verified_token_ids", []))]
+                lag_verified_token_ids = [str(x) for x in list(taker_ctx.get("lag_verified_token_ids", []))]
                 valuation_state = self._apply_valuation_controls(books=valuation_books, phase="pre_submit")
 
                 if not books:
@@ -8278,28 +8397,28 @@ class ExecutionRunner:
                             latency_state=latency_snapshot.state,
                             cycle_index=int(self._doctrine_cycle_index),
                         )
-                    if near_tokens:
+                    if taker_runtime_token_ids:
                         maker_handoff_no_submission_reason_by_token = (
                             self._build_maker_handoff_no_submission_reason_by_token(
                                 maker_no_submission_reason_by_token=maker_no_submission_reason_by_token,
                                 maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                             )
                         )
-                        taker_summary = self._run_sniper_taker(
+                        taker_summary = self._run_taker(
                             books=books,
                             fair_probability_by_token=taker_fair_probability_by_token,
                             realized_volatility_by_token=volatility_by_token,
                             secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                             secondary_oracle_base_status=secondary_oracle_base_status,
-                            token_ids=[str(token_id) for token_id in near_tokens],
+                            token_ids=[str(token_id) for token_id in taker_runtime_token_ids],
                             stage_info_by_token=stage_info_by_token,
                             oracle_tick_age_sec=oracle_tick_age_sec,
                             oracle_fresh=oracle_fresh,
                             latency_snapshot=latency_snapshot,
                             mode_state=mode_state,
-                            lag_ready_for_sniper=lag_ready_for_sniper,
+                            lag_ready_for_taker=lag_ready_for_taker,
                             lag_verified_token_ids=lag_verified_token_ids,
-                            sniper_ramp_allowed=self._sniper_ramp_allowed,
+                            taker_ramp_allowed=self._taker_ramp_allowed,
                             cycle_index=int(self._doctrine_cycle_index),
                             maker_submitted_token_ids=maker_submitted_token_ids,
                             maker_no_submission_reason_by_token=maker_handoff_no_submission_reason_by_token,
@@ -8441,30 +8560,30 @@ class ExecutionRunner:
                                 latency_state=latency_snapshot.state,
                                 cycle_index=int(self._doctrine_cycle_index),
                             )
-                        if near_tokens:
-                            taker_summary = self._run_sniper_taker(
+                        if taker_runtime_token_ids:
+                            taker_summary = self._run_taker(
                                 books=books,
                                 fair_probability_by_token=taker_fair_probability_by_token,
                                 realized_volatility_by_token=volatility_by_token,
                                 secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                                 secondary_oracle_base_status=secondary_oracle_base_status,
-                                token_ids=[str(token_id) for token_id in near_tokens],
+                                token_ids=[str(token_id) for token_id in taker_runtime_token_ids],
                                 stage_info_by_token=stage_info_by_token,
                                 oracle_tick_age_sec=oracle_tick_age_sec,
                                 oracle_fresh=oracle_fresh,
                                 latency_snapshot=latency_snapshot,
                                 mode_state=mode_state,
-                                lag_ready_for_sniper=lag_ready_for_sniper,
+                                lag_ready_for_taker=lag_ready_for_taker,
                                 lag_verified_token_ids=lag_verified_token_ids,
-                                sniper_ramp_allowed=self._sniper_ramp_allowed,
+                                taker_ramp_allowed=self._taker_ramp_allowed,
                                 cycle_index=int(self._doctrine_cycle_index),
                                 maker_submitted_token_ids=maker_submitted_token_ids,
                                 maker_no_submission_reason_by_token=maker_handoff_no_submission_reason_by_token,
                             )
                             if taker_summary["attempts"] > 0:
-                                self.telemetry.incr("sniper_taker_attempts", taker_summary["attempts"])
+                                self.telemetry.incr("taker_attempts", taker_summary["attempts"])
                             if taker_summary["submitted"] > 0:
-                                self.telemetry.incr("sniper_taker_submitted", taker_summary["submitted"])
+                                self.telemetry.incr("taker_submitted", taker_summary["submitted"])
                         self.telemetry.set_gauge("open_orders", float(summary["open_orders"]))
                         self.telemetry.set_gauge("actions_last_cycle", float(summary["actions"]))
                         self.telemetry.set_gauge("fills_last_cycle", float(summary["fills"]))
@@ -8648,14 +8767,14 @@ class ExecutionRunner:
                 )
                 self.telemetry.set_gauge("ramp_enabled", 1.0 if ramp_snapshot.enabled else 0.0)
                 self.telemetry.set_gauge("ramp_target_usd", float(ramp_snapshot.target_usd))
-                self.telemetry.set_gauge("ramp_sniper_allowed", 1.0 if ramp_snapshot.sniper_allowed else 0.0)
+                self.telemetry.set_gauge("ramp_taker_allowed", 1.0 if ramp_snapshot.taker_allowed else 0.0)
                 self.telemetry.set_gauge("ramp_reconcile_mismatch_ratio", float(reconcile_mismatch_ratio))
                 if ramp_snapshot.enabled:
                     self._active_target_usd = float(ramp_snapshot.target_usd)
-                    self._sniper_ramp_allowed = bool(ramp_snapshot.sniper_allowed)
+                    self._taker_ramp_allowed = bool(ramp_snapshot.taker_allowed)
                     self.manager.sizing_target_usd = float(self._active_target_usd)
                     if self.sizing_mode == "notional":
-                        self.sniper_taker_target_usd = float(self._active_target_usd)
+                        self.taker_target_usd = float(self._active_target_usd)
                 if ramp_snapshot.changed:
                     self.events.log_event(
                         "ramp_transition",
@@ -8663,7 +8782,7 @@ class ExecutionRunner:
                             "ts_utc": utc_iso(),
                             "run_id": self.run_id,
                             "target_usd": float(ramp_snapshot.target_usd),
-                            "sniper_allowed": bool(ramp_snapshot.sniper_allowed),
+                            "taker_allowed": bool(ramp_snapshot.taker_allowed),
                             "reason": ramp_snapshot.reason,
                             "reconcile_mismatch_ratio": float(reconcile_mismatch_ratio),
                         },
@@ -8818,6 +8937,7 @@ class ExecutionRunner:
                         "mode": self.cfg["mode"],
                         "doctrine_mode": self.doctrine_mode,
                         "maker_market_reference_policy": dict(self._maker_market_reference_policy),
+                        "taker_market_reference_policy": dict(self._taker_market_reference_policy),
                         "run_id": self.run_id,
                         "runtime_state": self._runtime_state,
                         "active_targets_present": self._runtime_active_targets_present,
@@ -8970,14 +9090,14 @@ class ExecutionRunner:
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
                         "valuation_held_unpriceable_escalation_sec": float(self.held_unpriceable_escalation_sec),
                         "valuation_held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
-                        "sniper_multi_oracle_cap_usd": (
-                            float(self.sniper_taker_multi_oracle_cap_usd)
-                            if isinstance(self.sniper_taker_multi_oracle_cap_usd, (int, float))
+                        "taker_multi_oracle_cap_usd": (
+                            float(self.taker_multi_oracle_cap_usd)
+                            if isinstance(self.taker_multi_oracle_cap_usd, (int, float))
                             else None
                         ),
-                        "sniper_multi_oracle_cap_source": str(self.sniper_taker_multi_oracle_cap_source),
-                        "sniper_multi_oracle_cap_authority_class": str(
-                            self.sniper_taker_multi_oracle_cap_authority_class
+                        "taker_multi_oracle_cap_source": str(self.taker_multi_oracle_cap_source),
+                        "taker_multi_oracle_cap_authority_class": str(
+                            self.taker_multi_oracle_cap_authority_class
                         ),
                         "external_guard_active": bool(guard_active),
                         "external_guard": {
@@ -9074,6 +9194,10 @@ class ExecutionRunner:
                 self._write_run_manifest_end()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._flush_preexpiry_emergency_taker_repeat_summary()
+            # Emit the semantic self-audit again on shutdown so bounded tail
+            # replays still retain the canonical stage-window owner truth.
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
+                self._emit_taker_stage_window_semantic_check()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.log_event("runner_stop", {"ts_utc": utc_iso(), "run_id": self.run_id})
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):

@@ -1964,9 +1964,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("maker_cannon_probe_stack_pressure_class_distribution", "maker_cannon_late_window_probe_summary.json", ("stack_pressure_class_distribution",)),
         ("maker_cannon_probe_secondary_oracle_status_distribution", "maker_cannon_late_window_probe_summary.json", ("secondary_oracle_status_distribution",)),
         ("maker_cannon_probe_secondary_oracle_confirmation_distribution", "maker_cannon_late_window_probe_summary.json", ("secondary_oracle_confirmation_distribution",)),
-        ("maker_cannon_probe_runtime_secondary_oracle_status_distribution", "maker_cannon_late_window_probe_summary.json", ("runtime_secondary_oracle_status_distribution",)),
-        ("maker_cannon_probe_runtime_secondary_oracle_confirmation_distribution", "maker_cannon_late_window_probe_summary.json", ("runtime_secondary_oracle_confirmation_distribution",)),
-        ("maker_cannon_probe_runtime_maker_stage_allowed_distribution", "maker_cannon_late_window_probe_summary.json", ("runtime_maker_stage_allowed_distribution",)),
         ("maker_cannon_probe_visible_depth_fail_closed_zero_distribution", "maker_cannon_late_window_probe_summary.json", ("probe_visible_depth_fail_closed_zero_distribution",)),
         ("maker_cannon_probe_geometry_viable_counts", "maker_cannon_late_window_probe_summary.json", ("geometry_viable_counts",)),
         ("maker_cannon_probe_cannon_depth_requirement_counts", "maker_cannon_late_window_probe_summary.json", ("cannon_depth_requirement_counts",)),
@@ -3948,9 +3945,7 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
     stack_pressure_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_status_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_maker_stage_allowed_counts: Counter[str] = Counter()
+    maker_new_risk_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -3983,16 +3978,10 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        runtime_secondary_oracle_status_counts[
-            str(row.get("runtime_secondary_oracle_status") or "unknown")
-        ] += 1
-        runtime_secondary_oracle_confirmation_counts[
-            "confirmed"
-            if bool(row.get("runtime_secondary_oracle_confirmation", False))
-            else "not_confirmed"
-        ] += 1
-        runtime_maker_stage_allowed_counts[
-            "allowed" if bool(row.get("runtime_maker_stage_allowed", False)) else "disallowed"
+        maker_new_risk_allowed_counts[
+            "allowed"
+            if bool(row.get("maker_new_risk_allowed", row.get("maker_allowed", False)))
+            else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             str(row.get("probe_visible_depth_fail_closed_zero") or "unknown")
@@ -4152,17 +4141,9 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "runtime_secondary_oracle_status_distribution": {
-            key: int(runtime_secondary_oracle_status_counts[key])
-            for key in sorted(runtime_secondary_oracle_status_counts)
-        },
-        "runtime_secondary_oracle_confirmation_distribution": {
-            key: int(runtime_secondary_oracle_confirmation_counts[key])
-            for key in sorted(runtime_secondary_oracle_confirmation_counts)
-        },
-        "runtime_maker_stage_allowed_distribution": {
-            key: int(runtime_maker_stage_allowed_counts[key])
-            for key in sorted(runtime_maker_stage_allowed_counts)
+        "maker_new_risk_allowed_distribution": {
+            key: int(maker_new_risk_allowed_counts[key])
+            for key in sorted(maker_new_risk_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])

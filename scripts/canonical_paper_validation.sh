@@ -509,7 +509,7 @@ else
   had_execution_error=1
   echo "[canonical] validator_determinism_ok=false"
 fi
-outcome_truth_usability_json='{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"partial_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_reference_recovered_count":0,"eval_reference_recovered_count":0,"decision_reference_missing_count":0,"eval_reference_missing_count":0,"maker_edge_linkage_attempted_count":0,"maker_edge_linkage_resolved_count":0,"maker_edge_linkage_ambiguous_count":0,"maker_edge_linkage_missing_count":0,"recoverable_but_missing_count":0,"attribution_usability_ratio":0.0,"complete_classification_ratio":0.0,"observational_only":true,"non_gating":true,"normal_taker_commitment_observational":{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_quality_distribution":{},"execution_quality_distribution":{},"combined_outcome_distribution":{},"edge_realized_x_size_sum":0.0,"commitment_horizon_ms_summary":{"count":0.0,"min":null,"max":null,"mean":null,"p50":null}}}'
+outcome_truth_usability_json='{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"partial_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_reference_recovered_count":0,"eval_reference_recovered_count":0,"decision_reference_missing_count":0,"eval_reference_missing_count":0,"maker_edge_linkage_attempted_count":0,"maker_edge_linkage_resolved_count":0,"maker_edge_linkage_ambiguous_count":0,"maker_edge_linkage_missing_count":0,"recoverable_but_missing_count":0,"attribution_usability_ratio":0.0,"complete_classification_ratio":0.0,"observational_only":true,"non_gating":true}'
 if [[ -f "${OUT_DIR}/outcome_truth_audit.json" ]]; then
   if outcome_truth_usability_json="$(./.venv/bin/python - "${OUT_DIR}/outcome_truth_audit.json" <<'PY'
 import json
@@ -517,12 +517,6 @@ import pathlib
 import sys
 
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-commitment = (
-    ((payload.get("commitment_lane_outcome_truth") or {}).get("normal_taker"))
-    if isinstance(payload.get("commitment_lane_outcome_truth"), dict)
-    else None
-)
-
 def _as_int(value, default=0):
     try:
         return int(value)
@@ -558,44 +552,13 @@ out = {
     "complete_classification_ratio": _as_float(payload.get("complete_classification_ratio", 0.0)),
     "observational_only": True,
     "non_gating": True,
-    "normal_taker_commitment_observational": {
-        "available": isinstance(commitment, dict) and bool(commitment),
-        "total_outcome_records": _as_int((commitment or {}).get("total_outcome_records", 0)),
-        "complete_outcome_records": _as_int((commitment or {}).get("complete_outcome_records", 0)),
-        "unknown_outcome_records": _as_int((commitment or {}).get("unknown_outcome_records", 0)),
-        "filled_total": _as_int((commitment or {}).get("filled_total", 0)),
-        "filled_complete": _as_int((commitment or {}).get("filled_complete", 0)),
-        "filled_unknown": _as_int((commitment or {}).get("filled_unknown", 0)),
-        "filled_complete_ratio": _as_float((commitment or {}).get("filled_complete_ratio", 0.0)),
-        "decision_quality_distribution": (
-            (commitment or {}).get("decision_quality_distribution")
-            if isinstance((commitment or {}).get("decision_quality_distribution"), dict)
-            else {}
-        ),
-        "execution_quality_distribution": (
-            (commitment or {}).get("execution_quality_distribution")
-            if isinstance((commitment or {}).get("execution_quality_distribution"), dict)
-            else {}
-        ),
-        "combined_outcome_distribution": (
-            (commitment or {}).get("combined_outcome_distribution")
-            if isinstance((commitment or {}).get("combined_outcome_distribution"), dict)
-            else {}
-        ),
-        "edge_realized_x_size_sum": _as_float((commitment or {}).get("edge_realized_x_size_sum", 0.0)),
-        "commitment_horizon_ms_summary": (
-            (commitment or {}).get("commitment_horizon_ms_summary")
-            if isinstance((commitment or {}).get("commitment_horizon_ms_summary"), dict)
-            else {"count": 0.0, "min": None, "max": None, "mean": None, "p50": None}
-        ),
-    },
 }
 print(json.dumps(out, sort_keys=True))
 PY
 )"; then
     :
   else
-    outcome_truth_usability_json='{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"partial_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_reference_recovered_count":0,"eval_reference_recovered_count":0,"decision_reference_missing_count":0,"eval_reference_missing_count":0,"maker_edge_linkage_attempted_count":0,"maker_edge_linkage_resolved_count":0,"maker_edge_linkage_ambiguous_count":0,"maker_edge_linkage_missing_count":0,"recoverable_but_missing_count":0,"attribution_usability_ratio":0.0,"complete_classification_ratio":0.0,"observational_only":true,"non_gating":true,"normal_taker_commitment_observational":{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_quality_distribution":{},"execution_quality_distribution":{},"combined_outcome_distribution":{},"edge_realized_x_size_sum":0.0,"commitment_horizon_ms_summary":{"count":0.0,"min":null,"max":null,"mean":null,"p50":null}}}'
+    outcome_truth_usability_json='{"available":false,"total_outcome_records":0,"complete_outcome_records":0,"partial_outcome_records":0,"unknown_outcome_records":0,"filled_total":0,"filled_complete":0,"filled_unknown":0,"filled_complete_ratio":0.0,"decision_reference_recovered_count":0,"eval_reference_recovered_count":0,"decision_reference_missing_count":0,"eval_reference_missing_count":0,"maker_edge_linkage_attempted_count":0,"maker_edge_linkage_resolved_count":0,"maker_edge_linkage_ambiguous_count":0,"maker_edge_linkage_missing_count":0,"recoverable_but_missing_count":0,"attribution_usability_ratio":0.0,"complete_classification_ratio":0.0,"observational_only":true,"non_gating":true}'
   fi
 fi
 overall_rc=0

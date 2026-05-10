@@ -12,6 +12,7 @@ import yaml
 
 from prodesk.artifact_identity import build_artifact_identity
 from prodesk.config import load_execution_config
+from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
 from prodesk.session_phase import enforce_validation_phase
@@ -30,6 +31,7 @@ from scripts.run_integrity_audit import run_audit as run_integrity_audit
 
 DEFAULT_MAX_LINES_PER_FILE = 200000
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = (ROOT_DIR / "configs" / "profiles" / "paper_universal.yaml").resolve()
 DEFAULT_SOAK_BUDGET_PATH = (ROOT_DIR / "ops" / "soak_budget.yaml").resolve()
 DEFAULT_REALISM_DOCTRINE_PATH = (ROOT_DIR / "BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt").resolve()
 
@@ -144,6 +146,17 @@ def _load_market_data_realism_policy(budget_path: pathlib.Path) -> tuple[Dict[st
     return policy, findings
 
 
+def _resolve_repo_owned_path(path: pathlib.Path, *, repo_default: pathlib.Path) -> pathlib.Path:
+    if path.is_absolute():
+        return path.resolve()
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    if str(path).strip():
+        return (ROOT_DIR / path).resolve()
+    return repo_default.resolve()
+
+
 def _load_run_scoped_events(
     *,
     log_dir: pathlib.Path,
@@ -230,7 +243,8 @@ def run_audit(
     normalized_phase = enforce_validation_phase(validation_name="paper_harness_audit", session_phase=session_phase)
     checks: Dict[str, Any] = {}
 
-    cfg = load_execution_config(config_path.resolve())
+    resolved_config_path = _resolve_repo_owned_path(pathlib.Path(config_path), repo_default=DEFAULT_CONFIG_PATH)
+    cfg = load_execution_config(resolved_config_path)
     runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime"), dict) else {}
     doctrine = cfg.get("doctrine", {}) if isinstance(cfg.get("doctrine"), dict) else {}
     profile = cfg.get("profile", {}) if isinstance(cfg.get("profile"), dict) else {}
@@ -369,8 +383,6 @@ def run_audit(
         "lifecycle_truth": "authoritative",
         "decision_source_truth": "bounded_approximation",
         "action_source_truth": "bounded_approximation",
-        "source_truth": "bounded_approximation",
-        "source_truth_semantics": "legacy_alias_of_action_source_truth",
         "maker_fill_expectancy": maker_realism_class,
         "taker_fill_expectancy": "bounded_approximation",
         "live_pnl_equivalence": False,
@@ -407,7 +419,10 @@ def run_audit(
             f"paper_harness_oracle_max_tick_age_high:{checks['doctrine_oracle_max_tick_age_sec']:.3f}>5.0"
         )
 
-    resolved_budget_path = (budget_path or DEFAULT_SOAK_BUDGET_PATH).resolve()
+    resolved_budget_path = _resolve_repo_owned_path(
+        pathlib.Path(budget_path) if budget_path is not None else DEFAULT_SOAK_BUDGET_PATH,
+        repo_default=DEFAULT_SOAK_BUDGET_PATH,
+    )
     market_data_policy, policy_findings = _load_market_data_realism_policy(resolved_budget_path)
     findings.extend(policy_findings)
     checks["market_data_policy_source"] = str(resolved_budget_path)
@@ -477,12 +492,12 @@ def run_audit(
             findings.append(f"paper_harness_book_updates_ws_too_low:{ws_delta:.6f}<min:{min_ws_updates:.6f}")
         if rest_ratio > max_rest_ratio:
             if status_rows >= min_rows_for_rest_ratio_gate:
-                findings.append(
-                    f"paper_harness_book_updates_rest_ratio_high:{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
+                warnings.append(
+                    f"paper_harness_book_updates_rest_ratio_watch_high:{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
                 )
             else:
                 warnings.append(
-                    "paper_harness_book_updates_rest_ratio_high_short_window:"
+                    "paper_harness_book_updates_rest_ratio_watch_high_short_window:"
                     + f"{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
                     + f":status_rows={status_rows:.0f}<min_rows_for_rest_ratio_gate:{min_rows_for_rest_ratio_gate:.0f}"
                 )
@@ -525,6 +540,10 @@ def run_audit(
         action_on_non_observed_live_rows = 0
         no_action_due_truth_quality_rows = 0
         actions_under_bounded_approx_rows = 0
+        maker_action_rows_total = 0
+        maker_action_rows_non_ws = 0
+        taker_action_rows_total = 0
+        taker_action_rows_non_ws = 0
         decision_input_type_counts: Dict[str, int] = {key: 0 for key in DECISION_INPUT_TYPES}
         action_counts_by_input_type: Dict[str, int] = {key: 0 for key in DECISION_INPUT_TYPES}
         execution_realism_class_counts: Dict[str, int] = {key: 0 for key in EXECUTION_REALISM_CLASSES}
@@ -538,11 +557,20 @@ def run_audit(
             explicit_realism = str(row.get("execution_realism_class") or "").strip().lower()
             normalized_input_type = _decision_input_type_from_row(row)
             normalized_realism = _execution_realism_class_from_row(row)
+            book_source = str(row.get("book_source") or "").strip().lower()
             decision_input_type_counts[normalized_input_type] = int(decision_input_type_counts.get(normalized_input_type, 0)) + 1
             execution_realism_class_counts[normalized_realism] = int(
                 execution_realism_class_counts.get(normalized_realism, 0)
             ) + 1
             if action_taken in {"maker", "taker"}:
+                if action_taken == "maker":
+                    maker_action_rows_total += 1
+                    if book_source != "ws":
+                        maker_action_rows_non_ws += 1
+                else:
+                    taker_action_rows_total += 1
+                    if book_source != "ws":
+                        taker_action_rows_non_ws += 1
                 action_counts_by_input_type[normalized_input_type] = int(
                     action_counts_by_input_type.get(normalized_input_type, 0)
                 ) + 1
@@ -589,7 +617,7 @@ def run_audit(
                 fill_basis = "missing"
                 missing_fill_policy_basis_rows += 1
             fill_policy_basis_counts[fill_basis] = int(fill_policy_basis_counts.get(fill_basis, 0)) + 1
-            if execution_preference == "taker_only" or reason_code.startswith("sniper_taker"):
+            if execution_preference == "taker_only" or is_taker_reason(reason_code):
                 immediate_fill_rows += 1
                 immediate_fill_policy_basis_counts[fill_basis] = int(
                     immediate_fill_policy_basis_counts.get(fill_basis, 0)
@@ -672,8 +700,6 @@ def run_audit(
             "lifecycle_truth": "authoritative",
             "decision_source_truth": decision_source_truth,
             "action_source_truth": action_source_truth,
-            "source_truth": action_source_truth,
-            "source_truth_semantics": "legacy_alias_of_action_source_truth",
             "maker_fill_expectancy": str(checks.get("maker_policy", {}).get("maker_realism_class") or "not_modeled"),
             "taker_fill_expectancy": str(checks.get("taker_policy", {}).get("taker_realism_class") or "bounded_approximation"),
             "live_pnl_equivalence": False,
@@ -694,6 +720,10 @@ def run_audit(
                 sum(1 for row in ws_slo_rows if bool(row.get("degraded", False)))
             ),
             "bounded_or_emulated_action_rows": int(action_on_non_observed_live_rows),
+            "maker_action_rows_total": int(maker_action_rows_total),
+            "maker_action_rows_non_ws": int(maker_action_rows_non_ws),
+            "taker_action_rows_total": int(taker_action_rows_total),
+            "taker_action_rows_non_ws": int(taker_action_rows_non_ws),
         }
 
         if missing_disclosure_rows > 0:
@@ -712,6 +742,11 @@ def run_audit(
             findings.append(f"paper_harness_edge_action_on_emulated_input:{action_on_emulated_rows}")
         if action_on_emulated_rows > 0 and allow_action_on_emulated:
             warnings.append(f"paper_harness_edge_action_on_emulated_input_allowed:{action_on_emulated_rows}")
+        if maker_action_rows_non_ws > 0 or taker_action_rows_non_ws > 0:
+            findings.append(
+                "paper_harness_action_row_non_ws_source:"
+                + f"maker={maker_action_rows_non_ws}:taker={taker_action_rows_non_ws}"
+            )
         if missing_fill_policy_basis_rows > 0:
             findings.append(f"paper_harness_fill_policy_disclosure_missing:{missing_fill_policy_basis_rows}")
         if (not synthetic_passive_fills_possible) and synthetic_passive_fills_used:
@@ -759,7 +794,7 @@ def run_audit(
     checks["paper_harness_proving_lineage"] = dict(lineage_info.get("lineage") or {})
     checks["paper_harness_proving_lineage_complete"] = bool(lineage_info.get("lineage_complete", False))
     return {
-        "config_path": str(config_path.resolve()),
+        "config_path": str(resolved_config_path),
         "session_phase": normalized_phase,
         "run_id": str(selected_run_id),
         "run_contract_path": str(run_contract_path.resolve()) if isinstance(run_contract_path, pathlib.Path) else "",

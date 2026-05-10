@@ -79,7 +79,7 @@ class LatencyVerifier:
     def __init__(self, cfg: Dict[str, object]):
         self.enabled = bool(cfg.get("enabled", True))
         self.require_armed_for_maker = bool(cfg.get("require_armed_for_maker", True))
-        self.require_armed_for_sniper = bool(cfg.get("require_armed_for_sniper", True))
+        self.require_armed_for_taker = bool(cfg.get("require_armed_for_taker", True))
         self.log_sample_events = bool(cfg.get("log_sample_events", False))
 
         self.window_samples = max(10, int(cfg.get("window_samples", 400)))

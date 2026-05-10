@@ -14,14 +14,14 @@ class PaperLiveParityTests(unittest.TestCase):
                 "quote_uptime_ratio": 0.95,
                 "error_rows": 1,
                 "execution_quality": {"capture_minus_adverse": 2.5},
-                "sniper": {"fill_rate": 0.6},
+                "taker": {"fill_rate": 0.6},
                 "latency_distribution_ms": {"p90_ms": 120.0},
             }
             live = {
                 "quote_uptime_ratio": 0.90,
                 "error_rows": 2,
                 "execution_quality": {"capture_minus_adverse": 2.0},
-                "sniper": {"fill_rate": 0.7},
+                "taker": {"fill_rate": 0.7},
                 "latency_distribution_ms": {"p90_ms": 150.0},
             }
             paper_path = root / "paper.json"
@@ -35,7 +35,7 @@ class PaperLiveParityTests(unittest.TestCase):
                 max_uptime_gap=0.10,
                 max_error_rows_gap=2.0,
                 max_capture_gap=1.0,
-                max_sniper_fill_rate_gap=0.2,
+                max_taker_fill_rate_gap=0.2,
                 max_latency_p90_gap_ms=40.0,
             )
             self.assertTrue(result["ok"], msg=result["findings"])
@@ -56,7 +56,7 @@ class PaperLiveParityTests(unittest.TestCase):
                 max_uptime_gap=0.2,
                 max_error_rows_gap=1.0,
                 max_capture_gap=3.0,
-                max_sniper_fill_rate_gap=0.1,
+                max_taker_fill_rate_gap=0.1,
                 max_latency_p90_gap_ms=20.0,
             )
             self.assertFalse(result["ok"])

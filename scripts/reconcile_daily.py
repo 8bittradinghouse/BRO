@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from prodesk.common import utc_iso
 from prodesk.artifact_identity import build_artifact_identity
 from prodesk.config import load_execution_config
+from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.gateway import GatewayError, LiveClobGateway
 
 REPORT_SCHEMA_VERSION = 3
@@ -131,7 +132,7 @@ def _bot_ledger_summary(events: List[Dict[str, Any]], simulation_cfg: Dict[str, 
 
         order_id = str(evt.get("order_id") or "")
         reason = order_reason_by_id.get(order_id, "")
-        if "sniper_taker" in reason:
+        if is_taker_reason(reason):
             effective_fee_rate = max(0.0, min(1.0, price * (1.0 - price) * taker_curve_rate))
             taker_fees += notional * effective_fee_rate
         else:

@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Deque, Dict, List, Optional
 
 from .common import first_non_none, parse_float, parse_ts, utc_iso
+from .edge_truth_contract import is_taker_reason
 from .models import BookTop, FillEvent, LiveOrder, OrderIntent
 from .secrets import SecretLoadError, load_auth_secrets
 
@@ -330,11 +331,11 @@ class PaperGateway(BaseGateway):
         status = "CANCELED"
         top = self._latest_top_by_token.get(intent.token_id)
         liquidity_depth_multiplier = self._paper_liquidity_depth_scale(top) if top is not None else 1.0
-        is_sniper_taker = str(intent.reason or "").strip().lower() == "sniper_taker_chainlink"
+        is_taker_lane = is_taker_reason(intent.reason)
         lag_class: Optional[str] = None
         lag_sec_effective: Optional[float] = None
         lag_penalty_bps = 0.0
-        if is_sniper_taker:
+        if is_taker_lane:
             lag_class, lag_sec_effective = self._classify_chainlink_lag(intent=intent)
             if lag_class == "unknown":
                 lag_penalty_bps = 0.0
@@ -351,7 +352,7 @@ class PaperGateway(BaseGateway):
                 if fill_size > 0:
                     remaining -= fill_size
                     fill_price = float(top.best_ask_price)
-                    if is_sniper_taker and lag_penalty_bps > 0.0:
+                    if is_taker_lane and lag_penalty_bps > 0.0:
                         fill_price *= 1.0 + (lag_penalty_bps / 10000.0)
                     self._fill_queue.append(
                         FillEvent(
@@ -383,7 +384,7 @@ class PaperGateway(BaseGateway):
                 if fill_size > 0:
                     remaining -= fill_size
                     fill_price = float(top.best_bid_price)
-                    if is_sniper_taker and lag_penalty_bps > 0.0:
+                    if is_taker_lane and lag_penalty_bps > 0.0:
                         fill_price *= 1.0 - (lag_penalty_bps / 10000.0)
                     self._fill_queue.append(
                         FillEvent(

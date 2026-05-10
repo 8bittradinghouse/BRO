@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 from prodesk.config import load_execution_config
+from prodesk.edge_truth_contract import is_taker_decision_event_type
 from prodesk.error_codes import summarize_error_codes
 from prodesk.jsonl_utils import DEFAULT_MAX_LINES_PER_FILE, load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
@@ -409,10 +410,10 @@ def _host_time_sync_audit(
 
 def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[str]]:
     findings: List[str] = []
-    sniper_taker_decision_rows = 0
-    sniper_taker_decision_missing_decision_ts_rows = 0
-    sniper_taker_decision_missing_sec_to_expiry_rows = 0
-    sniper_taker_decision_missing_timing_window_rows = 0
+    taker_decision_rows = 0
+    taker_decision_missing_decision_ts_rows = 0
+    taker_decision_missing_sec_to_expiry_rows = 0
+    taker_decision_missing_timing_window_rows = 0
     accepted_submit_rows = 0
     accepted_submit_missing_decision_anchor_rows = 0
     accepted_submit_missing_submit_latency_rows = 0
@@ -423,14 +424,14 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
 
     for row in event_rows:
         event_type = str(row.get("event_type") or "").strip().lower()
-        if event_type == "sniper_taker_decision":
-            sniper_taker_decision_rows += 1
+        if is_taker_decision_event_type(event_type):
+            taker_decision_rows += 1
             if _parse_ts(row.get("ts_decision_utc")) is None:
-                sniper_taker_decision_missing_decision_ts_rows += 1
+                taker_decision_missing_decision_ts_rows += 1
             if not isinstance(row.get("sec_to_expiry"), (int, float)):
-                sniper_taker_decision_missing_sec_to_expiry_rows += 1
+                taker_decision_missing_sec_to_expiry_rows += 1
             if not str(row.get("timing_window_class") or "").strip():
-                sniper_taker_decision_missing_timing_window_rows += 1
+                taker_decision_missing_timing_window_rows += 1
             continue
 
         if event_type != "order_submit":
@@ -479,17 +480,17 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
             ):
                 maker_timing_missing_context_rows += 1
 
-    if sniper_taker_decision_missing_decision_ts_rows > 0:
+    if taker_decision_missing_decision_ts_rows > 0:
         findings.append(
-            f"sniper_taker_decision_missing_decision_ts_rows:{sniper_taker_decision_missing_decision_ts_rows}"
+            f"taker_decision_missing_decision_ts_rows:{taker_decision_missing_decision_ts_rows}"
         )
-    if sniper_taker_decision_missing_sec_to_expiry_rows > 0:
+    if taker_decision_missing_sec_to_expiry_rows > 0:
         findings.append(
-            f"sniper_taker_decision_missing_sec_to_expiry_rows:{sniper_taker_decision_missing_sec_to_expiry_rows}"
+            f"taker_decision_missing_sec_to_expiry_rows:{taker_decision_missing_sec_to_expiry_rows}"
         )
-    if sniper_taker_decision_missing_timing_window_rows > 0:
+    if taker_decision_missing_timing_window_rows > 0:
         findings.append(
-            f"sniper_taker_decision_missing_timing_window_rows:{sniper_taker_decision_missing_timing_window_rows}"
+            f"taker_decision_missing_timing_window_rows:{taker_decision_missing_timing_window_rows}"
         )
     if accepted_submit_missing_decision_anchor_rows > 0:
         findings.append(
@@ -509,10 +510,10 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
         )
 
     evidence = {
-        "sniper_taker_decision_rows": int(sniper_taker_decision_rows),
-        "sniper_taker_decision_missing_decision_ts_rows": int(sniper_taker_decision_missing_decision_ts_rows),
-        "sniper_taker_decision_missing_sec_to_expiry_rows": int(sniper_taker_decision_missing_sec_to_expiry_rows),
-        "sniper_taker_decision_missing_timing_window_rows": int(sniper_taker_decision_missing_timing_window_rows),
+        "taker_decision_rows": int(taker_decision_rows),
+        "taker_decision_missing_decision_ts_rows": int(taker_decision_missing_decision_ts_rows),
+        "taker_decision_missing_sec_to_expiry_rows": int(taker_decision_missing_sec_to_expiry_rows),
+        "taker_decision_missing_timing_window_rows": int(taker_decision_missing_timing_window_rows),
         "accepted_submit_rows": int(accepted_submit_rows),
         "accepted_submit_missing_decision_anchor_rows": int(accepted_submit_missing_decision_anchor_rows),
         "accepted_submit_missing_submit_latency_rows": int(accepted_submit_missing_submit_latency_rows),

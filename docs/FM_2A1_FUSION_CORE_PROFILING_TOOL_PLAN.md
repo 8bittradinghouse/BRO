@@ -63,8 +63,8 @@ BRO artifacts -> FM-1A1 FMA -> FM-2A1 Fusion Core Profiling Tool -> future decis
   - otherwise `bounded_depth`
 - `taker`
   - `bounded_depth` only
-- `sniper`
-  - `bounded_depth` only
+  - this is the active integrated taker/sniper bounded lane until a future
+    profiling packet earns a different surface
 
 ### Current outputs
 - `fusion_core_input_contract_audit.json`
@@ -106,10 +106,8 @@ It does not cut live decision policy.
 
 ### Taker
 - `window_conversion_overview`
-
-### Sniper
-- chassis slot exists, but current output remains bounded and dormant until
-  sniper truth mapping is earned
+- current output also carries the integrated taker/sniper bounded lane truth;
+  there is no separate live `sniper` profiling lane in the implemented tool
 
 ## Guardrails
 - fail-closed stability grading
@@ -194,7 +192,8 @@ That pass added:
     - sample/run gaps to stronger promotion
 - lane-level promotion requirements
   - maker now states why it is still `mixed_depth_partial_deep`
-  - taker and sniper now state why they remain bounded-depth lanes
+  - taker now states why the integrated taker/sniper lane remains
+    `bounded_depth`
 - calibration audit output
   - `fusion_core_calibration_audit.json` summarizes:
     - lane blocker counts
@@ -236,8 +235,8 @@ Real-stock lesson from this pass:
 This is still not sacred final metal.
 
 Still pending:
-1. wider-lane promotion only after earned truth mapping, especially for taker
-   and sniper
+1. wider-lane promotion only after earned truth mapping, especially for the
+   integrated taker/sniper lane
 2. future-corpus calibration review as new stock arrives
 3. additional low-cost shop attachments where they earn their keep
 

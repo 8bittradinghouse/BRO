@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 from .common import parse_float, parse_ts
+from .edge_truth_contract import is_taker_submit_event_type
 
 RUNTIME_STATE_ACTIVE = "active"
 RUNTIME_STATE_NO_TARGET_STANDDOWN = "no_target_standdown"
@@ -439,12 +440,7 @@ def classify_runtime(
     decision_events = 0
     for evt in event_rows:
         event_type = _as_nonempty_text(evt.get("event_type"))
-        if event_type in {
-            "order_submit",
-            "risk_reject",
-            "fill",
-            "sniper_taker_submit",
-        }:
+        if event_type in {"order_submit", "risk_reject", "fill"} or is_taker_submit_event_type(event_type):
             decision_events += 1
 
     duration_minutes = _status_duration_minutes(rows)

@@ -12,8 +12,8 @@ from scripts.alert_profile_audit import run_audit
 class AlertProfileAuditTests(unittest.TestCase):
     def _write_cfg(self, root: Path) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        # Canonical doctrine fixtures must not set both doctrine and legacy sniper freshness keys.
-        cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+        # Canonical doctrine fixtures must not set both doctrine and deprecated taker freshness keys.
+        cfg["taker"].pop("max_chainlink_tick_age_sec", None)
         cfg["targets"]["token_ids"] = ["tok1"]
         path = root / "execution_config.yaml"
         path.write_text(yaml.safe_dump(cfg), encoding="utf-8")

@@ -104,6 +104,15 @@ It exists to retain both engineering standards and the relationship-continuity b
 17. Preserve single semantic language across doctrine, runtime, reporting, and operator truth; do not allow parallel dialects.
 18. Treat language/contract mismatches as upstream pathology before building compensator machinery or chasing local bug symptoms.
 19. Use `NUJIN_ENGINEERING_LAWS_SYSTEMIC_RESTORATION_2026-05-01.md` as the canonical engineering control doctrine when restoration-vs-tuning, failure signatures, or single-language system truth are in play.
+20. Before calling a diagnosis or packet ready, run a contradiction-compression pass that forces:
+   - truth owner,
+   - shadow owner,
+   - stronger-vs-weaker surface check,
+   - disease statement,
+   - and no-change list.
+21. Before closure, run a negative-proof pass that actively tries to falsify the preferred explanation or ready call.
+22. If a move can be split into smaller safe slices, it must be split; default
+    to one seam or one tightly coupled authority set per slice.
 
 ## Communication and Collaboration Protocol
 1. Tone:
@@ -138,6 +147,9 @@ It exists to retain both engineering standards and the relationship-continuity b
    - fix the causal defect, not only symptoms.
 2. Scope discipline:
    - each patch should map to one clear problem lane.
+   - if the lane can be advanced in smaller proofable slices, do that instead
+     of one broad sweep.
+   - broad multi-surface patches require an explicit inseparability reason.
 3. Systems-lead discipline:
    - think upstream, downstream, and across connecting surfaces before
      changing anything,
@@ -176,6 +188,12 @@ It exists to retain both engineering standards and the relationship-continuity b
 11. Interpretation discipline:
    - distinguish mechanical wins from doctrinal wins,
    - do not mistake "the system fired cleanly" for "the doctrine is fully proven."
+12. Contradiction-compression discipline:
+   - compress the lane into one owner map before closure,
+   - do not leave shadow authority, parallel claims, or weaker-surface substitution unchallenged.
+13. Negative-proof discipline:
+   - spend an explicit pass trying to disprove the preferred story,
+   - if the easiest falsifier is still untested, the lane is not ready.
 
 ## Decision Framework
 Use this sequence before major implementation:
@@ -183,8 +201,10 @@ Use this sequence before major implementation:
 2. Identify contradictions between claims, code, and artifacts.
 3. Choose least-risk path that preserves doctrine.
 4. Declare what will not be changed.
-5. Execute surgical step.
-6. Re-verify and update truth state.
+5. Run contradiction compression on the planned move.
+6. Run negative-proof against the preferred diagnosis.
+7. Execute surgical step.
+8. Re-verify and update truth state.
 
 ## Definition of Done (Packet-Level)
 A packet is not done unless all are true:

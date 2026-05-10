@@ -14,6 +14,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from prodesk.artifact_identity import build_artifact_identity
+from prodesk.edge_truth_contract import (
+    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
+    effective_stage_from_payload,
+    is_taker_decision_event_type,
+    is_taker_reason,
+    is_taker_stage_window_semantic_check_event_type,
+    is_taker_submit_event_type,
+    stage_bucket_from_payload,
+    stage_surface_fields,
+)
 from prodesk.execution_quality import ExecutionQualityModel
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.models import BookTop, OrderIntent
@@ -25,9 +35,12 @@ from prodesk.run_contract import (
 from prodesk.runtime_semantics import classify_runtime
 from prodesk.session_phase import enforce_validation_phase
 from scripts.paper_harness_realism_contract import (
+    EXERCISED_HARNESS_REALISM_FIELD,
     HARNESS_REALISM_GRADE_AUTHORITY,
     HARNESS_REALISM_GRADE_SEMANTICS,
+    build_exercised_harness_realism_surface,
     empty_harness_realism_breakdown,
+    normalize_nightly_exercised_harness_realism,
 )
 
 REPORT_SCHEMA_VERSION = 2
@@ -77,6 +90,10 @@ def parse_ts(value: Any) -> Optional[dt.datetime]:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def _is_taker_submit_reason(reason: Any) -> bool:
+    return is_taker_reason(reason)
 
 
 def _maker_cannon_window_class(sec_to_expiry: Any) -> str:
@@ -824,7 +841,7 @@ def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[st
             continue
         if event_type == "order_submit":
             reason = str(evt.get("reason") or "").strip().lower()
-            if "sniper_taker" not in reason:
+            if not _is_taker_submit_reason(reason):
                 continue
             order_id = str(evt.get("order_id") or "").strip()
             if not order_id:
@@ -888,7 +905,7 @@ def _edge_quality_by_regime(events: List[Dict[str, Any]]) -> Dict[str, Dict[str,
         event_type = str(evt.get("event_type") or "")
         if event_type == "latency_regime_change":
             regime = str(evt.get("state") or regime)
-        elif event_type == "sniper_taker_submit":
+        elif is_taker_submit_event_type(event_type):
             taker_submits[regime] += 1
         elif event_type == "order_submit":
             order_id = str(evt.get("order_id") or "")
@@ -898,7 +915,7 @@ def _edge_quality_by_regime(events: List[Dict[str, Any]]) -> Dict[str, Dict[str,
         elif event_type == "fill":
             order_id = str(evt.get("order_id") or "")
             reason = order_reason_by_id.get(order_id, "")
-            if "sniper_taker" in reason:
+            if _is_taker_submit_reason(reason):
                 taker_fills[regime] += 1
 
     out: Dict[str, Dict[str, float]] = {}
@@ -1012,8 +1029,8 @@ def _latency_distribution(events: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def _sniper_stats(events: List[Dict[str, Any]], duration_minutes: float) -> Dict[str, float]:
-    sniper_order_ids: set[str] = set()
+def _taker_summary_stats(events: List[Dict[str, Any]], duration_minutes: float) -> Dict[str, float]:
+    taker_order_ids: set[str] = set()
     latest_mid_by_token: Dict[str, float] = {}
     submits = 0.0
     fills = 0.0
@@ -1027,16 +1044,16 @@ def _sniper_stats(events: List[Dict[str, Any]], duration_minutes: float) -> Dict
             if token_id and isinstance(midpoint, (int, float)):
                 latest_mid_by_token[token_id] = float(midpoint)
             continue
-        if event_type == "order_submit" and "sniper_taker" in str(evt.get("reason") or ""):
+        if event_type == "order_submit" and _is_taker_submit_reason(evt.get("reason")):
             submits += 1.0
             order_id = str(evt.get("order_id") or "")
             if order_id:
-                sniper_order_ids.add(order_id)
+                taker_order_ids.add(order_id)
             continue
         if event_type != "fill":
             continue
         order_id = str(evt.get("order_id") or "")
-        if order_id not in sniper_order_ids:
+        if order_id not in taker_order_ids:
             continue
         fills += 1.0
         token_id = str(evt.get("token_id") or "")
@@ -1075,7 +1092,7 @@ def _execution_path_stats(events: List[Dict[str, Any]], duration_minutes: float)
         if event_type == "order_submit":
             reason = str(evt.get("reason") or "").strip().lower()
             order_id = str(evt.get("order_id") or "")
-            if "sniper_taker" in reason or "taker_bonus" in reason:
+            if _is_taker_submit_reason(reason):
                 taker_bonus_submits += 1.0
                 if order_id:
                     taker_bonus_order_ids.add(order_id)
@@ -1117,14 +1134,14 @@ def _execution_path_stats(events: List[Dict[str, Any]], duration_minutes: float)
 def _financial_submission_lane(submission_lane: Any, reason: Any) -> str:
     lane = str(submission_lane or "").strip().lower()
     if lane:
-        if "taker" in lane or "sniper" in lane:
+        if "taker" in lane:
             return "taker"
         if "maker" in lane:
             return "maker"
         if lane in {"normal", "unknown"}:
             return lane
     reason_text = str(reason or "").strip().lower()
-    if "sniper_taker" in reason_text or "taker_bonus" in reason_text:
+    if _is_taker_submit_reason(reason_text):
         return "taker"
     if reason_text:
         return "maker"
@@ -2902,7 +2919,8 @@ def _resolve_starvation_mode(
             top_block_reason = str(reason or "").strip()
             top_block_count = float(count)
         inferred_mode = {
-            "stage_disallow_taker": "stage_policy_gate",
+            "normal_taker_authority_closed": "late_window_authority_gate",
+            "stage_disallow_taker": "late_window_authority_gate",
             "latency_not_armed": "latency_gate",
             "fair_probability_missing": "probability_gate",
             "taker_requires_ws_book_source": "book_source_gate",
@@ -3133,7 +3151,7 @@ def _execution_quality_lane_attribution(
         comp = _payload_dict(evt.get("taker_competitiveness"))
         stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
         edge_bucket = _taker_edge_bucket(comp.get("edge_abs") if comp else evt.get("edge_abs"))
-        if "sniper_taker" in reason or "taker_bonus" in reason:
+        if _is_taker_submit_reason(reason):
             if _is_recovery_override_submit(evt, comp):
                 return "reduce_only_recovery_taker", stage, edge_bucket
             if _has_normal_competitiveness_payload(comp):
@@ -3355,8 +3373,8 @@ def _execution_quality_lane_attribution(
 
     return {
         "classification_policy": (
-            "order_submit reason containing sniper_taker/taker_bonus is taker; "
-            "reduce_only/preexpiry recovery flags classify recovery; normal SniperTool payload classifies normal; "
+            "order_submit reason classified by canonical taker identity helper is taker; "
+            "reduce_only/preexpiry recovery flags classify recovery; normal TakerCompetitivenessEngine payload classifies normal; "
             "remaining order_submit rows are maker to match execution_paths."
         ),
         "horizon_sec": float(horizon_sec),
@@ -3439,7 +3457,7 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         if not comp:
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
         stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
-        if "sniper_taker" in reason or "taker_bonus" in reason or lane == "taker":
+        if _is_taker_submit_reason(reason) or lane == "taker":
             if _is_recovery_submit(evt, comp):
                 return "reduce_only_recovery_taker", stage
             if _has_normal_competitiveness_payload(comp):
@@ -3696,18 +3714,22 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
 
     def _classify_taker_event(evt: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         event_type = str(evt.get("event_type") or "").strip()
+        evaluation_scope = str(evt.get("evaluation_scope") or "").strip().lower()
         comp = _payload_dict(evt.get("taker_competitiveness"))
         if not comp:
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
         reason = str(evt.get("reason") or "").strip().lower()
         lane = str(evt.get("submission_lane") or "").strip().lower()
-        is_taker_event = event_type in {"sniper_taker_decision", "sniper_taker_submit"}
-        is_taker_submit = "sniper_taker" in reason or "taker_bonus" in reason or lane == "taker"
-        if not is_taker_event and not is_taker_submit:
+        is_taker_event = is_taker_decision_event_type(event_type) or is_taker_submit_event_type(event_type)
+        is_taker_submit = _is_taker_submit_reason(reason) or lane == "taker"
+        is_taker_edge_eval = event_type == "edge_evaluation" and evaluation_scope == "taker"
+        if not is_taker_event and not is_taker_submit and not is_taker_edge_eval:
             return "", comp
         if _is_recovery(evt, comp):
             return "recovery_override", comp
         if _has_normal_payload(comp) or _has_normal_payload(evt):
+            return "normal_competitiveness", comp
+        if is_taker_edge_eval:
             return "normal_competitiveness", comp
         return "true_unknown", comp
 
@@ -3720,7 +3742,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
             profile_distribution[profile] += 1
 
         event_type = str(evt.get("event_type") or "").strip()
-        if event_type == "sniper_stage_window_semantic_check":
+        if is_taker_stage_window_semantic_check_event_type(event_type):
             stage_window_checks += 1.0
             latest_stage_window_ts = str(evt.get("ts_utc") or evt.get("timestamp_utc") or "")
             latest_stage_window_semantics = {
@@ -3739,7 +3761,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
             continue
         event_class_distribution[intent] += 1
         _counter_for(event_type_distribution_by_intent, intent)[event_type] += 1
-        if event_type in {"order_submit", "sniper_taker_submit"}:
+        if event_type == "order_submit" or is_taker_submit_event_type(event_type):
             submit_events_by_intent[intent] += 1
 
         stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
@@ -3768,6 +3790,13 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         )
 
         edge_abs = _safe_float(comp.get("edge_abs", evt.get("edge_abs")), default=-1.0)
+        if edge_abs < 0.0:
+            edge_signed = _safe_float(
+                comp.get("edge_abs", comp.get("edge", comp.get("edge_value", evt.get("edge", evt.get("edge_value"))))),
+                default=-1.0,
+            )
+            if edge_signed >= 0.0:
+                edge_abs = abs(float(edge_signed))
         required_edge = _safe_float(required_min_edge, default=-1.0)
         if edge_abs >= 0.0 and required_edge >= 0.0 and edge_abs + 1e-12 < required_edge:
             if intent == "recovery_override":
@@ -3778,6 +3807,9 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
     normal_submit_count = float(submit_events_by_intent.get("normal_competitiveness", 0))
     recovery_submit_count = float(submit_events_by_intent.get("recovery_override", 0))
     unknown_submit_count = float(submit_events_by_intent.get("true_unknown", 0))
+    normal_event_count = float(event_class_distribution.get("normal_competitiveness", 0))
+    recovery_event_count = float(event_class_distribution.get("recovery_override", 0))
+    unknown_event_count = float(event_class_distribution.get("true_unknown", 0))
     if normal_submit_count > 0.0 and recovery_submit_count > 0.0:
         observed_intent_classification = "mixed_normal_and_recovery_taker_activity_observed"
     elif recovery_submit_count > 0.0:
@@ -3786,6 +3818,14 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         observed_intent_classification = "normal_taker_activity_observed"
     elif unknown_submit_count > 0.0:
         observed_intent_classification = "unknown_taker_activity_observed"
+    elif normal_event_count > 0.0 and recovery_event_count > 0.0:
+        observed_intent_classification = "mixed_normal_and_recovery_taker_gate_activity_observed_no_submit"
+    elif recovery_event_count > 0.0:
+        observed_intent_classification = "recovery_only_taker_gate_activity_observed_no_submit"
+    elif normal_event_count > 0.0:
+        observed_intent_classification = "normal_taker_gate_activity_observed_no_submit"
+    elif unknown_event_count > 0.0:
+        observed_intent_classification = "unknown_taker_gate_activity_observed_no_submit"
     else:
         observed_intent_classification = "no_taker_activity_observed"
 
@@ -3828,7 +3868,6 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
 
 def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     block_reason_counts: Counter[str] = Counter()
-    same_market_collision_reason_counts: Counter[str] = Counter()
     hard_window_submit_count = 0.0
 
     def _payload_dict(value: Any) -> Dict[str, Any]:
@@ -3837,7 +3876,7 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     def _is_taker_order_submit(evt: Dict[str, Any]) -> bool:
         reason = str(evt.get("reason") or "").strip().lower()
         lane = str(evt.get("submission_lane") or "").strip().lower()
-        return bool("sniper_taker" in reason or "taker_bonus" in reason or lane == "taker")
+        return bool(_is_taker_submit_reason(reason) or lane == "taker")
 
     def _is_recovery_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         for payload in (
@@ -3874,8 +3913,6 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             reason = str(evt.get("block_reason") or "").strip().lower()
             if reason:
                 block_reason_counts[reason] += 1
-                if reason in {"market_token_not_flat_and_clear", "market_family_sibling_inventory_active"}:
-                    same_market_collision_reason_counts[reason] += 1
             continue
 
         if event_type != "order_submit" or not _is_taker_order_submit(evt):
@@ -3900,10 +3937,6 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         ),
         "taker_recovery_disabled_in_taker_scope_count": float(
             block_reason_counts.get("taker_recovery_disabled_in_taker_scope", 0)
-        ),
-        "same_market_lane_collision_block_count": float(sum(same_market_collision_reason_counts.values())),
-        "same_market_lane_collision_reason_distribution": dict(
-            sorted(same_market_collision_reason_counts.items(), key=lambda item: item[0])
         ),
         "block_reason_distribution": dict(sorted(block_reason_counts.items(), key=lambda item: item[0])),
     }
@@ -3956,8 +3989,7 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     runtime = _dict(config.get("runtime"))
     risk = _dict(config.get("risk"))
     latency = _dict(config.get("latency_verifier"))
-    sniper = _dict(config.get("sniper"))
-    taker = _dict(sniper.get("taker"))
+    taker = _dict(config.get("taker"))
     taker_comp = _dict(taker.get("competitiveness"))
     strategy = _dict(config.get("strategy"))
     sizing = _dict(config.get("sizing"))
@@ -4026,8 +4058,8 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     normal_can_open_inside_taker_final_window = bool(final_window_overlap_stages)
 
     posture_flags: List[str] = []
-    if _optional_bool(sniper.get("require_lag_verification")) is False:
-        posture_flags.append("sniper_require_lag_verification_false")
+    if _optional_bool(taker.get("require_lag_verification")) is False:
+        posture_flags.append("taker_require_lag_verification_false")
     latency_hit_threshold = _optional_float(latency.get("hit_threshold_ms"))
     if latency_hit_threshold is not None and latency_hit_threshold <= 40.0:
         posture_flags.append("latency_verifier_hit_threshold_le_40ms")
@@ -4081,18 +4113,18 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
                 else 0.0
             ),
         },
-        "sniper_lag_gate": {
-            "require_lag_verification": _optional_bool(sniper.get("require_lag_verification")),
-            "lag_min_samples": _optional_float(sniper.get("lag_min_samples")),
-            "lag_min_median_ms": _optional_float(sniper.get("lag_min_median_ms")),
-            "lag_min_hit_rate": _optional_float(sniper.get("lag_min_hit_rate")),
-            "lag_hit_threshold_ms": _optional_float(sniper.get("lag_hit_threshold_ms")),
-            "max_chainlink_tick_age_sec": _optional_float(sniper.get("max_chainlink_tick_age_sec")),
+        "taker_lag_gate": {
+            "require_lag_verification": _optional_bool(taker.get("require_lag_verification")),
+            "lag_min_samples": _optional_float(taker.get("lag_min_samples")),
+            "lag_min_median_ms": _optional_float(taker.get("lag_min_median_ms")),
+            "lag_min_hit_rate": _optional_float(taker.get("lag_min_hit_rate")),
+            "lag_hit_threshold_ms": _optional_float(taker.get("lag_hit_threshold_ms")),
+            "max_chainlink_tick_age_sec": _optional_float(taker.get("max_chainlink_tick_age_sec")),
         },
         "latency_verifier": {
             "enabled": _optional_bool(latency.get("enabled")),
             "require_armed_for_maker": _optional_bool(latency.get("require_armed_for_maker")),
-            "require_armed_for_sniper": _optional_bool(latency.get("require_armed_for_sniper")),
+            "require_armed_for_taker": _optional_bool(latency.get("require_armed_for_taker")),
             "min_samples": _optional_float(latency.get("min_samples")),
             "hit_threshold_ms": latency_hit_threshold,
             "armed_min_median_ms": _optional_float(latency.get("armed_min_median_ms")),
@@ -4108,7 +4140,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             "min_sec_to_expiry_for_new_exposure_by_lane": min_new_exposure_sec_by_lane,
             "min_sec_to_expiry_for_new_exposure_source": min_new_exposure_sec_source,
             "default_min_edge": _optional_float(taker.get("min_edge")),
-            "min_edge_by_stage": _clean_number_mapping(taker.get("min_edge_by_stage")),
             "max_orders_per_cycle": _optional_float(taker.get("max_orders_per_cycle")),
             "per_token_cooldown_sec": _optional_float(taker.get("per_token_cooldown_sec")),
             "per_token_cooldown_sec_by_stage": _clean_number_mapping(
@@ -4122,9 +4153,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             "dynamic_size_target_usd_cap": _optional_float(taker_comp.get("dynamic_size_target_usd_cap")),
             "final_window_enabled": _optional_bool(taker_comp.get("final_window_enabled")),
             "final_window_sec": final_window_sec,
-            "stage_final_window_sec_by_stage": stage_final_windows,
-            "normal_allowed_final_window_by_stage": normal_allowed_final_window_by_stage,
-            "aggressive_window_enabled": _optional_bool(taker_comp.get("aggressive_window_enabled")),
             "price_aggress_bps_max": _optional_float(taker_comp.get("price_aggress_bps_max")),
             "multi_oracle_boost_enabled": _optional_bool(taker_comp.get("multi_oracle_boost_enabled")),
             "multi_oracle_boost_window_sec": _optional_float(taker_comp.get("multi_oracle_boost_window_sec")),
@@ -4238,7 +4266,7 @@ def _preexpiry_recovery_churn_stats(events: List[Dict[str, Any]], *, adjacency_w
         if event_type == "order_submit":
             order_id = str(evt.get("order_id") or "").strip()
             reason = str(evt.get("reason") or "").strip().lower()
-            is_taker = "sniper_taker" in reason or "taker_bonus" in reason
+            is_taker = _is_taker_submit_reason(reason)
             if not is_taker:
                 if order_id:
                     order_class_by_id[order_id] = "maker"
@@ -4552,6 +4580,11 @@ def _recovery_cost_benefit_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         text = str(value or "").strip().lower()
         return text or default
 
+    def _bool_label(value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return _norm(value)
+
     def _stage(value: Any) -> str:
         text = str(value or "").strip().upper()
         return text or "UNKNOWN"
@@ -4634,7 +4667,7 @@ def _recovery_cost_benefit_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             continue
         reason = str(evt.get("reason") or "").strip().lower()
         lane = str(evt.get("submission_lane") or "").strip().lower()
-        if "sniper_taker" not in reason and "taker_bonus" not in reason and lane != "taker":
+        if (not _is_taker_submit_reason(reason)) and lane != "taker":
             continue
         comp = _payload_dict(evt.get("taker_competitiveness"))
         if not comp:
@@ -4934,7 +4967,7 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
 
         if event_type == "order_submit":
             reason = str(evt.get("reason") or "").strip().lower()
-            if "sniper_taker" in reason or "taker_bonus" in reason:
+            if _is_taker_submit_reason(reason):
                 continue
             comp = evt.get("maker_competitiveness")
             if not isinstance(comp, dict):
@@ -5522,14 +5555,12 @@ def _maker_cannon_probe_rows(
             "financial_posture_class": evt.get("financial_posture_class"),
             "reduce_only_recovery_active": bool(evt.get("reduce_only_recovery_active", False)),
             "maker_allowed": bool(evt.get("maker_allowed")),
-            "runtime_maker_stage_allowed": bool(evt.get("maker_allowed")),
+            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(evt),
             "block_reason": evt.get("block_reason"),
             "maker_no_submission_cause": evt.get("maker_no_submission_cause"),
             "maker_no_submission_category": evt.get("maker_no_submission_category"),
             "probe_favored_side": favored_side,
             "secondary_fair_probability": evt.get("secondary_fair_probability"),
-            "runtime_secondary_oracle_status": evt.get("secondary_oracle_status"),
-            "runtime_secondary_oracle_confirmation": evt.get("secondary_oracle_confirmation"),
             "secondary_oracle_status": evt.get("secondary_oracle_status"),
             "secondary_oracle_confirmation": evt.get("secondary_oracle_confirmation"),
             "chainlink_spot_price": evt.get("chainlink_spot_price"),
@@ -5696,14 +5727,12 @@ def _maker_mid_window_probe_rows(
             "financial_posture_class": evt.get("financial_posture_class"),
             "reduce_only_recovery_active": bool(evt.get("reduce_only_recovery_active", False)),
             "maker_allowed": bool(evt.get("maker_allowed")),
-            "runtime_maker_stage_allowed": bool(evt.get("maker_allowed")),
+            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(evt),
             "block_reason": evt.get("block_reason"),
             "maker_no_submission_cause": evt.get("maker_no_submission_cause"),
             "maker_no_submission_category": evt.get("maker_no_submission_category"),
             "probe_favored_side": favored_side,
             "secondary_fair_probability": evt.get("secondary_fair_probability"),
-            "runtime_secondary_oracle_status": evt.get("secondary_oracle_status"),
-            "runtime_secondary_oracle_confirmation": evt.get("secondary_oracle_confirmation"),
             "secondary_oracle_status": evt.get("secondary_oracle_status"),
             "secondary_oracle_confirmation": evt.get("secondary_oracle_confirmation"),
             "chainlink_spot_price": evt.get("chainlink_spot_price"),
@@ -5836,9 +5865,7 @@ def _maker_cannon_late_window_probe_bundle(
     stack_pressure_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_status_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_maker_stage_allowed_counts: Counter[str] = Counter()
+    maker_new_risk_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -5873,12 +5900,8 @@ def _maker_cannon_late_window_probe_bundle(
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        runtime_secondary_oracle_status_counts[str(row.get("runtime_secondary_oracle_status") or "unknown")] += 1
-        runtime_secondary_oracle_confirmation_counts[
-            "confirmed" if bool(row.get("runtime_secondary_oracle_confirmation", False)) else "not_confirmed"
-        ] += 1
-        runtime_maker_stage_allowed_counts[
-            "allowed" if bool(row.get("runtime_maker_stage_allowed", False)) else "disallowed"
+        maker_new_risk_allowed_counts[
+            "allowed" if _maker_new_risk_allowed_from_row(row) else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             "imputed_zero" if bool(row.get("probe_visible_depth_fail_closed_zero_imputed", False)) else "reported_or_not_needed"
@@ -5939,7 +5962,7 @@ def _maker_cannon_late_window_probe_bundle(
                     external_blocked_latent_market_full_cannon_candidate_count += 1
         if bool(row.get("full_cannon_candidate", False)):
             full_cannon_candidate_count += 1
-            if not bool(row.get("runtime_maker_stage_allowed", False)):
+            if not _maker_new_risk_allowed_from_row(row):
                 full_candidate_runtime_stage_disallow_count += 1
             top_full_candidate_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
         else:
@@ -5994,17 +6017,9 @@ def _maker_cannon_late_window_probe_bundle(
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "runtime_secondary_oracle_status_distribution": {
-            key: int(runtime_secondary_oracle_status_counts[key])
-            for key in sorted(runtime_secondary_oracle_status_counts)
-        },
-        "runtime_secondary_oracle_confirmation_distribution": {
-            key: int(runtime_secondary_oracle_confirmation_counts[key])
-            for key in sorted(runtime_secondary_oracle_confirmation_counts)
-        },
-        "runtime_maker_stage_allowed_distribution": {
-            key: int(runtime_maker_stage_allowed_counts[key])
-            for key in sorted(runtime_maker_stage_allowed_counts)
+        "maker_new_risk_allowed_distribution": {
+            key: int(maker_new_risk_allowed_counts[key])
+            for key in sorted(maker_new_risk_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])
@@ -6085,9 +6100,7 @@ def _maker_mid_window_probe_bundle(
     stack_pressure_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_status_counts: Counter[str] = Counter()
-    runtime_secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    runtime_maker_stage_allowed_counts: Counter[str] = Counter()
+    maker_new_risk_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -6122,12 +6135,8 @@ def _maker_mid_window_probe_bundle(
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        runtime_secondary_oracle_status_counts[str(row.get("runtime_secondary_oracle_status") or "unknown")] += 1
-        runtime_secondary_oracle_confirmation_counts[
-            "confirmed" if bool(row.get("runtime_secondary_oracle_confirmation", False)) else "not_confirmed"
-        ] += 1
-        runtime_maker_stage_allowed_counts[
-            "allowed" if bool(row.get("runtime_maker_stage_allowed", False)) else "disallowed"
+        maker_new_risk_allowed_counts[
+            "allowed" if _maker_new_risk_allowed_from_row(row) else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             "imputed_zero" if bool(row.get("probe_visible_depth_fail_closed_zero_imputed", False)) else "reported_or_not_needed"
@@ -6188,7 +6197,7 @@ def _maker_mid_window_probe_bundle(
                     external_blocked_latent_market_full_candidate_count += 1
         if bool(row.get("full_mid_window_candidate", False)):
             full_mid_window_candidate_count += 1
-            if not bool(row.get("runtime_maker_stage_allowed", False)):
+            if not _maker_new_risk_allowed_from_row(row):
                 full_candidate_runtime_stage_disallow_count += 1
             top_full_candidate_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
         else:
@@ -6243,17 +6252,9 @@ def _maker_mid_window_probe_bundle(
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "runtime_secondary_oracle_status_distribution": {
-            key: int(runtime_secondary_oracle_status_counts[key])
-            for key in sorted(runtime_secondary_oracle_status_counts)
-        },
-        "runtime_secondary_oracle_confirmation_distribution": {
-            key: int(runtime_secondary_oracle_confirmation_counts[key])
-            for key in sorted(runtime_secondary_oracle_confirmation_counts)
-        },
-        "runtime_maker_stage_allowed_distribution": {
-            key: int(runtime_maker_stage_allowed_counts[key])
-            for key in sorted(runtime_maker_stage_allowed_counts)
+        "maker_new_risk_allowed_distribution": {
+            key: int(maker_new_risk_allowed_counts[key])
+            for key in sorted(maker_new_risk_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])
@@ -6365,7 +6366,10 @@ def _legacy_edge_entries(events: List[Dict[str, Any]]) -> Tuple[List[Dict[str, A
             "market_reference_class": evt.get("market_reference_class"),
             "cycle_index": evt.get("cycle_index"),
             "sec_to_expiry": evt.get("time_remaining_sec"),
-            "stage": evt.get("stage"),
+            "effective_stage": effective_stage_from_payload(evt),
+            "stage_bucket": stage_bucket_from_payload(evt),
+            "stage": effective_stage_from_payload(evt),
+            "raw_stage": stage_bucket_from_payload(evt),
             "reduce_only_recovery_active": evt.get("reduce_only_recovery_active"),
             "block_reason": evt.get("block_reason"),
             "submitted": bool(evt.get("submitted")),
@@ -6552,6 +6556,16 @@ def _legacy_maker_fight_admission_rows(
             or evt.get("reason")
             or (matched_edge or {}).get("block_reason")
         )
+        effective_stage = maker_ctx.get("effective_stage") or maker_ctx.get("stage")
+        if not effective_stage:
+            effective_stage = (matched_edge or {}).get("effective_stage") or (matched_edge or {}).get("stage") or evt.get("stage")
+        stage_bucket = maker_ctx.get("stage_bucket") or maker_ctx.get("raw_stage")
+        if not stage_bucket:
+            stage_bucket = (
+                (matched_edge or {}).get("stage_bucket")
+                or (matched_edge or {}).get("raw_stage")
+                or evt.get("raw_stage")
+            )
         row = {
             "admission_shadow_id": f"legacy-{event_type}-{len(rows) + 1}",
             "shadow_source_class": "legacy_quote_or_submit_backfill_v1",
@@ -6560,7 +6574,11 @@ def _legacy_maker_fight_admission_rows(
             "target_ref": target_ref,
             "target_side_ref": _legacy_target_side_ref(target_ref, evt.get("token_id"), side),
             "side": side,
-            "stage": maker_ctx.get("stage") or (matched_edge or {}).get("stage") or evt.get("stage"),
+            **stage_surface_fields(
+                effective_stage=effective_stage,
+                stage_bucket=stage_bucket,
+            ),
+            "stage": effective_stage,
             "cycle_index": (matched_edge or {}).get("cycle_index"),
             "ts_decision_utc": evt.get("ts_decision_utc") or evt.get("ts_event_utc") or evt.get("ts_utc"),
             "fair_probability": fair_probability,
@@ -7120,8 +7138,10 @@ def _maker_probe_rows_with_shadow_truth(
             row.get("full_cannon_candidate")
             and row.get("launch_safe_selection_timing_window_met") is False
         )
-        if not str(row.get("raw_stage") or "").strip():
-            row["raw_stage"] = row.get("stage")
+        row["effective_stage"] = effective_stage_from_payload(row)
+        row["stage_bucket"] = stage_bucket_from_payload(row)
+        row["stage"] = row["effective_stage"]
+        row["raw_stage"] = row["stage_bucket"]
         enriched_rows.append(row)
     return enriched_rows
 
@@ -7170,6 +7190,7 @@ def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
     return {
         "policy_name": "paper_universal_minimal_canonical_selection_authority",
         "version": int(MAKER_SELECTION_AUTHORITY_AUDIT_VERSION),
+        "authority_contract": EDGE_AUTH_MAKER_NEW_RISK_FIELD,
         "allowed_stages": ["MAKER_POSITION", "MAKER_TAKER_SELECTIVE"],
         "require_secondary_oracle_confirmation": True,
         "require_one_sided_active": False,
@@ -7190,6 +7211,7 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
         selection_gate = {}
     return {
         "enabled": bool(selection_gate.get("enabled", False)),
+        "authority_contract": EDGE_AUTH_MAKER_NEW_RISK_FIELD,
         "allowed_stages": [
             str(stage or "").strip().upper()
             for stage in list(selection_gate.get("allowed_stages") or [])
@@ -7207,6 +7229,13 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
         ),
         "min_depth_multiple": float(_safe_float(selection_gate.get("min_depth_multiple"), 1.5)),
     }
+
+
+def _maker_new_risk_allowed_from_row(row: Dict[str, Any]) -> bool:
+    if EDGE_AUTH_MAKER_NEW_RISK_FIELD in row:
+        return bool(row.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD))
+    stage = str(row.get("effective_stage") or row.get("stage") or "").strip().upper()
+    return stage in {"MAKER_POSITION", "MAKER_TAKER_SELECTIVE"}
 
 
 def _maker_shadow_rows_with_submit_history(
@@ -7332,7 +7361,12 @@ def _maker_selection_authority_bundle(
             ] += 1
 
         reject_reasons: List[str] = []
-        counterfactual_applied = stage in set(counterfactual_policy.get("allowed_stages") or [])
+        counterfactual_applied = _maker_new_risk_allowed_from_row(row)
+        if (
+            not counterfactual_applied
+            and EDGE_AUTH_MAKER_NEW_RISK_FIELD not in row
+        ):
+            counterfactual_applied = stage in set(counterfactual_policy.get("allowed_stages") or [])
         if counterfactual_applied:
             if (
                 bool(counterfactual_policy.get("require_secondary_oracle_confirmation", True))
@@ -7372,6 +7406,7 @@ def _maker_selection_authority_bundle(
                 "target_side_ref": target_side_ref or None,
                 "side": row.get("side"),
                 "stage": stage or None,
+                EDGE_AUTH_MAKER_NEW_RISK_FIELD: bool(_maker_new_risk_allowed_from_row(row)),
                 "ts_decision_utc": row.get("ts_decision_utc"),
                 "runtime_decision_result": current_decision,
                 "runtime_decision_block_reason": row.get("decision_block_reason"),
@@ -7533,7 +7568,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             full_cannon_candidate_count += 1
         if bool(row.get("off_band_opportunity", False)):
             off_band_opportunity_count += 1
-        if bool(row.get("runtime_maker_stage_allowed", False)):
+        if _maker_new_risk_allowed_from_row(row):
             runtime_stage_allowed_count += 1
         cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
         if cause:
@@ -7543,7 +7578,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             shadow_decision_counts[decision_result] += 1
     return {
         "row_count": int(row_count),
-        "runtime_stage_allowed_count": int(runtime_stage_allowed_count),
+        "maker_new_risk_allowed_count": int(runtime_stage_allowed_count),
         "authoritative_reference_count": int(authoritative_reference_count),
         "dual_oracle_confirmed_count": int(dual_oracle_confirmed_count),
         "depth_met_count": int(depth_met_count),
@@ -7577,7 +7612,7 @@ def _maker_quote_starvation_bundle(
     market_probability_presence_counts: Counter[str] = Counter()
     favored_depth_truth_state_counts: Counter[str] = Counter()
     for row in probe_rows:
-        if not bool(row.get("runtime_maker_stage_allowed", False)):
+        if not _maker_new_risk_allowed_from_row(row):
             continue
         block_reason = str(row.get("block_reason") or "").strip().lower()
         maker_no_submission_cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
@@ -7599,11 +7634,13 @@ def _maker_quote_starvation_bundle(
             "target_ref": row.get("target_ref"),
             "target_side_ref": row.get("target_side_ref"),
             "side": row.get("side"),
-            "raw_stage": row.get("raw_stage") or row.get("stage"),
-            "stage": row.get("stage"),
+            "effective_stage": effective_stage_from_payload(row),
+            "stage_bucket": stage_bucket_from_payload(row),
+            "raw_stage": stage_bucket_from_payload(row),
+            "stage": effective_stage_from_payload(row),
             "ts_decision_utc": row.get("ts_decision_utc"),
             "sec_to_expiry": row.get("sec_to_expiry"),
-            "runtime_maker_stage_allowed": bool(row.get("runtime_maker_stage_allowed", False)),
+            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(row),
             "selection_gate_min_sec_to_expiry": selection_min_sec,
             "selection_gate_max_sec_to_expiry": selection_max_sec,
             "launch_safe_selection_timing_window_met": row.get("launch_safe_selection_timing_window_met"),
@@ -7698,7 +7735,7 @@ def _maker_prequote_prereq_pass_rows(probe_rows: List[Dict[str, Any]]) -> List[D
         row
         for row in probe_rows
         if row.get("launch_safe_selection_timing_window_met") is True
-        and bool(row.get("runtime_maker_stage_allowed", False))
+        and _maker_new_risk_allowed_from_row(row)
         and bool(row.get("secondary_oracle_confirmation", False))
     ]
 
@@ -7730,8 +7767,10 @@ def _maker_truth_reference_starvation_bundle(
             "target_ref": row.get("target_ref"),
             "target_side_ref": row.get("target_side_ref"),
             "side": row.get("side"),
-            "raw_stage": row.get("raw_stage") or row.get("stage"),
-            "stage": row.get("stage"),
+            "effective_stage": effective_stage_from_payload(row),
+            "stage_bucket": stage_bucket_from_payload(row),
+            "raw_stage": stage_bucket_from_payload(row),
+            "stage": effective_stage_from_payload(row),
             "ts_decision_utc": row.get("ts_decision_utc"),
             "sec_to_expiry": row.get("sec_to_expiry"),
             "market_reference_class": row.get("market_reference_class"),
@@ -7872,7 +7911,7 @@ def _maker_timing_band_diagnostic_matrix(
         runtime_active_rows = [
             row
             for row in band_rows
-            if bool(row.get("runtime_maker_stage_allowed", False))
+            if _maker_new_risk_allowed_from_row(row)
             and row.get("launch_safe_selection_timing_window_met") is True
         ]
         matrix["bands"][band_name] = {
@@ -8075,12 +8114,12 @@ def _maker_participation_waterfall_bundle(
             stage_band_exclusion_reason_counts[exclusion_reason] += 1
 
     for row in active_band_probe_rows:
-        if bool(row.get("runtime_maker_stage_allowed", False)) and bool(
+        if _maker_new_risk_allowed_from_row(row) and bool(
             row.get("secondary_oracle_confirmation", False)
         ):
             continue
         terminal_path_counts["prequote_prereq_blocked"] += 1
-        if not bool(row.get("runtime_maker_stage_allowed", False)):
+        if not _maker_new_risk_allowed_from_row(row):
             prequote_prereq_block_reason_counts[
                 str(row.get("block_reason") or "runtime_stage_disallowed").strip().lower()
                 or "runtime_stage_disallowed"
@@ -8404,7 +8443,7 @@ def _maker_zero_submit_root_cause_bundle(
 
     measurement_gaps: List[str] = []
     for row in quote_starvation_rows:
-        if not str(row.get("raw_stage") or "").strip():
+        if not str(row.get("stage_bucket") or row.get("raw_stage") or "").strip():
             measurement_gaps.append("missing_raw_stage")
         if not str(row.get("market_reference_mode") or "").strip():
             measurement_gaps.append("missing_market_reference_mode")
@@ -8528,10 +8567,25 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
     lane_submit_candidate_count = Counter()
     lane_taker_action_count = Counter()
     lane_non_stage_eval_count = Counter()
+    lane_authority_class_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
+    lane_normal_taker_allowed_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
+    lane_reduce_only_recovery_allowed_count: Dict[str, Counter[str]] = {
+        "normal": Counter(),
+        "recovery": Counter(),
+    }
+    lane_preexpiry_emergency_taker_allowed_count: Dict[str, Counter[str]] = {
+        "normal": Counter(),
+        "recovery": Counter(),
+    }
 
     def _norm(value: Any, default: str = "unknown") -> str:
         text = str(value or "").strip().lower()
         return text or default
+
+    def _bool_label(value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return _norm(value)
 
     def _stage(value: Any) -> str:
         text = str(value or "").strip().upper()
@@ -8552,8 +8606,8 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             return "submitted"
         if not block_reason:
             return "unknown_no_action"
-        if block_reason == "stage_disallow_taker":
-            return "stage_not_taker_enabled"
+        if block_reason in {"normal_taker_authority_closed", "stage_disallow_taker"}:
+            return "late_window_authority_gate"
         if block_reason in {"taker_outside_final_window", "maker_timing_gate_closed"}:
             return "timing_window"
         if block_reason == "edge_below_min":
@@ -8605,10 +8659,16 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             lane_reject_reason_count[lane][reject_reason] += 1
         suppression_class = _classify(block_reason, reject_reason, action_taken)
         lane_suppression_class_count[lane][suppression_class] += 1
+        lane_authority_class_count[lane][_norm(evt.get("late_window_authority_class"))] += 1
+        lane_normal_taker_allowed_count[lane][_bool_label(evt.get("normal_taker_allowed"))] += 1
+        lane_reduce_only_recovery_allowed_count[lane][_bool_label(evt.get("reduce_only_recovery_allowed"))] += 1
+        lane_preexpiry_emergency_taker_allowed_count[lane][
+            _bool_label(evt.get("preexpiry_emergency_taker_allowed"))
+        ] += 1
         lane_book_source_count[lane][_norm(evt.get("book_source"))] += 1
         lane_latency_state_count[lane][_norm(evt.get("latency_state"))] += 1
         lane_edge_bucket_count[lane][_taker_edge_bucket(_edge_abs_from_eval(evt))] += 1
-        if block_reason != "stage_disallow_taker":
+        if block_reason not in {"normal_taker_authority_closed", "stage_disallow_taker"}:
             lane_non_stage_eval_count[lane] += 1
         if action_taken == "taker":
             lane_taker_action_count[lane] += 1
@@ -8640,6 +8700,14 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             "block_reason_distribution": _counter(lane_block_reason_count[lane]),
             "submit_reject_reason_distribution": _counter(lane_reject_reason_count[lane]),
             "suppression_class_distribution": _counter(lane_suppression_class_count[lane]),
+            "late_window_authority_class_distribution": _counter(lane_authority_class_count[lane]),
+            "normal_taker_allowed_distribution": _counter(lane_normal_taker_allowed_count[lane]),
+            "reduce_only_recovery_allowed_distribution": _counter(
+                lane_reduce_only_recovery_allowed_count[lane]
+            ),
+            "preexpiry_emergency_taker_allowed_distribution": _counter(
+                lane_preexpiry_emergency_taker_allowed_count[lane]
+            ),
             "book_source_distribution": _counter(lane_book_source_count[lane]),
             "latency_state_distribution": _counter(lane_latency_state_count[lane]),
             "edge_bucket_distribution": _counter(lane_edge_bucket_count[lane]),
@@ -8877,7 +8945,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 _stage_primary_reduction_counter(stage)["reduction_due_to_final_risk_reject"] += 1
             continue
 
-        if event_type == "sniper_taker_decision":
+        if is_taker_decision_event_type(event_type):
             stage = _normalize_stage(evt.get("stage"))
             stage_row = _stage_row(stage)
             stage_reductions = _stage_reduction_counter(stage)
@@ -8964,11 +9032,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
 
         if event_type == "order_submit":
             reason = str(evt.get("reason") or "").strip().lower()
-            is_taker_sniper = "sniper_taker" in reason or "taker_bonus" in reason
+            is_taker_order = _is_taker_submit_reason(reason)
             order_id = str(evt.get("order_id") or "").strip()
             if order_id:
-                order_is_taker_by_id[order_id] = is_taker_sniper
-            if not is_taker_sniper:
+                order_is_taker_by_id[order_id] = is_taker_order
+            if not is_taker_order:
                 continue
             actual_submit_count += 1.0
             comp = evt.get("taker_competitiveness")
@@ -9785,13 +9853,17 @@ def build_report(
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
     latency_stats = _latency_distribution(events)
-    sniper = _sniper_stats(events, duration_minutes)
+    taker = _taker_summary_stats(events, duration_minutes)
     execution_paths = _execution_path_stats(events, duration_minutes)
     financial_performance = _financial_performance_summary(events, status, run_manifest)
     edge_truth = _edge_truth_summary(events)
     harness_realism_grade, harness_realism_grade_breakdown = _harness_realism_grade(
         events=events,
         edge_truth=edge_truth,
+    )
+    exercised_harness_realism = build_exercised_harness_realism_surface(
+        grade=harness_realism_grade,
+        breakdown=harness_realism_grade_breakdown,
     )
     maker_regression_sentinel = _maker_regression_sentinel(
         execution_paths=execution_paths,
@@ -9927,7 +9999,7 @@ def build_report(
         "errors_by_component": dict(sorted(by_component.items(), key=lambda x: x[0])),
         "stale_data": stale_stats,
         "latency_distribution_ms": latency_stats,
-        "sniper": sniper,
+        "taker": taker,
         "execution_paths": execution_paths,
         "financial_performance": financial_performance,
         "maker_regression_sentinel": maker_regression_sentinel,
@@ -9947,10 +10019,7 @@ def build_report(
         "secondary_oracle_pyth": secondary_oracle_pyth,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
         "reduce_only_recovery": reduce_only_recovery,
-        "harness_realism_grade": int(harness_realism_grade),
-        "harness_realism_grade_breakdown": dict(harness_realism_grade_breakdown),
-        "harness_realism_grade_semantics": HARNESS_REALISM_GRADE_SEMANTICS,
-        "harness_realism_grade_authority": HARNESS_REALISM_GRADE_AUTHORITY,
+        EXERCISED_HARNESS_REALISM_FIELD: exercised_harness_realism,
         "maker_market_reference_fallback_count": _safe_float(
             edge_truth.get("maker_market_reference_fallback_count")
         ),
@@ -10046,7 +10115,7 @@ def build_report(
 def render_human_summary(report: Dict[str, Any]) -> str:
     top_reject = sorted(report.get("reject_reason_distribution", {}).items(), key=lambda x: x[1], reverse=True)[:5]
     latency = report.get("latency_distribution_ms", {})
-    sniper = report.get("sniper", {})
+    taker = report.get("taker", report.get("taker", {}))
     paths = report.get("execution_paths", {})
     financial = report.get("financial_performance", {}) if isinstance(report.get("financial_performance"), dict) else {}
     financial_capital = (
@@ -10181,6 +10250,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     primary_suppression_cause = str(report.get("primary_suppression_cause") or "none")
     starvation_mode = str(report.get("execution_starvation_mode") or "unknown")
     suppression_dominated_run = bool(report.get("suppression_dominated_run", False))
+    exercised_harness_realism = normalize_nightly_exercised_harness_realism(report)
 
     lines = [
         f"log_dir={report.get('log_dir')}",
@@ -10188,11 +10258,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         f"quote_uptime_ratio={_safe_float(report.get('quote_uptime_ratio')):.4f}",
         f"error_rows={int(_safe_float(report.get('error_rows')))}",
         (
-            "harness_realism="
-            + f"grade={int(_safe_float(report.get('harness_realism_grade')))},"
-            + f"semantics={str(report.get('harness_realism_grade_semantics') or HARNESS_REALISM_GRADE_SEMANTICS)},"
-            + f"authority={str(report.get('harness_realism_grade_authority') or HARNESS_REALISM_GRADE_AUTHORITY)},"
-            + f"breakdown={json.dumps(report.get('harness_realism_grade_breakdown', {}), sort_keys=True)}"
+            "exercised_harness_realism="
+            + f"grade={int(_safe_float(exercised_harness_realism.get('grade')))},"
+            + f"semantics={str(exercised_harness_realism.get('semantics') or HARNESS_REALISM_GRADE_SEMANTICS)},"
+            + f"authority={str(exercised_harness_realism.get('authority') or HARNESS_REALISM_GRADE_AUTHORITY)},"
+            + f"breakdown={json.dumps(exercised_harness_realism.get('breakdown', {}), sort_keys=True)}"
         ),
         f"top_rejects={top_reject}",
         (
@@ -10203,12 +10273,12 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"p95={_safe_float(latency.get('p95_ms')):.2f}"
         ),
         (
-            "sniper="
-            + f"submits={int(_safe_float(sniper.get('submits')))},"
-            + f"fills={int(_safe_float(sniper.get('fills')))},"
-            + f"fill_rate={_safe_float(sniper.get('fill_rate')):.4f},"
-            + f"midpoint_win_rate_proxy={_safe_float(sniper.get('midpoint_win_rate_proxy')):.4f},"
-            + f"fire_rate_per_min={_safe_float(sniper.get('fire_rate_per_min')):.4f}"
+            "taker="
+            + f"submits={int(_safe_float(taker.get('submits')))},"
+            + f"fills={int(_safe_float(taker.get('fills')))},"
+            + f"fill_rate={_safe_float(taker.get('fill_rate')):.4f},"
+            + f"midpoint_win_rate_proxy={_safe_float(taker.get('midpoint_win_rate_proxy')):.4f},"
+            + f"fire_rate_per_min={_safe_float(taker.get('fire_rate_per_min')):.4f}"
         ),
         (
             "execution_paths="
@@ -10323,11 +10393,9 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + "final_window_overlap_max_sec="
             + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('max_normal_entry_width_inside_final_window_sec')):.2f},"
             + "require_lag_verification="
-            + f"{json.dumps((taker_config_gate.get('sniper_lag_gate') or {}).get('require_lag_verification'))},"
+            + f"{json.dumps((taker_config_gate.get('taker_lag_gate') or {}).get('require_lag_verification'))},"
             + "latency_hit_threshold_ms="
             + f"{_safe_float((taker_config_gate.get('latency_verifier') or {}).get('hit_threshold_ms')):.2f},"
-            + "min_edge_by_stage="
-            + f"{json.dumps((taker_config_gate.get('normal_taker_entry_gates') or {}).get('min_edge_by_stage', {}), sort_keys=True)},"
             + "stage_final_windows="
             + f"{json.dumps((taker_config_gate.get('normal_taker_entry_gates') or {}).get('stage_final_window_sec_by_stage', {}), sort_keys=True)},"
             + f"flags={json.dumps(taker_config_gate.get('posture_flags', []), sort_keys=True)}"
@@ -10487,10 +10555,6 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{int(_safe_float(taker_doctrine_breaches.get('maker_to_taker_recovery_handoff_disabled_count')))},"
             + "taker_recovery_disabled_in_taker_scope="
             + f"{int(_safe_float(taker_doctrine_breaches.get('taker_recovery_disabled_in_taker_scope_count')))},"
-            + "same_market_lane_collisions="
-            + f"{int(_safe_float(taker_doctrine_breaches.get('same_market_lane_collision_block_count')))},"
-            + "same_market_reasons="
-            + f"{json.dumps(taker_doctrine_breaches.get('same_market_lane_collision_reason_distribution', {}), sort_keys=True)},"
             + "block_reasons="
             + f"{json.dumps(taker_doctrine_breaches.get('block_reason_distribution', {}), sort_keys=True)}"
         ),

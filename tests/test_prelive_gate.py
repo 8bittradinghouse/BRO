@@ -28,8 +28,8 @@ class PreliveGateTests(unittest.TestCase):
 
     def _write_cfg(self, root: Path, *, mode: str = "live", allow_taker: bool = True) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        # Canonical doctrine fixtures must not set both doctrine and legacy sniper freshness keys.
-        cfg["sniper"].pop("max_chainlink_tick_age_sec", None)
+        # Canonical doctrine fixtures must not set both doctrine and deprecated taker freshness keys.
+        cfg["taker"].pop("max_chainlink_tick_age_sec", None)
         cfg["mode"] = mode
         cfg["targets"]["token_ids"] = ["tok1"]
         cfg["chainlink"]["enabled"] = False
@@ -445,6 +445,74 @@ class PreliveGateTests(unittest.TestCase):
                 )
         self.assertFalse(result["ok"])
         self.assertIn("prelive_run_id_required", result["findings"])
+
+    def test_prelive_gate_does_not_expect_removed_taker_enable_bridge(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root, mode="live", allow_taker=True)
+            payload = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+            cfg_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+            run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
+            backup_dir = self._write_backup_bundle(root)
+            env = {
+                "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
+                "POLYMARKET_FUNDER": "0x" + ("b" * 40),
+                "SECURITY_ACK": "YES",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                result = run_prelive_gate(
+                    config_path=cfg_path,
+                    policy_path=Path("ops/ramp_policy.yaml"),
+                    required_stage="pilot_live",
+                    run_id=run_id,
+                    skip_readiness=True,
+                    skip_runtime_audit=True,
+                    skip_config_consistency=True,
+                    skip_manifest_check=False,
+                    manifest_max_age_hours=48.0,
+                    manifest_min_schema_version=2,
+                    skip_backup_check=False,
+                    backup_dir=backup_dir,
+                    backup_max_age_hours=48.0,
+                    skip_run_integrity_audit=True,
+                    allow_env_secrets_in_live=True,
+                )
+        self.assertTrue(result["ok"])
+        self.assertNotIn("taker_enable_bridge_mismatch", "\n".join(result["findings"]))
+
+    def test_prelive_gate_auth_taker_mismatch_uses_effective_taker_enable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root, mode="live", allow_taker=False)
+            run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
+            backup_dir = self._write_backup_bundle(root)
+            env = {
+                "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
+                "POLYMARKET_FUNDER": "0x" + ("b" * 40),
+                "SECURITY_ACK": "YES",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                result = run_prelive_gate(
+                    config_path=cfg_path,
+                    policy_path=Path("ops/ramp_policy.yaml"),
+                    required_stage="pilot_live",
+                    run_id=run_id,
+                    skip_readiness=True,
+                    skip_runtime_audit=True,
+                    skip_config_consistency=True,
+                    skip_manifest_check=False,
+                    manifest_max_age_hours=48.0,
+                    manifest_min_schema_version=2,
+                    skip_backup_check=False,
+                    backup_dir=backup_dir,
+                    backup_max_age_hours=48.0,
+                    skip_run_integrity_audit=True,
+                    allow_env_secrets_in_live=True,
+                )
+        self.assertFalse(result["ok"])
+        self.assertIn("auth_taker_mismatch:taker.enabled=true but auth.allow_taker=false", result["findings"])
 
 
 if __name__ == "__main__":

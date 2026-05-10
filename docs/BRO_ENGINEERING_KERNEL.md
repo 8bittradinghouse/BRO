@@ -65,3 +65,6 @@ For continuity-sensitive BRO work inside this repo, the local subset is:
   doctrine, stop and resolve the conflict explicitly.
 - Do not treat timing hardening as optional polish. If timing truth is weak,
   BRO authority is weak.
+- Before calling a BRO-local diagnosis or packet ready, run contradiction
+  compression and negative-proof against the preferred story instead of
+  trusting the first tidy explanation.

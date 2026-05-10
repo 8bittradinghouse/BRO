@@ -290,12 +290,15 @@ def _stream_source_paths_for_window(
         seen.add(resolved)
         paths.append(resolved)
 
-    if preferred_path is not None:
-        _add(preferred_path)
     day_count = max(0, (stop_dt.date() - start_dt.date()).days)
     for day_offset in range(0, day_count + 1):
         day = start_dt.date() + dt.timedelta(days=day_offset)
         _add(log_dir / f"{prefix}_{day.isoformat()}.jsonl")
+    # Preserve chronological day order for cross-midnight slices. Preferred
+    # paths still matter, but they must not prepend the later day ahead of the
+    # earlier day and fabricate non-monotonic postrun evidence.
+    if preferred_path is not None:
+        _add(preferred_path)
     if len(paths) == 0:
         for candidate in sorted(log_dir.glob(f"{prefix}_*.jsonl")):
             _add(candidate)

@@ -100,7 +100,7 @@ class OpsSnapshotTests(unittest.TestCase):
         build_report_mock.return_value = {
             "run_duration_minutes": 0.0,
             "execution_quality": {},
-            "sniper": {},
+            "taker": {},
             "quote_uptime_ratio": 0.0,
             "error_rows": 0.0,
         }

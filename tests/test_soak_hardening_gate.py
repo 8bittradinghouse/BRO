@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -306,7 +307,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                 msg=result.get("findings", []),
             )
 
-    def test_soak_gate_fails_when_rest_fallback_ratio_exceeds_budget(self):
+    def test_soak_gate_does_not_fail_when_rest_fallback_ratio_exceeds_budget(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "r1"
@@ -362,11 +363,33 @@ class SoakHardeningGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
-            self.assertFalse(result["ok"])
-            self.assertTrue(
+            self.assertTrue(result["ok"], msg=result.get("findings", []))
+            self.assertFalse(
                 any("soak_book_updates_rest_ratio_too_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
             )
+
+    def test_soak_gate_resolves_repo_owned_budget_and_policy_outside_repo_cwd(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            repo_root = Path(__file__).resolve().parents[1]
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(repo_root.parent.parent)
+                result = run_gate(
+                    log_dir=log_dir,
+                    run_id=run_id,
+                    budget_path=Path("ops/soak_budget.yaml"),
+                )
+            finally:
+                os.chdir(old_cwd)
+        self.assertIn("budget_path", result)
+        self.assertEqual(
+            str(result.get("budget_path") or ""),
+            str((repo_root / "ops" / "soak_budget.yaml").resolve()),
+        )
 
     def test_soak_gate_fails_on_duration(self):
         with tempfile.TemporaryDirectory() as td:
@@ -681,7 +704,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "event_type": "order_submit",
                     "order_id": "t1",
                     "token_id": "t1",
-                    "reason": "sniper_taker_chainlink",
+                    "reason": "taker_chainlink",
                     "side": "BUY",
                     "decision_reference_midpoint": 0.90,
                 },

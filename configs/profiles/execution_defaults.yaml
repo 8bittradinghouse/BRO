@@ -117,7 +117,7 @@ doctrine:
 latency_verifier:
   enabled: true
   require_armed_for_maker: true
-  require_armed_for_sniper: true
+  require_armed_for_taker: true
   window_samples: 400
   min_samples: 80
   hit_threshold_ms: 120
@@ -165,9 +165,9 @@ targets:
     max_retries: 2
     require_fee_enabled: true
 
-sniper:
+taker:
   enabled: true
-  # Paper soak window widened so sniper path is exercised more consistently.
+  # Paper soak window widened so taker path is exercised more consistently.
   arming_horizon_sec: 86400
   execution_cutoff_sec: 10
   late_fire_priority_band_sec: 5
@@ -176,10 +176,10 @@ sniper:
   max_actions_per_cycle: 16
   cancel_stale_action_budget: 6
   cancel_orphan_action_budget: 12
-  # Let sniper mode use full hard-cap bandwidth while active.
+  # Let taker mode use full hard-cap bandwidth while active.
   order_rate_soft_limit_pct: 1.0
   cancel_rate_soft_limit_pct: 1.0
-  # Require statistically verified chainlink->book lag before arming sniper mode.
+  # Require statistically verified chainlink->book lag before arming taker mode.
   require_lag_verification: true
   lag_window_samples: 300
   lag_min_samples: 80
@@ -187,49 +187,37 @@ sniper:
   lag_min_median_ms: 120
   lag_min_hit_rate: 0.6
   fair_vol_scale: 1.0
-  taker:
-    enabled: true
-    min_edge: 0.015
-    extreme_edge_mult: 2.0
-    order_size: 20
-    target_usd: 5
-    max_orders_per_cycle: 2
-    per_token_cooldown_sec: 0.25
-    per_token_cooldown_sec_by_stage: {}
-    competitiveness:
-      enabled: false
-      hard_min_target_usd: 100.0
-      hard_min_enforcement: skip_if_unachievable
-      dynamic_size_enabled: true
-      dynamic_size_edge_start_abs: 0.12
-      dynamic_size_edge_full_abs: 0.22
-      dynamic_size_target_usd_cap: 250.0
-      conviction_model: edge_plus_latency_score
-      edge_weight: 0.65
-      latency_score_weight: 0.35
-      final_window_enabled: true
-      final_window_sec: 15.0
-      stage_final_window_sec_by_stage: {}
-      aggressive_window_enabled: false
-      aggressive_window_sec: 10.0
-      stage_aggressiveness:
-        MAKER_TAKER_SELECTIVE:
-          size_mult: 1.0
-          price_aggress_bps: 0.0
-        SNIPER_PRIMARY:
-          size_mult: 1.15
-          price_aggress_bps: 2.0
-        EXTREME_ONLY:
-          size_mult: 1.35
-          price_aggress_bps: 5.0
-      price_aggress_bps_max: 8.0
-      dynamic_preview_enabled: false
-      multi_oracle_boost_enabled: false
-      multi_oracle_boost_window_sec: 15.0
-      multi_oracle_edge_threshold_abs: 0.20
-      multi_oracle_target_usd_cap: 350.0
-      multi_oracle_capital_pct_cap: 0.18
-      stage_priority_enabled: false
+  min_edge: 0.015
+  extreme_edge_mult: 2.0
+  order_size: 20
+  target_usd: 5
+  max_orders_per_cycle: 2
+  per_token_cooldown_sec: 0.25
+  per_token_cooldown_sec_by_stage: {}
+  competitiveness:
+    enabled: false
+    hard_min_target_usd: 100.0
+    hard_min_enforcement: skip_if_unachievable
+    dynamic_size_enabled: true
+    dynamic_size_edge_start_abs: 0.12
+    dynamic_size_edge_full_abs: 0.22
+    dynamic_size_target_usd_cap: 250.0
+    conviction_model: edge_plus_latency_score
+    edge_weight: 0.65
+    latency_score_weight: 0.35
+    final_window_enabled: true
+    final_window_sec: 15.0
+    stage_final_window_sec_by_stage: {}
+    aggressive_window_enabled: false
+    aggressive_window_sec: 10.0
+    price_aggress_bps_max: 8.0
+    dynamic_preview_enabled: false
+    multi_oracle_boost_enabled: false
+    multi_oracle_boost_window_sec: 15.0
+    multi_oracle_edge_threshold_abs: 0.20
+    multi_oracle_target_usd_cap: 350.0
+    multi_oracle_capital_pct_cap: 0.18
+    stage_priority_enabled: false
 
 strategy:
   base_order_size: 25.0
@@ -330,7 +318,7 @@ risk:
   global_exposure_guard:
     enabled: false
     max_global_notional_usd: 800.0
-    sniper_reserved_notional_usd: 0.0
+    taker_reserved_notional_usd: 0.0
     near_cap_ratio: 0.85
 
 wallet:
@@ -454,7 +442,7 @@ ramp:
   downshift_disarmed_ratio: 0.60
   downshift_reconcile_mismatch_ratio: 0.05
   reconcile_status_path: "./logs_exec/reconcile_latest.json"
-  disable_sniper_on_breach: true
+  disable_taker_on_breach: true
 
 operating_mode:
   enabled: true

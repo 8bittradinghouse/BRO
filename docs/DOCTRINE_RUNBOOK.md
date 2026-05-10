@@ -56,14 +56,15 @@ Restoration rule:
 | --- | --- | --- |
 | Runtime posture / readiness | `runtime_state`, `active_targets_present`, `no_target_standdown`, `book_feed_required`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, `primary_suppression_cause`, `contributing_suppression_causes`, `ambiguous_suppression_cause` | posture and runtime/readiness classification only; not market actionability or execution realism |
 | Runtime transition | `previous_runtime_state`, `previous_book_feed_required`, `transition_reason_code`, `transition_reason_detail` | transition-domain truth only; not steady-state runtime classification |
-| Market truth / selection | `maker_allowed`, `taker_allowed`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | stage permission plus market-truth/reference semantics for the lane; not wallet authority |
+| Market truth / selection | `maker_allowed`, `taker_allowed`, `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, `preexpiry_emergency_taker_allowed`, `late_window_authority_class`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | emitted lane-authority plus market-truth/reference semantics for the lane; not wallet authority |
 | Quote / submit path | `block_reason`, `decision_block_reason`, `decision_result`, `action_taken`, `submitted`, `filled`, `result`, `evaluation_scope`, `financial_posture_class` | local emitted stop/action/submit semantics for the lane or submit path; not cross-system owner by themselves |
 | Wallet/startup authority | `canonical_live_wallet_truth`, `local_tx_lifecycle_state`, `open_order_state`, `integrity_tripwire_reconcile_state`, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`, `canonical_live_nonce_source`, `canonical_live_nonce_detail`, `canonical_live_pending_wallet_tx_source`, `canonical_live_pending_wallet_tx_detail`, `live_truth_gap_reasons` | wallet/startup-domain authority only; not edge validity or quote truth |
 | Decision lineage / provenance | `target_ref`, `source_target_ref`, `decision_input_source`, `decision_input_type`, `decision_input_emulated`, `decision_input_data_class` | lineage and decision-input provenance only; not authority class by themselves |
 | Paper realism / outcome truth | `execution_realism_class`, `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status` | paper-realism and outcome-layer classification only; not runtime actionability or market authority |
 
 Required distinctions:
-- `maker_allowed` / `taker_allowed` are stage-permission terms only
+- `maker_allowed` / `taker_allowed` are emitted lane-action booleans for the current row, not raw stage-bucket authority by themselves
+- `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, and `preexpiry_emergency_taker_allowed` are the Packet 1 late-window authority contract
 - `runtime_state`, `runtime_classification`, `promotion_eligibility_hint`, and `promotion_eligible` are runtime posture/readiness terms only
 - `promotion_eligibility_hint` is a live posture hint only; it is not the final `promotion_eligible` classification verdict
 - `secondary_oracle_status` is emitted selection/oracle status only; it does not replace confirmation
@@ -129,7 +130,7 @@ Runtime-classification value vocabulary:
   - use the comparison table to map symptom -> subsystem -> harness -> connector box before any fix.
   - use the diagnostic template for every cross-system triage pass.
   - use the weapon nomenclature sheet as a memory/mapping aid only; do not let
-    alias language silently outrank canonical maker/taker/sniper doctrine.
+    alias language silently outrank canonical maker/taker doctrine.
   - keep diagnosis run-anchored with lineage tuple (`run_id`, `git_commit`, `config_fingerprint`, `code_fingerprint`).
 - Drift rule:
   - these docs are operator/engineering control aids; they do not change runtime behavior by themselves.
@@ -144,15 +145,19 @@ Runtime-classification value vocabulary:
     - `direct_midpoint` when both ws sides are present
     - `bounded_single_side_touch` only when midpoint is unavailable and exactly one ws side is present
   - bounded single-side maker reference is explicitly labeled `bounded_approximation` (never midpoint-authoritative)
-  - `sniper.allow_without_expiry_metadata` must be `false`
+  - taker market-reference uses:
+    - `direct_midpoint` when ws midpoint is present
+    - `bounded_single_side_touch` when midpoint is unavailable and exactly one ws side is present
+    - fully missing ws market reference remains explicit fail-closed `market_probability_missing`
+  - `taker.allow_without_expiry_metadata` must be `false`
 - `doctrine.mode=degraded`:
   - allows explicit degraded fallback paths (for paper/soak only)
   - degraded path activity is stamped in telemetry/events
 
 ## Oracle Freshness Rule
 - Canonical doctrine uses `doctrine.oracle_max_tick_age_sec`.
-- In canonical mode, setting both `doctrine.oracle_max_tick_age_sec` and legacy
-  `sniper.max_chainlink_tick_age_sec` is rejected by config validation.
+- In canonical mode, setting both `doctrine.oracle_max_tick_age_sec` and
+  `taker.max_chainlink_tick_age_sec` is rejected by config validation.
 
 ## Timing Doctrine (Canonical)
 - One coherent time base is mandatory:
@@ -202,11 +207,14 @@ Runtime-classification value vocabulary:
 - `MAKER_POSITION`: maker only
 - `MAKER_TAKER_SELECTIVE`: maker only
 - `SNIPER_PRIMARY`: maker/taker forbidden in canonical live doctrine; reserved for diagnostic staging only
-- `EXTREME_ONLY`: taker only, hard `<=7s` commitment window
+- `EXTREME_ONLY`: raw late-window lineage bucket only; raw stage policy itself grants neither maker nor taker live authority
+  - normal taker live authority is the explicit `<=7s` commitment lane surfaced through `normal_taker_allowed`
+  - maker new-risk late authority is the explicit `15-20s` lane surfaced through `maker_new_risk_allowed`
+  - reduce-only recovery remains a separate explicit authority lane surfaced through `reduce_only_recovery_allowed`
 
 ## Taker Competitiveness Semantics (Canonical)
 - hard floor:
-  - configured by `sniper.taker.competitiveness.hard_min_target_usd`
+  - configured by `taker.competitiveness.hard_min_target_usd`
   - enforced with `hard_min_enforcement=skip_if_unachievable`
   - infeasible floor emits `taker_hard_min_notional_unachievable` (no under-floor submit)
 - timing windows:
@@ -219,6 +227,11 @@ Runtime-classification value vocabulary:
   - optional Pyth secondary oracle (`secondary_oracle.pyth`)
   - confirmation/boost only when enabled + directional agreement + threshold + timing-window pass
   - unknown secondary-oracle state is fail-closed for boost (no inferred confirmation)
+- canonical paper Packet 1 posture:
+  - taker shot geometry is temporarily detuned to a fixed configured `$20`
+    on the current paper packet
+  - dynamic-size and preview bridge knobs may remain parseable for compatibility, but they must not own canonical taker fireability, submit ranking, or target sizing
+  - `conviction_score` may remain emitted for diagnosis, but weighted conviction housing is not canonical taker owner-law
 
 ## Taker Sniper Commitment Doctrine (Canonical)
 - Normal taker sniper is a commitment trade, not an enter-then-exit trade:
@@ -233,9 +246,9 @@ Runtime-classification value vocabulary:
   - any repeated or routine taker-side recovery after accepted normal taker entry is a doctrine breach signal, not acceptable steady-state behavior
   - pre-expiry emergency taker recovery must not machine-gun below-min dust residue; if the remaining reduce-only cap is below the minimum executable order size, runtime must surface the residue explicitly and stand down instead of repeatedly attempting doomed taker submits
   - any run that requires ordinary taker profit to come from pre-expiry unwind is not doctrine-clean
-  - once a normal taker commitment is established in a market, that market base is owned until it is `flat and clear`
-  - `flat and clear` means no meaningful net shares, no open orders, and no unresolved lifecycle obligation in that market base
-  - while that ownership is active, neither maker quoting nor another normal taker entry may reuse that market base
+  - maker and taker must each remain fireable inside their own doctrine timing windows when their own direct truth gates are clean
+  - doctrine does not authorize a cross-lane "wait for the other lane" shell as a substitute for proper lane-local timing, market truth, oracle truth, or wallet/risk gates
+  - unresolved inventory, open orders, or lifecycle residue remain lane-local lifecycle/settlement patients; they do not create a general same-market ownership law that forces the other lane to stand down
 - Normal taker side expression is live-parity constrained:
   - normal taker may only open exposure by buying the outcome token expected to resolve to `$1`
   - same-token normal taker `SELL` from flat or risk-increasing inventory is forbidden
@@ -266,8 +279,9 @@ Runtime-classification value vocabulary:
   - clean taker proof requires accepted normal taker entries to be buy-side expected-winner or audited complement-token buys, with no unrecovered meaningful exposure at report close
 
 Required observability surfaces:
-- `sniper_taker_decision` event:
+- `taker_decision` event:
   - `conviction_score`, `edge_abs`, `required_min_edge`
+  - `conviction_score` is diagnostic/readback truth only on the canonical taker path; it is not a second owner of submit ranking or shot sizing
   - `timing_window_class`, `aggressiveness_level`, `price_aggress_bps_applied`
   - `target_usd_requested`, `target_usd_resolved`
   - `hard_min_floor_applied`, `hard_min_unachievable`
@@ -381,8 +395,11 @@ Required observability surfaces:
     - if recovery-side touch price is unavailable, submit is explicitly blocked (`reduce_only_recovery_touch_price_unavailable`)
     - pre-expiry emergency taker unwind is bounded and explicit:
       - `runtime.preexpiry_emergency_taker_window_sec` (default `7.0`)
-      - activates only when `sec_to_expiry <= preexpiry_emergency_taker_window_sec` and maker reduce-only exit is blocked/ineffective in-cycle
       - emits explicit outcomes (`preexpiry_emergency_taker_unwind`) with `attempted`, `filled`, and `blocked_*` reason codes
+      - current runtime has two explicit emit paths:
+        - true emergency-window path when `sec_to_expiry <= preexpiry_emergency_taker_window_sec` and maker reduce-only exit is blocked/ineffective in-cycle
+        - timing-gate handoff override path when maker reduce-only exit is blocked by `maker_timing_gate_closed` before that emergency window
+      - the timing-gate handoff override path is diagnostic / safety-only and remains dead-power on the taker side; it does not restore normal taker live authority
       - repeated identical blocked rows may be compressed into repeat-summary events carrying:
         - `compression_mode`
         - `repeat_count_delta`
@@ -521,13 +538,14 @@ Required wallet events:
   observe hold until both are satisfied:
   - `doctrine.min_observe_cycles_on_entry`
   - `doctrine.min_observe_seconds_on_entry`
-- Arrival conditions are stamped (`normal_on_arrival`, `sniper_primary_on_arrival`,
+- Arrival conditions are stamped (`normal_on_arrival`,
   `extreme_only_on_arrival`, `expired_on_arrival`, `unknown_on_arrival`).
 
 ## Verification Signals
 - `doctrine_decision` event includes:
   - `market_key`
-  - `stage` and `raw_stage`
+  - `effective_stage` and `stage_bucket`
+  - legacy `stage` and `raw_stage` as compatibility aliases only
   - `doctrine_gate_verdict` (`pass|fail`)
   - `reason`
 - `doctrine_prereq_failure` event explicitly marks unknown-stage prerequisite failures.

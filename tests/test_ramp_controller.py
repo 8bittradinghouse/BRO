@@ -16,7 +16,7 @@ class RampControllerTests(unittest.TestCase):
                 "downshift_stale_oracle_ratio": 0.5,
                 "downshift_disarmed_ratio": 0.5,
                 "downshift_reconcile_mismatch_ratio": 0.5,
-                "disable_sniper_on_breach": True,
+                "disable_taker_on_breach": True,
             },
             base_target_usd=1.0,
         )
@@ -35,9 +35,9 @@ class RampControllerTests(unittest.TestCase):
         )
         self.assertTrue(snap_b.changed)
         self.assertEqual(snap_b.target_usd, 2.0)
-        self.assertTrue(snap_b.sniper_allowed)
+        self.assertTrue(snap_b.taker_allowed)
 
-    def test_downshift_and_disable_sniper_on_breach(self):
+    def test_downshift_and_disable_taker_on_breach(self):
         ctrl = SizeRampController(
             {
                 "enabled": True,
@@ -49,7 +49,7 @@ class RampControllerTests(unittest.TestCase):
                 "downshift_stale_oracle_ratio": 0.5,
                 "downshift_disarmed_ratio": 0.5,
                 "downshift_reconcile_mismatch_ratio": 0.5,
-                "disable_sniper_on_breach": True,
+                "disable_taker_on_breach": True,
             },
             base_target_usd=4.0,
         )
@@ -66,7 +66,7 @@ class RampControllerTests(unittest.TestCase):
             reconcile_mismatch_ratio=0.0,
         )
         self.assertEqual(snap.target_usd, 3.0)
-        self.assertFalse(snap.sniper_allowed)
+        self.assertFalse(snap.taker_allowed)
         self.assertTrue(snap.changed)
 
     def test_target_clamped_at_start_floor(self):
@@ -81,7 +81,7 @@ class RampControllerTests(unittest.TestCase):
                 "downshift_stale_oracle_ratio": 0.1,
                 "downshift_disarmed_ratio": 0.1,
                 "downshift_reconcile_mismatch_ratio": 0.1,
-                "disable_sniper_on_breach": True,
+                "disable_taker_on_breach": True,
             },
             base_target_usd=1.0,
         )
@@ -92,7 +92,7 @@ class RampControllerTests(unittest.TestCase):
             reconcile_mismatch_ratio=1.0,
         )
         self.assertEqual(snap.target_usd, 1.0)
-        self.assertFalse(snap.sniper_allowed)
+        self.assertFalse(snap.taker_allowed)
 
 
 if __name__ == "__main__":

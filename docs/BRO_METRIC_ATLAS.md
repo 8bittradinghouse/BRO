@@ -54,15 +54,15 @@ Its outputs are:
   - `opening_wallet_authority_status_class` and
     `ending_wallet_authority_status_class` are report readouts, not live wallet
     contract fields
-  - `runtime_secondary_oracle_confirmation_distribution` is a downstream mirror,
-    not a doctrine root
-  - `runtime_secondary_oracle_status_distribution` and
-    `runtime_maker_stage_allowed_distribution` are downstream mirrors, not
-    doctrine roots
+  - `maker_new_risk_allowed_distribution` is a canonical report-side summary of
+    live `maker_new_risk_allowed` row truth, not a second authority layer
   - report-side `market_reference_basis=report_book_top_pair_backfill` is a
     downstream reconstructed basis label, not a live emitted runtime basis
   - `not_available_reference_count` counts emitted
     `market_reference_class=not_available`; it does not invent a new class
+  - canonical `harness_realism_grade*` belongs only to
+    `paper_harness_audit`; nightly exercised-only realism belongs under
+    `exercised_harness_realism`
   - `harness_realism_grade_semantics` and
     `harness_realism_grade_authority` are descriptive audit metadata only
 - Distinguish explicitly:
@@ -154,6 +154,7 @@ What it tells you:
 - money posture
 - valuation degradation
 - market-data source mix
+- exercised-only harness realism actually observed on fill tape
 
 High-value fields:
 - runtime:
@@ -212,6 +213,9 @@ High-value fields:
   - `market_data_rest_ratio`
   - `market_data_ws_delta`
   - `market_data_total_delta`
+- exercised realism:
+  - `exercised_harness_realism.grade`
+  - `exercised_harness_realism.breakdown`
 - timing/latency:
   - `duration_minutes`
   - `latency_median_ms`
@@ -444,9 +448,7 @@ High-value fields:
 - `stack_pressure_class_distribution`
 - `secondary_oracle_status_distribution`
 - `secondary_oracle_confirmation_distribution`
-- `runtime_secondary_oracle_status_distribution`
-- `runtime_secondary_oracle_confirmation_distribution`
-- `runtime_maker_stage_allowed_distribution`
+- `maker_new_risk_allowed_distribution`
 - `probe_visible_depth_fail_closed_zero_distribution`
 - `market_reference_class_distribution`
 - `market_reference_mode_distribution`

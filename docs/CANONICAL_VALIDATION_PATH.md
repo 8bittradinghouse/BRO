@@ -82,9 +82,10 @@ Semantic boundary and transport rule:
   `decision_input_*`, and `target_ref` as paper-realism-domain truth.
 - `harness_realism_grade_semantics=descriptive_non_gating` and
   `harness_realism_grade_authority=non_authoritative` are descriptive audit
-  metadata only.
-- `paper_claim_boundary.source_truth_semantics=legacy_alias_of_action_source_truth`
-  is a compatibility disclosure; it does not mint a new authority class.
+  metadata only for the canonical `paper_harness_audit` grade.
+- `paper_claim_boundary` now carries only the current split:
+  `decision_source_truth` for all decision rows and `action_source_truth` for
+  action rows. No legacy alias remains in the current contract.
 - transport/session identity surfaces such as `BRO_CANONICAL_SESSION_*`,
   `BRO_RUN_ID`, `BRO_GIT_COMMIT`, and `BRO_DOCKER_IMAGE_HASH` are control or
   lineage carriers only; they must not redefine row-level runtime semantics.
@@ -95,7 +96,11 @@ Utilization-lane findings remain reported for operator diagnosis but do not bloc
 Paper-harness realism checks enforced in this path:
 - post-only parity in paper gateway (crossed post-only maker orders reject)
 - size-required paper fills (no implicit infinite-liquidity fallback)
-- market-data source realism (`book_updates_ws_delta`, `book_updates_rest_ratio`)
+- market-data liveliness floors (`book_updates_ws_delta`, `book_updates_total_delta`)
+- action-row source purity in `paper_harness_audit`:
+  clear `edge_evaluation` rows with `action_taken in {maker,taker}` must stay
+  `book_source=ws`; whole-stream `book_updates_rest_ratio` is descriptive/watch
+  truth only
 - fill realism envelopes (`max_maker_fill_rate`, `max_taker_bonus_fill_rate`)
 - proving-lineage tuple surfaced directly in `paper_harness_audit` output:
   - `run_id`
@@ -107,9 +112,13 @@ Paper-harness realism checks enforced in this path:
 - non-gating
 - non-authoritative
 - not a substitute for findings, run integrity, determinism, or promotion proof
-- nightly soak reporting now carries the same explicit semantics:
-  - `harness_realism_grade_semantics=descriptive_non_gating`
-  - `harness_realism_grade_authority=non_authoritative`
+- `paper_harness_audit` is the only current top-level owner of
+  `harness_realism_grade*`
+- `nightly_soak_report` carries exercised-only realism separately under
+  `exercised_harness_realism` with the same descriptive semantics and
+  non-authoritative boundary
+- canonical harness grade and nightly exercised realism are both descriptive,
+  but they are not the same metric and must not share the same contract name
 
 `validation_summary.json` includes determinism fields:
 - `edge_truth_determinism_ok`

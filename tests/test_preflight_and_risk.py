@@ -938,12 +938,12 @@ class PreflightAndRiskTests(unittest.TestCase):
         guard = decision.basis.get("global_exposure_guard") if isinstance(decision.basis, dict) else {}
         self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
 
-    def test_global_exposure_sniper_reserve_applies_only_to_non_sniper_taker(self):
+    def test_global_exposure_taker_reserve_applies_to_all_taker_submissions(self):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
         cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
-        cfg["global_exposure_guard"]["sniper_reserved_notional_usd"] = 5.0
+        cfg["global_exposure_guard"]["taker_reserved_notional_usd"] = 5.0
         positions = {
             "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
         }
@@ -961,7 +961,7 @@ class PreflightAndRiskTests(unittest.TestCase):
 
         intent = OrderIntent(token_id="t1", side="BUY", price=0.5, size=16.0)
 
-        non_sniper_decision = risk.validate_order(
+        first_taker_decision = risk.validate_order(
             intent,
             top=top,
             open_orders_for_token=[],
@@ -970,25 +970,26 @@ class PreflightAndRiskTests(unittest.TestCase):
             reference_mid_by_token={"t1": 0.5},
             risk_context={"submission_lane": "taker", "stage": "MAKER_TAKER_SELECTIVE"},
         )
-        self.assertFalse(non_sniper_decision.allowed)
-        self.assertEqual(non_sniper_decision.reason, "global_exposure_cap")
-        self.assertIsInstance(non_sniper_decision.basis, dict)
-        non_sniper_guard = non_sniper_decision.basis.get("global_exposure_guard") or {}
-        self.assertTrue(bool(non_sniper_guard.get("sniper_reserve_applied")))
+        self.assertFalse(first_taker_decision.allowed)
+        self.assertEqual(first_taker_decision.reason, "global_exposure_cap")
+        self.assertIsInstance(first_taker_decision.basis, dict)
+        first_taker_guard = first_taker_decision.basis.get("global_exposure_guard") or {}
+        self.assertTrue(bool(first_taker_guard.get("taker_reserve_applied")))
 
-        sniper_decision = risk.validate_order(
+        extreme_only_taker_decision = risk.validate_order(
             intent,
             top=top,
             open_orders_for_token=[],
             open_orders_total=0,
             open_orders_all=[],
             reference_mid_by_token={"t1": 0.5},
-            risk_context={"submission_lane": "taker", "stage": "SNIPER_PRIMARY"},
+            risk_context={"submission_lane": "taker", "stage": "EXTREME_ONLY"},
         )
-        self.assertTrue(sniper_decision.allowed)
-        self.assertIsInstance(sniper_decision.basis, dict)
-        sniper_guard = sniper_decision.basis.get("global_exposure_guard") or {}
-        self.assertFalse(bool(sniper_guard.get("sniper_reserve_applied")))
+        self.assertFalse(extreme_only_taker_decision.allowed)
+        self.assertEqual(extreme_only_taker_decision.reason, "global_exposure_cap")
+        self.assertIsInstance(extreme_only_taker_decision.basis, dict)
+        extreme_only_guard = extreme_only_taker_decision.basis.get("global_exposure_guard") or {}
+        self.assertTrue(bool(extreme_only_guard.get("taker_reserve_applied")))
 
     def test_preview_order_feasibility_is_read_only_and_non_authoritative(self):
         cfg = self._risk_cfg()

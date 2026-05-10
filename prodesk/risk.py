@@ -338,13 +338,11 @@ class RiskEngine:
         effective_cap = float(base_cap * max(0.0, float(effective_multiplier)))
         context = risk_context if isinstance(risk_context, dict) else {}
         submission_lane = str(context.get("submission_lane") or "unknown").strip().lower()
-        stage = str(context.get("stage") or "unknown").strip().upper()
-        sniper_reserved_notional_usd = max(0.0, float(cfg.get("sniper_reserved_notional_usd", 0.0) or 0.0))
+        taker_reserved_notional_usd = max(0.0, float(cfg.get("taker_reserved_notional_usd", 0.0) or 0.0))
         reserve_applied = False
-        if sniper_reserved_notional_usd > 0.0:
-            is_taker_non_sniper = (submission_lane == "taker") and (stage != "SNIPER_PRIMARY")
-            if is_taker_non_sniper:
-                effective_cap = max(0.0, float(effective_cap - sniper_reserved_notional_usd))
+        if taker_reserved_notional_usd > 0.0:
+            if submission_lane == "taker":
+                effective_cap = max(0.0, float(effective_cap - taker_reserved_notional_usd))
                 reserve_applied = True
         near_cap_ratio = max(0.0, float(cfg.get("near_cap_ratio", 0.85)))
 
@@ -383,9 +381,9 @@ class RiskEngine:
             "enabled": True,
             "base_cap_usd": float(base_cap),
             "effective_cap_usd": float(effective_cap),
-            "sniper_reserved_notional_usd": float(sniper_reserved_notional_usd),
-            "sniper_reserve_applied": bool(reserve_applied),
-            "sniper_reserve_scope": "taker_non_sniper_only",
+            "taker_reserved_notional_usd": float(taker_reserved_notional_usd),
+            "taker_reserve_applied": bool(reserve_applied),
+            "taker_reserve_scope": "taker_only",
             "near_cap_ratio": float(near_cap_ratio),
             "projected_total_notional": float(projected_total),
             "projected_to_cap_ratio": float(ratio if math.isfinite(ratio) else 0.0),

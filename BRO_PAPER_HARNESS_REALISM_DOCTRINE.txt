@@ -81,7 +81,8 @@ Paper Claim Boundary Surface (required in audit output):
 paper_claim_boundary = {
   control_plane_truth,
   lifecycle_truth,
-  source_truth,
+  decision_source_truth,
+  action_source_truth,
   maker_fill_expectancy,
   taker_fill_expectancy,
   live_pnl_equivalence
@@ -123,3 +124,36 @@ Audit Surface Addendum (required):
   - git_commit
   - config_fingerprint_sha256
   - code_fingerprint_sha256
+
+Ownership Rule:
+- `paper_harness_audit` is the sole owner of top-level `harness_realism_grade`,
+  `harness_realism_grade_breakdown`,
+  `harness_realism_grade_semantics`, and
+  `harness_realism_grade_authority`
+- `nightly_soak_report` may report exercised-only realism, but it must do so
+  under `exercised_harness_realism`
+- current nightly/report/operator surfaces must not publish exercised-only
+  realism under the canonical top-level `harness_realism_grade*` names
+- archived nightly artifacts that still carry legacy top-level
+  `harness_realism_grade*` may be normalized on read into
+  `exercised_harness_realism`, but current emitters must not emit both
+
+Source Purity Ownership:
+- canonical hard-fail owner: `paper_harness_audit`
+- canonical hard-fail question:
+  did any action-row `edge_evaluation` record with
+  `action_taken in {maker,taker}` use `book_source != ws`
+- whole-stream `market_data_source.book_updates_rest_ratio` remains valid
+  watch/descriptive truth, but it is not the canonical hard-fail owner for
+  source purity
+- `soak_hardening_gate` must not co-own this blocker lane through a parallel
+  whole-stream REST-ratio hard fail
+- source-purity pass means acted rows were WS-clean; it does not imply both
+  maker and taker produced action rows in the same specimen
+
+Nightly exercised-only surface:
+- `exercised_harness_realism`
+  - `grade`
+  - `breakdown`
+  - `semantics`
+  - `authority`

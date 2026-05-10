@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "bff661de876116b6c96315aa29280bc7432cab9a2d53b2a004af897fa516c8bd"
+  paper_expected_config_fingerprint_sha256: "e6686d943ca668227f363cf73f5429533a0d9b5d0c9e35dbd434990894d0a16a"
   held_book_not_found_backoff_sec: 5.0
   held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
   held_book_not_found_force_refresh_interval_sec: 45.0
@@ -57,6 +57,10 @@ latency_verifier:
   probation_min_median_ms: 30
   probation_min_hit_rate: 0.15
   score_min_for_maker: 0.08
+  # Paper-only taker live-fire detune:
+  # keep canonical edge ownership intact and lower only the inherited score gate.
+  score_min_for_taker: 0.40
+  require_armed_for_taker: true
 
 # Targeted maker-gate hardening (surgical):
 # - widen queue depth tolerance modestly
@@ -162,7 +166,7 @@ risk:
   global_exposure_guard:
     enabled: true
     max_global_notional_usd: 2500.0
-    sniper_reserved_notional_usd: 300.0
+    taker_reserved_notional_usd: 300.0
     near_cap_ratio: 0.85
 
 # Grok-informed bounded lag accommodation:
@@ -183,52 +187,37 @@ secondary_oracle:
 
 # Taker Masamune lock:
 # canonical normal taker is a hard last-seconds commitment lane only.
-sniper:
+taker:
   require_lag_verification: false
-  taker:
-    target_usd: 150.0
-    per_token_cooldown_sec_by_stage:
-      SNIPER_PRIMARY: 0.75
-    min_edge_by_stage:
-      MAKER_TAKER_SELECTIVE: 0.20
-      SNIPER_PRIMARY: 0.30
-      EXTREME_ONLY: 0.25
-    competitiveness:
-      enabled: true
-      hard_min_target_usd: 150.0
-      hard_min_enforcement: skip_if_unachievable
-      dynamic_size_enabled: true
-      dynamic_size_edge_start_abs: 0.16
-      dynamic_size_edge_full_abs: 0.35
-      dynamic_size_target_usd_cap: 150.0
-      conviction_model: edge_plus_latency_score
-      edge_weight: 0.65
-      latency_score_weight: 0.35
-      dynamic_preview_enabled: true
-      final_window_enabled: true
-      final_window_sec: 7.0
-      stage_final_window_sec_by_stage: {}
-      aggressive_window_enabled: false
-      aggressive_window_sec: 7.0
-      stage_aggressiveness:
-        MAKER_TAKER_SELECTIVE:
-          size_mult: 1.0
-          price_aggress_bps: 0.0
-        SNIPER_PRIMARY:
-          size_mult: 1.0
-          price_aggress_bps: 0.0
-        EXTREME_ONLY:
-          size_mult: 1.0
-          price_aggress_bps: 5.0
-      price_aggress_bps_max: 8.0
-      multi_oracle_boost_enabled: true
-      multi_oracle_boost_window_sec: 7.0
-      multi_oracle_edge_threshold_abs: 0.20
-      multi_oracle_target_usd_cap: 150.0
-      multi_oracle_capital_pct_cap: 0.18
-      allow_complement_buy_route: true
-      min_visible_fill_ratio: 0.5
-      stage_priority_enabled: true
+  enabled: true
+  target_usd: 20.0
+  min_edge: 0.11
+  competitiveness:
+    enabled: true
+    hard_min_target_usd: 20.0
+    hard_min_enforcement: skip_if_unachievable
+    dynamic_size_enabled: false
+    dynamic_size_edge_start_abs: 0.16
+    dynamic_size_edge_full_abs: 0.35
+    dynamic_size_target_usd_cap: 20.0
+    conviction_model: edge_plus_latency_score
+    edge_weight: 0.65
+    latency_score_weight: 0.35
+    dynamic_preview_enabled: true
+    final_window_enabled: true
+    final_window_sec: 7.0
+    stage_final_window_sec_by_stage: {}
+    aggressive_window_enabled: false
+    aggressive_window_sec: 7.0
+    price_aggress_bps_max: 8.0
+    multi_oracle_boost_enabled: true
+    multi_oracle_boost_window_sec: 7.0
+    multi_oracle_edge_threshold_abs: 0.20
+    multi_oracle_target_usd_cap: 20.0
+    multi_oracle_capital_pct_cap: 0.18
+    allow_complement_buy_route: true
+    min_visible_fill_ratio: 0.5
+    stage_priority_enabled: true
 
 storage:
   log_dir: /logs/paper_universal

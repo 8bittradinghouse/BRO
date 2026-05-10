@@ -4,6 +4,23 @@ import dataclasses
 import math
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from prodesk.edge_truth_contract import (
+    STAGE_EXTREME_ONLY,
+    STAGE_MAKER_TAKER_SELECTIVE,
+    STAGE_SNIPER_PRIMARY,
+)
+
+
+CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset(
+    stage_name
+    for stage_name in (
+        STAGE_MAKER_TAKER_SELECTIVE,
+        STAGE_SNIPER_PRIMARY,
+        STAGE_EXTREME_ONLY,
+    )
+    if stage_name == STAGE_EXTREME_ONLY
+)
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -35,7 +52,7 @@ class StageAggressiveness:
 
 
 @dataclasses.dataclass(frozen=True)
-class SniperToolConfig:
+class TakerCompetitivenessConfig:
     enabled: bool = False
     hard_min_target_usd: float = 100.0
     hard_min_enforcement: str = "skip_if_unachievable"
@@ -65,7 +82,7 @@ class SniperToolConfig:
     min_visible_fill_ratio: float = 0.0
 
     @classmethod
-    def from_mapping(cls, row: Optional[Mapping[str, Any]]) -> "SniperToolConfig":
+    def from_mapping(cls, row: Optional[Mapping[str, Any]], *, strict: bool = False) -> "TakerCompetitivenessConfig":
         if not isinstance(row, Mapping):
             return cls()
         stage_rows = row.get("stage_aggressiveness")
@@ -75,6 +92,10 @@ class SniperToolConfig:
                 stage_name = str(stage or "").strip().upper()
                 if not stage_name:
                     continue
+                if strict and stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
+                    raise ValueError(
+                        "taker.competitiveness.stage_aggressiveness keys must be taker-allowed stages"
+                    )
                 parsed_stage_rows[stage_name] = StageAggressiveness.from_mapping(payload)
         stage_window_rows = row.get("stage_final_window_sec_by_stage")
         parsed_stage_window_rows: Dict[str, float] = {}
@@ -83,11 +104,15 @@ class SniperToolConfig:
                 stage_name = str(stage or "").strip().upper()
                 if not stage_name:
                     continue
+                if strict and stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
+                    raise ValueError(
+                        "taker.competitiveness.stage_final_window_sec_by_stage keys must be taker-allowed stages"
+                    )
                 stage_window_sec = max(0.0, _safe_float(payload, 0.0))
                 if stage_window_sec <= 0.0:
                     continue
                 parsed_stage_window_rows[stage_name] = float(stage_window_sec)
-        return cls(
+        cfg = cls(
             enabled=bool(row.get("enabled", False)),
             hard_min_target_usd=max(0.0, _safe_float(row.get("hard_min_target_usd"), 100.0)),
             hard_min_enforcement=str(row.get("hard_min_enforcement", "skip_if_unachievable")).strip().lower()
@@ -119,10 +144,176 @@ class SniperToolConfig:
             allow_complement_buy_route=bool(row.get("allow_complement_buy_route", True)),
             min_visible_fill_ratio=max(0.0, min(1.0, _safe_float(row.get("min_visible_fill_ratio"), 0.0))),
         )
+        if strict:
+            _validate_taker_competitiveness_policy(cfg, row=row)
+        return cfg
+
+    def as_mapping(self) -> Dict[str, Any]:
+        return {
+            "enabled": bool(self.enabled),
+            "hard_min_target_usd": float(self.hard_min_target_usd),
+            "hard_min_enforcement": str(self.hard_min_enforcement),
+            "dynamic_size_enabled": bool(self.dynamic_size_enabled),
+            "dynamic_size_edge_start_abs": float(self.dynamic_size_edge_start_abs),
+            "dynamic_size_edge_full_abs": float(self.dynamic_size_edge_full_abs),
+            "dynamic_size_target_usd_cap": float(self.dynamic_size_target_usd_cap),
+            "conviction_model": str(self.conviction_model),
+            "edge_weight": float(self.edge_weight),
+            "latency_score_weight": float(self.latency_score_weight),
+            "final_window_enabled": bool(self.final_window_enabled),
+            "final_window_sec": float(self.final_window_sec),
+            "stage_final_window_sec_by_stage": {
+                str(stage): float(value)
+                for stage, value in dict(self.stage_final_window_sec_by_stage or {}).items()
+            },
+            "aggressive_window_enabled": bool(self.aggressive_window_enabled),
+            "aggressive_window_sec": float(self.aggressive_window_sec),
+            "stage_aggressiveness": {
+                str(stage): {
+                    "size_mult": float(profile.size_mult),
+                    "price_aggress_bps": float(profile.price_aggress_bps),
+                }
+                for stage, profile in dict(self.stage_aggressiveness or {}).items()
+            },
+            "price_aggress_bps_max": float(self.price_aggress_bps_max),
+            "dynamic_preview_enabled": bool(self.dynamic_preview_enabled),
+            "multi_oracle_boost_enabled": bool(self.multi_oracle_boost_enabled),
+            "multi_oracle_boost_window_sec": float(self.multi_oracle_boost_window_sec),
+            "multi_oracle_edge_threshold_abs": float(self.multi_oracle_edge_threshold_abs),
+            "multi_oracle_target_usd_cap": float(self.multi_oracle_target_usd_cap),
+            "multi_oracle_capital_pct_cap": float(self.multi_oracle_capital_pct_cap),
+            "stage_priority_enabled": bool(self.stage_priority_enabled),
+            "normal_side_policy": str(self.normal_side_policy),
+            "allow_complement_buy_route": bool(self.allow_complement_buy_route),
+            "min_visible_fill_ratio": float(self.min_visible_fill_ratio),
+        }
+
+
+def _validate_taker_competitiveness_policy(
+    cfg: "TakerCompetitivenessConfig",
+    *,
+    row: Optional[Mapping[str, Any]] = None,
+) -> None:
+    source = row if isinstance(row, Mapping) else {}
+
+    if float(cfg.hard_min_target_usd) <= 0.0:
+        raise ValueError("taker.competitiveness.hard_min_target_usd must be > 0")
+    if float(cfg.dynamic_size_edge_start_abs) < 0.0:
+        raise ValueError("taker.competitiveness.dynamic_size_edge_start_abs must be >= 0")
+    if float(cfg.dynamic_size_edge_full_abs) < float(cfg.dynamic_size_edge_start_abs):
+        raise ValueError(
+            "taker.competitiveness.dynamic_size_edge_full_abs must be >= dynamic_size_edge_start_abs"
+        )
+    if float(cfg.dynamic_size_target_usd_cap) <= 0.0:
+        raise ValueError("taker.competitiveness.dynamic_size_target_usd_cap must be > 0")
+    if float(cfg.dynamic_size_target_usd_cap) + 1e-9 < float(cfg.hard_min_target_usd):
+        raise ValueError(
+            "taker.competitiveness.dynamic_size_target_usd_cap must be >= hard_min_target_usd"
+        )
+    if not (0.0 <= float(cfg.edge_weight) <= 1.0):
+        raise ValueError("taker.competitiveness.edge_weight must be within [0, 1]")
+    if not (0.0 <= float(cfg.latency_score_weight) <= 1.0):
+        raise ValueError("taker.competitiveness.latency_score_weight must be within [0, 1]")
+    if (float(cfg.edge_weight) + float(cfg.latency_score_weight)) <= 0.0:
+        raise ValueError(
+            "taker.competitiveness.edge_weight + latency_score_weight must be > 0"
+        )
+    if float(cfg.final_window_sec) <= 0.0:
+        raise ValueError("taker.competitiveness.final_window_sec must be > 0")
+    if float(cfg.aggressive_window_sec) < 0.0:
+        raise ValueError("taker.competitiveness.aggressive_window_sec must be >= 0")
+    if float(cfg.aggressive_window_sec) > float(cfg.final_window_sec):
+        raise ValueError(
+            "taker.competitiveness.aggressive_window_sec must be <= final_window_sec"
+        )
+    if float(cfg.price_aggress_bps_max) < 0.0:
+        raise ValueError("taker.competitiveness.price_aggress_bps_max must be >= 0")
+    if float(cfg.multi_oracle_boost_window_sec) <= 0.0:
+        raise ValueError("taker.competitiveness.multi_oracle_boost_window_sec must be > 0")
+    if float(cfg.multi_oracle_boost_window_sec) > float(cfg.final_window_sec):
+        raise ValueError(
+            "taker.competitiveness.multi_oracle_boost_window_sec must be <= final_window_sec"
+        )
+    if float(cfg.multi_oracle_edge_threshold_abs) < 0.0:
+        raise ValueError("taker.competitiveness.multi_oracle_edge_threshold_abs must be >= 0")
+    if float(cfg.multi_oracle_target_usd_cap) <= 0.0:
+        raise ValueError("taker.competitiveness.multi_oracle_target_usd_cap must be > 0")
+    if float(cfg.multi_oracle_target_usd_cap) + 1e-9 < float(cfg.dynamic_size_target_usd_cap):
+        raise ValueError(
+            "taker.competitiveness.multi_oracle_target_usd_cap must be >= dynamic_size_target_usd_cap"
+        )
+    if not (0.0 <= float(cfg.multi_oracle_capital_pct_cap) <= 1.0):
+        raise ValueError("taker.competitiveness.multi_oracle_capital_pct_cap must be within [0, 1]")
+    if str(cfg.hard_min_enforcement).strip().lower() not in {"skip_if_unachievable"}:
+        raise ValueError(
+            "taker.competitiveness.hard_min_enforcement must be skip_if_unachievable"
+        )
+    if str(cfg.conviction_model).strip().lower() not in {"edge_plus_latency_score"}:
+        raise ValueError(
+            "taker.competitiveness.conviction_model must be edge_plus_latency_score"
+        )
+    if str(cfg.normal_side_policy).strip().lower() not in {"buy_expected_winner_only"}:
+        raise ValueError(
+            "taker.competitiveness.normal_side_policy must be buy_expected_winner_only"
+        )
+    if not (0.0 <= float(cfg.min_visible_fill_ratio) <= 1.0):
+        raise ValueError("taker.competitiveness.min_visible_fill_ratio must be within [0, 1]")
+
+    stage_window_rows = source.get("stage_final_window_sec_by_stage", {})
+    if stage_window_rows is not None and not isinstance(stage_window_rows, Mapping):
+        raise ValueError("taker.competitiveness.stage_final_window_sec_by_stage must be a mapping")
+    for stage_name, stage_window_sec in dict(cfg.stage_final_window_sec_by_stage or {}).items():
+        if stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
+            raise ValueError(
+                "taker.competitiveness.stage_final_window_sec_by_stage keys must be taker-allowed stages"
+            )
+        if float(stage_window_sec) <= 0.0:
+            raise ValueError(
+                f"taker.competitiveness.stage_final_window_sec_by_stage[{stage_name}] must be > 0"
+            )
+        if float(cfg.aggressive_window_sec) > float(stage_window_sec):
+            raise ValueError(
+                "taker.competitiveness.aggressive_window_sec must be <= "
+                + f"stage_final_window_sec_by_stage[{stage_name}]"
+            )
+        if float(cfg.multi_oracle_boost_window_sec) > float(stage_window_sec):
+            raise ValueError(
+                "taker.competitiveness.multi_oracle_boost_window_sec must be <= "
+                + f"stage_final_window_sec_by_stage[{stage_name}]"
+            )
+
+    stage_aggr_rows = source.get("stage_aggressiveness", {})
+    if stage_aggr_rows is not None and not isinstance(stage_aggr_rows, Mapping):
+        raise ValueError("taker.competitiveness.stage_aggressiveness must be a mapping")
+    if dict(cfg.stage_aggressiveness or {}):
+        raise ValueError(
+            "taker.competitiveness.stage_aggressiveness is retired for current configs"
+        )
+    for stage_name, profile in dict(cfg.stage_aggressiveness or {}).items():
+        if stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
+            raise ValueError(
+                "taker.competitiveness.stage_aggressiveness keys must be taker-allowed stages"
+            )
+        if float(profile.size_mult) < 1.0:
+            raise ValueError(
+                f"taker.competitiveness.stage_aggressiveness[{stage_name}].size_mult must be >= 1.0"
+            )
+        if float(profile.price_aggress_bps) < 0.0:
+            raise ValueError(
+                f"taker.competitiveness.stage_aggressiveness[{stage_name}].price_aggress_bps must be >= 0"
+            )
+
+
+def build_taker_competitiveness_policy(
+    row: Optional[Mapping[str, Any]],
+    *,
+    strict: bool = False,
+) -> "TakerCompetitivenessConfig":
+    return TakerCompetitivenessConfig.from_mapping(row, strict=strict)
 
 
 @dataclasses.dataclass(frozen=True)
-class SniperCandidate:
+class TakerCandidate:
     token_id: str
     stage: str
     sec_to_expiry: Optional[float]
@@ -142,7 +333,7 @@ class SniperCandidate:
 
 
 @dataclasses.dataclass(frozen=True)
-class SniperDecision:
+class TakerDecision:
     token_id: str
     stage: str
     should_submit: bool
@@ -292,12 +483,12 @@ class SniperDecision:
 
 
 @dataclasses.dataclass(frozen=True)
-class SniperBatchResult:
-    decisions: List[SniperDecision]
+class TakerBatchResult:
+    decisions: List[TakerDecision]
 
 
-class SniperTool:
-    def __init__(self, cfg: SniperToolConfig):
+class TakerCompetitivenessEngine:
+    def __init__(self, cfg: TakerCompetitivenessConfig):
         self.cfg = cfg
 
     def _edge_norm(self, edge_abs: float) -> float:
@@ -323,30 +514,30 @@ class SniperTool:
         return _clamp(((edge_weight * edge_norm) + (score_weight * score_norm)) / total, 0.0, 1.0)
 
     def _effective_final_window_sec(self, stage: str) -> float:
-        normalized_stage = str(stage or "").strip().upper()
-        stage_window = self.cfg.stage_final_window_sec_by_stage.get(normalized_stage)
-        if isinstance(stage_window, (int, float)) and float(stage_window) > 0.0:
-            return float(stage_window)
+        del stage
         return float(self.cfg.final_window_sec)
 
     def _timing_window_class(self, stage: str, sec_to_expiry: Optional[float]) -> str:
+        del stage
         if not self.cfg.final_window_enabled:
             return "window_disabled"
         if not isinstance(sec_to_expiry, (int, float)):
             return "outside_window"
         sec = float(sec_to_expiry)
-        final_window_sec = self._effective_final_window_sec(stage)
+        final_window_sec = float(self.cfg.final_window_sec)
         if sec < 0.0 or sec > final_window_sec:
             return "outside_window"
-        if self.cfg.aggressive_window_enabled and sec <= float(self.cfg.aggressive_window_sec):
-            return "final10"
         if abs(float(final_window_sec) - 15.0) <= 1e-9:
             return "final15"
         return "final_window"
 
     def _stage_aggressiveness(self, stage: str) -> StageAggressiveness:
-        normalized = str(stage or "").strip().upper()
-        return self.cfg.stage_aggressiveness.get(normalized, StageAggressiveness())
+        del stage
+        # Current live taker behavior no longer accepts stage-local
+        # aggressiveness ownership. Compatibility payloads may still carry the
+        # field, but runtime amperage now flows only through canonical
+        # non-stage taker controls.
+        return StageAggressiveness()
 
     def _target_usd(
         self,
@@ -372,21 +563,29 @@ class SniperTool:
             hard_min_floor_applied = True
         return requested, floor, hard_min_floor_applied
 
+    def _submit_candidate_sort_key(self, row: "TakerDecision") -> tuple[Any, ...]:
+        # Canonical taker ordering is edge-first. Conviction, token-score, and
+        # dynamic-preview plumbing remain emitted for diagnostic continuity only.
+        return (
+            -float(row.edge_abs),
+            str(row.token_id),
+        )
+
     def evaluate_batch(
         self,
         *,
-        candidates: Sequence[SniperCandidate],
+        candidates: Sequence[TakerCandidate],
         max_orders_per_cycle: int,
-    ) -> SniperBatchResult:
-        decisions: List[SniperDecision] = []
+    ) -> TakerBatchResult:
+        decisions: List[TakerDecision] = []
         if not self.cfg.enabled:
             for candidate in candidates:
                 decisions.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=str(candidate.token_id),
                         stage=str(candidate.stage),
                         should_submit=False,
-                        block_reason="sniper_taker_competitiveness_disabled",
+                        block_reason="taker_competitiveness_disabled",
                         side=None,
                         price=None,
                         edge_abs=abs(float(candidate.edge_value)),
@@ -412,9 +611,9 @@ class SniperTool:
                         multi_oracle_status="disabled",
                     )
                 )
-            return SniperBatchResult(decisions=decisions)
+            return TakerBatchResult(decisions=decisions)
 
-        provisional: List[SniperDecision] = []
+        provisional: List[TakerDecision] = []
         normal_side_policy = str(self.cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
         for candidate in candidates:
             token_id = str(candidate.token_id)
@@ -434,7 +633,7 @@ class SniperTool:
 
             if edge_abs < required_min_edge:
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -469,7 +668,7 @@ class SniperTool:
 
             if timing_window_class == "outside_window":
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -569,7 +768,7 @@ class SniperTool:
             hard_min_unachievable = target_usd_resolved + 1e-9 < floor_usd
             if hard_min_unachievable and self.cfg.hard_min_enforcement == "skip_if_unachievable":
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -604,7 +803,7 @@ class SniperTool:
 
             if edge_signed < 0.0 and normal_side_policy == "buy_expected_winner_only":
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -649,7 +848,7 @@ class SniperTool:
             )
             if base_price is None or base_price <= 0.0:
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -688,7 +887,7 @@ class SniperTool:
                 price = base_price * (1.0 - (aggress_bps / 10000.0))
             if not math.isfinite(price) or price <= 0.0 or price >= 1.0:
                 provisional.append(
-                    SniperDecision(
+                    TakerDecision(
                         token_id=token_id,
                         stage=stage,
                         should_submit=False,
@@ -722,7 +921,7 @@ class SniperTool:
                 continue
 
             provisional.append(
-                SniperDecision(
+                TakerDecision(
                     token_id=token_id,
                     stage=stage,
                     should_submit=True,
@@ -759,17 +958,7 @@ class SniperTool:
         submit_candidates = [row for row in provisional if row.should_submit]
         submit_candidates_sorted = sorted(
             submit_candidates,
-            key=lambda row: (
-                -int(
-                    bool(row.submit_capable_dynamic_predicted)
-                    if isinstance(row.submit_capable_dynamic_predicted, bool)
-                    else True
-                ),
-                -float(row.conviction_score),
-                -float(row.edge_abs),
-                -float(row.predicted_feasible_target_usd or 0.0),
-                str(row.token_id),
-            ),
+            key=self._submit_candidate_sort_key,
         )
         allowed_count = max(0, int(max_orders_per_cycle))
         allowed_ids = {row.token_id for row in submit_candidates_sorted[:allowed_count]}
@@ -785,4 +974,4 @@ class SniperTool:
                 )
                 continue
             decisions.append(row)
-        return SniperBatchResult(decisions=decisions)
+        return TakerBatchResult(decisions=decisions)

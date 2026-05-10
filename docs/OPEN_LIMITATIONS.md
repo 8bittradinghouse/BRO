@@ -9,7 +9,12 @@
 ## Current Operational Meaning
 - Paper-mode wallet truth can be authoritative for paper harness operation.
 - Paper-mode success does not prove live order capability.
+- Wallet hookup truth is not the same thing as order-capable live truth.
 - Live order-capable paths remain blocked unless canonical live nonce and pending-wallet-tx truth requirements are satisfied by an approved provider path.
+- `prelive_gate` and `live_canary` are bounded tools inside the live-trust
+  lane; they are not final live authority by themselves.
+- no generic weapon tuning or blueprint tuning is authorized while Packet 1
+  taker authority repair remains open.
 - Reconcile output is an integrity tripwire and must not be represented as full ledger accounting.
 
 ## Launch-Window Limitations
@@ -26,6 +31,9 @@
     `492ea0b757623c0a9dade4a333c0bf743dcd05ffbaa8a3c34b24c16a22313ede`
   - this exact match is fingerprint-scoped runtime identity, not a blanket
     proving-path identity claim
+  - the referenced report/session path is not currently present on disk in this
+    workspace, so this anchor is currently doc-backed and fingerprint-backed
+    rather than directly artifact-readable locally
 - Latest lane-specific closeout proof
   `33e30bd8-e416-488e-83ce-f99c8665e7fc` is supporting current-code closure
   truth for its lane, not the broad front-door runtime anchor.
@@ -46,7 +54,10 @@
 - Current pushed tree remains:
   - branch `consultant/full-snapshot-public-20260402T055838Z`
   - pushed
-  - working tree clean
+  - working tree currently carries live-trust rehardening updates
+- Current `HEAD` is docs/rerack commit `000a7f4...`; the live-trust runtime /
+  config / report changes in the working tree remain uncommitted proof-seeking
+  work above that pushed tip.
 - Latest clean-tree validation run `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6`
   remains a clean-tree wiring reference, not the active front-door runtime
   anchor.
@@ -90,16 +101,37 @@
   - `maker_quote_integrity_summary.next_repair_lane="D. Peak-hours confirmation specimen"`
   - do not treat this overnight specimen as runtime failure or as authorization
     to mutate doctrine, gates, or strategy
+- Current accessible packet-era artifacts (`4b60...`, `33e3...`, `6e2826...`,
+  `ec26...`) still carry earlier taker config semantics in their run manifests:
+  - `min_edge_by_stage` still includes `MAKER_TAKER_SELECTIVE` and
+    `SNIPER_PRIMARY`
+  - `execution_cutoff_sec=10.0`
+  - `arming_horizon_sec=86400.0`
+  - some runs still carry stage-local final-window entries
+  - they remain useful contrast/runtime truth, but they do not by themselves
+    certify the newest uncommitted live-trust semantics now present in the
+    working tree
 - Low-price maker floor/cap adaptation remains unresolved policy scope: current behavior fails closed when maker hard floor `100.0` USDC cannot fit inside maker hard max `800.0` shares.
 - A literal 5-minute canonical session remains below the current canonical soak budget (`10` minutes and `20` status rows). Use it as smoke evidence only unless a separate smoke-budget lane is explicitly created.
 - Current artifacts classify `reduce_only_recovery_size_cap_unavailable` as flat/wrong-side no-op local rejection, but future non-flat/unknown recovery-cap rows would reopen that lane.
 - Current artifacts classify the single required-book-feed disconnected row as startup/bootstrap telemetry, but recurring post-bootstrap disconnects would reopen that lane.
 - Current VPS resource telemetry is now visible, but capacity planning remains evidence-driven and unresolved for future multi-BRO operation.
+- Latest current-tree true-green specimen
+  `fa32bb8f-3736-4130-9a5b-042291584bef` still exposes one narrow
+  report-scope valuation seam:
+  - event tape can show short-lived `valuation_degraded=true` windows around
+    settlement while status-sampled nightly/readiness bruise state still
+    reports `none`
+  - treat this as summary-scope / observability limitation, not as proven
+    runtime sickness
 - A clean current-code release anchor now exists on
   `7bbde42c-003a-4f57-b59a-7ce138224075`, but that does not remove the
   `pilot_live` frontier or promote whole-fighter closure by itself.
 - Pilot-live readiness still remains unproven, but paper-stage readiness is no
   longer blocked on the latest current-code doctrinal proof set.
+- Maker/taker remain diagnostic-only for tuning/aggression work, but
+  maker and taker live-trust qualification are now active diagnostic
+  proof work inside the `pilot_live` lane.
 
 ## Truth Handling Rule
 If a limitation is unresolved, it must remain visible in docs, reports, and operator handoff. It must not be softened into a success claim.

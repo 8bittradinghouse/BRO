@@ -319,8 +319,7 @@ class FusionCoreProfileTests(unittest.TestCase):
             self.assertEqual(readiness["lanes"]["maker"]["deep_coverage_ratio"], 1.0)
             self.assertEqual(readiness["lanes"]["maker"]["promotion_blockers"], [])
             self.assertEqual(readiness["lanes"]["taker"]["depth_class"], "bounded_depth")
-            self.assertEqual(readiness["lanes"]["sniper"]["depth_class"], "bounded_depth")
-            self.assertFalse(readiness["lanes"]["sniper"]["can_emit_profiles"])
+            self.assertNotIn("sniper", readiness["lanes"])
 
             profiles = json.loads((out_dir / "fusion_core_profile_catalog.json").read_text(encoding="utf-8"))
             profile_ids = [profile["profile_id"] for profile in profiles]
