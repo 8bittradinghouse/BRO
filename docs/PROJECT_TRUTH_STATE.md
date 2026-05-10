@@ -46,12 +46,11 @@
   - the referenced broad clean-anchor `7bbde42c-003a-4f57-b59a-7ce138224075` report/session path is not currently present on disk in this workspace
   - current belief in that anchor is therefore doc-backed and fingerprint-backed, not directly artifact-readable locally
 - Current packet state: peak-hours paper confirmation is materially achieved on
-  current proof; the active next move is the bounded `pilot_live` live-trust
-  qualification lane; the working tree currently carries live-trust
-  rehardening updates and must not be represented as clean until recommitted:
-  - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
-  - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-  - the current working-tree live-trust semantics are ahead of the accessible packet-era runtime artifacts and therefore remain code-backed/test-backed until a fresh watched run re-proves them
+  current proof; Packet 1 now closes `bounded-live-test ready` on watched
+  proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the active next move inside the
+  bounded `pilot_live` live-trust qualification lane is `Packet 2 Maker-Live`;
+  the current working tree is now clean and the closeout semantics are
+  artifact-backed, code-backed, and test-backed on the fresh watched specimen:
   - companion deep relock audit:
     - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
