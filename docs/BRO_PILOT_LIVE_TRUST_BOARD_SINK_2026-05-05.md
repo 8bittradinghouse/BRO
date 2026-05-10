@@ -45,6 +45,18 @@
 - Stronger existing doctrine or validator surfaces must not be replaced by a
   weaker surface just because the weaker one is easier to summarize.
 
+## Pilot-Live Severity Lock
+This board exists to keep pilot-live work serious enough for capital trust.
+
+Board law:
+- false confidence is a production bug
+- a cleaner story is not stronger than stronger owner evidence
+- support-tool output may guide diagnosis but may not impersonate runtime law
+- historical packet wins may justify where to look, but never outrank current
+  doctrine/runtime owner truth
+- every packet must leave an explicit anti-drift trail strong enough for a new
+  thread to relock without inventing philosophy
+
 ## Packet Status Board
 - Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
 - Packet 2 `Maker-Live / Economic Trust Qualification`: `sequenced / next to open`
@@ -62,9 +74,9 @@
 
 ## Jin Self-Hardening Status
 - current status:
-  `current for Packet 1 active closure implementation, residual-compatibility quarantine, and board-sync hardening`
+  `current for Packet 2 maker recovery relock, anti-drift doctrine lock, and read-only mapping entry hardening`
 - active packet-local lock card:
-  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - required packet-local lock card:
   - mission lock
   - doctrine lock
@@ -81,8 +93,8 @@
 - packet work is `NO-GO` if the rehardening output is thin, stale, or
   contradictory
 - current packet-local verdict:
-  - `GO` for current-truth lock, tree cleanup, clean-state Packet 1 rerack,
-    and explicit residual-seam carry
+  - `GO` for maker authority census, blueprint delta mapping, support-tool
+    fencing, history-only quarantine, and anti-drift recovery relock
   - `NO-GO` for generic tuning or live arming
 
 ## Packet 1 Relock Spine
@@ -123,6 +135,8 @@ Current board use:
 - Packet 1 remains the reference restoration method for `pilot_live`
 - Packet 2 and later packets inherit the method, not the taker-specific owner
   answers
+- Packet 2 and later packets must also inherit the recurring self-hardening
+  cadence from the program, not just the initial preload ritual
 
 ## Drift Register
 | ID | Drift | Risk | Status |
@@ -134,6 +148,7 @@ Current board use:
 | LT-005 | letting weak taker participation be dismissed as “strict doctrine” without economic proof | medium | open |
 | LT-006 | losing Jin self-hardening / continuity lock during deep packets | medium | open |
 | LT-007 | replacing stronger authority surfaces with weaker convenience summaries | high | open |
+| LT-008 | letting maker support tooling, schematic convenience, or historical packet wins drift back into current owner-law during Packet 2 | high | open |
 
 ## Ambiguity Register
 | ID | Ambiguity | Why it matters | Status |
@@ -145,6 +160,7 @@ Current board use:
 | LA-005 | market-truth substrate looks serviceable vs genuinely clean enough for capital trust | upstream truth pollution can fake healthy economics | open |
 | LA-006 | taker reads like one doctrine lane on the board but still carries inherited split-brain relay ancestry in runtime semantics | live fire trust cannot close cleanly if one lane still behaves like multiple competing brains | open |
 | LA-007 | taker may carry true owner-law, valid interlocks, and obsolete scar tissue from inherited sniper-era lineage | later surgery must not cut muscle while removing bullshit | open |
+| LA-008 | Packet 2 maker support surfaces may be genuinely useful while still being non-authoritative | useful tooling must be fenced instead of silently promoted into runtime truth | open |
 
 ## Contradiction Matrix
 | ID | Contradiction | Why it matters | Status |

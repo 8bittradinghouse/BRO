@@ -477,6 +477,29 @@
 - next packet to open inside that lane is `Maker-Live / Economic Trust Qualification`
 - active Packet 2 recovery/entry artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+- Packet 2 recovery philosophy lock:
+  - treat maker as capital-trust engineering, not a fill-count vanity lane
+  - carry forward Packet 1 restoration method:
+    - restore first
+    - owner-first, wrapper-second
+    - one concept / one term / one owner
+    - contradiction compression plus negative-proof before closure
+  - require recurring self-hardening:
+    - after every 2 investigation slices
+    - after watched runtime proof
+    - before implementation planning
+    - before any ready / closeout recommendation
+  - each hardening pass must restate:
+    - mission lock
+    - no-change list
+    - strongest owner map
+    - support-tool boundary
+    - history quarantine
+    - strongest falsifier list
+    - residual risk register
+  - support tools may remain useful, but may not regain current owner-law
+  - historical maker packets may explain ancestry only unless current code
+    re-proves them
 - current Packet 1 live-trust verdict:
   - `bounded-live-test ready`
   - one-brain owner collapse is materially achieved on current code

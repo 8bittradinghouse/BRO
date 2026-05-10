@@ -240,6 +240,17 @@ Historical-lane archive rule:
     4. Packet 5 `Immediate-Performance Proof`
   - active Packet 2 recovery/entry artifact is:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+  - Packet 2 relock law:
+    - treat maker as a capital-trust packet, not a participation vanity packet
+    - run recurring self-hardening after every 2 investigation slices, after
+      watched runtime proof, before any implementation plan, and before any
+      closeout recommendation
+    - restate mission lock, no-change list, strongest owner map,
+      support-tool boundary, history quarantine, strongest falsifier list, and
+      residual risk register on each hardening pass
+    - keep support tools useful but fenced, keep history historical-only, and
+      prefer family-cut surgery over leaf-by-leaf residue cleanup once owner
+      truth is fully mapped
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:

@@ -53,6 +53,18 @@ No-change list:
 - no convenience mixing of runtime owner truth with shop-tool truth
 - no rewriting history into current owner law
 
+## Pilot-Live Severity Covenant
+Packet 2 is capital-trust work, not a maker-activity vanity project.
+
+Severity rules:
+- false confidence is a production bug
+- support-tool usefulness does not grant runtime authority
+- historical packet wins do not certify current maker truth
+- stronger owner truth must beat cleaner narratives
+- useful tooling must be fenced, not silently promoted
+- if the lane still contains mixed truths, the right answer is more diagnosis,
+  not premature tuning
+
 ## Current Packet Status
 - packet status:
   - `sequenced / next to open`
@@ -114,6 +126,29 @@ Go / no-go:
 - `GO` for read-only mapping, owner census, historical tracing, and watched
   runtime diagnosis
 - `NO-GO` for generic tuning, live arming, or broad runtime mutation
+
+## Critical Points That Must Be Defined
+Before Packet 2 can legally recommend runtime surgery, each of these must be
+defined explicitly enough to survive a hostile reread:
+
+1. economic owner truth
+   - what surface actually owns expectancy, loss shape, and recurring small
+     negative maker dollars
+2. truth-population separation
+   - where decision, submit, filled-order, fill-event, and complete-outcome
+     truth start and stop
+3. gate legitimacy
+   - what each maker gate is allowed to decide and what stronger owner outranks
+     it
+4. market-truth substrate
+   - what makes a maker row authoritative vs truth-thin
+5. support-tool boundary
+   - what is useful but non-core, including `FMA` and related probes
+6. history quarantine
+   - what old maker packets may explain without retaining present power
+7. surgery law
+   - what can be cut by family, what must be fenced, and what must stay until a
+     stronger replacement exists
 
 ## Carry-Forward From Packet 1
 Packet 1 restoration law that stays active here:
@@ -189,6 +224,39 @@ Packet 2 inherits the method, not Packet 1's taker-specific answers.
    - gate legitimacy layer
    - timing/clock owner layer
    - support-only fence
+
+Recommended investigation cadence:
+1. maker authority census + blueprint delta map
+2. trigger recurring self-hardening pass
+3. support-tool/runtime-owner split + history-only demotion map
+4. trigger recurring self-hardening pass
+5. small-loss anatomy trace + scar-tissue family trace
+6. trigger recurring self-hardening pass
+7. family-grouped cut candidates + packet-entry surgery law
+8. final contradiction compression and negative-proof pass
+
+## Anti-Drift Reinforcement Layer
+Recurring self-hardening triggers:
+- after every 2 completed investigation lanes or work sections
+- before switching from read-only diagnosis to implementation planning
+- after every watched runtime proof specimen
+- before any ready / closeout / next-move recommendation
+- immediately after any finding that contradicts the currently preferred story
+
+Required output from each self-hardening trigger:
+1. current mission lock
+2. updated no-change list
+3. strongest current owner map
+4. stronger-vs-weaker surface check
+5. support-tool vs runtime-owner check
+6. historical-only quarantine check
+7. strongest falsifier list
+8. residual risk register
+
+Failure rule:
+- if a self-hardening pass is thin, contradictory, or cannot identify the
+  strongest owner for the active question, Packet 2 is `NO-GO` for
+  implementation
 
 ## Structural Atlas and Tool Boundary
 Primary structural atlas:

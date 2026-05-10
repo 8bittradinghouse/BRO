@@ -744,11 +744,18 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("## Carry-Forward From Packet 1", packet_text)
         self.assertIn("## Open Investigation Lanes", packet_text)
         self.assertIn("## Immediate Recovery Pickup", packet_text)
+        self.assertIn("## Pilot-Live Severity Covenant", packet_text)
+        self.assertIn("## Critical Points That Must Be Defined", packet_text)
+        self.assertIn("## Anti-Drift Reinforcement Layer", packet_text)
         self.assertIn("restore first, tune later", packet_text)
         self.assertIn("FMA", packet_text)
         self.assertIn("small recurring negative maker losses", packet_text)
         self.assertIn("SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md", packet_text)
         self.assertIn("GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md", packet_text)
+        self.assertIn("Recurring self-hardening cadence", program_text)
+        self.assertIn("## Pilot-Live Severity Lock", sink_text)
+        self.assertIn("LT-008", sink_text)
+        self.assertIn("LA-008", sink_text)
 
         packet_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
         self.assertIn(packet_rel, program_text)

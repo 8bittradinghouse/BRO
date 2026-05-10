@@ -20,6 +20,20 @@ for:
 4. bounded live hookup / controlled arming trust
 5. immediate-performance proof after bounded live hookup is clean
 
+## Pilot-Live Severity Covenant
+Pilot-live work must be treated as capital-trust engineering, not convenience
+cleanup.
+
+Program-wide seriousness rules:
+- false confidence is a production bug
+- wrapper-green is weaker than emitted runtime truth
+- support-tool comfort is weaker than doctrine/runtime owner truth
+- historical packet wins are evidence only, not current owner-law
+- unresolved ambiguity must stay explicit instead of being smoothed into
+  motivational language
+- every packet must prove what is strong enough to keep, what is support-only,
+  and what is scar tissue that should eventually be cut
+
 ## Current Program Lock
 - `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
 - `Packet 2` is the next sequenced implementation lane to open.
@@ -196,6 +210,21 @@ Required packet-local lock card before packet work:
 
 If the self-hardening output is thin, conflicted, or stale, the packet is
 `NO-GO`.
+
+Recurring self-hardening cadence:
+- after every 2 completed investigative sections or work slices
+- before switching from read-only diagnosis to implementation planning
+- after any watched runtime proof specimen
+- before any ready / closure recommendation
+
+Each recurring self-hardening pass must restate:
+- mission lock
+- no-change list
+- strongest current owner map
+- strongest falsifier list
+- support-tool vs runtime-owner boundary
+- historical-only quarantine check
+- residual risk register
 
 ## Mandatory Packet-Entry Tribunal
 No packet may begin implementation work until it completes this explicit
