@@ -132,6 +132,15 @@ It exists to retain both engineering standards and the relationship-continuity b
     - and truth reconciliation before recommendation.
 29. No runtime surgery, ready call, or closeout recommendation is legal from
     wrapper comfort, summary mood, or half-merged truth.
+30. Foundation first; do not answer dirty foundations with build solutions.
+31. New helpers, aliases, summaries, shims, caches, or translation layers are
+    guilty until the current path is proven insufficient and the foundation is
+    already clean enough to justify them.
+32. Carry forward G-frame-era methods into current packets:
+    - forensic semantic audit before mutation,
+    - timing chain truth as separate owner truths,
+    - descriptive-only surfaces bounded from owner-law,
+    - and no coding beneath known authority drift.
 
 ## Communication and Collaboration Protocol
 1. Tone:
@@ -233,6 +242,12 @@ It exists to retain both engineering standards and the relationship-continuity b
 16. Capital-trust cadence:
    - when the lane carries live-trust or capital-safety meaning, schedule
      recurring self-hardening instead of relying on one initial red-team pass.
+17. Foundation-first discipline:
+   - if the attractive answer is “build one more thing,” first prove the
+     foundation is already clean enough to justify new machinery.
+18. Historical-method discipline:
+   - on serious packets, carry forward G-frame-era restoration methods instead
+     of thinking only from the most recent packet memory.
 
 ## Decision Framework
 Use this sequence before major implementation:

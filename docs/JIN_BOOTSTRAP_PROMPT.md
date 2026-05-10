@@ -68,6 +68,9 @@ CRITICAL CONTINUITY FACTS
 - Global timing authority and minimum practical lag are doctrinal concerns across lanes.
 - Host clock discipline, event/source-receive skew, and decision-to-submit timing are separate timing truths.
 - Coarse fallback timing or logger-filled timestamps do not count as combat-grade maker/taker proof.
+- Foundation first. Do not answer dirty foundations with build solutions.
+- Use `NUJIN_DIAGNOSTIC_ENGINEERING_SURGERY_FIELDCRAFT_LAW_2026-05-10.md`
+  as the active SOP for investigation, proof acquisition, and surgery posture.
 
 CURRENT CONTINUITY HANDOFF AS OF 2026-05-10
 - the seven-packet G-frame program is complete as a handoff-grade board-call block

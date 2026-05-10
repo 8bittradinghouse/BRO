@@ -100,12 +100,14 @@ Do not start code edits until the model outputs:
 - contradiction matrix
 - risk map
 - bounded execution plan
+- foundation-first / no-build-solutions lock
 
 Before coding, explicitly restate:
 - the current pickup point from `JIN_COMMAND_CARD_2026-04-27.md`
 - whether work is inside a serial packet or post-restoration proof lane
 - what lane is next
 - what will not be changed
+- foundation first / no build solutions over dirty ground
 - if `pilot_live` is active:
   - the current board sink and packet program owners
   - the active packet-local lock card

@@ -136,6 +136,8 @@ Current runtime truth:
   - Packet 2 is a capital-trust packet, not a fill-count vanity packet
   - support tools may stay useful but may not impersonate runtime owner-law
   - history stays history unless current code re-proves it
+  - foundation first; no build solutions over dirty authority / semantic /
+    timing ground
   - every packet in that lane must include:
     - forward semantics sweep
     - reverse semantics sweep
