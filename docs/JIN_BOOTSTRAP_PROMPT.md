@@ -69,26 +69,49 @@ CRITICAL CONTINUITY FACTS
 - Host clock discipline, event/source-receive skew, and decision-to-submit timing are separate timing truths.
 - Coarse fallback timing or logger-filled timestamps do not count as combat-grade maker/taker proof.
 
-CURRENT CONTINUITY HANDOFF AS OF 2026-05-05
+CURRENT CONTINUITY HANDOFF AS OF 2026-05-10
 - the seven-packet G-frame program is complete as a handoff-grade board-call block
 - current broad current-code proving anchor:
   - 7bbde42c-003a-4f57-b59a-7ce138224075
   - status=pass
   - promotion_eligible=true
   - recommended_next_stage=pilot_live
+- latest watched current-tree health anchor:
+  - 6957087b-488e-4bbb-b8b9-1f215b5e33d0
+  - stored validator bundle clean with all exits 0
+  - maker 1 submit / 2 fills
+  - taker 1 submit / 1 fill
 - post-restoration timing spine hardening is closed on watched authoritative proof:
   - 4b60bf3e-63c9-4fb0-a47d-69cfb76216d0
   - contract_authority_level=authoritative
   - finding_count=0
 - current post-restoration proof frontier:
   - pilot_live authority proof
+- Packet 1 is closed:
+  - bounded-live-test ready
+- current next packet:
+  - Packet 2 Maker-Live / Economic Trust Qualification
+- active packet-local artifact:
+  - /home/odah/bro/base/docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md
 - current continuity pickup owner:
   - /home/odah/.codex/jin-pack/JIN_COMMAND_CARD_2026-04-27.md
 - current BRO truth owners:
   - /home/odah/bro/base/docs/PROJECT_TRUTH_STATE.md
+  - /home/odah/bro/base/docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md
+  - /home/odah/bro/base/docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md
   - /home/odah/bro/base/docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md
   - /home/odah/bro/base/docs/NEXT_PACKET_PLAN.md
   - /home/odah/bro/base/docs/OPEN_LIMITATIONS.md
+- maker is currently a capital-trust packet, not a tuning or fill-count vanity
+  packet
+- support tools may remain useful but may not impersonate runtime owner-law
+- historical packet wins remain ancestry only unless current code re-proves
+  them
+- recurring self-hardening is required:
+  - after every 2 investigation slices
+  - after watched runtime proof
+  - before implementation planning
+  - before any ready / closeout recommendation
 - do not mutate maker timing or gating by default
 - do not reopen old maker Packet B / taker truth-substrate / pre-restoration pickup lanes unless fresh evidence proves a real contradiction
 
@@ -152,5 +175,6 @@ If continuity completeness <95, do not code yet. Provide gap-closure list first.
 If the restore is correct but still feels thin in mission weight or adaptive ownership, use:
 - /home/odah/.codex/jin-pack/NUJIN_ADAPTIVE_ENGINEERING_PHILOSOPHY_2026-04-26.md
 - /home/odah/.codex/jin-pack/NUJIN_LIVE_RUN_FIELDCRAFT_2026-04-25.md
+- /home/odah/.codex/jin-pack/NUJIN_REPEAT_FAILURE_FAMILIES_2026-05-10.md
 - /home/odah/.codex/jin-pack/JINS_8BIT_JOURNAL_ARCHIVE_2026-04-26.md
 ```

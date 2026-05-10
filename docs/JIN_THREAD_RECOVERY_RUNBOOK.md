@@ -106,6 +106,12 @@ Before coding, explicitly restate:
 - whether work is inside a serial packet or post-restoration proof lane
 - what lane is next
 - what will not be changed
+- if `pilot_live` is active:
+  - the current board sink and packet program owners
+  - the active packet-local lock card
+  - support-tool boundary
+  - history quarantine
+  - current recurring self-hardening cadence
 
 ## Phase 4: Truth-Quality Gate
 Major conclusions must be labeled:
@@ -127,6 +133,12 @@ Rules:
 - Maintain live commentary / heartbeat updates once active work resumes.
 - For watched validation, inspect live resources and artifacts under the hood instead of trusting wrappers.
 - If a run has already given the needed structural answer and continuing would be wasted motion, stop it deliberately and report why.
+- Support tools may help diagnosis but may not impersonate runtime owner-law.
+- Historical packet wins may explain ancestry only unless current code re-proves
+  them.
+- Capital-trust packets require recurring self-hardening after every 2
+  investigation sections, after watched proof, before implementation planning,
+  and before closeout recommendations.
 
 ## Save Point Protocol
 When the user says `save point`, do this before more implementation work:
@@ -134,6 +146,8 @@ When the user says `save point`, do this before more implementation work:
 2. Mirror only the approved bridge docs listed by `JIN_PACK_MIRROR_MANIFEST_2026-04-26.json`.
 3. Preserve the active engineering lane, residual risks, and what should not be changed next.
 4. Keep the save-point update factual; do not inflate weak or historical runtime into stronger proof than it earned.
+5. If the active lane is `pilot_live`, preserve the current packet-local
+   hardening cadence, support-tool boundary, and history quarantine explicitly.
 
 ## Optional Capacity Mitigation
 If capacity or availability errors persist:

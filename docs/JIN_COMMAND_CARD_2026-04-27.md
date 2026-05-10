@@ -88,14 +88,6 @@ work.
 Current saved lane:
 - the seven-packet G-frame program is complete as a handoff-grade board-call
   block
-- Packet 1 clean current-code release-anchor closure is achieved on
-  `7bbde42c-003a-4f57-b59a-7ce138224075`
-- Packet 4 Grip current-code paper-stage truth closure is achieved on
-  `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- Packet 5 Brain source-layer mutation closure is achieved on
-  `656c9d42-070c-4f82-84cf-34aa333a9e7f`
-- Packet 6 Nervous-system consumer-truth closure is achieved on
-  `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
 - latest completed post-restoration hardening lane:
   - `timing spine hardening` on
     `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
@@ -103,6 +95,12 @@ Current saved lane:
   - `pilot_live` authority proof
 - active macro lane inside that frontier:
   - `live trust qualification`
+- Packet 1 is closed:
+  - `bounded-live-test ready`
+- current next packet:
+  - `Packet 2 Maker-Live / Economic Trust Qualification`
+- active packet-local artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - weapons remain diagnostic-only for tuning/aggression work
 - maker and taker live-trust qualification are authorized as diagnostic
   proof work
@@ -116,37 +114,28 @@ Current runtime truth:
   - `highest_passing_stage=paper`
   - `blocking_stage=pilot_live`
   - `runtime_classification=VALID_ACTIVE`
-- clean-anchor re-audit on that specimen says:
-  - active maker continuity no longer reads like an unexplained core-frame
-    choke
-- latest timing closeout proof:
-  - `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
-  - `status=pass`
-  - `contract_authority_level=authoritative`
-  - `finding_count=0`
-  - `highest_passing_stage=paper`
-  - `blocking_stage=pilot_live`
-  - `maker_submits=2`
-  - `maker_fills=10`
-- latest Grip closeout proof:
-  - `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-  - `status=pass`
-  - `highest_passing_stage=paper`
-  - `blocking_stage=pilot_live`
-  - `runtime_classification=VALID_ACTIVE`
+- latest watched current-tree health anchor:
+  - `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+  - stored validator bundle clean with all exits `0`
+  - maker `1 submit / 2 fills`
+  - taker `1 submit / 1 fill`
+  - action-row source purity clean on both lanes
+  - repaired valuation summary now truthfully carries event-level bruise
+    windows
 - next engineering lane:
   - govern the lane with:
     - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
     - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-  - qualify live trust for:
-    - taker
-    - wallet
-    - maker
-    - then bounded live hookup
-  - Packet 1 focus is a full taker inherited-lineage cleanup map from core
-    doctrine out through branch/contact surfaces and back into the true owner
+  - current packet order after Packet 1:
+    - Packet 2 `Maker-Live`
+    - Packet 3 `Grip-Live`
+    - Packet 4 `Bounded Live Hookup`
+    - Packet 5 `Immediate-Performance Proof`
   - `prelive_gate` / `live_canary` are bounded tools inside that lane, not the
     final authority by themselves
+  - Packet 2 is a capital-trust packet, not a fill-count vanity packet
+  - support tools may stay useful but may not impersonate runtime owner-law
+  - history stays history unless current code re-proves it
   - every packet in that lane must include:
     - forward semantics sweep
     - reverse semantics sweep
@@ -154,15 +143,27 @@ Current runtime truth:
     - negative-proof pass
     - combat timing doctrine verification
     - gate legitimacy sweep
+  - Packet 2 recurring self-hardening cadence:
+    - after every 2 investigation slices
+    - after watched runtime proof
+    - before implementation planning
+    - before any ready / closeout recommendation
   - watched peak-hours paper confirmation is now treated as materially achieved
     on current proof unless a fresh contradiction appears
   - keep pickup authority anchored to:
     - `docs/PROJECT_TRUTH_STATE.md`
+    - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+    - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
     - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
     - `docs/NEXT_PACKET_PLAN.md`
+    - `docs/OPEN_LIMITATIONS.md`
   - do not mutate maker timing/gating or do generic weapon tuning by default
-  - do not reopen Packets 2-6 unless a fresh live specimen proves a real
-    regression
+  - first Packet 2 work is read-only:
+    - maker authority census
+    - blueprint delta map
+    - support-tool vs runtime-owner split
+    - history-only demotion map
+    - small-loss anatomy trace
 
 ## One-Line Summary
 Use hard restart for continuity loss, pickup commands for lane control, save

@@ -113,6 +113,16 @@ It exists to retain both engineering standards and the relationship-continuity b
 21. Before closure, run a negative-proof pass that actively tries to falsify the preferred explanation or ready call.
 22. If a move can be split into smaller safe slices, it must be split; default
     to one seam or one tightly coupled authority set per slice.
+23. Support tools may help diagnosis but may not impersonate runtime owner law.
+24. History is ancestry only unless current code re-proves it.
+25. False confidence is a production bug in capital-trust packets.
+26. For capital-trust packets, run recurring self-hardening:
+   - after every 2 investigation sections,
+   - after watched runtime proof,
+   - before implementation planning,
+   - and before any ready / closeout recommendation.
+27. Prefer family-cut surgery once owner truth is mapped; do not leave residue
+    by habit when a full family can be retired honestly.
 
 ## Communication and Collaboration Protocol
 1. Tone:
@@ -194,6 +204,16 @@ It exists to retain both engineering standards and the relationship-continuity b
 13. Negative-proof discipline:
    - spend an explicit pass trying to disprove the preferred story,
    - if the easiest falsifier is still untested, the lane is not ready.
+14. Support-tool discipline:
+   - separate useful instrumentation from owner-law,
+   - keep tooling fenced if it helps,
+   - cut or rehome it if it silently claims runtime power.
+15. History discipline:
+   - demote drift-era or bug-chasing packet language to historical-only as soon
+     as stronger current-code owners exist.
+16. Capital-trust cadence:
+   - when the lane carries live-trust or capital-safety meaning, schedule
+     recurring self-hardening instead of relying on one initial red-team pass.
 
 ## Decision Framework
 Use this sequence before major implementation:
