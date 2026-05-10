@@ -379,7 +379,7 @@ Target muscle-state:
 | `doctrine_decision` | doctrine/operator truth | `effective_stage` + `stage_bucket` | operator truth needs both the current authority call and the pre-remap lineage that produced it | keep-now correct-sized dual-surface relay | preserve both; aliases stay compatibility-only |
 | `edge_evaluation` | runtime action/block truth | `effective_stage` + `stage_bucket` | action/block semantics depend on remapped authority stage while Packet 1 diagnostics still need original bucket lineage | keep-now correct-sized dual-surface relay | preserve both; continue shrinking alias drift |
 | `taker_decision` | submit-path decision truth | `effective_stage` + `stage_bucket` | submit-path events need actual decision stage plus original bucket lineage for complement-route, cooldown, and audit reasoning | keep-now correct-sized dual-surface relay | preserve both |
-| lifecycle context payloads | posture/recovery truth | `effective_stage` + `stage_bucket` | recovery, maker timing override, and posture diagnostics need current authority plus raw bucket lineage | keep-now correct-sized dual-surface relay | preserve both while Packet 1 remains open |
+| lifecycle context payloads | posture/recovery truth | `effective_stage` + `stage_bucket` | recovery, maker timing override, and posture diagnostics need current authority plus raw bucket lineage | keep-now correct-sized dual-surface relay | preserve both through Packet 1 closeout and Packet 2 handoff |
 | telemetry `doctrine_stage_count.*` | authority-stage observability | `effective_stage` only | counts current live authority distribution | keep-now correct-sized single-surface relay | none |
 | telemetry `doctrine_stage_bucket_count.*` | raw-lineage observability | `stage_bucket` only | counts raw time-bucket lineage independent of remap | keep-now correct-sized single-surface relay | none |
 | `maker_fight_admission_shadow` and nightly-soak row normalization | consumer/report support artifacts | `effective_stage` + `stage_bucket` | support artifacts need both stage truths so audits and backfills do not flatten remap lineage | keep-now correct-sized dual-surface consumer bridge | preserve both; shrink outward alias clutter later |
@@ -990,7 +990,7 @@ Explicitly forbidden to answer:
 
 ## Current Packet Call
 Current verdict:
-- `Needs work`
+- `bounded-live-test ready`
 
 Verdict basis:
 - `VERIFIED`: Packet 1 has materially collapsed the highest-value
@@ -1003,13 +1003,16 @@ Verdict basis:
     guarded
   - the maker/taker fallback asymmetry is explicit, guarded, and classified as
     keep-now interlock / shared-frame defer
-- `VERIFIED`: Packet 1 has not earned `bounded-live-test ready`:
-  - fresh watched Packet 1 specimens do not prove acceptable taker trust
-    economics or accepted live-fire trust behavior on this lane
-  - recovery/handoff is now classified as keep-now dead-power interlock, but
-    that does not by itself certify live trust
-  - compatibility bridges remain correctly deferred, but deferral is not the
-    same thing as live-trust readiness
+- `VERIFIED`: fresh watched Packet 1 proof now earns `bounded-live-test ready`:
+  - stored canonical validator bundle is clean with all validator and
+    replay-validator exits `0`
+  - maker and taker both submitted and filled on the stored bundle
+  - accepted taker live-fire trust behavior is present on the stored tape at
+    canonical `required_min_edge=0.11`
+  - repaired nightly valuation truth no longer flattens event-level degrade
+    windows into false `none` report truth
+  - compatibility bridges remain correctly deferred without retaining current
+    fire authority
 
 Current strongest findings:
 - doctrine-root contradiction on `SNIPER_PRIMARY` is source-corrected and now
@@ -1149,18 +1152,17 @@ Current strongest findings:
   - removal belongs to later clone-safe cleanup, not Packet 1 closure work
 
 Current lane status:
-- latest watched 20-minute current-tree specimen
-  `fa32bb8f-3736-4130-9a5b-042291584bef` produced a stored-bundle clean
-  paper-health pass:
+- latest watched 10-minute current-tree specimen
+  `6957087b-488e-4bbb-b8b9-1f215b5e33d0` produced a stored-bundle clean
+  closeout pass:
   - `validation_summary.json`: `ok=true`, `overall_exit_code=0`
-  - maker `2 submits / 10 fills`
-  - taker `2 submits / 2 fills`
+  - maker `1 submit / 2 fills`
+  - taker `1 submit / 1 fill`
   - action-row source purity clean on both lanes
-- Packet 1 is authorized for truth-lock, tree cleanup, and clean-state closure
-  rerack.
-- Packet 1 should still not overclaim final spotless closure while the
-  nightly/readiness valuation bruise summary can miss short-lived event-level
-  degrade windows that remain visible on the event tape.
+- repaired nightly valuation truth now carries event-level degrade windows
+  through current report truth instead of flattening them to `none`.
+- Packet 1 is now authorized to close `bounded-live-test ready` and hand the
+  next implementation lane to `Packet 2 Maker-Live`.
 
 ## Maker/Taker Independence Blocker Map
 - `VERIFIED`: current BRO runtime does **not** treat maker and taker as
@@ -1278,14 +1280,9 @@ Current lane status:
     which false-authority shells get deleted
 
 Immediate next packet work:
-1. choose the smallest approved follow-on slice for the `Needs work` verdict:
-   - fresh watched taker trust-economics / accepted-fire proof
-   - or a bounded verdict slice that classifies whether current
-     `EXTREME_ONLY` threshold reality is correct doctrine steel or later
-     redesign material
-   - or safe alias-fat reduction that does not disturb owner-law
+1. lock this Packet 1 closeout truth against the watched specimen
+   `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 2. keep the doctrine-root, two-surface stage contract, fallback verdict, and
-   compatibility-bridge defer calls fixed while the follow-on slice runs
-3. do not advance this lane to `bounded-live-test ready` without fresh watched
-   evidence that closes taker trust economics and closure-grade firing/abstain
-   legitimacy
+   compatibility-bridge defer calls fixed as closed Packet 1 truth
+3. open `Packet 2 Maker-Live / Economic Trust Qualification` as the next
+   bounded `pilot_live` packet

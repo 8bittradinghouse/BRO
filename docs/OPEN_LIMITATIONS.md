@@ -116,14 +116,8 @@
 - Current artifacts classify `reduce_only_recovery_size_cap_unavailable` as flat/wrong-side no-op local rejection, but future non-flat/unknown recovery-cap rows would reopen that lane.
 - Current artifacts classify the single required-book-feed disconnected row as startup/bootstrap telemetry, but recurring post-bootstrap disconnects would reopen that lane.
 - Current VPS resource telemetry is now visible, but capacity planning remains evidence-driven and unresolved for future multi-BRO operation.
-- Latest current-tree true-green specimen
-  `fa32bb8f-3736-4130-9a5b-042291584bef` still exposes one narrow
-  report-scope valuation seam:
-  - event tape can show short-lived `valuation_degraded=true` windows around
-    settlement while status-sampled nightly/readiness bruise state still
-    reports `none`
-  - treat this as summary-scope / observability limitation, not as proven
-    runtime sickness
+- Packet 2 `Maker-Live / Economic Trust Qualification` remains unopened and
+  unresolved even though Packet 1 has now closed `bounded-live-test ready`.
 - A clean current-code release anchor now exists on
   `7bbde42c-003a-4f57-b59a-7ce138224075`, but that does not remove the
   `pilot_live` frontier or promote whole-fighter closure by itself.

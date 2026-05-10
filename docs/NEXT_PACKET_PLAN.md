@@ -69,8 +69,9 @@ G-frame override:
     - `pilot_live` authority proof
   - active macro lane inside that frontier:
     - `live trust qualification`
-  - Packet 1 is the only active implementation lane now; downstream packets
-    remain sequenced but inactive until Packet 1 closes honestly
+  - Packet 1 is now closed `bounded-live-test ready`; Packet 2 Maker-Live is
+    the next implementation lane to open and downstream packets remain
+    sequenced behind it
   - current achieved packet-scope closures that a new thread must not silently
     reopen:
     - Packet 1 clean current-code release-anchor closure achieved on
@@ -211,17 +212,17 @@ Historical-lane archive rule:
   - active packet artifact:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
   - current Packet 1 verdict is explicit:
-    - `Needs work`
+    - `bounded-live-test ready`
     - one-brain owner collapse is materially achieved on current code
     - recovery/handoff owner classification is now explicitly keep-now dead power
-    - bounded-live-test readiness is not yet earned
+    - fresh watched closeout proof now exists on the stored bundle
   - that first packet must force a full taker inherited-lineage split-brain map from core
     doctrine out through branch/contact surfaces and back into the true owner
   - bounded `prelive_gate` / `live_canary` work remains a proving tool inside
     the lane without default maker timing mutation
   - fixed downstream lane order after Packet 1 is now:
-    1. Packet 2 `Grip-Live`
-    2. Packet 3 `Maker-Live`
+    1. Packet 2 `Maker-Live`
+    2. Packet 3 `Grip-Live`
     3. Packet 4 `Bounded Live Hookup`
     4. Packet 5 `Immediate-Performance Proof`
   - fresh watched post-restoration contrast specimen
@@ -557,23 +558,22 @@ Current truth:
     - `recovery_override_submits=0`
     - `maker_to_taker_recovery_handoff_disabled=144`
     - `waiting_for_maker_exit=0`
-- latest watched current-tree specimen `fa32bb8f-3736-4130-9a5b-042291584bef`
-  now provides the stronger clean health anchor:
+- latest watched current-tree specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+  now provides the stronger closeout health anchor:
   - stored validator bundle `ok=true` with all validator and replay-validator
     exits `0`
-  - maker `2 submits / 10 fills`
-  - taker `2 submits / 2 fills`
+  - maker `1 submit / 2 fills`
+  - taker `1 submit / 1 fill`
   - action-row source purity clean on both lanes
-  - accepted taker fires occurred at:
-    - `edge_value=0.19544432109812604`
-    - `edge_value=0.2648914731995672`
+  - accepted taker fire occurred at:
+    - `edge_value=0.2735337456282695`
     against canonical `required_min_edge=0.11`
-- latest remaining seam on that specimen is report-scope, not runtime failure:
-  - event tape records short-lived `valuation_degraded=true` windows around
-    settlement
-  - status-sampled nightly/readiness bruise state still reports `none`
-  - current nightly valuation bruise owner samples `status_rows`, so
-    sub-status-interval bruises can be missed
+- repaired nightly valuation truth now carries the event-level bruise window
+  honestly:
+  - `valuation_bruise_state=recovered_clean`
+  - `degraded_event_rows=68`
+  - `hard_degraded_enter_count=2`
+  - `hard_degraded_clear_count=2`
 - latest 60-minute stability specimen `8bfb70eb-c942-48eb-87ff-b9628b3098c7` extended the health proof:
   - `canonical_paper_validation`: `status=pass`, `runtime_classification=VALID_ACTIVE`, all validator exit codes `0`
   - `nightly_soak_report` showed:

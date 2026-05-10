@@ -469,19 +469,15 @@
   highest-ROI next proving move unless a fresh contradiction appears.
 - Current next proving move is bounded `pilot_live` live-trust qualification:
   - taker live trust
-  - wallet live trust
   - maker live trust
+  - wallet live trust
   - then bounded live hookup
   - then immediate-performance proof after bounded hookup is clean
-- Packet 1 focus inside that lane is a full taker inherited-lineage cleanup map
-  from core doctrine out through branch/contact surfaces and back into the true
-  owner
-- Packet 1 is the only active implementation lane now; downstream packets stay
-  sequenced but inactive until Packet 1 closes honestly
-- active Packet 1 artifact:
+- latest closed Packet 1 artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+- next packet to open inside that lane is `Maker-Live / Economic Trust Qualification`
 - current Packet 1 live-trust verdict:
-  - `Needs work`
+  - `bounded-live-test ready`
   - one-brain owner collapse is materially achieved on current code
   - recovery/handoff owner classification is now explicitly keep-now dead power
   - active `EXTREME_ONLY` surgery packet now enters through
@@ -496,31 +492,22 @@
       in current runtime/config truth
     - taker bounded single-side ws market reference is now live; fully missing
       ws market reference still fail-closes as `market_probability_missing`
-  - latest watched 20-minute current-tree specimen is now:
-    - `fa32bb8f-3736-4130-9a5b-042291584bef`
+  - latest watched 10-minute current-tree specimen is now:
+    - `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
     - stored `validation_summary.json`: `ok=true`, `overall_exit_code=0`, all
       validator and replay-validator exits `0`
-    - maker `2 submits / 10 fills`
-    - taker `2 submits / 2 fills`
+    - maker `1 submit / 2 fills`
+    - taker `1 submit / 1 fill`
     - action-row source purity clean:
-      - maker `2/0 non_ws`
-      - taker `2/0 non_ws`
-    - real accepted taker fires at:
-      - `edge_value=0.19544432109812604`
-      - `edge_value=0.2648914731995672`
+      - maker `1/0 non_ws`
+      - taker `1/0 non_ws`
+    - real accepted taker fire occurred at:
+      - `edge_value=0.2735337456282695`
       against canonical `required_min_edge=0.11`
-  - latest closure residual on that specimen is narrow:
-    - transient event-level `valuation_degraded=true` windows can occur around
-      settlement while status-sampled nightly/readiness bruise state still
-      reports `none`
-    - this is a report-scope / observability seam, not a validator-bundle
-      failure or proven runtime sickness
   - immediate next move from that proof is:
-    - lock current truth
-    - clean the tree
-    - rerack Packet 1 closure on a clean state, or repair the valuation-summary
-      seam first if literal no-half-truth closure is required
-  - bounded-live-test readiness is not yet earned
+    - lock Packet 1 closeout truth
+    - open Packet 2 Maker-Live from the clean Packet 1 truth anchor
+    - keep whole `pilot_live` phase explicit as still open above packet level
 - maker/taker remain diagnostic-only for tuning/aggression work, but
   maker and taker live-trust qualification are authorized as
   diagnostic proof work
@@ -534,7 +521,8 @@
 - `prelive_gate` and `live_canary` remain bounded tools inside that lane, not
   the final authority by themselves.
 - no blueprint tuning is authorized inside Packet 1 through Packet 4
-- no generic weapon tuning is authorized while Packet 1 remains open
+- no generic weapon tuning is authorized while the `pilot_live` packet sequence
+  remains open
 - hookup truth is weaker than order-capable live truth; bounded live hookup
   remains blocked until canonical live nonce and pending-wallet-tx truth are
   present on the approved live path

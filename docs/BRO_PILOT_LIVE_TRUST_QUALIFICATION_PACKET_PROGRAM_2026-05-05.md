@@ -15,22 +15,25 @@ This is not a generic prelive checklist. It is the whole-fighter trust program
 for:
 
 1. taker live trust
-2. wallet live trust
-3. maker live trust
+2. maker live trust
+3. wallet live trust
 4. bounded live hookup / controlled arming trust
 5. immediate-performance proof after bounded live hookup is clean
 
 ## Current Program Lock
-- `Packet 1` is the only active implementation lane now.
-- `Packet 2` through `Packet 5` are sequenced and ready, but inactive until
-  `Packet 1` closes honestly.
+- `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
+- `Packet 2` is the next sequenced implementation lane to open.
+- `Packet 3` through `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
 - latest watched current-tree health anchor is
-  `fa32bb8f-3736-4130-9a5b-042291584bef`:
+  `6957087b-488e-4bbb-b8b9-1f215b5e33d0`:
   - stored validator bundle clean with all exits `0`
-  - maker and taker both submitted and filled
-  - one narrow residual seam remains in valuation bruise summary scope
+  - maker `1 submit / 2 fills`
+  - taker `1 submit / 1 fill`
+  - action-row source purity clean on both lanes
+  - repaired valuation summary now truthfully carries event-level bruise windows
+    through nightly/report truth
 - Current taker hardening truths that this program must preserve:
   - inherited `SNIPER_PRIMARY` / `EXTREME_ONLY` family surfaces must not retain
     current taker fire authority
@@ -281,21 +284,22 @@ A packet must pause and reclassify if any appear:
 
 ## Packet Sequence
 1. `Taker Live / Economic and Firing Trust Qualification`
-2. `Grip-Live / Wallet Live Trust Qualification`
-3. `Maker-Live / Economic Trust Qualification`
+2. `Maker-Live / Economic Trust Qualification`
+3. `Grip-Live / Wallet Live Trust Qualification`
 4. `Bounded Live Hookup / Controlled Arming Qualification`
 5. `Immediate-Performance Proof`
 
 Dependency law:
 - Packet 1 is the first live-fire weapon-trust seam and must collapse the
   inherited taker split-brain map before later trust closure claims are accepted
-- Packet 1 is the only active implementation lane now; Packet 2 through Packet
-  5 remain sequenced but inactive until Packet 1 closes honestly
-- Packet 1 and Packet 3 are diagnostic proof work and are meant to end
+- Packet 1 has now closed honestly on watched proof; Packet 2 is next to open
+  and Packet 3 through Packet 5 remain sequenced behind it
+- Packet 1 and Packet 2 are diagnostic proof work and are meant to end
   `bounded-live-test ready` if the proof is clean
-- Packet 2 is foundational for live hookup and must close the real live wallet
+- Packet 3 is foundational for live hookup and must close the real live wallet
   blocker before Packet 4 can begin
-- Packet 4 cannot certify live trust if Packet 1 or Packet 3 still reads unsafe
+- Packet 4 cannot certify live trust if Packet 1, Packet 2, or Packet 3 still
+  reads unsafe
 - Packet 5 may begin only after bounded live hookup is clean and may not reopen
   authority surgery as “performance work”
 - inside each packet, implementation should still land as one seam or one
@@ -362,28 +366,7 @@ Exit criteria:
   brain in bounded slices where proof says it is needed
 - packet exits `bounded-live-test ready` or `Needs work`
 
-### Packet 2: Grip-Live / Wallet Live Trust Qualification
-- prove live wallet hookup can be trusted before capital is armed
-
-Questions to answer:
-- do live secret/funder sources load correctly and fail closed?
-- do wallet authority surfaces tell the truth for the right reason?
-- is `order_submit_eligible` semantically correct in live mode?
-- is hookup truth clearly separated from order-capable live truth?
-- are Polygon `137`, `POL` gas truth, `USDC.e` collateral truth, spender truth,
-  and funder truth all correct?
-- are canonical live nonce truth and canonical live pending-wallet-tx truth
-  present on the approved live path?
-- does strict order-capable live remain fail-closed until those truths exist?
-
-Exit criteria:
-- wallet live trust can be stated cleanly
-- hookup truth and order-capable live truth are not blurred
-- strict order-capable live is no longer fail-closed for the approved tested
-  path
-- bounded live hookup is authorized to proceed to the next trust lane
-
-### Packet 3: Maker-Live / Economic Trust Qualification
+### Packet 2: Maker-Live / Economic Trust Qualification
 - prove maker is economically safe enough to arm
 
 Questions to answer:
@@ -406,6 +389,27 @@ Exit criteria:
 - market-truth substrate is clean enough to support the economics claim
 - no active contradiction is hiding behind PnL aggregates
 - packet exits `bounded-live-test ready` or `Needs work`
+
+### Packet 3: Grip-Live / Wallet Live Trust Qualification
+- prove live wallet hookup can be trusted before capital is armed
+
+Questions to answer:
+- do live secret/funder sources load correctly and fail closed?
+- do wallet authority surfaces tell the truth for the right reason?
+- is `order_submit_eligible` semantically correct in live mode?
+- is hookup truth clearly separated from order-capable live truth?
+- are Polygon `137`, `POL` gas truth, `USDC.e` collateral truth, spender truth,
+  and funder truth all correct?
+- are canonical live nonce truth and canonical live pending-wallet-tx truth
+  present on the approved live path?
+- does strict order-capable live remain fail-closed until those truths exist?
+
+Exit criteria:
+- wallet live trust can be stated cleanly
+- hookup truth and order-capable live truth are not blurred
+- strict order-capable live is no longer fail-closed for the approved tested
+  path
+- bounded live hookup is authorized to proceed to the next trust lane
 
 ### Packet 4: Bounded Live Hookup / Controlled Arming Qualification
 - connect the healthy internals to real live infrastructure in the smallest

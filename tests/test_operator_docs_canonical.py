@@ -608,7 +608,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             program_text,
         )
         self.assertIn(
-            "2. `Grip-Live / Wallet Live Trust Qualification`",
+            "2. `Maker-Live / Economic Trust Qualification`",
             program_text,
         )
         self.assertIn(
@@ -682,8 +682,8 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn(packet_rel, next_plan_text)
 
         self.assertIn("Current verdict:", packet_text)
-        self.assertIn("- `Needs work`", packet_text)
-        self.assertIn("Packet 1 `Taker Live` now carries an explicit `Needs work` verdict", sink_text)
+        self.assertIn("- `bounded-live-test ready`", packet_text)
+        self.assertIn("Packet 1 `Taker Live` now closes `bounded-live-test ready`", sink_text)
         self.assertIn("recovery/handoff owner classification is now explicitly keep-now dead power", sink_text)
         self.assertIn("keep-now explicit two-surface contract", packet_text)
         self.assertIn("`effective_stage` is the live authority / action surface", packet_text)

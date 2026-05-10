@@ -1092,6 +1092,105 @@ class NightlySoakReportTests(unittest.TestCase):
                 2,
             )
 
+    def test_build_report_valuation_truth_marks_recovered_clean_from_event_only_transient_bruise(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "valuation_degraded",
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                    "valuation_degraded": True,
+                    "valuation_hard_degraded": False,
+                    "valuation_degraded_reasons": [
+                        "degraded_using_last_known_mid:t1:age_sec=4.000<=max_age_sec=6.000"
+                    ],
+                    "valuation_mid_source_counts": {"last_known_mid": 1},
+                },
+                {
+                    "event_type": "valuation_degraded",
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                    "valuation_degraded": False,
+                    "valuation_hard_degraded": False,
+                    "valuation_degraded_reasons": [],
+                    "valuation_mid_source_counts": {"live_mid": 1},
+                },
+            ]
+            status = [
+                {
+                    "ts_status_utc": "2026-01-01T00:00:03Z",
+                    "valuation_degraded": False,
+                    "valuation_hard_degraded": False,
+                    "valuation_degraded_reasons": [],
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            valuation_truth = report.get("valuation_truth", {})
+
+            self.assertEqual(float(valuation_truth.get("valuation_degraded_rows") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("valuation_degraded_event_rows") or 0.0), 1.0)
+            self.assertTrue(bool(valuation_truth.get("valuation_truth_sampling_gap_detected")))
+            self.assertEqual(str(valuation_truth.get("valuation_bruise_state") or ""), "recovered_clean")
+            self.assertEqual(str(valuation_truth.get("valuation_dominant_reason_family_run") or ""), "degraded_using_last_known_mid")
+            self.assertEqual(str(valuation_truth.get("valuation_dominant_source_degraded_rows") or ""), "last_known_mid")
+            self.assertEqual(str(valuation_truth.get("latest_valuation_truth_source_class") or ""), "status_row")
+            self.assertEqual(list(valuation_truth.get("latest_valuation_degraded_reasons") or []), [])
+
+            summary = render_human_summary(report)
+            self.assertIn("bruise_state=recovered_clean", summary)
+            self.assertIn("degraded_event_rows=1", summary)
+            self.assertIn('latest_truth_source="status_row"', summary)
+
+    def test_build_report_valuation_truth_uses_newer_event_as_latest_truth(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "valuation_degraded",
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                    "valuation_degraded": True,
+                    "valuation_hard_degraded": False,
+                    "valuation_degraded_reasons": [
+                        "degraded_using_last_known_mid:t1:age_sec=5.000<=max_age_sec=6.000"
+                    ],
+                    "valuation_mid_source_counts": {"last_known_mid": 1},
+                }
+            ]
+            status = [
+                {
+                    "ts_status_utc": "2026-01-01T00:00:01Z",
+                    "valuation_degraded": False,
+                    "valuation_hard_degraded": False,
+                    "valuation_degraded_reasons": [],
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            valuation_truth = report.get("valuation_truth", {})
+
+            self.assertEqual(str(valuation_truth.get("latest_valuation_truth_source_class") or ""), "valuation_event")
+            self.assertTrue(bool(valuation_truth.get("latest_valuation_degraded")))
+            self.assertEqual(
+                str(valuation_truth.get("valuation_bruise_state") or ""),
+                "degraded_not_fully_cleared",
+            )
+            self.assertIn(
+                "degraded_using_last_known_mid:t1:",
+                " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
+            )
+
     def test_build_report_valuation_truth_respects_emergency_event_repeat_count_delta(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

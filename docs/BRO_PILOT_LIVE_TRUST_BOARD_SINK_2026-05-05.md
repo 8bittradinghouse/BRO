@@ -18,7 +18,7 @@
 - current timing closeout anchor: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current grip closeout anchor: `33e30bd8-e416-488e-83ce-f99c8665e7fc`
 - current watched current-tree health anchor:
-  `fa32bb8f-3736-4130-9a5b-042291584bef`
+  `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 - runtime lineage tuple expectation for new closure claims:
   - `run_id`
   - `git_commit`
@@ -29,7 +29,7 @@
 - phase: `pilot_live`
 - macro lane: `live trust qualification`
 - current lane status: `open`
-- current active implementation lane: `Packet 1 taker authority repair and closure`
+- current active implementation lane: `Packet 2 maker live trust qualification (next to open from Packet 1 closeout)`
 - core-frame restoration dependency: `complete`
 - timing spine hardening dependency: `complete`
 - watched peak-hours paper confirmation dependency: `materially achieved`
@@ -44,9 +44,9 @@
   weaker surface just because the weaker one is easier to summarize.
 
 ## Packet Status Board
-- Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `in_progress (`clean stored-bundle paper-health proof achieved; clean-state rerack and residual seam review still open`)`
-- Packet 2 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / inactive`
-- Packet 3 `Maker-Live / Economic Trust Qualification`: `sequenced / inactive`
+- Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
+- Packet 2 `Maker-Live / Economic Trust Qualification`: `sequenced / next to open`
+- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / inactive`
 - Packet 4 `Bounded Live Hookup / Controlled Arming Qualification`: `sequenced / inactive`
 - Packet 5 `Immediate-Performance Proof`: `sequenced / inactive`
 
@@ -55,7 +55,7 @@
 - Threshold-loosening by momentum: `not authorized`
 - Maker and Taker live-trust qualification: `authorized diagnostic proof work`
 - Wallet live-trust qualification: `authorized`
-- Bounded live hookup after internals are healthy and Packet 2 closes the live
+- Bounded live hookup after internals are healthy and Packet 3 closes the live
   wallet blocker: `authorized`
 
 ## Jin Self-Hardening Status
@@ -140,7 +140,7 @@
 ## Current Lane Call
 - Whole fighter still `Needs Work`.
 - `pilot_live` remains the active phase.
-- Packet 1 `Taker Live` now carries an explicit `Needs work` verdict:
+- Packet 1 `Taker Live` now closes `bounded-live-test ready`:
   - one-brain owner collapse is materially achieved on current code
   - recovery/handoff owner classification is now explicitly keep-now dead power
   - raw-root taker gate-posture replay now truthfully classifies gate-only
@@ -168,6 +168,14 @@
   - external `Taker Sword Blueprint` audit now explicitly says the current lane
     matches best on CLOB/IOC execution, fail-closed posture, and
     observability; the current paper packet is temporarily detuned to a fixed
+  - fresh watched closeout specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+    now proves:
+    - stored validator bundle `ok=true` with all exits `0`
+    - maker `1 submit / 2 fills`
+    - taker `1 submit / 1 fill`
+    - action-row source purity clean on both lanes
+    - repaired valuation summary carries event-level bruise windows truthfully
+  - next packet to open from this closeout is `Packet 2 Maker-Live`
     `$20` taker shot for proving
   - that same external audit now explicitly keeps the inherited taker
     fire-condition subtree under challenge:
@@ -279,13 +287,15 @@ Next packet:
 
 Why this is first:
 - it is the highest-ROI current live-trust seam on fresh watched evidence
-- latest watched specimen `fa32bb8f-3736-4130-9a5b-042291584bef` already
+- latest watched specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0` already
   proved:
   - stored validator bundle clean with all exits `0`
-  - maker and taker both submitted and filled
+  - maker `1 submit / 2 fills`
+  - taker `1 submit / 1 fill`
   - action-row source purity clean
   - current taker math / wallet / lifecycle / timing chain coherent
-  - one narrow residual seam still exists in valuation bruise reporting scope
+  - repaired valuation summary now carries bruise truth without a report-scope
+    lie
 - it forces the full taker inherited-lineage river map from core doctrine out
   through branch/contact surfaces and back into the true owner
 - fresh packet evidence already verifies:
@@ -319,7 +329,7 @@ Why this is first:
 
 Follow-on order:
 1. Packet 1 `Taker Live`
-2. Packet 2 `Grip-Live`
-3. Packet 3 `Maker-Live`
+2. Packet 2 `Maker-Live`
+3. Packet 3 `Grip-Live`
 4. Packet 4 `Bounded Live Hookup`
 5. Packet 5 `Immediate-Performance Proof`

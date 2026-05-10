@@ -1824,7 +1824,21 @@ def _valuation_truth_stats(
     held_unpriceable_cause_counts_run: Counter[str] = Counter()
     valuation_degraded_reason_family_counts_run: Counter[str] = Counter()
     preexpiry_emergency_taker_block_reasons_run_max: Counter[str] = Counter()
+    valuation_degraded_event_rows = 0.0
+    valuation_hard_degraded_event_rows = 0.0
+    valuation_degraded_reason_family_counts_events: Counter[str] = Counter()
+    degraded_source_totals_events = {
+        "live_mid": 0.0,
+        "live_side_conservative_quote": 0.0,
+        "last_known_mid": 0.0,
+        "conservative_bound_hard_degraded": 0.0,
+        "hard_degraded": 0.0,
+    }
     latest: Dict[str, Any] = {}
+    latest_status: Dict[str, Any] = {}
+    latest_status_ts: Optional[dt.datetime] = None
+    latest_event: Dict[str, Any] = {}
+    latest_event_ts: Optional[dt.datetime] = None
     for row in status_rows:
         row_valuation_degraded = bool(row.get("valuation_degraded", False))
         if row_valuation_degraded:
@@ -1963,6 +1977,69 @@ def _valuation_truth_stats(
         event_block_count = 0.0
         event_block_reasons: Counter[str] = Counter()
         for evt in event_rows:
+            if str(evt.get("event_type") or "").strip() == "valuation_degraded":
+                event_weight = max(1.0, _safe_float(evt.get("repeat_count_delta"), 1.0))
+                valuation_event_ts = parse_ts(
+                    evt.get("ts_utc")
+                    or evt.get("ts_event_utc")
+                    or evt.get("ts_decision_utc")
+                    or evt.get("ts_receive_utc")
+                )
+                if latest_event_ts is None or (
+                    valuation_event_ts is not None and valuation_event_ts >= latest_event_ts
+                ):
+                    latest_event = dict(evt)
+                    latest_event_ts = valuation_event_ts
+                row_valuation_degraded = bool(evt.get("valuation_degraded", False))
+                if row_valuation_degraded:
+                    valuation_degraded_event_rows += event_weight
+                    degraded_reasons = [str(reason) for reason in list(evt.get("valuation_degraded_reasons") or [])]
+                    for reason in degraded_reasons:
+                        valuation_degraded_reason_family_counts_events[_reason_family(reason)] += event_weight
+                    row_counts_raw = evt.get("valuation_mid_source_counts")
+                    row_counts = row_counts_raw if isinstance(row_counts_raw, dict) else {}
+                    degraded_source_totals_events["live_mid"] += _safe_float(
+                        row_counts.get("live_mid", row_counts.get("fresh_live_mid"))
+                    )
+                    degraded_source_totals_events["live_side_conservative_quote"] += _safe_float(
+                        row_counts.get(
+                            "live_side_conservative_quote",
+                            row_counts.get("fresh_live_side_conservative_quote"),
+                        )
+                    )
+                    degraded_source_totals_events["last_known_mid"] += _safe_float(
+                        row_counts.get("last_known_mid", row_counts.get("fresh_last_known_mid"))
+                    )
+                    degraded_source_totals_events["conservative_bound_hard_degraded"] += _safe_float(
+                        row_counts.get(
+                            "conservative_bound_hard_degraded",
+                            row_counts.get("conservative_bound"),
+                        )
+                    )
+                    degraded_source_totals_events["hard_degraded"] += _safe_float(
+                        row_counts.get(
+                            "hard_degraded",
+                            row_counts.get("conservative_bound_hard_degraded", row_counts.get("conservative_bound")),
+                        )
+                    )
+                if bool(evt.get("valuation_hard_degraded", False)):
+                    valuation_hard_degraded_event_rows += event_weight
+                valuation_hard_degraded_enter_count = max(
+                    valuation_hard_degraded_enter_count,
+                    _safe_float(evt.get("valuation_hard_degraded_enter_count")),
+                )
+                valuation_hard_degraded_clear_count = max(
+                    valuation_hard_degraded_clear_count,
+                    _safe_float(evt.get("valuation_hard_degraded_clear_count")),
+                )
+                held_unpriceable_started_count = max(
+                    held_unpriceable_started_count,
+                    _safe_float(evt.get("held_unpriceable_started_count")),
+                )
+                held_unpriceable_recovered_count = max(
+                    held_unpriceable_recovered_count,
+                    _safe_float(evt.get("held_unpriceable_recovered_count")),
+                )
             if str(evt.get("event_type") or "").strip() != "preexpiry_emergency_taker_unwind":
                 continue
             event_weight = max(1.0, _safe_float(evt.get("repeat_count_delta"), 1.0))
@@ -1998,8 +2075,24 @@ def _valuation_truth_stats(
             )
     for row in reversed(status_rows):
         if "valuation_degraded" in row:
-            latest = dict(row)
+            latest_status = dict(row)
+            latest_status_ts = parse_ts(
+                row.get("ts_utc")
+                or row.get("ts_status_utc")
+                or row.get("ts_event_utc")
+                or row.get("ts_decision_utc")
+                or row.get("ts_receive_utc")
+            )
             break
+    latest = dict(latest_status)
+    latest_truth_source_class = "status_row" if latest_status else "none"
+    if latest_event and (
+        not latest_status
+        or latest_status_ts is None
+        or (latest_event_ts is not None and latest_event_ts > latest_status_ts)
+    ):
+        latest = dict(latest_event)
+        latest_truth_source_class = "valuation_event"
     sample_count = float(len(status_rows))
     held_unpriceable_unrecovered_raw_count = max(
         0.0,
@@ -2041,22 +2134,42 @@ def _valuation_truth_stats(
         0.0,
         held_unpriceable_unrecovered_raw_count - held_unpriceable_unrecovered_dust_exempted_count,
     )
-    if degraded_rows <= 0.0 and valuation_hard_degraded_enter_count <= 0.0 and held_unpriceable_started_count <= 0.0:
+    latest_valuation_degraded = bool(latest.get("valuation_degraded", False))
+    latest_valuation_hard_degraded = bool(latest.get("valuation_hard_degraded", False))
+    any_degraded_signal = (
+        degraded_rows > 0.0
+        or valuation_degraded_event_rows > 0.0
+        or valuation_hard_degraded_enter_count > 0.0
+        or held_unpriceable_started_count > 0.0
+    )
+    if not any_degraded_signal:
         valuation_bruise_state = "none"
     elif held_unpriceable_unrecovered_meaningful_count > 0.0:
         valuation_bruise_state = "open_meaningful_unpriceable"
     elif held_unpriceable_unrecovered_raw_count > 0.0:
         valuation_bruise_state = "open_dust_only_unpriceable"
-    elif valuation_hard_degraded_enter_count > valuation_hard_degraded_clear_count:
+    elif latest_valuation_hard_degraded or (valuation_hard_degraded_enter_count > valuation_hard_degraded_clear_count):
         valuation_bruise_state = "hard_degraded_not_fully_cleared"
     elif held_unpriceable_started_count > held_unpriceable_recovered_count:
         valuation_bruise_state = "held_unpriceable_not_fully_recovered"
+    elif latest_valuation_degraded:
+        valuation_bruise_state = "degraded_not_fully_cleared"
     else:
         valuation_bruise_state = "recovered_clean"
+    dominant_reason_family_counts_run = (
+        valuation_degraded_reason_family_counts_run
+        if valuation_degraded_reason_family_counts_run
+        else valuation_degraded_reason_family_counts_events
+    )
+    dominant_source_degraded_rows = (
+        degraded_source_totals if any(value > 0.0 for value in degraded_source_totals.values()) else degraded_source_totals_events
+    )
     return {
         "status_rows": sample_count,
         "valuation_degraded_rows": float(degraded_rows),
+        "valuation_degraded_event_rows": float(valuation_degraded_event_rows),
         "valuation_hard_degraded_rows": float(hard_degraded_rows),
+        "valuation_hard_degraded_event_rows": float(valuation_hard_degraded_event_rows),
         "pnl_degraded_rows": float(pnl_degraded_rows),
         "loss_guard_degraded_rows": float(loss_guard_degraded_rows),
         "held_unpriceable_escalation_rows": float(held_unpriceable_escalation_rows),
@@ -2126,6 +2239,8 @@ def _valuation_truth_stats(
         )
         if sample_count > 0
         else 0.0,
+        "valuation_truth_sampling_gap_detected": bool(valuation_degraded_event_rows > 0.0 and degraded_rows <= 0.0),
+        "latest_valuation_truth_source_class": str(latest_truth_source_class),
         "latest_valuation_degraded": bool(latest.get("valuation_degraded", False)),
         "latest_valuation_hard_degraded": bool(latest.get("valuation_hard_degraded", False)),
         "latest_valuation_raw_degraded": bool(latest.get("valuation_raw_degraded", False)),
@@ -2208,14 +2323,14 @@ def _valuation_truth_stats(
             latest.get("runtime_expiry_boundary_epsilon_sec")
         ),
         "valuation_bruise_state": valuation_bruise_state,
-        "valuation_dominant_reason_family_run": _dominant_counter_key(valuation_degraded_reason_family_counts_run),
+        "valuation_dominant_reason_family_run": _dominant_counter_key(dominant_reason_family_counts_run),
         "valuation_dominant_held_unpriceable_cause_run": _dominant_counter_key(held_unpriceable_cause_counts_run),
-        "valuation_dominant_source_degraded_rows": _dominant_counter_key(degraded_source_totals),
+        "valuation_dominant_source_degraded_rows": _dominant_counter_key(dominant_source_degraded_rows),
         "valuation_degraded_reason_family_counts_run": dict(
-            sorted(valuation_degraded_reason_family_counts_run.items(), key=lambda kv: kv[0])
+            sorted(dominant_reason_family_counts_run.items(), key=lambda kv: kv[0])
         ),
         "valuation_source_counts_run": dict(source_totals),
-        "valuation_source_counts_degraded_rows": dict(degraded_source_totals),
+        "valuation_source_counts_degraded_rows": dict(dominant_source_degraded_rows),
         "held_unpriceable_cause_counts_run": dict(sorted(held_unpriceable_cause_counts_run.items(), key=lambda kv: kv[0])),
         "held_unpriceable_cause_counts_latest": dict(latest.get("held_unpriceable_cause_counts") or {}),
         "preexpiry_emergency_taker_block_reasons_run_max": dict(
@@ -10620,6 +10735,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + str(valuation_truth.get("valuation_bruise_state") or "unknown")
             + ","
             + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
+            + f"degraded_event_rows={int(_safe_float(valuation_truth.get('valuation_degraded_event_rows')))},"
             + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
             + f"held_book_not_found_404_ratio={_safe_float(valuation_truth.get('held_book_not_found_404_ratio')):.4f},"
             + f"preexpiry_404_anomaly_ratio={_safe_float(valuation_truth.get('preexpiry_404_anomaly_ratio')):.4f},"
@@ -10640,6 +10756,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"dominant_reason_family_run={json.dumps(str(valuation_truth.get('valuation_dominant_reason_family_run') or 'none'), sort_keys=True)},"
             + f"dominant_held_cause_run={json.dumps(str(valuation_truth.get('valuation_dominant_held_unpriceable_cause_run') or 'none'), sort_keys=True)},"
             + f"dominant_source_degraded_rows={json.dumps(str(valuation_truth.get('valuation_dominant_source_degraded_rows') or 'none'), sort_keys=True)},"
+            + f"latest_truth_source={json.dumps(str(valuation_truth.get('latest_valuation_truth_source_class') or 'none'), sort_keys=True)},"
             + f"latest_reasons={json.dumps(valuation_truth.get('latest_valuation_degraded_reasons', []), sort_keys=True)},"
             + f"latest_escalation_reasons={json.dumps(valuation_truth.get('latest_held_unpriceable_escalation_reasons', []), sort_keys=True)},"
             + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"
