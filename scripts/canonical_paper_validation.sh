@@ -209,6 +209,7 @@ fi
 if run_validator "guardian_profile_audit" \
   ./.venv/bin/python scripts/guardian_profile_audit.py \
     --compose ./docker-compose.yml \
+    --config "${CONFIG_PATH}" \
     --out "${OUT_DIR}/guardian_profile_audit.json"; then
   guardian_profile_rc=0
 else
@@ -218,6 +219,7 @@ fi
 if run_validator "guardian_profile_audit_replay" \
   ./.venv/bin/python scripts/guardian_profile_audit.py \
     --compose ./docker-compose.yml \
+    --config "${CONFIG_PATH}" \
     --out "${OUT_DIR}/guardian_profile_audit_replay.json"; then
   guardian_profile_replay_rc=0
 else
@@ -250,32 +252,6 @@ if run_validator "readiness_gate_replay" \
   readiness_replay_rc=0
 else
   readiness_replay_rc=$?
-fi
-
-if run_validator "nightly_soak_report" \
-  ./.venv/bin/python scripts/nightly_soak_report.py \
-    --log-dir "${LOG_DIR}" \
-    --run-id "${RUN_ID}" \
-    --session-phase "${SESSION_PHASE}" \
-    --max-lines-per-file "${MAX_LINES_PER_FILE}" \
-    "${RUN_CONTRACT_ARGS[@]}" \
-    --out "${OUT_DIR}/nightly_soak_report.json"; then
-  nightly_rc=0
-else
-  nightly_rc=$?
-fi
-
-if run_validator "nightly_soak_report_replay" \
-  ./.venv/bin/python scripts/nightly_soak_report.py \
-    --log-dir "${LOG_DIR}" \
-    --run-id "${RUN_ID}" \
-    --session-phase "${SESSION_PHASE}" \
-    --max-lines-per-file "${MAX_LINES_PER_FILE}" \
-    "${RUN_CONTRACT_ARGS[@]}" \
-    --out "${OUT_DIR}/nightly_soak_report_replay.json"; then
-  nightly_replay_rc=0
-else
-  nightly_replay_rc=$?
 fi
 
 if run_validator "edge_truth_audit" \
@@ -362,6 +338,32 @@ if run_validator "outcome_truth_audit_replay" \
   outcome_truth_replay_rc=0
 else
   outcome_truth_replay_rc=$?
+fi
+
+if run_validator "nightly_soak_report" \
+  ./.venv/bin/python scripts/nightly_soak_report.py \
+    --log-dir "${LOG_DIR}" \
+    --run-id "${RUN_ID}" \
+    --session-phase "${SESSION_PHASE}" \
+    --max-lines-per-file "${MAX_LINES_PER_FILE}" \
+    "${RUN_CONTRACT_ARGS[@]}" \
+    --out "${OUT_DIR}/nightly_soak_report.json"; then
+  nightly_rc=0
+else
+  nightly_rc=$?
+fi
+
+if run_validator "nightly_soak_report_replay" \
+  ./.venv/bin/python scripts/nightly_soak_report.py \
+    --log-dir "${LOG_DIR}" \
+    --run-id "${RUN_ID}" \
+    --session-phase "${SESSION_PHASE}" \
+    --max-lines-per-file "${MAX_LINES_PER_FILE}" \
+    "${RUN_CONTRACT_ARGS[@]}" \
+    --out "${OUT_DIR}/nightly_soak_report_replay.json"; then
+  nightly_replay_rc=0
+else
+  nightly_replay_rc=$?
 fi
 
 if run_validator "soak_hardening_gate" \
@@ -610,6 +612,26 @@ cat > "${summary_path}" <<EOF
   "non_edge_determinism": ${non_edge_determinism_json}
 }
 EOF
+
+./.venv/bin/python - "${RUN_ID}" "${OUT_DIR}" "${overall_rc}" "${OUT_DIR}/canonical_paper_validation.json" "${SESSION_PHASE}" <<'PY'
+import pathlib
+import sys
+
+from scripts.canonical_paper_session import write_postrun_validation_artifact
+
+run_id = str(sys.argv[1] or "").strip()
+report_dir = pathlib.Path(sys.argv[2]).resolve()
+script_exit_code = int(str(sys.argv[3] or "0").strip() or "0")
+artifact_path = pathlib.Path(sys.argv[4]).resolve()
+session_phase = str(sys.argv[5] or "validate_postrun").strip() or "validate_postrun"
+write_postrun_validation_artifact(
+    run_id=run_id,
+    report_dir=report_dir,
+    script_exit_code=script_exit_code,
+    artifact_path=artifact_path,
+    session_phase=session_phase,
+)
+PY
 
 echo "[canonical] validation_summary=${summary_path}"
 echo "[canonical] report_dir=${OUT_DIR}"

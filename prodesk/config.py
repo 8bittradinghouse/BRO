@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
@@ -17,10 +18,10 @@ from .wallet.wallet_truth_policy import (
 )
 
 
-# Only dormant compatibility-era taker overlays may still mention
-# EXTREME_ONLY. Current live taker authority must not use stage-local owner
-# surfaces.
-CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset({"EXTREME_ONLY"})
+# Only dormant compatibility-era taker overlays may still mention raw
+# EXTREME_ONLY lineage. Current live taker authority must use the explicit
+# TAKER_COMMITMENT lane instead of stage-local owner surfaces.
+CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset({"TAKER_COMMITMENT"})
 
 
 DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
@@ -37,7 +38,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "status_interval_sec": 30.0,
         "duration_min": None,
         "max_actions_per_cycle": 8,
-        "rest_fetch_max_workers": 4,
         "cancel_all_on_exit": True,
         "cancel_orphan_orders": True,
         "max_consecutive_failures": 12,
@@ -52,16 +52,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "log_flush_every_records": 1,
         "log_flush_interval_sec": 0.25,
         "log_fsync_on_flush": False,
-        "book_not_found_backoff_sec": 90.0,
-        "held_book_not_found_backoff_sec": 10.0,
-        "held_book_not_found_force_refresh_interval_sec": 120.0,
-        "held_book_not_found_force_refresh_min_unpriceable_age_sec": 30.0,
-        "held_preexpiry_reduce_only_sec": 15.0,
-        "preexpiry_emergency_taker_window_sec": 7.0,
-        "terminal_unwind_halt_new_risk_sec": 7.0,
+        "held_ws_missing_or_unusable_refresh_interval_sec": 120.0,
+        "held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec": 30.0,
         "expiry_boundary_epsilon_sec": 1.0,
         "require_lifecycle_context_for_decisions": True,
-        "dust_classifier_enforce_enabled": False,
         "valuation_hard_degraded_clear_consecutive_healthy_cycles": 2,
         "held_unpriceable_operator_action_min_emit_interval_sec": 60.0,
         "guard_stop_file": "",
@@ -101,11 +95,13 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_retries": 2,
         "ws": {
             "enabled": True,
-            "url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
-            "channel": "market",
+            "url": "wss://ws-subscriptions-clob.polymarket.com",
             "stale_after_sec": 3.0,
-            "heartbeat_timeout_sec": 12.0,
-            "ping_interval_sec": 5.0,
+            "startup_ack_timeout_sec": 10.0,
+            "worker_restart_attempt_limit": 5,
+            "worker_name": "bro-market-stream-worker",
+            "worker_path": "",
+            "worker_env_var": "BRO_MARKET_STREAM_WORKER",
             "reconnect_backoff_initial_sec": 1.0,
             "reconnect_backoff_max_sec": 20.0,
         },
@@ -117,8 +113,11 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "symbols": ["btc/usd"],
         "symbol_for_targets": "btc/usd",
         "log_ticks": True,
-        "heartbeat_timeout_sec": 15.0,
-        "ping_interval_sec": 5.0,
+        "startup_ack_timeout_sec": 10.0,
+        "worker_restart_attempt_limit": 5,
+        "worker_name": "bro-rtds-stream-worker",
+        "worker_path": "",
+        "worker_env_var": "BRO_RTDS_STREAM_WORKER",
         "reconnect_backoff_initial_sec": 1.0,
         "reconnect_backoff_max_sec": 30.0,
         "mid_move_min_delta": 0.001,
@@ -140,10 +139,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "mode": "canonical",
         # Shared oracle freshness rule used by both maker and taker doctrine gates.
         "oracle_max_tick_age_sec": 1.5,
-        # Canonical maker reference policy:
-        # - when midpoint is unavailable and exactly one ws side is present,
-        #   allow explicit bounded single-side reference classification.
-        "maker_allow_bounded_single_side_reference": True,
         # Deterministic observe-first hold on new market entry: release only after both pass.
         "min_observe_cycles_on_entry": 2,
         "min_observe_seconds_on_entry": 2.0,
@@ -186,7 +181,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "keywords_any": ["5 minute", "5-minute", "up or down", "up/down"],
             "tags_any": [],
             "require_binary_outcomes": True,
-            "max_pairs": 4,
+            "max_pairs": 1,
             "refresh_interval_sec": 60.0,
             "page_limit": 200,
             "max_pages": 10,
@@ -194,6 +189,46 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "timeout_sec": 8.0,
             "max_retries": 2,
             "require_fee_enabled": True,
+        },
+    },
+    "lifecycle": {
+        "selection": {
+            "enabled": True,
+            "min_sec_to_expiry": 90.0,
+            "min_market_age_sec": 60.0,
+            "maker_min_depth_multiple": 1.5,
+            "taker_min_fill_ratio": 0.5,
+            "require_secondary_oracle_confirmation": True,
+            "cannon_target_notional_usd": 350.0,
+            "max_same_target_submit_count_prior": 1,
+            "max_same_target_side_submit_count_prior": 1,
+            "replacement_margin": 0.0,
+            "replacement_dwell_sec": 0.0,
+            "ownership_fail_dwell_sec": 0.0,
+        },
+        "phase": {
+            "maker_window_open_sec": 15.0,
+            "taker_window_open_sec": 7.0,
+        },
+        "lane_gates": {
+            "maker": {
+                "timing_gate_enabled": False,
+                "edge_scale_enabled": False,
+                "edge_scale_start_abs": 0.05,
+                "edge_scale_full_abs": 0.20,
+                "size_mult_max": 1.35,
+                "spread_mult_min": 0.75,
+                "requote_delta_mult_min": 0.50,
+                "one_sided_enabled": False,
+                "one_sided_edge_threshold_abs": 0.18,
+            },
+            "taker": {
+                "final_window_enabled": True,
+                "aggressive_window_enabled": False,
+                "aggressive_window_sec": 7.0,
+                "multi_oracle_boost_enabled": False,
+                "multi_oracle_boost_window_sec": 7.0,
+            },
         },
     },
     "taker": {
@@ -227,7 +262,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "target_usd": 5.0,
         "max_orders_per_cycle": 2,
         "per_token_cooldown_sec": 0.25,
-        "per_token_cooldown_sec_by_stage": {},
         "competitiveness": {
             "enabled": False,
             "hard_min_target_usd": 100.0,
@@ -241,10 +275,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "latency_score_weight": 0.35,
             "final_window_enabled": True,
             "final_window_sec": 7.0,
-            "stage_final_window_sec_by_stage": {},
             "aggressive_window_enabled": False,
             "aggressive_window_sec": 7.0,
-            "stage_aggressiveness": {},
             "price_aggress_bps_max": 8.0,
             "dynamic_preview_enabled": False,
             "multi_oracle_boost_enabled": False,
@@ -274,8 +306,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "queue_depth_scale": 120.0,
             "distance_scale": 0.02,
             "adverse_selection_penalty": 0.3,
-            "reduce_only_recovery_min_expected_fill_prob_floor": 0.02,
-            "reduce_only_recovery_max_queue_ahead_size_multiplier": 2.0,
         },
         "volatility": {
             "enabled": True,
@@ -289,8 +319,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         },
         "maker_competitiveness": {
             "timing_gate_enabled": False,
-            "timing_gate_min_sec_to_expiry": 15.0,
-            "timing_gate_max_sec_to_expiry": 20.0,
+            "timing_gate_min_sec_to_expiry": 7.0,
+            "timing_gate_max_sec_to_expiry": 15.0,
             "edge_scale_enabled": False,
             "edge_scale_start_abs": 0.05,
             "edge_scale_full_abs": 0.20,
@@ -299,24 +329,9 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "requote_delta_mult_min": 0.50,
             "one_sided_enabled": False,
             "one_sided_edge_threshold_abs": 0.18,
-            "one_sided_allowed_stages": ["MAKER_TAKER_SELECTIVE"],
-            "queue_pressure": {
-                "enabled": False,
-                "allowed_stages": ["MAKER_TAKER_SELECTIVE"],
-                "min_edge_abs": 0.05,
-                "inside_price_ticks": 1,
-                "favored_side_only": True,
-                "tight_spread_only": True,
-                "skip_below_geometry_floor": True,
-                "force_replace_on_adjustment": True,
-            },
             "selection_gate": {
                 "enabled": False,
-                "allowed_stages": ["MAKER_TAKER_SELECTIVE"],
                 "require_secondary_oracle_confirmation": True,
-                "require_one_sided_active": False,
-                "min_sec_to_expiry": None,
-                "max_sec_to_expiry": None,
                 "cannon_target_notional_usd": 350.0,
                 "min_depth_multiple": 1.5,
                 "max_same_target_submit_count_prior": 1,
@@ -349,7 +364,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "paper_starting_usdc": 1000.0,
         "chain": "polygon",
         "gas_asset_symbol": "POL",
-        "stable_asset_symbol": "USDC.e",
+        "stable_asset_symbol": "pUSD",
         "active_wallet_address_source": "auth.funder",
         "approval_spender_targets": [],
         "protected_usdc_reserve": 0.0,
@@ -384,12 +399,12 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_order_size": 200.0,
         "min_order_size": 1.0,
         "max_orders_per_min": 120,
-        "order_rate_recovery_reserved_slots": 0,
         "max_cancels_per_min": 220,
         "max_book_age_sec": 6.0,
         "min_sec_to_expiry_for_new_exposure": 15.0,
-        "min_sec_to_expiry_for_new_exposure_by_lane": {},
-        "reduce_only_terminal_min_notional_usd": 2.0,
+        "min_sec_to_expiry_for_new_exposure_by_lane": {
+            "maker": 7.0,
+        },
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
         "held_unpriceable_escalation_sec": 120.0,
@@ -398,8 +413,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "position_dust_total_notional_usd_cap": 5.0,
         "position_dust_token_count_cap": 4,
         "position_dust_max_age_sec": 900.0,
-        "position_dust_enter_consecutive_cycles": 2,
-        "position_dust_clear_consecutive_cycles": 2,
         "max_book_future_skew_sec": 2.0,
         "allow_crossed_quotes": False,
         "max_total_loss": None,
@@ -559,6 +572,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
     "auth": {
         "host": "https://clob.polymarket.com",
         "chain_id": 137,
+        "wallet_mode": "poly_proxy",
         "signature_type": 1,
         "private_key_env": "POLYMARKET_PRIVATE_KEY",
         "funder_env": "POLYMARKET_FUNDER",
@@ -574,6 +588,13 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "allow_taker": False,
         "open_orders_cache_ttl_sec": 0.25,
         "live_order_submission_enabled": False,
+        "heartbeat_enabled": True,
+        "heartbeat_interval_sec": 8.0,
+        "heartbeat_retry_sec": 2.0,
+        "matching_engine_retry_attempts": 4,
+        "matching_engine_retry_initial_sec": 0.5,
+        "matching_engine_retry_max_sec": 4.0,
+        "relayer_url": "",
     },
     "profile": {
         "name": "default",
@@ -637,6 +658,169 @@ def _normalize_taker_semantics(cfg: Dict[str, Any]) -> None:
     taker["late_fire_priority_band_sec"] = float(priority)
 
 
+def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
+    lifecycle = cfg.setdefault("lifecycle", {})
+    if not isinstance(lifecycle, dict):
+        lifecycle = {}
+        cfg["lifecycle"] = lifecycle
+
+    selection = lifecycle.setdefault("selection", {})
+    if not isinstance(selection, dict):
+        selection = {}
+        lifecycle["selection"] = selection
+
+    phase = lifecycle.setdefault("phase", {})
+    if not isinstance(phase, dict):
+        phase = {}
+        lifecycle["phase"] = phase
+
+    lane_gates = lifecycle.setdefault("lane_gates", {})
+    if not isinstance(lane_gates, dict):
+        lane_gates = {}
+        lifecycle["lane_gates"] = lane_gates
+
+    maker_lane = lane_gates.setdefault("maker", {})
+    if not isinstance(maker_lane, dict):
+        maker_lane = {}
+        lane_gates["maker"] = maker_lane
+
+    taker_lane = lane_gates.setdefault("taker", {})
+    if not isinstance(taker_lane, dict):
+        taker_lane = {}
+        lane_gates["taker"] = taker_lane
+
+    strategy = cfg.setdefault("strategy", {})
+    maker_comp = strategy.setdefault("maker_competitiveness", {})
+    if not isinstance(maker_comp, dict):
+        maker_comp = {}
+        strategy["maker_competitiveness"] = maker_comp
+    selection_gate = maker_comp.setdefault("selection_gate", {})
+    if not isinstance(selection_gate, dict):
+        selection_gate = {}
+        maker_comp["selection_gate"] = selection_gate
+
+    taker = cfg.setdefault("taker", {})
+    taker_comp = taker.setdefault("competitiveness", {})
+    if not isinstance(taker_comp, dict):
+        taker_comp = {}
+        taker["competitiveness"] = taker_comp
+
+    selection["enabled"] = bool(selection.get("enabled", selection_gate.get("enabled", True)))
+    selection["min_sec_to_expiry"] = float(
+        selection.get("min_sec_to_expiry", selection_gate.get("min_sec_to_expiry", 90.0))
+    )
+    selection["min_market_age_sec"] = float(selection.get("min_market_age_sec", 60.0))
+    selection["maker_min_depth_multiple"] = float(
+        selection.get("maker_min_depth_multiple", selection_gate.get("min_depth_multiple", 1.5))
+    )
+    selection["taker_min_fill_ratio"] = float(
+        selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))
+    )
+    selection["require_secondary_oracle_confirmation"] = bool(
+        selection.get(
+            "require_secondary_oracle_confirmation",
+            selection_gate.get("require_secondary_oracle_confirmation", True),
+        )
+    )
+    selection["cannon_target_notional_usd"] = float(
+        selection.get(
+            "cannon_target_notional_usd",
+            selection_gate.get("cannon_target_notional_usd", 350.0),
+        )
+    )
+    selection["max_same_target_submit_count_prior"] = int(
+        float(
+            selection.get(
+                "max_same_target_submit_count_prior",
+                selection_gate.get("max_same_target_submit_count_prior", 1),
+            )
+        )
+    )
+    selection["max_same_target_side_submit_count_prior"] = int(
+        float(
+            selection.get(
+                "max_same_target_side_submit_count_prior",
+                selection_gate.get("max_same_target_side_submit_count_prior", 1),
+            )
+        )
+    )
+    selection["replacement_margin"] = float(selection.get("replacement_margin", 0.0))
+    selection["replacement_dwell_sec"] = float(selection.get("replacement_dwell_sec", 0.0))
+    selection["ownership_fail_dwell_sec"] = float(selection.get("ownership_fail_dwell_sec", 0.0))
+
+    phase["maker_window_open_sec"] = float(
+        phase.get("maker_window_open_sec", maker_comp.get("timing_gate_max_sec_to_expiry", 15.0))
+    )
+    phase["taker_window_open_sec"] = float(
+        phase.get(
+            "taker_window_open_sec",
+            maker_comp.get(
+                "timing_gate_min_sec_to_expiry",
+                taker_comp.get("final_window_sec", 7.0),
+            ),
+        )
+    )
+
+    maker_lane["timing_gate_enabled"] = bool(
+        maker_lane.get("timing_gate_enabled", maker_comp.get("timing_gate_enabled", False))
+    )
+    maker_lane["edge_scale_enabled"] = bool(
+        maker_lane.get("edge_scale_enabled", maker_comp.get("edge_scale_enabled", False))
+    )
+    maker_lane["edge_scale_start_abs"] = float(
+        maker_lane.get("edge_scale_start_abs", maker_comp.get("edge_scale_start_abs", 0.05))
+    )
+    maker_lane["edge_scale_full_abs"] = float(
+        maker_lane.get("edge_scale_full_abs", maker_comp.get("edge_scale_full_abs", 0.20))
+    )
+    maker_lane["size_mult_max"] = float(
+        maker_lane.get("size_mult_max", maker_comp.get("size_mult_max", 1.35))
+    )
+    maker_lane["spread_mult_min"] = float(
+        maker_lane.get("spread_mult_min", maker_comp.get("spread_mult_min", 0.75))
+    )
+    maker_lane["requote_delta_mult_min"] = float(
+        maker_lane.get("requote_delta_mult_min", maker_comp.get("requote_delta_mult_min", 0.50))
+    )
+    maker_lane["one_sided_enabled"] = bool(
+        maker_lane.get("one_sided_enabled", maker_comp.get("one_sided_enabled", False))
+    )
+    maker_lane["one_sided_edge_threshold_abs"] = float(
+        maker_lane.get(
+            "one_sided_edge_threshold_abs",
+            maker_comp.get("one_sided_edge_threshold_abs", 0.18),
+        )
+    )
+
+    taker_lane["final_window_enabled"] = bool(
+        taker_lane.get("final_window_enabled", taker_comp.get("final_window_enabled", True))
+    )
+    taker_lane["aggressive_window_enabled"] = bool(
+        taker_lane.get("aggressive_window_enabled", taker_comp.get("aggressive_window_enabled", False))
+    )
+    taker_lane["aggressive_window_sec"] = float(
+        taker_lane.get("aggressive_window_sec", taker_comp.get("aggressive_window_sec", phase["taker_window_open_sec"]))
+    )
+    taker_lane["multi_oracle_boost_enabled"] = bool(
+        taker_lane.get("multi_oracle_boost_enabled", taker_comp.get("multi_oracle_boost_enabled", False))
+    )
+    taker_lane["multi_oracle_boost_window_sec"] = float(
+        taker_lane.get(
+            "multi_oracle_boost_window_sec",
+            taker_comp.get("multi_oracle_boost_window_sec", phase["taker_window_open_sec"]),
+        )
+    )
+
+    taker_comp["final_window_sec"] = float(phase["taker_window_open_sec"])
+    taker_comp["aggressive_window_sec"] = float(taker_lane["aggressive_window_sec"])
+    taker_comp["multi_oracle_boost_window_sec"] = float(taker_lane["multi_oracle_boost_window_sec"])
+
+    maker_comp.pop("timing_gate_min_sec_to_expiry", None)
+    maker_comp.pop("timing_gate_max_sec_to_expiry", None)
+    selection_gate.pop("min_sec_to_expiry", None)
+    selection_gate.pop("max_sec_to_expiry", None)
+
+
 def _normalize_doctrine_semantics(cfg: Dict[str, Any]) -> None:
     doctrine = cfg.setdefault("doctrine", {})
     mode = str(doctrine.get("mode", "canonical")).strip().lower()
@@ -644,11 +828,55 @@ def _normalize_doctrine_semantics(cfg: Dict[str, Any]) -> None:
     if "oracle_max_tick_age_sec" not in doctrine:
         doctrine["oracle_max_tick_age_sec"] = cfg.get("taker", {}).get("max_chainlink_tick_age_sec", 1.5)
     doctrine["oracle_max_tick_age_sec"] = float(doctrine["oracle_max_tick_age_sec"])
-    doctrine["maker_allow_bounded_single_side_reference"] = bool(
-        doctrine.get("maker_allow_bounded_single_side_reference", True)
-    )
     doctrine["min_observe_cycles_on_entry"] = int(doctrine.get("min_observe_cycles_on_entry", 2))
     doctrine["min_observe_seconds_on_entry"] = float(doctrine.get("min_observe_seconds_on_entry", 2.0))
+
+
+def _reject_retired_lifecycle_stage_surfaces(cfg: Dict[str, Any]) -> None:
+    maker_comp = ((cfg.get("strategy") or {}).get("maker_competitiveness") or {})
+    selection_gate = (maker_comp.get("selection_gate") or {}) if isinstance(maker_comp, dict) else {}
+    taker = cfg.get("taker") or {}
+    taker_comp = (taker.get("competitiveness") or {}) if isinstance(taker, dict) else {}
+
+    if isinstance(maker_comp, dict) and maker_comp.get("one_sided_allowed_stages"):
+        raise ValueError(
+            "strategy.maker_competitiveness.one_sided_allowed_stages is retired for current configs; "
+            "use lifecycle.lane_gates.maker.one_sided_enabled and lifecycle.lane_gates.maker.one_sided_edge_threshold_abs"
+        )
+    if isinstance(selection_gate, dict) and selection_gate.get("allowed_stages"):
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.allowed_stages is retired for current configs; "
+            "use lifecycle.selection and lifecycle.phase"
+        )
+    if isinstance(selection_gate, dict) and "require_one_sided_active" in selection_gate:
+        raise ValueError(
+            "strategy.maker_competitiveness.selection_gate.require_one_sided_active is retired; "
+            "maker side selection now belongs only to lifecycle.lane_gates.maker side-policy truth"
+        )
+    lifecycle = cfg.get("lifecycle") or {}
+    lifecycle_selection = lifecycle.get("selection") if isinstance(lifecycle, dict) else {}
+    if isinstance(lifecycle_selection, dict) and "require_one_sided_active" in lifecycle_selection:
+        raise ValueError(
+            "lifecycle.selection.require_one_sided_active is retired; "
+            "market admission may not own maker side-selection authority"
+        )
+    if isinstance(taker, dict) and taker.get("per_token_cooldown_sec_by_stage"):
+        raise ValueError(
+            "taker.per_token_cooldown_sec_by_stage is retired for current configs; use taker.per_token_cooldown_sec"
+        )
+    if isinstance(taker_comp, dict) and taker_comp.get("stage_final_window_sec_by_stage"):
+        raise ValueError(
+            "taker.competitiveness.stage_final_window_sec_by_stage is retired for current configs; "
+            "use lifecycle.phase.taker_window_open_sec"
+        )
+    if isinstance(taker_comp, dict) and taker_comp.get("stage_aggressiveness"):
+        raise ValueError(
+            "taker.competitiveness.stage_aggressiveness is retired for current configs"
+        )
+    if isinstance(taker_comp, dict) and bool(taker_comp.get("stage_priority_enabled", False)):
+        raise ValueError(
+            "taker.competitiveness.stage_priority_enabled is retired for current configs"
+        )
 
 
 def _raw_has_path(raw: Dict[str, Any], path: Tuple[str, ...]) -> bool:
@@ -658,6 +886,16 @@ def _raw_has_path(raw: Dict[str, Any], path: Tuple[str, ...]) -> bool:
             return False
         cursor = cursor[key]
     return True
+
+
+def _pop_nested_path(raw: Dict[str, Any], path: Tuple[str, ...]) -> None:
+    cursor: Any = raw
+    for key in path[:-1]:
+        if not isinstance(cursor, dict):
+            return
+        cursor = cursor.get(key)
+    if isinstance(cursor, dict):
+        cursor.pop(path[-1], None)
 
 
 def _attach_config_metadata(cfg: Dict[str, Any], *, source_paths: List[pathlib.Path]) -> None:
@@ -688,12 +926,113 @@ def _attach_config_metadata(cfg: Dict[str, Any], *, source_paths: List[pathlib.P
     }
 
 
+def extract_config_compatibility_metadata(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    cfg_meta = cfg.get("_meta") if isinstance(cfg, dict) else {}
+    if not isinstance(cfg_meta, dict):
+        cfg_meta = {}
+
+    ignored_fields_raw = cfg_meta.get("ignored_compatibility_fields")
+    ignored_fields: List[str] = []
+    if isinstance(ignored_fields_raw, list):
+        for item in ignored_fields_raw:
+            text = str(item or "").strip()
+            if text and text not in ignored_fields:
+                ignored_fields.append(text)
+
+    warnings_raw = cfg_meta.get("compatibility_warnings")
+    compatibility_warnings: List[str] = []
+    if isinstance(warnings_raw, list):
+        for item in warnings_raw:
+            text = str(item or "").strip()
+            if text and text not in compatibility_warnings:
+                compatibility_warnings.append(text)
+
+    return {
+        "ignored_compatibility_fields": ignored_fields,
+        "compatibility_warning_count": int(len(compatibility_warnings)),
+        "compatibility_warnings": compatibility_warnings,
+    }
+
+
 def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     raw, source_paths = _load_raw_with_extends(path)
+    _reject_retired_lifecycle_stage_surfaces(raw)
     explicit_doctrine_oracle = _raw_has_path(raw, ("doctrine", "oracle_max_tick_age_sec"))
     explicit_taker_oracle = _raw_has_path(raw, ("taker", "max_chainlink_tick_age_sec"))
+    explicit_maker_queue_pressure = _raw_has_path(
+        raw,
+        ("strategy", "maker_competitiveness", "queue_pressure"),
+    )
+    removed_compatibility_surfaces: List[Tuple[str, str, Tuple[str, ...]]] = [
+        (
+            "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor",
+            "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor is a removed "
+            "historical maker-recovery execution-quality compatibility surface and is ignored",
+            ("strategy", "execution_quality", "reduce_only_recovery_min_expected_fill_prob_floor"),
+        ),
+        (
+            "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier",
+            "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier is a removed "
+            "historical maker-recovery execution-quality compatibility surface and is ignored",
+            ("strategy", "execution_quality", "reduce_only_recovery_max_queue_ahead_size_multiplier"),
+        ),
+        (
+            "runtime.dust_classifier_enforce_enabled",
+            "runtime.dust_classifier_enforce_enabled is a removed dust-authority compatibility surface and is ignored",
+            ("runtime", "dust_classifier_enforce_enabled"),
+        ),
+        (
+            "runtime.held_preexpiry_reduce_only_sec",
+            "runtime.held_preexpiry_reduce_only_sec is a removed historical pre-expiry recovery compatibility surface and is ignored",
+            ("runtime", "held_preexpiry_reduce_only_sec"),
+        ),
+        (
+            "runtime.preexpiry_emergency_taker_window_sec",
+            "runtime.preexpiry_emergency_taker_window_sec is a removed historical pre-expiry emergency unwind compatibility surface and is ignored",
+            ("runtime", "preexpiry_emergency_taker_window_sec"),
+        ),
+        (
+            "runtime.terminal_unwind_halt_new_risk_sec",
+            "runtime.terminal_unwind_halt_new_risk_sec is a removed historical pre-expiry unwind compatibility surface and is ignored",
+            ("runtime", "terminal_unwind_halt_new_risk_sec"),
+        ),
+        (
+            "risk.position_dust_enter_consecutive_cycles",
+            "risk.position_dust_enter_consecutive_cycles is a removed dust-authority compatibility surface and is ignored",
+            ("risk", "position_dust_enter_consecutive_cycles"),
+        ),
+        (
+            "risk.position_dust_clear_consecutive_cycles",
+            "risk.position_dust_clear_consecutive_cycles is a removed dust-authority compatibility surface and is ignored",
+            ("risk", "position_dust_clear_consecutive_cycles"),
+        ),
+        (
+            "risk.order_rate_recovery_reserved_slots",
+            "risk.order_rate_recovery_reserved_slots is a removed historical recovery-rate compatibility surface and is ignored",
+            ("risk", "order_rate_recovery_reserved_slots"),
+        ),
+        (
+            "risk.reduce_only_terminal_min_notional_usd",
+            "risk.reduce_only_terminal_min_notional_usd is a removed historical recovery sizing compatibility surface and is ignored",
+            ("risk", "reduce_only_terminal_min_notional_usd"),
+        ),
+    ]
+    explicit_removed_compatibility_surfaces = [
+        (field, warning_text)
+        for field, warning_text, nested_path in removed_compatibility_surfaces
+        if _raw_has_path(raw, nested_path)
+    ]
     cfg = deep_merge(DEFAULT_EXECUTION_CONFIG, raw)
+    taker_comp_cfg = ((cfg.get("taker") or {}).get("competitiveness") or {})
+    if isinstance(taker_comp_cfg, dict):
+        build_taker_competitiveness_policy(taker_comp_cfg, strict=True)
+    maker_comp_cfg = ((cfg.get("strategy") or {}).get("maker_competitiveness") or {})
+    if isinstance(maker_comp_cfg, dict):
+        maker_comp_cfg.pop("queue_pressure", None)
+    for _, _, nested_path in removed_compatibility_surfaces:
+        _pop_nested_path(cfg, nested_path)
     _normalize_taker_semantics(cfg)
+    _normalize_lifecycle_semantics(cfg)
     _normalize_doctrine_semantics(cfg)
     _apply_asset_profile(cfg)
     # Hash before runtime path normalization so setup-lock fingerprint is stable
@@ -704,6 +1043,28 @@ def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     explicit_fields = cfg_meta.setdefault("explicit_fields", {})
     explicit_fields["doctrine.oracle_max_tick_age_sec"] = bool(explicit_doctrine_oracle)
     explicit_fields["taker.max_chainlink_tick_age_sec"] = bool(explicit_taker_oracle)
+    if explicit_maker_queue_pressure:
+        explicit_fields["strategy.maker_competitiveness.queue_pressure"] = True
+        ignored_fields = cfg_meta.setdefault("ignored_compatibility_fields", [])
+        compatibility_warnings = cfg_meta.setdefault("compatibility_warnings", [])
+        ignored_field = "strategy.maker_competitiveness.queue_pressure"
+        warning_text = (
+            f"{ignored_field} is a removed queue-pressure compatibility surface and is ignored"
+        )
+        if ignored_field not in ignored_fields:
+            ignored_fields.append(ignored_field)
+        if warning_text not in compatibility_warnings:
+            compatibility_warnings.append(warning_text)
+        warnings.warn(warning_text, UserWarning, stacklevel=2)
+    for field, warning_text in explicit_removed_compatibility_surfaces:
+        explicit_fields[field] = True
+        ignored_fields = cfg_meta.setdefault("ignored_compatibility_fields", [])
+        compatibility_warnings = cfg_meta.setdefault("compatibility_warnings", [])
+        if field not in ignored_fields:
+            ignored_fields.append(field)
+        if warning_text not in compatibility_warnings:
+            compatibility_warnings.append(warning_text)
+        warnings.warn(warning_text, UserWarning, stacklevel=2)
     validate_execution_config(cfg)
     return cfg
 
@@ -765,6 +1126,14 @@ def _require_fraction(name: str, value: Any, *, allow_zero: bool = False) -> flo
 
 
 def validate_execution_config(cfg: Dict[str, Any]) -> None:
+    _reject_retired_lifecycle_stage_surfaces(cfg)
+    taker_comp_cfg_pre = ((cfg.get("taker") or {}).get("competitiveness") or {})
+    if isinstance(taker_comp_cfg_pre, dict):
+        build_taker_competitiveness_policy(taker_comp_cfg_pre, strict=True)
+    _normalize_taker_semantics(cfg)
+    _normalize_lifecycle_semantics(cfg)
+    _normalize_doctrine_semantics(cfg)
+
     bot_name = str(cfg.get("bot_name", "")).strip()
     if not bot_name:
         raise ValueError("bot_name must be a non-empty string")
@@ -791,36 +1160,18 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("runtime.reconcile_interval_sec", cfg["runtime"]["reconcile_interval_sec"])
     _require_positive("runtime.status_interval_sec", cfg["runtime"]["status_interval_sec"])
     _require_positive("runtime.max_actions_per_cycle", cfg["runtime"]["max_actions_per_cycle"])
-    _require_positive("runtime.rest_fetch_max_workers", cfg["runtime"]["rest_fetch_max_workers"])
     _require_positive("runtime.max_consecutive_failures", cfg["runtime"]["max_consecutive_failures"])
     _require_positive("runtime.seen_trade_ids_max", cfg["runtime"]["seen_trade_ids_max"])
     _require_positive("runtime.persist_seen_trade_ids_max", cfg["runtime"]["persist_seen_trade_ids_max"], allow_zero=True)
     _require_positive("runtime.max_quote_age_sec", cfg["runtime"]["max_quote_age_sec"])
-    _require_positive("runtime.book_not_found_backoff_sec", cfg["runtime"]["book_not_found_backoff_sec"])
-    _require_positive("runtime.held_book_not_found_backoff_sec", cfg["runtime"]["held_book_not_found_backoff_sec"])
     _require_positive(
-        "runtime.held_book_not_found_force_refresh_interval_sec",
-        cfg["runtime"]["held_book_not_found_force_refresh_interval_sec"],
+        "runtime.held_ws_missing_or_unusable_refresh_interval_sec",
+        cfg["runtime"]["held_ws_missing_or_unusable_refresh_interval_sec"],
         allow_zero=True,
     )
     _require_positive(
-        "runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec",
-        cfg["runtime"]["held_book_not_found_force_refresh_min_unpriceable_age_sec"],
-        allow_zero=True,
-    )
-    _require_positive(
-        "runtime.held_preexpiry_reduce_only_sec",
-        cfg["runtime"]["held_preexpiry_reduce_only_sec"],
-        allow_zero=True,
-    )
-    _require_positive(
-        "runtime.terminal_unwind_halt_new_risk_sec",
-        cfg["runtime"].get("terminal_unwind_halt_new_risk_sec", 0.0),
-        allow_zero=True,
-    )
-    _require_positive(
-        "runtime.preexpiry_emergency_taker_window_sec",
-        cfg["runtime"].get("preexpiry_emergency_taker_window_sec", 0.0),
+        "runtime.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec",
+        cfg["runtime"]["held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec"],
         allow_zero=True,
     )
     _require_positive(
@@ -830,8 +1181,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     )
     if not isinstance(cfg["runtime"].get("require_lifecycle_context_for_decisions", True), bool):
         raise ValueError("runtime.require_lifecycle_context_for_decisions must be a boolean")
-    if not isinstance(cfg["runtime"].get("dust_classifier_enforce_enabled", False), bool):
-        raise ValueError("runtime.dust_classifier_enforce_enabled must be a boolean")
     _require_positive(
         "runtime.valuation_hard_degraded_clear_consecutive_healthy_cycles",
         cfg["runtime"]["valuation_hard_degraded_clear_consecutive_healthy_cycles"],
@@ -956,25 +1305,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("taker.target_usd", cfg["taker"]["target_usd"])
     _require_positive("taker.max_orders_per_cycle", cfg["taker"]["max_orders_per_cycle"])
     _require_positive("taker.per_token_cooldown_sec", cfg["taker"]["per_token_cooldown_sec"], allow_zero=True)
-    cooldown_by_stage_cfg = cfg["taker"].get("per_token_cooldown_sec_by_stage", {})
-    if not isinstance(cooldown_by_stage_cfg, dict):
-        raise ValueError("taker.per_token_cooldown_sec_by_stage must be a mapping")
-    normalized_stage_cooldowns: Dict[str, float] = {}
-    for stage_name_raw, value in cooldown_by_stage_cfg.items():
-        stage_name = str(stage_name_raw or "").strip().upper()
-        if not stage_name:
-            raise ValueError("taker.per_token_cooldown_sec_by_stage keys must be non-empty stage names")
-        if stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-            raise ValueError(
-                "taker.per_token_cooldown_sec_by_stage keys must be taker-allowed stages"
-            )
-        _require_positive(
-            f"taker.per_token_cooldown_sec_by_stage[{stage_name}]",
-            value,
-            allow_zero=True,
-        )
-        normalized_stage_cooldowns[stage_name] = float(value)
-    cfg["taker"]["per_token_cooldown_sec_by_stage"] = normalized_stage_cooldowns
     min_edge_by_stage_cfg = cfg["taker"].get("min_edge_by_stage", {})
     if not isinstance(min_edge_by_stage_cfg, dict):
         raise ValueError("taker.min_edge_by_stage must be a mapping")
@@ -1008,8 +1338,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("market_data.timeout_sec", cfg["market_data"]["timeout_sec"])
     _require_positive("market_data.max_retries", cfg["market_data"]["max_retries"], allow_zero=True)
     md_ws = cfg["market_data"]["ws"]
-    md_ws_heartbeat = _require_positive("market_data.ws.heartbeat_timeout_sec", md_ws["heartbeat_timeout_sec"])
-    md_ws_ping = _require_positive("market_data.ws.ping_interval_sec", md_ws["ping_interval_sec"])
+    if not isinstance(md_ws.get("url"), str) or not str(md_ws.get("url", "")).strip():
+        raise ValueError("market_data.ws.url must be a non-empty string")
+    if not isinstance(md_ws.get("worker_name"), str) or not str(md_ws.get("worker_name", "")).strip():
+        raise ValueError("market_data.ws.worker_name must be a non-empty string")
+    _require_positive("market_data.ws.startup_ack_timeout_sec", md_ws["startup_ack_timeout_sec"])
     md_ws_reconnect_initial = _require_positive(
         "market_data.ws.reconnect_backoff_initial_sec",
         md_ws["reconnect_backoff_initial_sec"],
@@ -1019,8 +1352,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         md_ws["reconnect_backoff_max_sec"],
     )
     _require_positive("market_data.ws.stale_after_sec", md_ws["stale_after_sec"])
-    heartbeat_timeout = _require_positive("chainlink.heartbeat_timeout_sec", cfg["chainlink"]["heartbeat_timeout_sec"])
-    ping_interval = _require_positive("chainlink.ping_interval_sec", cfg["chainlink"]["ping_interval_sec"])
+    if not isinstance(cfg["chainlink"].get("ws_url"), str) or not str(cfg["chainlink"].get("ws_url", "")).strip():
+        raise ValueError("chainlink.ws_url must be a non-empty string")
+    if not isinstance(cfg["chainlink"].get("worker_name"), str) or not str(cfg["chainlink"].get("worker_name", "")).strip():
+        raise ValueError("chainlink.worker_name must be a non-empty string")
+    _require_positive("chainlink.startup_ack_timeout_sec", cfg["chainlink"]["startup_ack_timeout_sec"])
     reconnect_backoff_initial = _require_positive(
         "chainlink.reconnect_backoff_initial_sec",
         cfg["chainlink"]["reconnect_backoff_initial_sec"],
@@ -1155,41 +1491,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         cfg["strategy"]["execution_quality"]["adverse_selection_penalty"],
         allow_zero=True,
     )
-    _require_fraction(
-        "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor",
-        cfg["strategy"]["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"],
-        allow_zero=True,
-    )
-    _require_positive(
-        "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier",
-        cfg["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"],
-    )
-    min_expected_fill_prob = float(cfg["strategy"]["execution_quality"]["min_expected_fill_prob"])
-    reduce_only_recovery_floor = float(
-        cfg["strategy"]["execution_quality"]["reduce_only_recovery_min_expected_fill_prob_floor"]
-    )
-    reduce_only_recovery_queue_mult = float(
-        cfg["strategy"]["execution_quality"]["reduce_only_recovery_max_queue_ahead_size_multiplier"]
-    )
-    if reduce_only_recovery_floor > (min_expected_fill_prob + 1e-9):
-        raise ValueError(
-            "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor "
-            "must be <= strategy.execution_quality.min_expected_fill_prob"
-        )
-    if reduce_only_recovery_queue_mult > 5.0:
-        raise ValueError(
-            "strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier must be <= 5.0"
-        )
     _require_positive("risk.max_abs_position_shares", cfg["risk"]["max_abs_position_shares"])
     _require_positive("risk.max_notional_per_token", cfg["risk"]["max_notional_per_token"])
     _require_positive("risk.max_open_orders_per_token", cfg["risk"]["max_open_orders_per_token"])
     _require_positive("risk.max_total_open_orders", cfg["risk"]["max_total_open_orders"])
     _require_positive("risk.max_orders_per_min", cfg["risk"]["max_orders_per_min"])
-    _require_positive(
-        "risk.order_rate_recovery_reserved_slots",
-        cfg["risk"]["order_rate_recovery_reserved_slots"],
-        allow_zero=True,
-    )
     _require_positive("risk.max_cancels_per_min", cfg["risk"]["max_cancels_per_min"])
     _require_positive("risk.max_book_age_sec", cfg["risk"]["max_book_age_sec"])
     _require_positive(
@@ -1220,11 +1526,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         )
         normalized_min_sec_to_expiry_for_new_exposure_by_lane[lane] = float(threshold_raw or 0.0)
     cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = normalized_min_sec_to_expiry_for_new_exposure_by_lane
-    _require_positive(
-        "risk.reduce_only_terminal_min_notional_usd",
-        cfg["risk"].get("reduce_only_terminal_min_notional_usd", 0.0),
-        allow_zero=True,
-    )
     _require_positive("risk.one_sided_quote_max_age_sec", cfg["risk"]["one_sided_quote_max_age_sec"], allow_zero=True)
     _require_positive("risk.last_known_mid_max_age_sec", cfg["risk"]["last_known_mid_max_age_sec"], allow_zero=True)
     _require_positive("risk.held_unpriceable_escalation_sec", cfg["risk"]["held_unpriceable_escalation_sec"], allow_zero=True)
@@ -1250,14 +1551,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "risk.position_dust_max_age_sec",
         cfg["risk"]["position_dust_max_age_sec"],
     )
-    _require_positive(
-        "risk.position_dust_enter_consecutive_cycles",
-        cfg["risk"]["position_dust_enter_consecutive_cycles"],
-    )
-    _require_positive(
-        "risk.position_dust_clear_consecutive_cycles",
-        cfg["risk"]["position_dust_clear_consecutive_cycles"],
-    )
     _require_positive("risk.max_book_future_skew_sec", cfg["risk"]["max_book_future_skew_sec"], allow_zero=True)
     min_sec_to_expiry_for_new_exposure = float(cfg["risk"]["min_sec_to_expiry_for_new_exposure"] or 0.0)
     min_sec_to_expiry_for_new_exposure_by_lane = dict(
@@ -1266,39 +1559,18 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     maker_min_sec_to_expiry_for_new_exposure = float(
         min_sec_to_expiry_for_new_exposure_by_lane.get("maker", min_sec_to_expiry_for_new_exposure) or 0.0
     )
-    held_preexpiry_reduce_only_sec = float(cfg["runtime"]["held_preexpiry_reduce_only_sec"] or 0.0)
-    preexpiry_emergency_taker_window_sec = float(
-        cfg["runtime"].get("preexpiry_emergency_taker_window_sec", 0.0) or 0.0
-    )
-    terminal_unwind_halt_new_risk_sec = float(
-        cfg["runtime"].get("terminal_unwind_halt_new_risk_sec", 0.0) or 0.0
-    )
     runtime_expiry_boundary_epsilon_sec = float(cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0) or 0.0)
     dust_shares_epsilon = float(cfg["risk"].get("position_dust_shares_epsilon", 0.0) or 0.0)
     dust_notional_usd_epsilon = float(cfg["risk"].get("position_dust_notional_usd_epsilon", 0.0) or 0.0)
     dust_total_notional_usd_cap = float(cfg["risk"].get("position_dust_total_notional_usd_cap", 0.0) or 0.0)
     dust_token_count_cap = int(float(cfg["risk"].get("position_dust_token_count_cap", 0.0) or 0.0))
-    dust_enter_consecutive_cycles = int(float(cfg["risk"].get("position_dust_enter_consecutive_cycles", 0.0) or 0.0))
-    dust_clear_consecutive_cycles = int(float(cfg["risk"].get("position_dust_clear_consecutive_cycles", 0.0) or 0.0))
-    order_rate_recovery_reserved_slots = int(
-        float(cfg["risk"].get("order_rate_recovery_reserved_slots", 0.0) or 0.0)
-    )
     max_orders_per_min = int(float(cfg["risk"].get("max_orders_per_min", 0.0) or 0.0))
     risk_min_order_size = float(cfg["risk"].get("min_order_size", 0.0) or 0.0)
     strategy_min_order_size = float(cfg["strategy"].get("min_order_size", 0.0) or 0.0)
-    reduce_only_terminal_min_notional_usd = float(
-        cfg["risk"].get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
-    )
     if runtime_expiry_boundary_epsilon_sec > 5.0:
         raise ValueError("runtime.expiry_boundary_epsilon_sec must be <= 5.0")
     if dust_token_count_cap < 1:
         raise ValueError("risk.position_dust_token_count_cap must be >= 1")
-    if dust_enter_consecutive_cycles < 1:
-        raise ValueError("risk.position_dust_enter_consecutive_cycles must be >= 1")
-    if dust_clear_consecutive_cycles < 1:
-        raise ValueError("risk.position_dust_clear_consecutive_cycles must be >= 1")
-    if max_orders_per_min > 0 and order_rate_recovery_reserved_slots >= max_orders_per_min:
-        raise ValueError("risk.order_rate_recovery_reserved_slots must be < risk.max_orders_per_min")
     if dust_total_notional_usd_cap + 1e-9 < dust_notional_usd_epsilon:
         raise ValueError(
             "risk.position_dust_total_notional_usd_cap must be >= risk.position_dust_notional_usd_epsilon"
@@ -1309,42 +1581,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("risk.position_dust_shares_epsilon must be <= strategy.min_order_size")
     if dust_notional_usd_epsilon - 1e-9 > float(cfg["risk"]["max_notional_per_token"]):
         raise ValueError("risk.position_dust_notional_usd_epsilon must be <= risk.max_notional_per_token")
-    if (
-        held_preexpiry_reduce_only_sec > 0.0
-        and maker_min_sec_to_expiry_for_new_exposure > 0.0
-        and held_preexpiry_reduce_only_sec + 1e-9 < maker_min_sec_to_expiry_for_new_exposure
-    ):
-        raise ValueError(
-            "runtime.held_preexpiry_reduce_only_sec must be >= the effective maker "
-            "new-exposure expiry gate"
-        )
-    if (
-        terminal_unwind_halt_new_risk_sec > 0.0
-        and held_preexpiry_reduce_only_sec > 0.0
-        and terminal_unwind_halt_new_risk_sec - 1e-9 > held_preexpiry_reduce_only_sec
-    ):
-        raise ValueError(
-            "runtime.terminal_unwind_halt_new_risk_sec must be <= runtime.held_preexpiry_reduce_only_sec"
-        )
-    if (
-        preexpiry_emergency_taker_window_sec > 0.0
-        and held_preexpiry_reduce_only_sec > 0.0
-        and preexpiry_emergency_taker_window_sec - 1e-9 > held_preexpiry_reduce_only_sec
-    ):
-        raise ValueError(
-            "runtime.preexpiry_emergency_taker_window_sec must be <= runtime.held_preexpiry_reduce_only_sec"
-        )
-    # Polymarket binary contracts are bounded to [0, 1] USDC per share, so the
-    # normal share floor is a conservative proxy upper-bound for minimum notional.
-    normal_min_order_floor_usd_proxy = max(float(risk_min_order_size), float(strategy_min_order_size))
-    if (
-        reduce_only_terminal_min_notional_usd > 0.0
-        and normal_min_order_floor_usd_proxy > 0.0
-        and reduce_only_terminal_min_notional_usd - 1e-9 > normal_min_order_floor_usd_proxy
-    ):
-        raise ValueError(
-            "risk.reduce_only_terminal_min_notional_usd must be <= normal minimum order-size floor"
-        )
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):
         raise ValueError("risk.dynamic_scaling must be a mapping")
@@ -1477,251 +1713,171 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     maker_comp_cfg = cfg["strategy"].get("maker_competitiveness", {})
     if not isinstance(maker_comp_cfg, dict):
         raise ValueError("strategy.maker_competitiveness must be a mapping")
+    lifecycle_cfg = cfg.get("lifecycle", {})
+    if not isinstance(lifecycle_cfg, dict):
+        raise ValueError("lifecycle must be a mapping")
+    lifecycle_selection_cfg = lifecycle_cfg.get("selection", {})
+    if not isinstance(lifecycle_selection_cfg, dict):
+        raise ValueError("lifecycle.selection must be a mapping")
+    lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
+    if not isinstance(lifecycle_phase_cfg, dict):
+        raise ValueError("lifecycle.phase must be a mapping")
+    lifecycle_lane_gates_cfg = lifecycle_cfg.get("lane_gates", {})
+    if not isinstance(lifecycle_lane_gates_cfg, dict):
+        raise ValueError("lifecycle.lane_gates must be a mapping")
+    lifecycle_maker_lane_cfg = lifecycle_lane_gates_cfg.get("maker", {})
+    if not isinstance(lifecycle_maker_lane_cfg, dict):
+        raise ValueError("lifecycle.lane_gates.maker must be a mapping")
+    lifecycle_taker_lane_cfg = lifecycle_lane_gates_cfg.get("taker", {})
+    if not isinstance(lifecycle_taker_lane_cfg, dict):
+        raise ValueError("lifecycle.lane_gates.taker must be a mapping")
+    if not isinstance(lifecycle_selection_cfg.get("enabled"), bool):
+        raise ValueError("lifecycle.selection.enabled must be boolean")
     _require_positive(
-        "strategy.maker_competitiveness.timing_gate_min_sec_to_expiry",
-        maker_comp_cfg.get("timing_gate_min_sec_to_expiry"),
+        "lifecycle.selection.min_sec_to_expiry",
+        lifecycle_selection_cfg.get("min_sec_to_expiry"),
+        allow_zero=True,
     )
     _require_positive(
-        "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry",
-        maker_comp_cfg.get("timing_gate_max_sec_to_expiry"),
+        "lifecycle.selection.min_market_age_sec",
+        lifecycle_selection_cfg.get("min_market_age_sec"),
+        allow_zero=True,
     )
-    timing_min = float(maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 15.0))
-    timing_max = float(maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 20.0))
-    if timing_max < timing_min:
-        raise ValueError(
-            "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry must be >= timing_gate_min_sec_to_expiry"
-        )
+    _require_positive(
+        "lifecycle.selection.maker_min_depth_multiple",
+        lifecycle_selection_cfg.get("maker_min_depth_multiple"),
+        allow_zero=True,
+    )
+    _require_fraction(
+        "lifecycle.selection.taker_min_fill_ratio",
+        lifecycle_selection_cfg.get("taker_min_fill_ratio"),
+        allow_zero=True,
+    )
+    if not isinstance(lifecycle_selection_cfg.get("require_secondary_oracle_confirmation"), bool):
+        raise ValueError("lifecycle.selection.require_secondary_oracle_confirmation must be boolean")
+    _require_positive(
+        "lifecycle.selection.cannon_target_notional_usd",
+        lifecycle_selection_cfg.get("cannon_target_notional_usd"),
+    )
+    for key in (
+        "max_same_target_submit_count_prior",
+        "max_same_target_side_submit_count_prior",
+    ):
+        raw_value = lifecycle_selection_cfg.get(key)
+        if isinstance(raw_value, bool):
+            raise ValueError(f"lifecycle.selection.{key} must be a non-negative integer")
+        try:
+            normalized_value = int(float(raw_value))
+        except (TypeError, ValueError):
+            raise ValueError(f"lifecycle.selection.{key} must be a non-negative integer") from None
+        if normalized_value < 0 or abs(float(raw_value) - float(normalized_value)) > 1e-9:
+            raise ValueError(f"lifecycle.selection.{key} must be a non-negative integer")
+        lifecycle_selection_cfg[key] = normalized_value
+    _require_positive(
+        "lifecycle.selection.replacement_margin",
+        lifecycle_selection_cfg.get("replacement_margin"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "lifecycle.selection.replacement_dwell_sec",
+        lifecycle_selection_cfg.get("replacement_dwell_sec"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "lifecycle.selection.ownership_fail_dwell_sec",
+        lifecycle_selection_cfg.get("ownership_fail_dwell_sec"),
+        allow_zero=True,
+    )
+    _require_positive(
+        "lifecycle.phase.maker_window_open_sec",
+        lifecycle_phase_cfg.get("maker_window_open_sec"),
+    )
+    _require_positive(
+        "lifecycle.phase.taker_window_open_sec",
+        lifecycle_phase_cfg.get("taker_window_open_sec"),
+        allow_zero=True,
+    )
+    maker_window_open_sec = float(lifecycle_phase_cfg.get("maker_window_open_sec", 15.0) or 0.0)
+    taker_window_open_sec = float(lifecycle_phase_cfg.get("taker_window_open_sec", 7.0) or 0.0)
+    if maker_window_open_sec + 1e-9 < taker_window_open_sec:
+        raise ValueError("lifecycle.phase.maker_window_open_sec must be >= taker_window_open_sec")
     if (
         maker_min_sec_to_expiry_for_new_exposure > 0.0
-        and maker_min_sec_to_expiry_for_new_exposure > (timing_max + 1e-9)
+        and maker_min_sec_to_expiry_for_new_exposure > (maker_window_open_sec + 1e-9)
     ):
         raise ValueError(
             "the effective maker new-exposure expiry gate must be <= "
-            "strategy.maker_competitiveness.timing_gate_max_sec_to_expiry"
+            "lifecycle.phase.maker_window_open_sec"
         )
+    if not isinstance(lifecycle_maker_lane_cfg.get("timing_gate_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.maker.timing_gate_enabled must be boolean")
+    if not isinstance(lifecycle_maker_lane_cfg.get("edge_scale_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.maker.edge_scale_enabled must be boolean")
     _require_fraction(
-        "strategy.maker_competitiveness.edge_scale_start_abs",
-        maker_comp_cfg.get("edge_scale_start_abs"),
+        "lifecycle.lane_gates.maker.edge_scale_start_abs",
+        lifecycle_maker_lane_cfg.get("edge_scale_start_abs"),
         allow_zero=True,
     )
     _require_fraction(
-        "strategy.maker_competitiveness.edge_scale_full_abs",
-        maker_comp_cfg.get("edge_scale_full_abs"),
+        "lifecycle.lane_gates.maker.edge_scale_full_abs",
+        lifecycle_maker_lane_cfg.get("edge_scale_full_abs"),
         allow_zero=True,
     )
-    edge_start = float(maker_comp_cfg.get("edge_scale_start_abs", 0.05) or 0.0)
-    edge_full = float(maker_comp_cfg.get("edge_scale_full_abs", 0.20) or 0.0)
+    edge_start = float(lifecycle_maker_lane_cfg.get("edge_scale_start_abs", 0.05) or 0.0)
+    edge_full = float(lifecycle_maker_lane_cfg.get("edge_scale_full_abs", 0.20) or 0.0)
     if edge_full < edge_start:
-        raise ValueError("strategy.maker_competitiveness.edge_scale_full_abs must be >= edge_scale_start_abs")
+        raise ValueError("lifecycle.lane_gates.maker.edge_scale_full_abs must be >= edge_scale_start_abs")
     _require_positive(
-        "strategy.maker_competitiveness.size_mult_max",
-        maker_comp_cfg.get("size_mult_max"),
+        "lifecycle.lane_gates.maker.size_mult_max",
+        lifecycle_maker_lane_cfg.get("size_mult_max"),
     )
-    if float(maker_comp_cfg.get("size_mult_max", 1.35) or 0.0) < 1.0:
-        raise ValueError("strategy.maker_competitiveness.size_mult_max must be >= 1.0")
+    if float(lifecycle_maker_lane_cfg.get("size_mult_max", 1.35) or 0.0) < 1.0:
+        raise ValueError("lifecycle.lane_gates.maker.size_mult_max must be >= 1.0")
     _require_fraction(
-        "strategy.maker_competitiveness.spread_mult_min",
-        maker_comp_cfg.get("spread_mult_min"),
+        "lifecycle.lane_gates.maker.spread_mult_min",
+        lifecycle_maker_lane_cfg.get("spread_mult_min"),
         allow_zero=False,
     )
-    if float(maker_comp_cfg.get("spread_mult_min", 0.75) or 0.0) > 1.0:
-        raise ValueError("strategy.maker_competitiveness.spread_mult_min must be <= 1.0")
+    if float(lifecycle_maker_lane_cfg.get("spread_mult_min", 0.75) or 0.0) > 1.0:
+        raise ValueError("lifecycle.lane_gates.maker.spread_mult_min must be <= 1.0")
     _require_fraction(
-        "strategy.maker_competitiveness.requote_delta_mult_min",
-        maker_comp_cfg.get("requote_delta_mult_min"),
+        "lifecycle.lane_gates.maker.requote_delta_mult_min",
+        lifecycle_maker_lane_cfg.get("requote_delta_mult_min"),
         allow_zero=False,
     )
-    if float(maker_comp_cfg.get("requote_delta_mult_min", 0.50) or 0.0) > 1.0:
-        raise ValueError("strategy.maker_competitiveness.requote_delta_mult_min must be <= 1.0")
+    if float(lifecycle_maker_lane_cfg.get("requote_delta_mult_min", 0.50) or 0.0) > 1.0:
+        raise ValueError("lifecycle.lane_gates.maker.requote_delta_mult_min must be <= 1.0")
+    if not isinstance(lifecycle_maker_lane_cfg.get("one_sided_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.maker.one_sided_enabled must be boolean")
     _require_fraction(
-        "strategy.maker_competitiveness.one_sided_edge_threshold_abs",
-        maker_comp_cfg.get("one_sided_edge_threshold_abs"),
+        "lifecycle.lane_gates.maker.one_sided_edge_threshold_abs",
+        lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs"),
         allow_zero=True,
     )
-    one_sided_allowed_stages = maker_comp_cfg.get("one_sided_allowed_stages")
-    if not isinstance(one_sided_allowed_stages, list):
-        raise ValueError("strategy.maker_competitiveness.one_sided_allowed_stages must be a list")
-    canonical_allowed_stages = {
-        "MAKER_POSITION",
-        "MAKER_TAKER_SELECTIVE",
-    }
-    normalized_stages: List[str] = []
-    for idx, stage in enumerate(one_sided_allowed_stages):
-        stage_name = str(stage or "").strip().upper()
-        if not stage_name:
-            raise ValueError(
-                f"strategy.maker_competitiveness.one_sided_allowed_stages[{idx}] must be a non-empty stage name"
-            )
-        if stage_name not in canonical_allowed_stages:
-            raise ValueError(
-                "strategy.maker_competitiveness.one_sided_allowed_stages must only include maker-allowed stages"
-            )
-        normalized_stages.append(stage_name)
-    cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = sorted(set(normalized_stages))
-    queue_pressure_cfg = maker_comp_cfg.get("queue_pressure", {})
-    if not isinstance(queue_pressure_cfg, dict):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure must be a mapping")
-    queue_pressure_allowed_stages = queue_pressure_cfg.get("allowed_stages")
-    if not isinstance(queue_pressure_allowed_stages, list):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.allowed_stages must be a list")
-    normalized_queue_pressure_stages: List[str] = []
-    for idx, stage in enumerate(queue_pressure_allowed_stages):
-        stage_name = str(stage or "").strip().upper()
-        if not stage_name:
-            raise ValueError(
-                f"strategy.maker_competitiveness.queue_pressure.allowed_stages[{idx}] must be a non-empty stage name"
-            )
-        if stage_name not in canonical_allowed_stages:
-            raise ValueError(
-                "strategy.maker_competitiveness.queue_pressure.allowed_stages must only include maker-allowed stages"
-            )
-        normalized_queue_pressure_stages.append(stage_name)
-    cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["allowed_stages"] = sorted(
-        set(normalized_queue_pressure_stages)
-    )
-    _require_fraction(
-        "strategy.maker_competitiveness.queue_pressure.min_edge_abs",
-        queue_pressure_cfg.get("min_edge_abs"),
-        allow_zero=True,
-    )
-    inside_price_ticks_raw = queue_pressure_cfg.get("inside_price_ticks", 1)
-    if isinstance(inside_price_ticks_raw, bool):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer")
-    try:
-        inside_price_ticks = int(float(inside_price_ticks_raw))
-    except (TypeError, ValueError):
-        raise ValueError(
-            "strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer"
-        ) from None
-    if inside_price_ticks <= 0 or abs(float(inside_price_ticks_raw) - float(inside_price_ticks)) > 1e-9:
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.inside_price_ticks must be a positive integer")
-    cfg["strategy"]["maker_competitiveness"]["queue_pressure"]["inside_price_ticks"] = inside_price_ticks
-    selection_gate_cfg = maker_comp_cfg.get("selection_gate", {})
-    if not isinstance(selection_gate_cfg, dict):
-        raise ValueError("strategy.maker_competitiveness.selection_gate must be a mapping")
-    selection_gate_allowed_stages = selection_gate_cfg.get("allowed_stages")
-    if not isinstance(selection_gate_allowed_stages, list):
-        raise ValueError("strategy.maker_competitiveness.selection_gate.allowed_stages must be a list")
-    normalized_selection_gate_stages: List[str] = []
-    for idx, stage in enumerate(selection_gate_allowed_stages):
-        stage_name = str(stage or "").strip().upper()
-        if not stage_name:
-            raise ValueError(
-                f"strategy.maker_competitiveness.selection_gate.allowed_stages[{idx}] must be a non-empty stage name"
-            )
-        if stage_name not in canonical_allowed_stages:
-            raise ValueError(
-                "strategy.maker_competitiveness.selection_gate.allowed_stages must only include maker-allowed stages"
-            )
-        normalized_selection_gate_stages.append(stage_name)
-    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["allowed_stages"] = sorted(
-        set(normalized_selection_gate_stages)
-    )
+    if not isinstance(lifecycle_taker_lane_cfg.get("final_window_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.taker.final_window_enabled must be boolean")
+    if not isinstance(lifecycle_taker_lane_cfg.get("aggressive_window_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.taker.aggressive_window_enabled must be boolean")
+    if not isinstance(lifecycle_taker_lane_cfg.get("multi_oracle_boost_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.taker.multi_oracle_boost_enabled must be boolean")
     _require_positive(
-        "strategy.maker_competitiveness.selection_gate.cannon_target_notional_usd",
-        selection_gate_cfg.get("cannon_target_notional_usd"),
-    )
-    _require_positive(
-        "strategy.maker_competitiveness.selection_gate.min_depth_multiple",
-        selection_gate_cfg.get("min_depth_multiple"),
+        "lifecycle.lane_gates.taker.aggressive_window_sec",
+        lifecycle_taker_lane_cfg.get("aggressive_window_sec"),
         allow_zero=True,
     )
-    min_sec_to_expiry_raw = selection_gate_cfg.get("min_sec_to_expiry")
-    max_sec_to_expiry_raw = selection_gate_cfg.get("max_sec_to_expiry")
-    min_sec_to_expiry = None
-    max_sec_to_expiry = None
-    if min_sec_to_expiry_raw is not None:
-        _require_positive(
-            "strategy.maker_competitiveness.selection_gate.min_sec_to_expiry",
-            min_sec_to_expiry_raw,
-            allow_zero=True,
-        )
-        min_sec_to_expiry = float(min_sec_to_expiry_raw)
-    if max_sec_to_expiry_raw is not None:
-        _require_positive(
-            "strategy.maker_competitiveness.selection_gate.max_sec_to_expiry",
-            max_sec_to_expiry_raw,
-            allow_zero=True,
-        )
-        max_sec_to_expiry = float(max_sec_to_expiry_raw)
-    if (
-        isinstance(min_sec_to_expiry, (int, float))
-        and isinstance(max_sec_to_expiry, (int, float))
-        and float(min_sec_to_expiry) > float(max_sec_to_expiry) + 1e-9
-    ):
+    if float(lifecycle_taker_lane_cfg.get("aggressive_window_sec", 0.0) or 0.0) > taker_window_open_sec + 1e-9:
         raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.min_sec_to_expiry must be <= max_sec_to_expiry"
+            "lifecycle.lane_gates.taker.aggressive_window_sec must be <= lifecycle.phase.taker_window_open_sec"
         )
-    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["min_sec_to_expiry"] = (
-        float(min_sec_to_expiry)
-        if isinstance(min_sec_to_expiry, (int, float))
-        else None
+    _require_positive(
+        "lifecycle.lane_gates.taker.multi_oracle_boost_window_sec",
+        lifecycle_taker_lane_cfg.get("multi_oracle_boost_window_sec"),
+        allow_zero=True,
     )
-    cfg["strategy"]["maker_competitiveness"]["selection_gate"]["max_sec_to_expiry"] = (
-        float(max_sec_to_expiry)
-        if isinstance(max_sec_to_expiry, (int, float))
-        else None
-    )
-    max_same_target_submit_count_prior_raw = selection_gate_cfg.get(
-        "max_same_target_submit_count_prior",
-        1,
-    )
-    if isinstance(max_same_target_submit_count_prior_raw, bool):
+    if float(lifecycle_taker_lane_cfg.get("multi_oracle_boost_window_sec", 0.0) or 0.0) > taker_window_open_sec + 1e-9:
         raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
+            "lifecycle.lane_gates.taker.multi_oracle_boost_window_sec must be <= lifecycle.phase.taker_window_open_sec"
         )
-    try:
-        max_same_target_submit_count_prior = int(
-            float(max_same_target_submit_count_prior_raw)
-        )
-    except (TypeError, ValueError):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
-        ) from None
-    if (
-        max_same_target_submit_count_prior < 0
-        or abs(
-            float(max_same_target_submit_count_prior_raw)
-            - float(max_same_target_submit_count_prior)
-        )
-        > 1e-9
-    ):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_submit_count_prior must be a non-negative integer"
-        )
-    cfg["strategy"]["maker_competitiveness"]["selection_gate"][
-        "max_same_target_submit_count_prior"
-    ] = max_same_target_submit_count_prior
-    max_same_target_side_submit_count_prior_raw = selection_gate_cfg.get(
-        "max_same_target_side_submit_count_prior",
-        1,
-    )
-    if isinstance(max_same_target_side_submit_count_prior_raw, bool):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
-        )
-    try:
-        max_same_target_side_submit_count_prior = int(
-            float(max_same_target_side_submit_count_prior_raw)
-        )
-    except (TypeError, ValueError):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
-        ) from None
-    if (
-        max_same_target_side_submit_count_prior < 0
-        or abs(
-            float(max_same_target_side_submit_count_prior_raw)
-            - float(max_same_target_side_submit_count_prior)
-        )
-        > 1e-9
-    ):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.max_same_target_side_submit_count_prior must be a non-negative integer"
-        )
-    cfg["strategy"]["maker_competitiveness"]["selection_gate"][
-        "max_same_target_side_submit_count_prior"
-    ] = max_same_target_side_submit_count_prior
 
     risk_dynamic_cfg = cfg["risk"].get("dynamic_scaling", {})
     if not isinstance(risk_dynamic_cfg, dict):
@@ -1837,12 +1993,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("operating_mode.maker_only_error_ratio must be >= operating_mode.caution_error_ratio")
     if reconnect_backoff_max < reconnect_backoff_initial:
         raise ValueError("chainlink.reconnect_backoff_max_sec must be >= chainlink.reconnect_backoff_initial_sec")
-    if ping_interval > heartbeat_timeout:
-        raise ValueError("chainlink.ping_interval_sec must be <= chainlink.heartbeat_timeout_sec")
     if md_ws_reconnect_max < md_ws_reconnect_initial:
         raise ValueError("market_data.ws.reconnect_backoff_max_sec must be >= market_data.ws.reconnect_backoff_initial_sec")
-    if md_ws_ping > md_ws_heartbeat:
-        raise ValueError("market_data.ws.ping_interval_sec must be <= market_data.ws.heartbeat_timeout_sec")
     if cfg["strategy"]["volatility"]["high_vol_threshold"] <= cfg["strategy"]["volatility"]["low_vol_threshold"]:
         raise ValueError("strategy.volatility.high_vol_threshold must be > strategy.volatility.low_vol_threshold")
 
@@ -2099,29 +2251,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("strategy.maker_competitiveness.edge_scale_enabled must be boolean")
     if not isinstance(cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"], bool):
         raise ValueError("strategy.maker_competitiveness.one_sided_enabled must be boolean")
-    queue_pressure_cfg = cfg["strategy"]["maker_competitiveness"]["queue_pressure"]
-    if not isinstance(queue_pressure_cfg.get("enabled"), bool):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.enabled must be boolean")
-    if not isinstance(queue_pressure_cfg.get("favored_side_only"), bool):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.favored_side_only must be boolean")
-    if not isinstance(queue_pressure_cfg.get("tight_spread_only"), bool):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.tight_spread_only must be boolean")
-    if not isinstance(queue_pressure_cfg.get("skip_below_geometry_floor"), bool):
-        raise ValueError("strategy.maker_competitiveness.queue_pressure.skip_below_geometry_floor must be boolean")
-    if not isinstance(queue_pressure_cfg.get("force_replace_on_adjustment"), bool):
-        raise ValueError(
-            "strategy.maker_competitiveness.queue_pressure.force_replace_on_adjustment must be boolean"
-        )
     selection_gate_cfg = cfg["strategy"]["maker_competitiveness"]["selection_gate"]
     if not isinstance(selection_gate_cfg.get("enabled"), bool):
         raise ValueError("strategy.maker_competitiveness.selection_gate.enabled must be boolean")
     if not isinstance(selection_gate_cfg.get("require_secondary_oracle_confirmation"), bool):
         raise ValueError(
             "strategy.maker_competitiveness.selection_gate.require_secondary_oracle_confirmation must be boolean"
-        )
-    if not isinstance(selection_gate_cfg.get("require_one_sided_active"), bool):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.require_one_sided_active must be boolean"
         )
     for field_name in ("min_sec_to_expiry", "max_sec_to_expiry"):
         field_value = selection_gate_cfg.get(field_name)
@@ -2250,8 +2385,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("taker.competitiveness.dynamic_preview_enabled must be boolean")
     if not isinstance(taker_comp_cfg.get("multi_oracle_boost_enabled"), bool):
         raise ValueError("taker.competitiveness.multi_oracle_boost_enabled must be boolean")
-    if not isinstance(taker_comp_cfg.get("stage_priority_enabled", False), bool):
-        raise ValueError("taker.competitiveness.stage_priority_enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["enabled"], bool):
         raise ValueError("latency_verifier.enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["require_armed_for_maker"], bool):
@@ -2292,8 +2425,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     doctrine_mode = str(cfg["doctrine"]["mode"]).strip().lower()
     if doctrine_mode not in {"canonical", "degraded"}:
         raise ValueError("doctrine.mode must be one of: canonical, degraded")
-    if not isinstance(cfg["doctrine"]["maker_allow_bounded_single_side_reference"], bool):
-        raise ValueError("doctrine.maker_allow_bounded_single_side_reference must be boolean")
     cfg_meta = cfg.get("_meta", {}) if isinstance(cfg.get("_meta"), dict) else {}
     explicit_fields = cfg_meta.get("explicit_fields", {}) if isinstance(cfg_meta.get("explicit_fields"), dict) else {}
     explicit_doctrine_oracle = bool(explicit_fields.get("doctrine.oracle_max_tick_age_sec", False))
@@ -2324,8 +2455,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     if not isinstance(cfg["runtime"]["paper_chainlink_lag_emulation_enabled"], bool):
         raise ValueError("runtime.paper_chainlink_lag_emulation_enabled must be boolean")
     runtime_queue_mode = str(cfg["runtime"].get("paper_queue_position_mode", "not_modeled")).strip().lower()
-    if runtime_queue_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
-        raise ValueError("runtime.paper_queue_position_mode must be one of: not_modeled, bounded_top_depth_proxy")
+    if runtime_queue_mode != "not_modeled":
+        raise ValueError("runtime.paper_queue_position_mode must be: not_modeled")
     cfg["runtime"]["paper_queue_position_mode"] = runtime_queue_mode
     if not isinstance(cfg["runtime"]["paper_enforce_setup_lock"], bool):
         raise ValueError("runtime.paper_enforce_setup_lock must be boolean")
@@ -2364,6 +2495,26 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("auth.allow_taker must be boolean")
     if not isinstance(cfg["auth"].get("live_order_submission_enabled"), bool):
         raise ValueError("auth.live_order_submission_enabled must be boolean")
+    wallet_mode = str(cfg["auth"].get("wallet_mode", "")).strip().lower()
+    if wallet_mode not in {"eoa", "poly_proxy", "gnosis_safe", "poly_1271"}:
+        raise ValueError("auth.wallet_mode must be one of eoa|poly_proxy|gnosis_safe|poly_1271")
+    signature_type = cfg["auth"].get("signature_type")
+    if signature_type is not None:
+        try:
+            signature_type_int = int(signature_type)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("auth.signature_type must be an integer when provided") from exc
+        wallet_mode_expected = {"eoa": 0, "poly_proxy": 1, "gnosis_safe": 2, "poly_1271": 3}[wallet_mode]
+        if signature_type_int != wallet_mode_expected:
+            raise ValueError("auth.signature_type must match auth.wallet_mode during compatibility window")
+    for name in (
+        "heartbeat_interval_sec",
+        "heartbeat_retry_sec",
+        "matching_engine_retry_attempts",
+        "matching_engine_retry_initial_sec",
+        "matching_engine_retry_max_sec",
+    ):
+        _require_positive(f"auth.{name}", cfg["auth"].get(name), allow_zero=False)
     _require_positive("auth.open_orders_cache_ttl_sec", cfg["auth"]["open_orders_cache_ttl_sec"], allow_zero=True)
     for key in ("private_key_source", "funder_source"):
         src = cfg["auth"].get(key)

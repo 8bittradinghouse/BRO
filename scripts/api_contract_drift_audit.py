@@ -32,7 +32,7 @@ def _pick_first_dict(items: Iterable[Any]) -> Dict[str, Any]:
     return {}
 
 
-def _extract_chainlink_payload(sample: Any) -> Dict[str, Any]:
+def _extract_rtds_payload(sample: Any) -> Dict[str, Any]:
     obj = _as_dict(sample)
     payload = obj.get("payload")
     if isinstance(payload, str):
@@ -55,7 +55,7 @@ def _extract_chainlink_payload(sample: Any) -> Dict[str, Any]:
     return obj
 
 
-def _extract_book_payload(sample: Any) -> Dict[str, Any]:
+def _extract_market_top_payload(sample: Any) -> Dict[str, Any]:
     obj = _as_dict(sample)
     payload = obj.get("payload")
     if isinstance(payload, str):
@@ -110,17 +110,17 @@ def run_audit(*, samples_path: pathlib.Path) -> Dict[str, Any]:
 
     orders_raw = payload.get("polymarket_orders")
     trades_raw = payload.get("polymarket_trades")
-    chainlink_raw = payload.get("chainlink_message")
-    book_raw = payload.get("book_feed_message")
+    rtds_raw = payload.get("rtds_stream_tick_event")
+    market_top_raw = payload.get("market_stream_top_event")
 
     if orders_raw is None:
         findings.append("api_contract_missing_sample:polymarket_orders")
     if trades_raw is None:
         findings.append("api_contract_missing_sample:polymarket_trades")
-    if chainlink_raw is None:
-        findings.append("api_contract_missing_sample:chainlink_message")
-    if book_raw is None:
-        findings.append("api_contract_missing_sample:book_feed_message")
+    if rtds_raw is None:
+        findings.append("api_contract_missing_sample:rtds_stream_tick_event")
+    if market_top_raw is None:
+        findings.append("api_contract_missing_sample:market_stream_top_event")
 
     order = _pick_first_dict(_as_list(orders_raw))
     if order:
@@ -136,21 +136,33 @@ def run_audit(*, samples_path: pathlib.Path) -> Dict[str, Any]:
         for field in ("price", "size", "timestamp"):
             _require_numeric(findings, sample_name="polymarket_trades", field_name=field, value=trade.get(field))
 
-    chain = _extract_chainlink_payload(chainlink_raw)
-    if chain:
-        _require_nonempty(findings, sample_name="chainlink_message", field_name="symbol", value=chain.get("symbol"))
-        _require_numeric(findings, sample_name="chainlink_message", field_name="value", value=chain.get("value"))
-        _require_nonempty(findings, sample_name="chainlink_message", field_name="timestamp", value=chain.get("timestamp"))
+    rtds = _extract_rtds_payload(rtds_raw)
+    if rtds:
+        _require_nonempty(findings, sample_name="rtds_stream_tick_event", field_name="contract", value=rtds.get("contract"))
+        _require_nonempty(findings, sample_name="rtds_stream_tick_event", field_name="event", value=rtds.get("event"))
+        _require_nonempty(findings, sample_name="rtds_stream_tick_event", field_name="symbol", value=rtds.get("symbol"))
+        _require_numeric(findings, sample_name="rtds_stream_tick_event", field_name="price", value=rtds.get("price"))
+        _require_nonempty(findings, sample_name="rtds_stream_tick_event", field_name="topic", value=rtds.get("topic"))
+        if not str(rtds.get("source_ts_utc") or rtds.get("received_ts_utc") or "").strip():
+            findings.append("api_contract_missing_field:rtds_stream_tick_event:source_or_receive_ts")
 
-    book = _extract_book_payload(book_raw)
-    if book:
-        _require_nonempty(findings, sample_name="book_feed_message", field_name="asset_id", value=book.get("asset_id"))
-        bids = book.get("bids")
-        asks = book.get("asks")
-        if not isinstance(bids, list):
-            findings.append("api_contract_type_mismatch:book_feed_message:bids:list")
-        if not isinstance(asks, list):
-            findings.append("api_contract_type_mismatch:book_feed_message:asks:list")
+    market_top = _extract_market_top_payload(market_top_raw)
+    if market_top:
+        _require_nonempty(findings, sample_name="market_stream_top_event", field_name="contract", value=market_top.get("contract"))
+        _require_nonempty(findings, sample_name="market_stream_top_event", field_name="event", value=market_top.get("event"))
+        _require_nonempty(findings, sample_name="market_stream_top_event", field_name="token_id", value=market_top.get("token_id"))
+        bid = market_top.get("best_bid_price")
+        ask = market_top.get("best_ask_price")
+        if bid is None and ask is None:
+            findings.append("api_contract_missing_field:market_stream_top_event:best_bid_or_best_ask")
+        if bid is not None:
+            _require_numeric(findings, sample_name="market_stream_top_event", field_name="best_bid_price", value=bid)
+        if ask is not None:
+            _require_numeric(findings, sample_name="market_stream_top_event", field_name="best_ask_price", value=ask)
+        if market_top.get("best_bid_size") is not None:
+            _require_numeric(findings, sample_name="market_stream_top_event", field_name="best_bid_size", value=market_top.get("best_bid_size"))
+        if market_top.get("best_ask_size") is not None:
+            _require_numeric(findings, sample_name="market_stream_top_event", field_name="best_ask_size", value=market_top.get("best_ask_size"))
 
     unique_findings = sorted(set(findings))
     return {

@@ -104,6 +104,62 @@ class PerformanceBudgetGateTests(unittest.TestCase):
             self.assertIn("BRO-1802", result["error_codes"])
             self.assertIn("BRO-1804", result["error_codes"])
 
+    def test_gate_ignores_latency_sampling_inactive_streaks_during_scan_phase(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            rows = [
+                {
+                    "run_id": run_id,
+                    "lifecycle_phase": "scan",
+                    "gauge.cycle_latency_ms": 120.0,
+                    "gauge.process_rss_mb": 300.0,
+                    "gauge.orders_used_60s": 10.0,
+                    "gauge.orders_limit_60s": 100.0,
+                    "gauge.cancels_used_60s": 10.0,
+                    "gauge.cancels_limit_60s": 100.0,
+                    "gauge.latency_sampling_inactive_cycles": 999.0,
+                },
+                {
+                    "run_id": run_id,
+                    "lifecycle_phase": "prepare",
+                    "gauge.cycle_latency_ms": 180.0,
+                    "gauge.process_rss_mb": 320.0,
+                    "gauge.orders_used_60s": 20.0,
+                    "gauge.orders_limit_60s": 100.0,
+                    "gauge.cancels_used_60s": 30.0,
+                    "gauge.cancels_limit_60s": 100.0,
+                    "gauge.latency_sampling_inactive_cycles": 2.0,
+                },
+            ]
+            (root / "status_2099-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            result = run_gate(
+                log_dir=root,
+                run_id=run_id,
+                max_cycle_latency_p95_ms=500.0,
+                max_cycle_latency_max_ms=1000.0,
+                max_process_rss_mb=1024.0,
+                max_order_capacity_used_ratio=1.0,
+                max_cancel_capacity_used_ratio=1.0,
+                max_order_capacity_breach_rows=0,
+                max_cancel_capacity_breach_rows=0,
+                max_order_capacity_breach_ratio=0.0,
+                max_cancel_capacity_breach_ratio=0.0,
+                max_latency_inactive_cycles=10.0,
+                max_market_data_span_ms=500.0,
+                max_strategy_exec_span_ms=500.0,
+                max_state_io_span_ms=500.0,
+                max_status_io_span_ms=500.0,
+                max_cycle_residual_span_ms=500.0,
+                min_status_rows=2,
+            )
+            self.assertTrue(result["ok"], msg=result["findings"])
+            metrics = result.get("metrics", {})
+            self.assertEqual(metrics.get("latency_sampling_inactive_cycles_max"), 2.0)
+
     def test_gate_fails_on_component_latency_spans(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

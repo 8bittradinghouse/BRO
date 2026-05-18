@@ -232,6 +232,76 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
             self.assertIn("websocket_slo_chainlink_dropped_ticks_too_high", text)
             self.assertIn("BRO-2201", out["error_codes"])
 
+    def test_gate_fails_on_worker_fatal_and_gateway_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "book_feed": {
+                        "enabled": True,
+                        "connected": False,
+                        "reconnects": 0,
+                        "last_msg_age_sec": 1.0,
+                        "worker_usable": False,
+                        "worker_restart_exhausted": True,
+                    },
+                    "chainlink": {
+                        "enabled": True,
+                        "connected": True,
+                        "reconnects": 0,
+                        "last_tick_age_sec": 1.0,
+                        "queue_size": 0,
+                        "dropped_ticks": 0,
+                        "worker_usable": False,
+                    },
+                    "gateway": {
+                        "heartbeat_required": True,
+                        "heartbeat_enabled": True,
+                        "resting_orders_present": True,
+                        "heartbeat_id": "",
+                        "matching_engine_status": "error",
+                    },
+                }
+            ]
+            (root / "status_2099-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            out = run_gate(
+                log_dir=root,
+                run_id=run_id,
+                min_status_rows=1,
+                max_book_feed_down_ratio=1.0,
+                max_chainlink_down_ratio=1.0,
+                max_book_feed_reconnects_per_hour=1000.0,
+                max_chainlink_reconnects_per_hour=1000.0,
+                max_book_feed_last_msg_age_sec=1000.0,
+                max_chainlink_last_tick_age_sec=1000.0,
+                max_book_feed_last_msg_age_spike_rows=1000,
+                max_chainlink_last_tick_age_spike_rows=1000,
+                max_book_feed_last_msg_age_spike_ratio=1.0,
+                max_chainlink_last_tick_age_spike_ratio=1.0,
+                max_book_feed_last_msg_age_p95_sec=1000.0,
+                max_chainlink_last_tick_age_p95_sec=1000.0,
+                max_chainlink_dropped_ticks=1000.0,
+                max_chainlink_queue_size=1000.0,
+                max_book_feed_worker_unusable_rows=0,
+                max_chainlink_worker_unusable_rows=0,
+                max_book_feed_worker_restart_exhausted_rows=0,
+                max_chainlink_worker_restart_exhausted_rows=0,
+                max_gateway_heartbeat_missing_or_invalid_rows=0,
+                max_gateway_matching_engine_error_rows=0,
+            )
+            self.assertFalse(out["ok"])
+            text = "\n".join(out["findings"])
+            self.assertIn("websocket_slo_book_feed_worker_unusable_rows", text)
+            self.assertIn("websocket_slo_chainlink_worker_unusable_rows", text)
+            self.assertIn("websocket_slo_gateway_heartbeat_missing_or_invalid_rows", text)
+            self.assertIn("websocket_slo_gateway_matching_engine_error_rows", text)
+
     def test_gate_allows_configured_single_age_spike(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -533,6 +603,55 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
             self.assertIn("websocket_slo_chainlink_last_tick_age_missing_or_invalid_rows", findings)
             self.assertIn("websocket_slo_chainlink_queue_size_missing_or_invalid_rows", findings)
             self.assertIn("websocket_slo_chainlink_dropped_ticks_missing_or_invalid_rows", findings)
+
+    def test_gate_fails_when_gateway_heartbeat_is_disabled_for_resting_orders(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 1.0},
+                    "chainlink": {
+                        "connected": True,
+                        "reconnects": 0,
+                        "last_tick_age_sec": 1.0,
+                        "queue_size": 0,
+                        "dropped_ticks": 0,
+                    },
+                    "gateway": {
+                        "heartbeat_enabled": False,
+                        "resting_orders_present": True,
+                        "matching_engine_status": "ok",
+                    },
+                }
+            ]
+            (root / "status_2099-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            out = run_gate(
+                log_dir=root,
+                run_id=run_id,
+                min_status_rows=1,
+                max_book_feed_down_ratio=1.0,
+                max_chainlink_down_ratio=1.0,
+                max_book_feed_reconnects_per_hour=1000000.0,
+                max_chainlink_reconnects_per_hour=1000000.0,
+                max_book_feed_last_msg_age_sec=1000000.0,
+                max_chainlink_last_tick_age_sec=1000000.0,
+                max_book_feed_last_msg_age_spike_rows=1000,
+                max_chainlink_last_tick_age_spike_rows=1000,
+                max_book_feed_last_msg_age_spike_ratio=1.0,
+                max_chainlink_last_tick_age_spike_ratio=1.0,
+                max_book_feed_last_msg_age_p95_sec=1000000.0,
+                max_chainlink_last_tick_age_p95_sec=1000000.0,
+                max_chainlink_dropped_ticks=1000000.0,
+                max_chainlink_queue_size=1000000.0,
+            )
+            self.assertFalse(out["ok"])
+            self.assertIn("websocket_slo_gateway_heartbeat_disabled_with_resting_orders", "\n".join(out["findings"]))
 
 
 if __name__ == "__main__":

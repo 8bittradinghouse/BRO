@@ -290,10 +290,9 @@ class ReadinessGateTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2026-01-01T00:00:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                             }
                         ),
@@ -301,10 +300,9 @@ class ReadinessGateTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2026-01-01T00:30:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                             }
                         ),
@@ -352,11 +350,11 @@ class ReadinessGateTests(unittest.TestCase):
                 "execution_starvation_mode": "none",
                 "protected_no_trade_explanation": "execution_not_suppression_dominated",
                 "maker_reference_direct_midpoint_activity": 8.0,
-                "maker_reference_bounded_fallback_activity": 3.0,
+                "maker_reference_missing_activity": 3.0,
                 "maker_reference_direct_midpoint_action_activity": 2.0,
-                "maker_reference_bounded_fallback_action_activity": 1.0,
-                "maker_market_reference_fallback_bid_count": 1.0,
-                "maker_market_reference_fallback_ask_count": 2.0,
+                "maker_reference_missing_action_activity": 1.0,
+                "maker_market_reference_missing_count": 1.0,
+                "maker_market_reference_one_sided_context_count": 2.0,
                 "quote_diagnostics": {
                     "quote_window_ratio": 1.0,
                     "quote_active_within_window_ratio": 0.5,
@@ -368,7 +366,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "runtime_classification": {
                     "classification": "VALID_ACTIVE",
                     "promotion_eligible": True,
-                    "metrics": {"status_rows": 1.0, "standdown_rows": 0.0},
+                    "metrics": {"status_rows": 1.0, "scan_rows": 0.0},
                 },
             }
 
@@ -391,9 +389,9 @@ class ReadinessGateTests(unittest.TestCase):
             self.assertEqual(result["metrics"].get("execution_starvation_mode"), "none")
             self.assertEqual(result["metrics"].get("suppression_dominated_run"), 0.0)
             self.assertEqual(result["metrics"].get("maker_reference_direct_midpoint_activity"), 8.0)
-            self.assertEqual(result["metrics"].get("maker_reference_bounded_fallback_activity"), 3.0)
-            self.assertEqual(result["metrics"].get("maker_market_reference_fallback_bid_count"), 1.0)
-            self.assertEqual(result["metrics"].get("maker_market_reference_fallback_ask_count"), 2.0)
+            self.assertEqual(result["metrics"].get("maker_reference_missing_activity"), 3.0)
+            self.assertEqual(result["metrics"].get("maker_market_reference_missing_count"), 1.0)
+            self.assertEqual(result["metrics"].get("maker_market_reference_one_sided_context_count"), 2.0)
             self.assertEqual(result.get("suppression_summary", {}).get("primary_suppression_cause"), "none")
             self.assertEqual(result.get("suppression_summary", {}).get("execution_starvation_mode"), "none")
 
@@ -427,7 +425,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "runtime_classification": {
                     "classification": "VALID_ACTIVE",
                     "promotion_eligible": True,
-                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                    "metrics": {"status_rows": 2.0, "scan_rows": 0.0},
                 },
             }
 
@@ -476,7 +474,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "runtime_classification": {
                     "classification": "VALID_ACTIVE",
                     "promotion_eligible": True,
-                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                    "metrics": {"status_rows": 2.0, "scan_rows": 0.0},
                 },
             }
 
@@ -514,7 +512,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "runtime_classification": {
                     "classification": "VALID_ACTIVE",
                     "promotion_eligible": True,
-                    "metrics": {"status_rows": 2.0, "standdown_rows": 0.0},
+                    "metrics": {"status_rows": 2.0, "scan_rows": 0.0},
                 },
                 "valuation_truth": {
                     "lifecycle_context_missing_sec_to_expiry_count": 1.0,

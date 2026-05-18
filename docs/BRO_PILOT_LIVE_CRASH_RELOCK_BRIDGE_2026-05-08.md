@@ -1,5 +1,10 @@
 # BRO Pilot-Live Crash Relock Bridge (2026-05-08)
 
+## Classification
+- `pickup bridge`
+- `historical-only` once the crash-recovery window has passed
+- legacy stage-family terms in this file are continuity ancestry only
+
 ## Purpose
 - `VERIFIED`: this is a temporary continuity bridge for the thread-crash recovery.
 - `VERIFIED`: it exists to preserve the true pickup point, the true stop point, the real lessons learned, and the exact runtime backcheck duties from the large prior thread.
@@ -61,7 +66,7 @@
   - hostile doctrine-root review
   - compensator-fat / scar-tissue census
   - prove-keep-or-delete posture for the inherited sniper-derived taker subtree
-  - external Grok `Taker Sword Blueprint` comparison
+  - external Grok `Taker Sword Doctrine Proposal` comparison
   - explicit keep / re-home / delete ladder
 - `VERIFIED`: the thread progressed past doc-only work into real runtime surgery.
 - `VERIFIED`: the thread did more than one runtime slice, not just one.

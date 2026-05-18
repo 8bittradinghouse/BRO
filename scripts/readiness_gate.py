@@ -51,8 +51,8 @@ KNOWN_METRICS = {
     "runtime_meaningful_participation",
     "runtime_deadlock_rows",
     "runtime_safety_rows",
-    "runtime_required_book_feed_disconnected_rows",
-    "runtime_no_target_standdown_ratio",
+    "runtime_required_market_truth_disconnected_rows",
+    "runtime_scan_ratio",
     "suppression_dominated_run",
     "runtime_ambiguous_suppression_cause",
     "quote_window_ratio",
@@ -60,17 +60,18 @@ KNOWN_METRICS = {
     "participation_ratio",
     "participation_within_quote_window_ratio",
     "maker_reference_direct_midpoint_activity",
-    "maker_reference_bounded_fallback_activity",
+    "maker_reference_missing_activity",
     "maker_reference_direct_midpoint_action_activity",
-    "maker_reference_bounded_fallback_action_activity",
-    "maker_market_reference_fallback_bid_count",
-    "maker_market_reference_fallback_ask_count",
-    "preexpiry_404_anomaly_count",
+    "maker_reference_missing_action_activity",
+    "maker_market_reference_missing_count",
+    "maker_market_reference_one_sided_context_count",
+    "preexpiry_ws_missing_or_unusable_anomaly_count",
     "lifecycle_context_mismatch_count",
     "lifecycle_context_missing_sec_to_expiry_count",
-    "preexpiry_emergency_taker_attempt_count",
-    "preexpiry_emergency_taker_fill_count",
-    "preexpiry_emergency_taker_block_count",
+    "settlement_hold_required_count",
+    "open_order_cleanup_required_count",
+    "unresolved_lifecycle_obligation_count",
+    "cancel_fail_closed_count",
     "valuation_hard_degraded_enter_count",
     "valuation_hard_degraded_clear_count",
     "held_unpriceable_started_count",
@@ -315,9 +316,9 @@ def _collect_derived_metrics(
     suppression_dominated_run = bool(report.get("suppression_dominated_run", False))
     execution_starvation_mode = str(report.get("execution_starvation_mode") or "unknown").strip() or "unknown"
     protected_no_trade_explanation = str(report.get("protected_no_trade_explanation") or "").strip()
-    standdown_rows = _safe_float(runtime_metrics.get("standdown_rows"))
+    scan_rows = _safe_float(runtime_metrics.get("scan_rows"))
     status_rows_total = max(1.0, _safe_float(runtime_metrics.get("status_rows"), default=0.0))
-    standdown_ratio = standdown_rows / status_rows_total if status_rows_total > 0 else 0.0
+    scan_ratio = scan_rows / status_rows_total if status_rows_total > 0 else 0.0
 
     metrics = {
         "status_rows": _safe_float(report.get("status_rows")),
@@ -336,10 +337,10 @@ def _collect_derived_metrics(
         "runtime_meaningful_participation": _safe_float(runtime_metrics.get("meaningful_participation")),
         "runtime_deadlock_rows": _safe_float(runtime_metrics.get("deadlock_rows")),
         "runtime_safety_rows": _safe_float(runtime_metrics.get("safety_rows")),
-        "runtime_required_book_feed_disconnected_rows": _safe_float(
-            runtime_metrics.get("required_book_feed_disconnected_rows")
+        "runtime_required_market_truth_disconnected_rows": _safe_float(
+            runtime_metrics.get("required_market_truth_disconnected_rows")
         ),
-        "runtime_no_target_standdown_ratio": standdown_ratio,
+        "runtime_scan_ratio": scan_ratio,
         "suppression_dominated_run": 1.0 if suppression_dominated_run else 0.0,
         "runtime_ambiguous_suppression_cause": 1.0 if runtime_ambiguous_suppression_cause else 0.0,
         "quote_window_ratio": _safe_float(quote_diagnostics.get("quote_window_ratio")),
@@ -351,34 +352,39 @@ def _collect_derived_metrics(
         "maker_reference_direct_midpoint_activity": _safe_float(
             report.get("maker_reference_direct_midpoint_activity")
         ),
-        "maker_reference_bounded_fallback_activity": _safe_float(
-            report.get("maker_reference_bounded_fallback_activity")
+        "maker_reference_missing_activity": _safe_float(
+            report.get("maker_reference_missing_activity")
         ),
         "maker_reference_direct_midpoint_action_activity": _safe_float(
             report.get("maker_reference_direct_midpoint_action_activity")
         ),
-        "maker_reference_bounded_fallback_action_activity": _safe_float(
-            report.get("maker_reference_bounded_fallback_action_activity")
+        "maker_reference_missing_action_activity": _safe_float(
+            report.get("maker_reference_missing_action_activity")
         ),
-        "maker_market_reference_fallback_bid_count": _safe_float(
-            report.get("maker_market_reference_fallback_bid_count")
+        "maker_market_reference_missing_count": _safe_float(
+            report.get("maker_market_reference_missing_count")
         ),
-        "maker_market_reference_fallback_ask_count": _safe_float(
-            report.get("maker_market_reference_fallback_ask_count")
+        "maker_market_reference_one_sided_context_count": _safe_float(
+            report.get("maker_market_reference_one_sided_context_count")
         ),
-        "preexpiry_404_anomaly_count": _safe_float(valuation_truth.get("preexpiry_404_anomaly_count")),
+        "preexpiry_ws_missing_or_unusable_anomaly_count": _safe_float(
+            valuation_truth.get("preexpiry_ws_missing_or_unusable_anomaly_count")
+        ),
         "lifecycle_context_mismatch_count": _safe_float(valuation_truth.get("lifecycle_context_mismatch_count")),
         "lifecycle_context_missing_sec_to_expiry_count": _safe_float(
             valuation_truth.get("lifecycle_context_missing_sec_to_expiry_count")
         ),
-        "preexpiry_emergency_taker_attempt_count": _safe_float(
-            valuation_truth.get("preexpiry_emergency_taker_attempt_count")
+        "settlement_hold_required_count": _safe_float(
+            valuation_truth.get("settlement_hold_required_count")
         ),
-        "preexpiry_emergency_taker_fill_count": _safe_float(
-            valuation_truth.get("preexpiry_emergency_taker_fill_count")
+        "open_order_cleanup_required_count": _safe_float(
+            valuation_truth.get("open_order_cleanup_required_count")
         ),
-        "preexpiry_emergency_taker_block_count": _safe_float(
-            valuation_truth.get("preexpiry_emergency_taker_block_count")
+        "unresolved_lifecycle_obligation_count": _safe_float(
+            valuation_truth.get("unresolved_lifecycle_obligation_count")
+        ),
+        "cancel_fail_closed_count": _safe_float(
+            valuation_truth.get("cancel_fail_closed_count")
         ),
         "valuation_hard_degraded_enter_count": _safe_float(
             valuation_truth.get("valuation_hard_degraded_enter_count")

@@ -216,6 +216,7 @@ class DiscoveryResult:
     token_strike_by_token: Dict[str, float] = field(default_factory=dict)
     token_open_anchor_utc_by_token: Dict[str, str] = field(default_factory=dict)
     token_market_key_by_token: Dict[str, str] = field(default_factory=dict)
+    candidate_pairs_token_ids: List[List[str]] = field(default_factory=list)
 
 
 class MarketDiscovery:
@@ -229,7 +230,7 @@ class MarketDiscovery:
         self.page_limit = int(disc.get("page_limit", 200))
         self.max_pages = int(disc.get("max_pages", 10))
         self.max_markets_scan = int(disc.get("max_markets_scan", 1200))
-        self.max_pairs = int(disc.get("max_pairs", 4))
+        self.max_pairs = int(disc.get("max_pairs", 1))
         self.require_binary = bool(disc.get("require_binary_outcomes", True))
         self.require_fee_enabled = bool(disc.get("require_fee_enabled", True))
         self.refresh_interval_sec = float(disc.get("refresh_interval_sec", 60.0))
@@ -453,6 +454,7 @@ class MarketDiscovery:
         token_strike_by_token: Dict[str, float] = {}
         token_open_anchor_utc_by_token: Dict[str, str] = {}
         token_market_key_by_token: Dict[str, str] = {}
+        candidate_pairs_token_ids: List[List[str]] = []
         allowlist_rejected_pairs = 0
         seen_markets: set[str] = set()
         pairs_selected = 0
@@ -496,6 +498,7 @@ class MarketDiscovery:
             for token_id in pair_ids:
                 side = side_map.get(token_id, "UNK")
                 token_market_key_by_token[token_id] = f"{condition_key}|{expiry_utc or 'na'}|{strike_text}|{side}"
+            candidate_pairs_token_ids.append(list(pair_ids))
             seen_markets.add(condition_key)
             pairs_selected += 1
             if pairs_selected >= self.max_pairs:
@@ -515,6 +518,7 @@ class MarketDiscovery:
             token_strike_by_token=token_strike_by_token,
             token_open_anchor_utc_by_token=token_open_anchor_utc_by_token,
             token_market_key_by_token=token_market_key_by_token,
+            candidate_pairs_token_ids=candidate_pairs_token_ids,
         )
 
     def _discover_by_event_slug(self, *, markets_url: str, now: dt.datetime) -> List[Tuple[Optional[dt.datetime], Dict[str, Any]]]:

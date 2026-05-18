@@ -36,12 +36,35 @@ Program-wide seriousness rules:
 
 ## Current Program Lock
 - `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
-- `Packet 2` is the next sequenced implementation lane to open.
+- `Packet 2` is now active in post-audit truth-owner / proof-semantics closeout.
 - `Packet 3` through `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
 - The live working Packet 2 entry artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+- The live working Packet 2 recovery / unwind closeout artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
+- The current Packet 2 closeout order is:
+  1. truth-owner demotion + Packet 2 pickup reroute
+  2. starvation proof correction + steady-state WS grading repair
+  3. one-sided family reclassification + narrow bug closure language
+  4. existing diagnostic-surface hardening
+  5. bounded-only active-band truth / residual WS-source / reference weakness
+- Packet 2 carry-forward truths this program must preserve:
+  - strongest current small-loss owner candidate = `complete-outcome truth`
+  - strongest foundation trace = `market-truth substrate`
+  - historical small-loss specimens stayed bad even under direct-midpoint
+    decision references, so substrate remains the foundation trace rather than
+    the proximate historical wound owner
+  - queue pressure is cut from current/live authority and preserved only as
+    ignored legacy-config compatibility plus historical replay lineage
+  - recovery / unwind current-owner cut is materially landed; remaining old
+    names now live in compatibility readers, ignored dead-key support, and
+    historical lineage/docs rather than active runtime/report authority
+  - cancel-only fail-close for open unfilled orders and hold-to-settlement for
+    real accepted exposure are the replacement doctrine targets
+  - historical packet-era `50-60 / 50` timing posture is ancestry only, not
+    current doctrine
 - latest watched current-tree health anchor is
   `6957087b-488e-4bbb-b8b9-1f215b5e33d0`:
   - stored validator bundle clean with all exits `0`
@@ -99,6 +122,7 @@ Program law:
   to outrank stronger current-code doctrine/runtime truth
 
 ## Supporting Doctrine
+- `docs/JIN_RELOCK_PACK_2026-05-12.md` as the BRO-wide anti-drift relock controller
 - `BRO_CANONICAL_DOCTRINE.txt`
 - `BRO_EDGE_DOCTRINE.txt`
 - `BRO_OUTCOME_TRUTH_DOCTRINE.txt`
@@ -106,7 +130,7 @@ Program law:
 - `docs/EDGE_TRUTH_RUNBOOK.md`
 - `docs/BRO_WALLET_DOCTRINE.md`
 - `docs/BRO_ENGINEERING_KERNEL.md`
-- `docs/PROJECT_TRUTH_STATE.md`
+- `docs/PROJECT_TRUTH_STATE.md` (broad repo truth screen only)
 - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
 - `docs/NEXT_PACKET_PLAN.md`
 - `docs/LIVE_CANARY.md`
@@ -125,7 +149,7 @@ Program law:
 - no helper-module or tool sprawl unless the existing lane owners prove
   inadequate
 - no blueprint tuning inside `Packet 1` through `Packet 4`
-- no generic weapon tuning while `Packet 1` remains open
+- no generic weapon tuning while `Packet 2` remains unresolved
 - no packet closure without a contradiction-compression pass and a
   negative-proof pass against its own preferred story
 - no broad patch bundles when the lane can be advanced in smaller proofable
@@ -145,8 +169,8 @@ This program adopts one explicit cross-lane timing rule:
 ## Authority Lock
 Each packet in this program must anchor to this order:
 
-1. `docs/PROJECT_TRUTH_STATE.md`
-2. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+1. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+2. `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
 3. lane doctrine:
    - wallet -> `docs/BRO_WALLET_DOCTRINE.md`
    - timing -> `docs/DOCTRINE_RUNBOOK.md`, `docs/BRO_ENGINEERING_KERNEL.md`
@@ -155,7 +179,11 @@ Each packet in this program must anchor to this order:
    - maker/taker runtime behavior -> doctrine roots plus emitted runtime truth
 4. current-code runtime artifacts, manifests, contracts, validators, and
    reports
-5. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+5. active lane-local pickup owners:
+   - `docs/OPEN_LIMITATIONS.md`
+   - `docs/NEXT_PACKET_PLAN.md`
+   - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+   - current packet-local owner boards
 6. this packet program
 7. historical packets and baselines as reference only
 
@@ -191,10 +219,13 @@ Mandatory preload:
 3. `NUJIN_ENGINEERING_LAWS_SYSTEMIC_RESTORATION_2026-05-01.md`
 4. `docs/JIN_OPERATING_AGREEMENT.md`
 5. `docs/JIN_COMMAND_CARD_2026-04-27.md`
-6. `docs/PROJECT_TRUTH_STATE.md`
-7. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
-8. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-9. lane-specific doctrine and most recent runtime artifacts
+6. `docs/JIN_RELOCK_PACK_2026-05-12.md`
+7. `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
+8. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+9. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+10. `docs/OPEN_LIMITATIONS.md`
+10. `docs/NEXT_PACKET_PLAN.md`
+11. lane-specific doctrine and most recent runtime artifacts
 
 Required packet-local lock card before packet work:
 - mission lock
@@ -224,6 +255,8 @@ Each recurring self-hardening pass must restate:
 - strongest falsifier list
 - support-tool vs runtime-owner boundary
 - historical-only quarantine check
+- current-vs-historical specimen provenance check when older runs are being used
+- raw canonical outcome truth vs compressed shop-tool outcome summaries boundary
 - residual risk register
 
 ## Mandatory Packet-Entry Tribunal
@@ -362,8 +395,9 @@ A packet must pause and reclassify if any appear:
 Dependency law:
 - Packet 1 is the first live-fire weapon-trust seam and must collapse the
   inherited taker split-brain map before later trust closure claims are accepted
-- Packet 1 has now closed honestly on watched proof; Packet 2 is next to open
-  and Packet 3 through Packet 5 remain sequenced behind it
+- Packet 1 has now closed honestly on watched proof; Packet 2 is already active
+  in post-audit truth-owner / proof-semantics closeout and Packet 3 through
+  Packet 5 remain sequenced behind it
 - Packet 1 and Packet 2 are diagnostic proof work and are meant to end
   `bounded-live-test ready` if the proof is clean
 - Packet 3 is foundational for live hookup and must close the real live wallet
@@ -440,6 +474,8 @@ Exit criteria:
 - prove maker is economically safe enough to arm
 - active packet-entry artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+- active recovery / unwind closeout artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
 
 Questions to answer:
 - is maker expectancy quality acceptable?
@@ -447,6 +483,8 @@ Questions to answer:
   frequency, and tail-loss shape acceptable together?
 - do lifecycle, reservations, cancels, and fills remain clean under trust
   review?
+- does shared recovery / unwind authority still survive as contradictory live
+  owner mass, and can cancel-only fail-close replace it cleanly?
 - is maker still only surviving because of report optics or is it genuinely
   capital-safe?
 - is the maker market-truth substrate clean?
@@ -470,7 +508,7 @@ Questions to answer:
 - do wallet authority surfaces tell the truth for the right reason?
 - is `order_submit_eligible` semantically correct in live mode?
 - is hookup truth clearly separated from order-capable live truth?
-- are Polygon `137`, `POL` gas truth, `USDC.e` collateral truth, spender truth,
+- are Polygon `137`, `POL` gas truth, `pUSD` live collateral truth, spender truth,
   and funder truth all correct?
 - are canonical live nonce truth and canonical live pending-wallet-tx truth
   present on the approved live path?

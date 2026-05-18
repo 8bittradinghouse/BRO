@@ -21,7 +21,7 @@ from prodesk.canonical_authority import (
     CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS,
     CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS,
 )
-from prodesk.config import load_execution_config
+from prodesk.config import extract_config_compatibility_metadata, load_execution_config
 from prodesk.time_sync import capture_host_time_sync_snapshot
 from prodesk.run_contract import build_run_contract, run_contract_path, write_run_contract
 from prodesk.session_phase import (
@@ -332,6 +332,103 @@ def _service_present(lines: Iterable[str], service_name: str) -> bool:
     return False
 
 
+def _pid_is_alive(pid_value: Any) -> bool:
+    text = str(pid_value or "").strip()
+    if not text or not text.lstrip("-").isdigit():
+        return False
+    pid = int(text)
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _recover_abandoned_canonical_session(
+    *,
+    state_path: pathlib.Path,
+    payload: Dict[str, Any],
+    contract_path: Optional[pathlib.Path],
+    reason: str,
+) -> None:
+    now_ts = utc_iso()
+    if contract_path is not None:
+        existing_contract = _read_json_object(contract_path) or {}
+        log_root = pathlib.Path(
+            str(existing_contract.get("log_root") or payload.get("log_dir") or state_path.parents[2])
+        ).resolve()
+        state_root = pathlib.Path(
+            str(
+                existing_contract.get("state_root")
+                or pathlib.Path(str(payload.get("state_path") or log_root / "state.json")).resolve().parent
+            )
+        ).resolve()
+        manifest_path = pathlib.Path(
+            str(existing_contract.get("manifest_path") or payload.get("run_manifest_path") or (log_root / f"run_manifest_{payload.get('run_id')}.json"))
+        ).resolve()
+        start_ts = str(existing_contract.get("start_ts") or payload.get("ts_utc") or now_ts).strip() or now_ts
+        stop_ts = now_ts
+        if parse_ts(stop_ts) is not None and parse_ts(start_ts) is not None and parse_ts(stop_ts) < parse_ts(start_ts):
+            stop_ts = start_ts
+        status_path = str(existing_contract.get("status_path") or _default_status_events_paths(log_root)[0])
+        events_path = str(existing_contract.get("events_path") or _default_status_events_paths(log_root)[1])
+        normalized_contract = build_run_contract(
+            session_id=str(existing_contract.get("session_id") or payload.get("session_id") or state_path.parent.name),
+            run_id=str(existing_contract.get("run_id") or payload.get("run_id") or ""),
+            phase="stop",
+            session_type=str(existing_contract.get("session_type") or payload.get("session_type") or "paper_canonical"),
+            authority_level=str(existing_contract.get("authority_level") or "observational"),
+            allowed_actions=existing_contract.get("allowed_actions") or CANONICAL_OBSERVATIONAL_ALLOWED_ACTIONS,
+            manifest_path=manifest_path,
+            log_root=log_root,
+            state_root=state_root,
+            start_ts=start_ts,
+            stop_ts=stop_ts,
+            evidence_slice_start_ts=str(existing_contract.get("evidence_slice_start_ts") or start_ts).strip() or start_ts,
+            evidence_slice_end_ts=stop_ts,
+            status_path=status_path,
+            events_path=events_path,
+            errors_path=str(existing_contract.get("errors_path") or ""),
+            status_slice_path=str(existing_contract.get("status_slice_path") or ""),
+            events_slice_path=str(existing_contract.get("events_slice_path") or ""),
+            errors_slice_path=str(existing_contract.get("errors_slice_path") or ""),
+            git_commit=str(existing_contract.get("git_commit") or ""),
+            config_fingerprint_sha256=str(existing_contract.get("config_fingerprint_sha256") or ""),
+            code_fingerprint_sha256=str(existing_contract.get("code_fingerprint_sha256") or ""),
+            code_fingerprint_file_count=existing_contract.get("code_fingerprint_file_count") or "",
+        )
+        write_run_contract(contract_path, normalized_contract, allow_open=False)
+
+    recovered_payload = dict(payload)
+    recovered_payload["recovered_abandoned_session"] = {
+        "recovered_ts_utc": now_ts,
+        "reason": str(reason),
+        "recovered_by": "phase_start_open_session_recovery",
+        "closed_run_contract_path": str(contract_path) if contract_path is not None else "",
+    }
+    state_path.write_text(json.dumps(recovered_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    recovery_note_path = state_path.parent / "abandoned_session_recovery.json"
+    recovery_note_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "recovered_ts_utc": now_ts,
+                "reason": str(reason),
+                "session_id": str(payload.get("session_id") or state_path.parent.name),
+                "run_id": str(payload.get("run_id") or ""),
+                "state_path": str(state_path),
+                "run_contract_path": str(contract_path) if contract_path is not None else "",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _stream_jsonl_rows(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as fh:
@@ -582,6 +679,34 @@ def summarize_postrun_validation(
     }
 
 
+def write_postrun_validation_artifact(
+    *,
+    run_id: str,
+    report_dir: pathlib.Path,
+    script_exit_code: int,
+    artifact_path: pathlib.Path,
+    session_phase: str = "validate_postrun",
+) -> Dict[str, Any]:
+    postrun_validation = summarize_postrun_validation(
+        run_id=run_id,
+        report_dir=report_dir,
+        script_exit_code=script_exit_code,
+    )
+    artifact_path = pathlib.Path(artifact_path).resolve()
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    validation_payload = {
+        "schema_version": 1,
+        "ts_utc": utc_iso(),
+        "session_phase": str(session_phase or "validate_postrun").strip() or "validate_postrun",
+        **postrun_validation,
+    }
+    artifact_path.write_text(
+        json.dumps(validation_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validation_payload
+
+
 @dataclass
 class PhaseRecord:
     phase: str
@@ -612,6 +737,8 @@ class SessionContext:
     guardian_context_path: pathlib.Path = CANONICAL_GUARDIAN_CONTEXT_PATH
     resolved_profile_name: str = ""
     resolved_config_fingerprint_sha256: str = ""
+    ignored_compatibility_fields: List[str] = field(default_factory=list)
+    compatibility_warnings: List[str] = field(default_factory=list)
     container_config_path: str = ""
     container_log_dir: str = ""
     container_guard_stop_path: str = ""
@@ -652,6 +779,7 @@ class SessionRunner:
         payload: Dict[str, Any] = {
             "schema_version": 1,
             "session_id": self.ctx.session_id,
+            "runner_pid": int(os.getpid()),
             "ts_utc": utc_iso(),
             "phase": self.ctx.current_phase,
             "run_id": self.ctx.run_id,
@@ -659,6 +787,9 @@ class SessionRunner:
             "expected_profile_name": str(self.ctx.expected_profile_name or ""),
             "resolved_profile_name": str(self.ctx.resolved_profile_name or ""),
             "effective_config_sha256": str(self.ctx.resolved_config_fingerprint_sha256 or ""),
+            "ignored_compatibility_fields": list(self.ctx.ignored_compatibility_fields),
+            "compatibility_warning_count": int(len(self.ctx.compatibility_warnings)),
+            "compatibility_warnings": list(self.ctx.compatibility_warnings),
             "config_path": str(self.ctx.config_path),
             "log_dir": str(self.ctx.log_dir),
             "state_path": str(self.ctx.state_path),
@@ -699,6 +830,9 @@ class SessionRunner:
             "selected_profile_name": str(self.ctx.resolved_profile_name or self.ctx.expected_profile_name or ""),
             "expected_profile_name": str(self.ctx.expected_profile_name or ""),
             "effective_config_sha256": str(self.ctx.resolved_config_fingerprint_sha256 or ""),
+            "ignored_compatibility_fields": list(self.ctx.ignored_compatibility_fields),
+            "compatibility_warning_count": int(len(self.ctx.compatibility_warnings)),
+            "compatibility_warnings": list(self.ctx.compatibility_warnings),
             "selected_log_root": str(self.ctx.log_dir),
             "selected_state_path": str(self.ctx.state_path),
             "container_config_path": str(self.ctx.container_config_path or ""),
@@ -960,6 +1094,7 @@ class SessionRunner:
         runtime = cfg.get("runtime", {}) if isinstance(cfg.get("runtime"), dict) else {}
         storage = cfg.get("storage", {}) if isinstance(cfg.get("storage"), dict) else {}
         cfg_dir = self.ctx.config_path.parent
+        compatibility_meta = extract_config_compatibility_metadata(cfg)
         observed_fingerprint = str((cfg.get("_meta") or {}).get("effective_config_sha256") or "").strip().lower()
         expected_fingerprint = str(runtime.get("paper_expected_config_fingerprint_sha256") or "").strip().lower()
         expected_profile = str(runtime.get("paper_expected_profile_name") or "").strip()
@@ -980,6 +1115,12 @@ class SessionRunner:
         self.ctx.state_path = resolved_state
         self.ctx.resolved_profile_name = profile_name
         self.ctx.resolved_config_fingerprint_sha256 = observed_fingerprint
+        self.ctx.ignored_compatibility_fields = list(
+            compatibility_meta.get("ignored_compatibility_fields") or []
+        )
+        self.ctx.compatibility_warnings = list(
+            compatibility_meta.get("compatibility_warnings") or []
+        )
         self.ctx.container_config_path = _to_container_config_path(self.ctx.config_path)
         self.ctx.container_log_dir = _to_container_logs_path(resolved_log)
         self.ctx.container_guard_stop_path = (
@@ -1063,6 +1204,7 @@ class SessionRunner:
         ]
         sessions_root = (self.ctx.log_dir / "sessions").resolve()
         open_conflicts: List[str] = []
+        compose_ps_lines: List[str] | None = None
         if sessions_root.exists():
             for state_path in sorted(sessions_root.glob("*/session_state.json")):
                 try:
@@ -1081,9 +1223,11 @@ class SessionRunner:
                 contract_path_raw = str(payload.get("run_contract_path") or "").strip()
                 contract_phase = ""
                 contract_stop_ts = ""
+                contract_path: Optional[pathlib.Path] = None
                 if contract_path_raw:
+                    contract_path = pathlib.Path(contract_path_raw).resolve()
                     try:
-                        contract_payload = json.loads(pathlib.Path(contract_path_raw).resolve().read_text(encoding="utf-8"))
+                        contract_payload = json.loads(contract_path.read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError, UnicodeError):
                         contract_payload = {}
                     if isinstance(contract_payload, dict):
@@ -1092,6 +1236,46 @@ class SessionRunner:
                 if contract_stop_ts:
                     continue
                 if other_phase == "complete":
+                    continue
+                if compose_ps_lines is None:
+                    compose_ps_lines = _docker_compose_ps_lines()
+                maker_up = _service_up(compose_ps_lines, "bro-maker")
+                guardian_up = _service_up(compose_ps_lines, "bro-guardian")
+                runner_pid_alive = _pid_is_alive(payload.get("runner_pid"))
+                state_ts = parse_ts(payload.get("ts_utc"))
+                state_age_sec = None
+                if state_ts is not None:
+                    state_age_sec = max(0.0, (utc_now() - state_ts).total_seconds())
+                recover_reason = ""
+                if str(payload.get("runner_pid") or "").strip() and not runner_pid_alive:
+                    if other_phase in {"preflight", "start"}:
+                        recover_reason = "runner_pid_dead_prestart"
+                    elif (not maker_up) and (not guardian_up) and contract_phase == "start":
+                        recover_reason = "runner_pid_dead"
+                elif (
+                    not str(payload.get("runner_pid") or "").strip()
+                    and state_age_sec is not None
+                    and state_age_sec >= 300.0
+                    and other_phase in {"preflight", "start"}
+                ):
+                    recover_reason = "stale_prestart_session_no_pid"
+                elif (not maker_up) and (not guardian_up) and contract_phase == "start":
+                    if str(payload.get("runner_pid") or "").strip() and not runner_pid_alive:
+                        recover_reason = "runner_pid_dead"
+                    elif (
+                        not str(payload.get("runner_pid") or "").strip()
+                        and state_age_sec is not None
+                        and state_age_sec >= 300.0
+                        and other_phase in {"active", "validate_active", "stop"}
+                    ):
+                        recover_reason = "stale_open_session_no_pid"
+                if recover_reason:
+                    _recover_abandoned_canonical_session(
+                        state_path=state_path.resolve(),
+                        payload=payload,
+                        contract_path=contract_path,
+                        reason=recover_reason,
+                    )
                     continue
                 other_run_id = str(payload.get("run_id") or "").strip()
                 open_conflicts.append(
@@ -1756,26 +1940,22 @@ class SessionRunner:
         (self.ctx.report_root / "validate_postrun.stderr.log").write_text(stderr_text, encoding="utf-8")
 
         report_dir = (self.ctx.log_dir / "reports" / self.ctx.run_id).resolve()
-        postrun_validation = summarize_postrun_validation(
-            run_id=self.ctx.run_id,
-            report_dir=report_dir,
-            script_exit_code=proc.returncode,
-        )
-        self.ctx.postrun_validation = dict(postrun_validation)
-        report_dir.mkdir(parents=True, exist_ok=True)
         validation_path = (
             report_dir / str(self.ctx.validation_artifact_name or "canonical_paper_validation.json")
         ).resolve()
-        validation_payload = {
-            "schema_version": 1,
-            "ts_utc": utc_iso(),
-            "session_phase": "validate_postrun",
-            **postrun_validation,
-        }
-        validation_path.write_text(
-            json.dumps(validation_payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        validation_payload = write_postrun_validation_artifact(
+            run_id=self.ctx.run_id,
+            report_dir=report_dir,
+            script_exit_code=proc.returncode,
+            artifact_path=validation_path,
+            session_phase="validate_postrun",
         )
+        self.ctx.postrun_validation = {
+            key: value
+            for key, value in validation_payload.items()
+            if key not in {"schema_version", "ts_utc", "session_phase"}
+        }
+        postrun_validation = self.ctx.postrun_validation
         self._write_state()
 
         exit_conditions = [

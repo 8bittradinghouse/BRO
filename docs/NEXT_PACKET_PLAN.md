@@ -90,18 +90,74 @@ G-frame override:
     taker live-trust qualification are authorized as diagnostic proof
     work
   - current proving move:
-    - open Packet 2 `Maker-Live / Economic Trust Qualification` through:
+    - Packet 2 `Maker-Live / Economic Trust Qualification` is now active in
+      post-audit truth-owner / proof-semantics closeout through:
       - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
       - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
       - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-      - `docs/PROJECT_TRUTH_STATE.md`
+      - `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
       - `docs/OPEN_LIMITATIONS.md`
-    - begin with read-only mapping and truth sharpening only:
+    - completed packet-entry hardening already materialized:
       - maker authority census
-      - blueprint delta map
+      - doctrine proposal delta map
+      - current-code maker path forensic semantic audit
+      - maker timing owner layer
       - support-tool vs runtime-owner split
       - history-only demotion map
-      - small-loss anatomy trace
+      - small-loss + scar-tissue board
+      - maker surgery self-hardening pack
+    - current closeout order is:
+      1. truth-owner demotion + Packet 2 pickup reroute
+      2. starvation proof correction + steady-state WS grading repair
+      3. one-sided family reclassification + narrow authority-bug closure
+      4. diagnostic-surface hardening
+      5. one-sided / non-authoritative active-band truth / residual WS-source / reference weakness
+    - strongest current provisional findings are:
+      - strongest small-loss owner candidate = `complete-outcome truth`
+      - strongest foundation trace = `market-truth substrate`
+      - historical small-loss specimens stayed bad even under direct-midpoint
+        decision references, so substrate remains the foundation trace rather
+        than the proximate historical wound owner
+      - loudest current specimen frictions = quote-quality / queue-depth /
+        replace-guard pain
+      - queue pressure current/live authority is cut; only legacy-config
+        ignored compatibility and historical replay lineage remain
+      - recovery / unwind current-owner cut is materially landed; remaining old
+        names now live in compatibility readers, ignored dead-key support, and
+        historical lineage/docs rather than active runtime/report authority
+      - the optional later history/compat extinction artifact for that tail is:
+        - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
+      - cancel-only fail-close for open unfilled orders and hold-to-settlement
+        for real accepted exposure are the replacement doctrine targets
+      - historical packet-era `50-60 / 50` maker timing posture belongs to
+        dirty-tree run manifests and is ancestry only, not current doctrine
+      - official Polymarket WS/CLOB substrate transplant is materially landed
+        and no longer the active maker patient
+      - canonical lifecycle surgery is materially landed and no longer the
+        active maker patient
+      - latest watched 20-minute current-tree systems-health specimen
+        `98d7f6c5-bec9-4768-bb06-941079c2ac72` stayed `VALID_ACTIVE` with
+        clean websocket/oracle/lifecycle/timing health and failed policy only
+        on maker utilization/economic findings
+      - the sharper pre-fix Packet 2 runtime wound was the impossible maker
+        selection timing window caused by reusing
+        `lifecycle.selection.min_sec_to_expiry=90.0` as maker submit timing
+        floor while using `maker_window_open_sec=15.0` as the same gate's max
+      - current code now derives maker selection timing from lifecycle phase
+        windows, and watched rerun `ae3bdf9e-6eee-4c99-8e3b-6e021136125c`
+        reproved that fix on live runtime
+      - the active Packet 2 move is now surviving-blocker remeasurement rather
+        than more speculative timing surgery
+      - current surgery queue is:
+        1. `selector-owned one-sided extinction + rerun`
+        2. `support-shadow / probe family` truth cleanup
+        3. `accessory competitiveness bundle` runtime tribunal
+        4. `small-loss wound family` remeasurement after earlier family cuts
+      - recovery / unwind current-owner cut is already landed; any remaining
+        archaeology is optional history/compat cleanup, not a required
+        live-owner surgery gate
+    - the materialized maker-local board stack now lives under:
+      - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_*_2026-05-10.md`
     - treat `prelive_gate` / `live_canary` as bounded tools later in the lane,
       not the final authority by themselves
     - require every packet in the lane to carry:
@@ -119,6 +175,11 @@ G-frame override:
         - classify surfaces as owner-law, valid interlock, compatibility,
           historical-only, or scar tissue
         - preserve the no-change list before any slice lands
+      - for runtime surgery packets, force repeated self-hardening at packet
+        entry, after owner mapping, after plan hardening, after watched proof,
+        and before each next-cut or closeout recommendation
+      - maker runtime surgery entry now starts through:
+        - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SURGERY_SELF_HARDENING_PACK_2026-05-11.md`
     - no maker timing/gating mutation or generic weapon tuning by default unless
       a fresh contradiction is proven
   - current saved branch / cleanliness state:
@@ -150,6 +211,8 @@ Historical-lane archive rule:
     - the bounded realism split remains descriptive-only (`100` canonical
       `paper_harness_audit.harness_realism_grade` vs nightly
       `exercised_harness_realism.grade=60`)
+    - older whole-stream source-mix hard-fail contract remains historical-only
+      lineage and is not restored as the current nightly canonical grade owner
     - rack is not the active next restoration lane; later post-packet board
       sync moves the current next restoration lane to Bones clean current-code
       release anchor
@@ -254,8 +317,10 @@ Historical-lane archive rule:
     2. Packet 3 `Grip-Live`
     3. Packet 4 `Bounded Live Hookup`
     4. Packet 5 `Immediate-Performance Proof`
-  - active Packet 2 recovery/entry artifact is:
+  - active Packet 2 maker entry artifact is:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+  - active Packet 2 recovery / unwind closeout artifact is:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
   - Packet 2 relock law:
     - treat maker as a capital-trust packet, not a participation vanity packet
     - run recurring self-hardening after every 2 investigation slices, after
@@ -326,7 +391,7 @@ Historical-lane archive rule:
       carried direct-midpoint market-reference truth plus confirmed
       `secondary_oracle_*`
     - same-time null-oracle duplicates were taker-scope
-      `stage_disallow_taker` rows
+      `phase_disallow_taker` rows
     - `maker_fight_admission_shadow` matched the maker-scope rows on that
       specimen
   - keep `maker_fight_admission_shadow` semantically narrow as a separate
@@ -345,9 +410,9 @@ Historical-lane archive rule:
   posture where maker timing was configured at `50-60s`.
 - those entries are preserved as packet history, not as current maker doctrine.
 - intended maker timing doctrine anchor is:
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
-  - doctrine window: `15-20s`
-  - sweet spot: `10-15s`
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+  - maker gate opens at `15s`
+  - taker handoff opens at `7s`
 
 Rule for reading the historical maker entries below:
 - `50-60s` references describe drift-era runtime posture or superseded packet
@@ -355,51 +420,73 @@ Rule for reading the historical maker entries below:
 - they do not define current maker doctrine.
 
 ## Latest Maker Diagnostic Pickup
-`VERIFIED`: the active maker pickup is now anchored on the latest live-diagnosed
-canonical run, not the older selector-stabilization packet alone.
+`VERIFIED`: the active maker pickup is now anchored on the May 12, 2026
+truth-reference starvation before/after pair, not the older selector or lag
+forensics alone.
 
-Current runtime truth anchor:
-- run:
-  - `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`
-- proof:
-  - `status=pass`
-  - `runtime_classification=VALID_ACTIVE`
-  - `highest_passing_stage=paper`
-  - `blocking_stage=pilot_live`
-  - `quote_uptime_ratio=0.09598189269320323`
-  - `order_submission_accepted_maker=1`
-  - `fill_rows=5`
-- live diagnostics:
-  - feeds fresh
-  - live maker participation observed directly
-  - clean specimen `d30...` had no current-run
-    `token_lag_not_verified_for_maker`
-  - contrast specimen `c6b3...` kept paper-stage closure but still showed:
-    - intermittent `doctrine_maker_prereq_failure_count=2.0` in live status
-      tape
-    - mixed `15-20s` maker-allowed rows on some target refs
-    - `maker_requires_ws_book_source` /
-      `market_reference_not_authoritative` truth-thin rows alongside one real
-      submit/fill path
+Current runtime truth anchors:
+- pre-cut specimen:
+  - `9a9cddf4-3738-4f66-82e0-b0fbc1d679fc`
+  - `status=policy_failed`
+  - `runtime_classification=NON_PROMOTABLE_NO_PARTICIPATION`
+  - `book_feed_ws_books_missing_all_targets` fired `2` times
+  - maker active-band truth was `0` authoritative rows / `0` depth-met /
+    `0` full-cannon candidates
+  - maker active-band truth remained entirely one-sided / non-authoritative
+- post-cut specimen:
+  - `c56545a7-2183-4d3f-8405-9ad072dc7188`
+  - `status=policy_failed`
+  - `runtime_classification=NON_PROMOTABLE_NO_PARTICIPATION`
+  - current code now fires a one-shot existing-path self-heal on
+    `book_feed_ws_books_missing_all_targets`
+  - that degraded WS cycle fired `1` time, not `2`
+  - maker active-band truth improved to `16` authoritative rows / `3`
+    depth-met / `3` full-cannon candidates
+  - current watched proof does **not** prove the self-heal caused those `16`
+    authoritative rows:
+    - the authoritative rows were pre-reset
+    - the reset immediately armed bootstrap grace in that specimen
+  - run still earned `0` submits / `0` fills, so the packet moved the disease
+    but did not close the lane
+- post-one-sided-cut specimen:
+  - `03cfeff3-ad41-4b65-9172-89e78d472b52`
+  - `status=policy_failed`
+  - `runtime_classification=NON_PROMOTABLE_NO_PARTICIPATION`
+  - runtime direct-midpoint maker rows now promote into real
+    `BUY_ONLY` / `SELL_ONLY` posture
+  - `maker_selection_authority_audit.blocked_count_by_canonical_reject_reason={}`
+  - the narrow authority-blind one-sided activation bug is cut
+  - the older selector-owned low-edge one-sided reject family is retired from
+    canonical maker selection authority
+  - run still earned `0` submits / `0` fills
+  - this specimen regressed to active-band one-sided / non-authoritative truth:
+    - `0` authoritative rows
+    - `1` depth-met
+    - `0` full-cannon candidates
 
 Current next maker lane:
-1. `VERIFIED`: the immediate maker-surface spinal question is now closed on the
-   current anchors.
-   - the runtime floor and feeds stayed healthy on the clean specimen
-     `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`
-   - the deeper contrast specimen `c6b3...` still reached paper-stage closure
-     and real maker participation
-2. `VERIFIED`: the old lag-verification choke is no longer the active blocker
-   owner on current code.
-   - do not overread that into universal maker-prereq cleanliness on every
-     specimen
-   - `c6b3...` still shows intermittent prereq-failure spikes and mixed
-     truth-readiness on some maker-allowed rows
-3. `INFERRED`: the next highest-ROI core lane is no longer maker-surface
-   spinal forensics.
-   - it is Bones clean release-anchor work
-4. `VERIFIED`: future maker-surface work should stay inside the single
-   canonical path only if a new spinal regression appears.
+1. `VERIFIED`: the active packet is now the post-audit truth-owner /
+   proof-semantics closeout.
+   - reroute active Packet 2 pickup away from treating
+     `PROJECT_TRUTH_STATE.md` as the maker-local owner
+   - keep starvation proof language honest
+   - keep one-sided closure language narrow and doctrine-accurate
+2. `VERIFIED`: the late-window truth-reference starvation packet has a landed
+   runtime slice.
+   - existing watch/resubscribe machinery is reused for the connected-but-
+     empty target WS cycle
+   - no same-token side-merge or doctrine drift was introduced
+3. `VERIFIED`: the next highest-ROI maker-local runtime family after this
+   closeout is back on truth-thin active-band rows:
+   - `secondary_oracle_not_confirmed`
+   - one-sided WS pair-truth with no authoritative maker reference
+   - fail-closed maker reference missing / non-authoritative truth
+   - residual `maker_requires_ws_book_source` /
+     `taker_requires_ws_book_source`
+4. `INFERRED`: support-shadow / probe mass should be de-fatted before any
+   broader competitiveness or small-loss surgery, because the live runtime is
+   now giving us cleaner owner truth than the stale packet wording, but not yet
+   a clean causal proof that self-heal created the old `16` authoritative rows.
    - no new harness
    - no new profile
    - no selector fork
@@ -488,7 +575,7 @@ Current next repair lane:
    - current law:
      tracked active targets that fall out of canonical maker eligibility now
      cancel with their real gate reason such as `maker_timing_gate_closed` or
-     `stage_disallow_maker`, instead of falling through as fake
+     `phase_disallow_maker`, instead of falling through as fake
      `orphan_token_order` cancels
    - intent:
      keep doctrine unchanged while making resting-order deaths auditable
@@ -586,10 +673,12 @@ Current truth:
   - `determinism_consistent=true`
   - `execution_error=false`
   - `status=policy_failed`
-  - under the older whole-stream source-mix hard-fail contract, the sole
+  - under the retired whole-stream source-mix hard-fail contract, the sole
     blocking finding was `book_updates_rest_ratio 0.352033 > 0.350000`
   - current source-purity law is narrower:
-    - whole-stream `book_updates_rest_ratio` remains watch/descriptive truth
+    - whole-stream REST-mix grading is historical-only
+    - current support truth is explicit pair-truth missing / bounded WS
+      classification
     - hard source-purity closure belongs only to action-row
       `edge_evaluation` records with `action_taken in {maker,taker}`
 - latest healthy proof run `3ab39523-e4f3-4e98-9c90-862f8ec33b80` tightened the result to a clean pass:
@@ -597,7 +686,7 @@ Current truth:
   - `canonical_paper_validation`: `status=pass`, `runtime_classification=VALID_ACTIVE`, `reports_complete=true`, all validator exit codes `0`
   - `nightly_soak_report.txt` showed:
     - `normal_submits=0`
-    - `recovery_override_submits=0`
+    - `lifecycle_residue_override_submits=0`
     - `maker_to_taker_recovery_handoff_disabled=144`
     - `waiting_for_maker_exit=0`
 - latest watched current-tree specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
@@ -948,7 +1037,7 @@ Current next-step doctrine:
      - under that drift-era runtime frame, do not widen the `50-60s` maker
        timing window first
      - do not broadly loosen quote-quality gates first
-21. `VERIFIED_IMPLEMENTED`: Maker Queue-Competitiveness Packet A is now wired as the first viable-target queue-fight runtime packet.
+21. `HISTORICAL_ONLY`: Maker Queue-Competitiveness Packet A documents ancestry only. Counter names, branch names, and runtime results preserved below are archival vocabulary only and must not be read as current-live owner surfaces. Current code cut the queue-pressure runtime/config/report family on `2026-05-11`, keeps only legacy-config ignored compatibility plus historical replay lineage, and no longer treats this packet as live authority.
    - exact packet boundary:
      - maker-only
      - favored-side only
@@ -964,7 +1053,7 @@ Current next-step doctrine:
      - `scripts/nightly_soak_report.py`
      - prior queue-packet profile residue has since been removed from the live
        workspace
-   - first-class report truth now exists for:
+   - historical report truth existed for:
      - `maker_queue_pressure_candidate_count`
      - `maker_queue_pressure_adopted_count`
      - `maker_queue_pressure_gate_conversion_count`
@@ -972,7 +1061,8 @@ Current next-step doctrine:
      - `maker_complete_correct_rate`
      - `maker_complete_incorrect_rate`
      - `maker_complete_neutral_rate`
-   - historical focused validation passed before profile quarantine:
+   - historical focused validation passed before profile quarantine and later
+     family cut:
      - queue-pressure execution-stack coverage
      - nightly soak report maker-competitiveness metric coverage
    - paired runtime proof completed:
@@ -1027,7 +1117,7 @@ Current next-step doctrine:
      - `maker_fight_admission_shadow_rows.jsonl`
      - `maker_admission_target_side_summary.json`
    - focused validation passed:
-     - `tests/test_execution_stack.py -k 'maker_queue_pressure or maker_fight_admission_shadow'`
+     - `tests/test_execution_stack.py -k 'legacy_maker_queue_pressure_surface or maker_fight_admission_shadow'`
      - `tests/test_nightly_soak_report.py -k 'maker_fight_admission_shadow_support_artifacts or legacy_maker_fight_admission_shadow'`
      - `tests/test_nightly_soak_report.py`
      - `tests/test_bro_metric_harvest.py`
@@ -1073,7 +1163,7 @@ Current next-step doctrine:
        skip-trash-windows rubric
      - target `size_liquidity_pressure` and `repeat_target_side_pressure`
        before reopening queue tuning
-     - fold in `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md` as
+     - fold in `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md` as
        external doctrine input for the first high-selectivity maker rubric
   - cannon-shadow extension now implemented on the same report-only lane:
     - runtime rows now preserve:
@@ -1141,8 +1231,7 @@ Current next-step doctrine:
       - `insufficient_depth_multiple=36`
       - `non_viable_geometry=18`
     - late-window topology truth:
-      - `market_reference_class_distribution={"bounded_approximation":54,"not_available":14}`
-      - `market_reference_mode_distribution={"bounded_single_side_touch":54,"missing":14}`
+      - historical market-reference distribution was dominated by one-sided fallback rows rather than midpoint-backed authoritative rows
       - `market_reference_source_side_distribution={"ask":27,"bid":27,"none":14}`
       - `market_probability_band_distribution={"ge_0p99":27,"le_0p01":27,"unknown":14}`
       - `favored_side_depth_class_distribution={"zero_imputed":36,"unknown":32}`
@@ -1172,7 +1261,7 @@ Current next-step doctrine:
       - `/tmp/maker_cannon_decontam_slice_2026-04-28/archive/maker_cannon_probe_session_sweep.json`
     - decontaminated truth:
       - all `341` late-window rows still land in `population_class=external_blocked`
-        because of `reduce_only_recovery_active`
+        because of then-live `reduce_only_recovery_active` historical lineage
       - after stripping that posture out in the new latent-market read:
         - transition: `111` evaluable rows, `0` latent full cannon candidates
         - asia: `58` evaluable rows, `0` latent full cannon candidates
@@ -1326,9 +1415,9 @@ Current next-step doctrine:
           - `$350 Packet B`:
             - `0` shadow rows
             - `10` true `no_desired_quote` active-band quote-starvation rows
-            - truth readiness is `bounded_only`
+            - truth readiness is one-sided / non-authoritative
             - dominant truth deprivation:
-              `bounded_single_side_touch_zero_favored_depth`
+              one-sided WS pair-truth with no authoritative maker reference
             - active-band rows still die on truth/depth/quoteability
           - `$250` caliber:
             - `20` true `no_desired_quote` active-band quote-starvation rows
@@ -1336,8 +1425,8 @@ Current next-step doctrine:
             - `12` matched shadow selection rejects
             - `16` total shadow selection rejects
             - `4` full-cannon opportunities exist, but all are off-band
-            - dominant bounded-only deprivation:
-              `bounded_single_side_touch_zero_favored_depth`
+            - dominant one-sided / non-authoritative deprivation:
+              one-sided WS pair-truth with no authoritative maker reference
           - current measurement state:
             - Packet 0 measurement contract is closed enough for
               `ready_for_truth_packet`
@@ -1360,7 +1449,7 @@ Current next-step doctrine:
         - current next proof step:
           - run fresh Packet `B` and `$250` maker specimens on the repaired
             substrate
-          - verify whether bounded-only active-band starvation converts into:
+          - verify whether one-sided / non-authoritative active-band starvation converts into:
             - authoritative-complete rows
             - selection-depth rejects
             - or actual submits
@@ -1473,7 +1562,7 @@ Macro phase-line truth:
      - `maker_to_taker_recovery_handoff_disabled` blocks
      - `waiting_for_maker_exit=0`
      - `normal_submits=0`
-     - `recovery_override_submits=0`
+     - `lifecycle_residue_override_submits=0`
    - Interpretation: the old deadband question is no longer “should taker inherit earlier?” The current doctrine answer is “no, not for canonical taker.”
 
 ## Closeout Group

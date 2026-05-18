@@ -219,7 +219,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertFalse(blocked_cross.allowed)
         self.assertEqual(blocked_cross.reason, "valuation_hard_degraded_risk_increase_blocked")
 
-    def test_validate_order_blocks_risk_increase_when_dust_token_capacity_exhausted(self):
+    def test_validate_order_no_longer_blocks_risk_increase_on_removed_dust_capacity_authority(self):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["position_dust_token_count_cap"] = 4
@@ -239,7 +239,6 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "dust3": "DUST_ELIGIBLE",
                 "dust4": "DUST_ELIGIBLE",
             },
-            dust_capacity_enforce_enabled=True,
         )
         top_new = BookTop(
             token_id="new1",
@@ -252,20 +251,14 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         from prodesk.models import OrderIntent
 
-        blocked = risk.validate_order(
+        allowed_new = risk.validate_order(
             OrderIntent(token_id="new1", side="BUY", price=0.5, size=1.0),
             top=top_new,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 90.0},
         )
-        self.assertFalse(blocked.allowed)
-        self.assertEqual(blocked.reason, "dust_token_capacity_exhausted")
-        self.assertEqual(str((blocked.basis or {}).get("risk_authority") or ""), "dust_capacity")
-        self.assertEqual(
-            int(((blocked.basis or {}).get("dust_capacity_guard") or {}).get("candidate_count") or 0),
-            4,
-        )
+        self.assertTrue(allowed_new.allowed)
 
         top_reduce = BookTop(
             token_id="held1",
@@ -281,7 +274,7 @@ class PreflightAndRiskTests(unittest.TestCase):
             top=top_reduce,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 90.0},
         )
         self.assertTrue(allowed_reduce.allowed)
 
@@ -293,14 +286,13 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "dust3": "DUST_ELIGIBLE",
                 "dust4": "DUST_ELIGIBLE",
             },
-            dust_capacity_enforce_enabled=False,
         )
         shadow_allowed = risk_shadow.validate_order(
             OrderIntent(token_id="new1", side="BUY", price=0.5, size=1.0),
             top=top_new,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 90.0},
         )
         self.assertTrue(shadow_allowed.allowed)
 
@@ -308,6 +300,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         cfg["min_sec_to_expiry_for_new_exposure"] = 120.0
+        cfg["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
         positions = {"t1": Position(token_id="t1")}
         risk = RiskEngine(cfg, positions)
         top = BookTop(
@@ -342,10 +335,46 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         self.assertEqual(str(decision.basis.get("financial_posture_class") or ""), "PREEXPIRY_REDUCE_ONLY")
 
+    def test_validate_order_basis_prefers_canonical_lifecycle_phase_over_stage_compat(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["max_notional_per_token"] = 5.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        decision = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=20.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={
+                "submission_lane": "maker",
+                "lifecycle_phase": "taker_window",
+                "stage": "MAKER_TAKER_SELECTIVE",
+                "sec_to_expiry": 45.0,
+            },
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "notional_cap")
+        self.assertIsInstance(decision.basis, dict)
+        self.assertEqual(str(decision.basis.get("lifecycle_phase") or ""), "taker_window")
+        self.assertNotIn("stage", decision.basis)
+
     def test_validate_order_blocks_new_exposure_below_expiry_threshold_and_allows_reduce(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         cfg["min_sec_to_expiry_for_new_exposure"] = 120.0
+        cfg["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
         positions = {"t1": Position(token_id="t1", net_shares=5.0)}
         risk = RiskEngine(cfg, positions)
         top = BookTop(
@@ -451,6 +480,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         cfg["min_sec_to_expiry_for_new_exposure"] = 0.0
+        cfg["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
         positions = {"t1": Position(token_id="t1")}
         risk = RiskEngine(cfg, positions)
         top = BookTop(
@@ -495,7 +525,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         self.assertTrue(allowed_when_disabled.allowed)
 
-    def test_validate_order_blocks_normal_taker_same_token_sell_from_flat_but_allows_reduce_only(self):
+    def test_validate_order_blocks_normal_taker_same_token_sell_and_removed_recovery_sell(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         positions = {"t1": Position(token_id="t1", net_shares=0.0), "t2": Position(token_id="t2", net_shares=5.0)}
@@ -562,9 +592,10 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "sec_to_expiry": 90.0,
             },
         )
-        self.assertTrue(reduce_only_allowed.allowed)
+        self.assertFalse(reduce_only_allowed.allowed)
+        self.assertEqual(reduce_only_allowed.reason, "normal_taker_same_token_sell_forbidden")
 
-    def test_validate_order_halt_new_risk_blocks_increase_and_allows_pure_reduce(self):
+    def test_validate_order_halt_new_risk_blocks_increase_and_does_not_reopen_taker_sell(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         positions = {"t1": Position(token_id="t1", net_shares=5.0)}
@@ -596,7 +627,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(blocked_increase.reason, "terminal_unwind_halt_new_risk_blocked")
         self.assertEqual(str(blocked_increase.basis.get("risk_authority") or ""), "terminal_unwind_halt_new_risk")
 
-        allowed_reduce = risk.validate_order(
+        blocked_reduce = risk.validate_order(
             OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
             top=top,
             open_orders_for_token=[],
@@ -608,7 +639,8 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "sec_to_expiry": 30.0,
             },
         )
-        self.assertTrue(allowed_reduce.allowed)
+        self.assertFalse(blocked_reduce.allowed)
+        self.assertEqual(blocked_reduce.reason, "normal_taker_same_token_sell_forbidden")
 
         blocked_cross = risk.validate_order(
             OrderIntent(token_id="t1", side="SELL", price=0.5, size=6.0),
@@ -626,11 +658,10 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(blocked_cross.reason, "normal_taker_same_token_sell_forbidden")
         self.assertEqual(str((blocked_cross.basis or {}).get("risk_authority") or ""), "taker_side_policy")
 
-    def test_validate_order_allows_terminal_reduce_only_notional_exemption_only_in_terminal_posture(self):
+    def test_validate_order_removed_terminal_reduce_only_notional_exemption_is_no_longer_available(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         cfg["min_order_size"] = 5.0
-        cfg["reduce_only_terminal_min_notional_usd"] = 2.0
         positions = {"t1": Position(token_id="t1", net_shares=4.5)}
         risk = RiskEngine(cfg, positions)
         top = BookTop(
@@ -644,7 +675,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         from prodesk.models import OrderIntent
 
-        allowed_terminal_reduce = risk.validate_order(
+        blocked_terminal_reduce = risk.validate_order(
             OrderIntent(token_id="t1", side="SELL", price=0.5, size=4.0),
             top=top,
             open_orders_for_token=[],
@@ -654,11 +685,10 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "stage": "MAKER_TAKER_SELECTIVE",
                 "financial_posture_class": "HALT_NEW_RISK",
                 "sec_to_expiry": 20.0,
-                "reduce_only_recovery_active": True,
             },
         )
-        self.assertTrue(allowed_terminal_reduce.allowed)
-        self.assertTrue(bool((allowed_terminal_reduce.basis or {}).get("terminal_reduce_only_notional_exemption")))
+        self.assertFalse(blocked_terminal_reduce.allowed)
+        self.assertEqual(blocked_terminal_reduce.reason, "size_too_small")
 
         blocked_non_terminal = risk.validate_order(
             OrderIntent(token_id="t1", side="SELL", price=0.5, size=4.0),
@@ -670,7 +700,6 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "stage": "MAKER_TAKER_SELECTIVE",
                 "financial_posture_class": "NORMAL",
                 "sec_to_expiry": 20.0,
-                "reduce_only_recovery_active": True,
             },
         )
         self.assertFalse(blocked_non_terminal.allowed)
@@ -686,17 +715,17 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "stage": "MAKER_TAKER_SELECTIVE",
                 "financial_posture_class": "HALT_NEW_RISK",
                 "sec_to_expiry": 20.0,
-                "reduce_only_recovery_active": True,
             },
         )
         self.assertFalse(blocked_risk_increase.allowed)
         self.assertEqual(blocked_risk_increase.reason, "terminal_unwind_halt_new_risk_blocked")
 
-    def test_validate_order_reserves_hard_rate_capacity_for_reduce_only_recovery(self):
+    def test_validate_order_removed_recovery_rate_reservation_is_ignored(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
         cfg["max_book_age_sec"] = 5.0
         cfg["max_orders_per_min"] = 3
         cfg["order_rate_recovery_reserved_slots"] = 1
+        cfg["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
         positions = {"t1": Position(token_id="t1", net_shares=2.0)}
         risk = RiskEngine(cfg, positions)
         now = risk._monotonic()  # pylint: disable=protected-access
@@ -713,33 +742,14 @@ class PreflightAndRiskTests(unittest.TestCase):
         )
         from prodesk.models import OrderIntent
 
-        blocked_non_recovery = risk.validate_order(
+        allowed_after_removed_reservation = risk.validate_order(
             OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
             top=top,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 90.0},
         )
-        self.assertFalse(blocked_non_recovery.allowed)
-        self.assertEqual(blocked_non_recovery.reason, "order_rate_limit")
-        self.assertIsInstance(blocked_non_recovery.basis, dict)
-        limit_basis = blocked_non_recovery.basis.get("order_rate_limit_basis") or {}
-        self.assertEqual(int(limit_basis.get("orders_hard_limit_non_recovery") or 0), 2)
-        self.assertEqual(int(limit_basis.get("orders_recovery_reserved_slots") or 0), 1)
-
-        allowed_recovery = risk.validate_order(
-            OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
-            top=top,
-            open_orders_for_token=[],
-            open_orders_total=0,
-            risk_context={
-                "submission_lane": "maker",
-                "stage": "MAKER_TAKER_SELECTIVE",
-                "reduce_only_recovery_active": True,
-                "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
-            },
-        )
-        self.assertTrue(allowed_recovery.allowed)
+        self.assertTrue(allowed_after_removed_reservation.allowed)
 
     def test_validate_order_rejects_stale_book(self):
         cfg = self._risk_cfg()
@@ -882,7 +892,7 @@ class PreflightAndRiskTests(unittest.TestCase):
             top=top,
             open_orders_for_token=[],
             open_orders_total=0,
-            risk_context={"submission_lane": "maker", "realized_volatility": 0.001},
+            risk_context={"submission_lane": "maker", "realized_volatility": 0.001, "sec_to_expiry": 90.0},
         )
         self.assertTrue(decision.allowed)
         self.assertIsInstance(decision.basis, dict)
@@ -930,7 +940,7 @@ class PreflightAndRiskTests(unittest.TestCase):
             open_orders_total=1,
             open_orders_all=[resting],
             reference_mid_by_token={"t1": 0.5, "t2": 0.5},
-            risk_context={"submission_lane": "maker", "edge_abs": 0.2},
+            risk_context={"submission_lane": "maker", "edge_abs": 0.2, "sec_to_expiry": 90.0},
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "global_exposure_cap")

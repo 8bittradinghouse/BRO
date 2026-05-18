@@ -15,14 +15,21 @@ from zoneinfo import ZoneInfo
 
 from prodesk.artifact_identity import build_artifact_identity
 from prodesk.edge_truth_contract import (
-    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-    effective_stage_from_payload,
+    EDGE_ACTION_MAKER,
+    EDGE_ACTION_TAKER,
+    LEGACY_EDGE_AUTHORITY_FIELD_NAMES,
+    LEGACY_EDGE_LINEAGE_FIELD_NAMES,
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
+    EDGE_TAKER_PHASE_ALLOWED_FIELD,
     is_taker_decision_event_type,
     is_taker_reason,
-    is_taker_stage_window_semantic_check_event_type,
     is_taker_submit_event_type,
-    stage_bucket_from_payload,
-    stage_surface_fields,
+    is_taker_window_semantic_check_event_type,
+    lineage_stage_from_payload,
+    lifecycle_phase_from_payload,
+    normalize_block_reason,
+    phase_allows_action,
+    taker_phase_allowed_from_payload,
 )
 from prodesk.execution_quality import ExecutionQualityModel
 from prodesk.jsonl_utils import load_jsonl
@@ -51,14 +58,14 @@ MAKER_MID_WINDOW_PROBE_VERSION = 1
 MAKER_ZERO_SUBMIT_AUDIT_VERSION = 1
 MAKER_QUOTE_INTEGRITY_AUDIT_VERSION = 1
 MAKER_SELECTION_AUTHORITY_AUDIT_VERSION = 1
-MAKER_CANNON_TARGET_NOTIONAL_USD = 350.0
+MAKER_CANNON_TARGET_NOTIONAL_USD = 100.0
 MAKER_CANNON_MIN_DEPTH_MULTIPLE = 1.5
 MAKER_CANNON_STACK_SOFT_MAX = 4
 MAKER_CANNON_STACK_HARD_MAX = 6
 MAKER_QUOTE_INTEGRITY_PRIMARY_RUN_ID = "484e533d-c9a1-4ac4-bc0d-ce379c624e09"
+LEGACY_MAKER_QUEUE_PRESSURE_EVENT_TYPE = "maker_queue_pressure_adjustment"
 MAKER_QUOTE_INTEGRITY_EVENT_TYPES = (
     "maker_fight_admission_shadow",
-    "maker_queue_pressure_adjustment",
     "pre_submit_cross_guard_adjusted",
     "order_submit",
     "order_cancel",
@@ -308,6 +315,20 @@ def _load_outcome_truth_records(log_dir: pathlib.Path, run_id: Optional[str]) ->
     return [row for row in rows if isinstance(row, dict)]
 
 
+def _load_outcome_truth_audit(log_dir: pathlib.Path, run_id: Optional[str]) -> Dict[str, Any]:
+    target = str(run_id or "").strip()
+    if not target:
+        return {}
+    audit_path = log_dir / "reports" / target / "outcome_truth_audit.json"
+    if not audit_path.exists():
+        return {}
+    try:
+        payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _dated_log_file_date(prefix: str, path: pathlib.Path) -> Optional[dt.date]:
     name = str(path.name or "")
     if not name.startswith(f"{prefix}_") or not name.endswith(".jsonl"):
@@ -391,6 +412,56 @@ def _as_bool(value: Any) -> Optional[bool]:
     return None
 
 
+_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+_HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
+_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
+_HISTORICAL_RECOVERY_ALLOWED_FIELD = "reduce_only_recovery_allowed"
+_HISTORICAL_EMERGENCY_ALLOWED_FIELD = "preexpiry_emergency_taker_allowed"
+_HISTORICAL_HANDOFF_DISABLED_BLOCK_REASON = "maker_to_taker_recovery_handoff_disabled"
+_HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD = "preexpiry_emergency_taker_window_sec"
+
+
+def _has_lifecycle_residue_truth(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for field in (
+        "open_order_cleanup_required",
+        "settlement_hold_required",
+        "unresolved_lifecycle_obligation",
+        "cancel_fail_closed",
+    ):
+        if _as_bool(payload.get(field)) is True:
+            return True
+    return False
+
+
+def _has_historical_recovery_lineage(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if _as_bool(payload.get(_HISTORICAL_RECOVERY_ACTIVE_FIELD)) is True:
+        return True
+    if _as_bool(payload.get(_HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD)) is True:
+        return True
+    if str(payload.get(_HISTORICAL_RECOVERY_REASON_FIELD) or "").strip():
+        return True
+    return False
+
+
+def _historical_recovery_lineage_reason(payload: Dict[str, Any], *, default: str = "unknown") -> str:
+    if not isinstance(payload, dict):
+        return default
+    reason = str(payload.get(_HISTORICAL_RECOVERY_REASON_FIELD) or "").strip().lower()
+    if reason:
+        return reason
+    if _has_historical_recovery_lineage(payload):
+        return "historical_lineage_present"
+    return default
+
+
+def _is_lifecycle_residue_payload(payload: Dict[str, Any]) -> bool:
+    return _has_lifecycle_residue_truth(payload) or _has_historical_recovery_lineage(payload)
+
+
 def _is_quote_active_row(row: Dict[str, Any]) -> bool:
     open_orders = row.get("gauge.open_orders")
     if isinstance(open_orders, (int, float)) and float(open_orders) > 0:
@@ -421,23 +492,18 @@ def _is_quote_active_row(row: Dict[str, Any]) -> bool:
     return False
 
 
-def _is_no_target_standdown_row(row: Dict[str, Any]) -> bool:
+def _is_scan_phase_row(row: Dict[str, Any]) -> bool:
+    lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if lifecycle_phase:
+        return lifecycle_phase == "scan"
     state = str(row.get("runtime_state") or "").strip().lower()
-    if state == "no_target_standdown":
+    if state == "scan":
         return True
-    for key in ("no_target_standdown", "gauge.no_target_standdown"):
-        value = row.get(key)
-        if isinstance(value, bool):
-            if value:
-                return True
-            continue
-        if isinstance(value, (int, float)) and float(value) > 0:
-            return True
     return False
 
 
 def _is_quote_window_row(row: Dict[str, Any]) -> bool:
-    if _is_no_target_standdown_row(row):
+    if _is_scan_phase_row(row):
         return False
     for key in (
         "active_targets_present",
@@ -694,35 +760,71 @@ def _counter_delta(current_value: Any, prev_value: Optional[float]) -> Tuple[flo
 
 def _market_data_source_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, float]:
     ws_delta = 0.0
-    rest_delta = 0.0
     total_delta = 0.0
     ws_rows = 0.0
-    rest_rows = 0.0
+    pair_missing_rows = 0.0
+    pair_one_sided_rows = 0.0
+    pair_truth_pair_count_max = 0.0
+    pair_truth_missing_pair_count_max = 0.0
+    pair_truth_one_sided_pair_count_max = 0.0
+    pair_truth_authoritative_pair_count_max = 0.0
+    pair_truth_one_sided_base_keys_seen: set[str] = set()
 
     prev_ws: Optional[float] = None
-    prev_rest: Optional[float] = None
     prev_total: Optional[float] = None
     for row in status_rows:
         ws_inc, prev_ws = _counter_delta(row.get("counter.book_updates_ws"), prev_ws)
-        rest_inc, prev_rest = _counter_delta(row.get("counter.book_updates_rest"), prev_rest)
         total_inc, prev_total = _counter_delta(row.get("counter.book_updates"), prev_total)
         ws_delta += ws_inc
-        rest_delta += rest_inc
         total_delta += total_inc
         if ws_inc > 0.0:
             ws_rows += 1.0
-        if rest_inc > 0.0:
-            rest_rows += 1.0
+        pair_truth_pair_count = _safe_float(row.get("pair_truth_pair_count"))
+        pair_truth_missing_pair_count = _safe_float(row.get("pair_truth_missing_pair_count"))
+        pair_truth_one_sided_pair_count = _safe_float(row.get("pair_truth_one_sided_pair_count"))
+        pair_truth_authoritative_pair_count = _safe_float(row.get("pair_truth_authoritative_pair_count"))
+        pair_truth_pair_count_max = max(pair_truth_pair_count_max, pair_truth_pair_count)
+        pair_truth_missing_pair_count_max = max(
+            pair_truth_missing_pair_count_max,
+            pair_truth_missing_pair_count,
+        )
+        pair_truth_one_sided_pair_count_max = max(
+            pair_truth_one_sided_pair_count_max,
+            pair_truth_one_sided_pair_count,
+        )
+        pair_truth_authoritative_pair_count_max = max(
+            pair_truth_authoritative_pair_count_max,
+            pair_truth_authoritative_pair_count,
+        )
+        if pair_truth_missing_pair_count > 0.0:
+            pair_missing_rows += 1.0
+        if pair_truth_one_sided_pair_count > 0.0:
+            pair_one_sided_rows += 1.0
+        one_sided_base_keys = row.get("pair_truth_one_sided_base_keys")
+        if isinstance(one_sided_base_keys, list):
+            for raw_base_key in one_sided_base_keys:
+                normalized_base_key = str(raw_base_key or "").strip()
+                if normalized_base_key:
+                    pair_truth_one_sided_base_keys_seen.add(normalized_base_key)
 
-    source_total = ws_delta + rest_delta
-    source_rest_ratio = (rest_delta / source_total) if source_total > 0.0 else 0.0
+    status_row_count = float(len(status_rows))
     return {
         "book_updates_ws_delta": float(ws_delta),
-        "book_updates_rest_delta": float(rest_delta),
         "book_updates_total_delta": float(total_delta),
-        "book_updates_rest_ratio": float(source_rest_ratio),
         "status_rows_with_ws_updates": float(ws_rows),
-        "status_rows_with_rest_updates": float(rest_rows),
+        "pair_truth_pair_count_max": float(pair_truth_pair_count_max),
+        "pair_truth_missing_pair_count_max": float(pair_truth_missing_pair_count_max),
+        "pair_truth_one_sided_pair_count_max": float(pair_truth_one_sided_pair_count_max),
+        "pair_truth_authoritative_pair_count_max": float(pair_truth_authoritative_pair_count_max),
+        "status_rows_with_pair_truth_missing": float(pair_missing_rows),
+        "status_rows_with_pair_truth_one_sided": float(pair_one_sided_rows),
+        "pair_truth_missing_pair_row_ratio": (
+            float(pair_missing_rows / status_row_count) if status_row_count > 0.0 else 0.0
+        ),
+        "pair_truth_one_sided_row_ratio": (
+            float(pair_one_sided_rows / status_row_count) if status_row_count > 0.0 else 0.0
+        ),
+        "pair_truth_one_sided_base_keys_seen": sorted(pair_truth_one_sided_base_keys_seen),
     }
 
 
@@ -742,7 +844,7 @@ def _harness_realism_grade(
         breakdown["tod_liquidity_scaling"] = 20
 
     if any(
-        str(evt.get("paper_queue_position_mode") or "").strip().lower() == "bounded_top_depth_proxy"
+        str(evt.get("paper_queue_position_mode") or "").strip().lower() != "not_modeled"
         and isinstance(evt.get("paper_maker_depth_consumption_ratio"), (int, float))
         for evt in fill_rows
     ):
@@ -750,7 +852,7 @@ def _harness_realism_grade(
 
     if any(
         str(evt.get("fill_policy_basis") or "").strip().lower()
-        in {"bounded_visible_liquidity_top_of_book", "bounded_visible_liquidity_top_of_book_with_queue_proxy"}
+        in {"visible_liquidity_top_of_book"}
         for evt in fill_rows
     ):
         breakdown["taker_depth_slippage_model"] = 20
@@ -1691,6 +1793,184 @@ def _financial_performance_summary(
     }
 
 
+def _financial_outcome_reconciliation(
+    financial_performance: Dict[str, Any],
+    outcome_truth_audit: Dict[str, Any],
+) -> Dict[str, Any]:
+    financial = financial_performance if isinstance(financial_performance, dict) else {}
+    outcome_audit = outcome_truth_audit if isinstance(outcome_truth_audit, dict) else {}
+    outcome_lane_truth = (
+        outcome_audit.get("lane_outcome_truth", {})
+        if isinstance(outcome_audit.get("lane_outcome_truth"), dict)
+        else {}
+    )
+    lane_mapping = {
+        "maker": "maker",
+        "taker": "normal_taker",
+    }
+    reconciliation: Dict[str, Any] = {
+        "surface_class": "support_only_cross_surface_reconciliation",
+        "authoritative_for_runtime_or_strategy": False,
+        "status": "outcome_truth_audit_missing",
+        "financial_surface": {
+            "accounting_basis": str(financial.get("accounting_basis") or ""),
+            "closed_trade_unit": str(financial.get("closed_trade_unit") or ""),
+            "lane_mapping_basis": str(financial.get("lane_mapping_basis") or ""),
+            "latest_total_pnl_usd": _safe_float(financial.get("latest_total_pnl_usd")),
+            "interpretation": "realized_cashflow_plus_wallet_position_settled",
+        },
+        "outcome_surface": {
+            "available": bool(outcome_audit),
+            "run_claim_scope": str(
+                (
+                    outcome_audit.get("run_claim_boundary", {})
+                    if isinstance(outcome_audit.get("run_claim_boundary"), dict)
+                    else {}
+                ).get("claim_scope")
+                or ""
+            ),
+            "lane_outcome_interpretation": "",
+            "reference_policy": str(
+                (
+                    outcome_audit.get("claim_boundary", {})
+                    if isinstance(outcome_audit.get("claim_boundary"), dict)
+                    else {}
+                ).get("proves", [None])[0]
+                or ""
+            ),
+        },
+        "claim_boundary": {
+            "numeric_equality_expected": False,
+            "same_fill_notional_alignment_expected": True,
+            "same_aggregation_unit_expected": False,
+            "financial_unit": str(financial.get("closed_trade_unit") or "target_ref_campaign"),
+            "outcome_unit": "outcome_record_fixed_horizon_observation",
+            "lane_name_mapping": dict(lane_mapping),
+            "reason": (
+                "financial_performance is realized campaign cashflow through settlement; "
+                "outcome_truth is observational fixed-horizon edge realization and should not "
+                "numerically equal ledger pnl."
+            ),
+        },
+        "overall": {
+            "financial_net_pnl_usd": _safe_float(
+                (financial.get("overall", {}) if isinstance(financial.get("overall"), dict) else {}).get("net_pnl_usd")
+            ),
+            "financial_gross_filled_notional_usd": _safe_float(
+                (financial.get("overall", {}) if isinstance(financial.get("overall"), dict) else {}).get(
+                    "gross_filled_notional_usd"
+                )
+            ),
+            "outcome_fill_notional_sum": 0.0,
+            "fill_notional_reconciles": False,
+            "financial_closed_trade_count": int(
+                _safe_float(
+                    (financial.get("overall", {}) if isinstance(financial.get("overall"), dict) else {}).get(
+                        "closed_trade_count"
+                    )
+                )
+            ),
+            "outcome_complete_outcome_records": int(_safe_float(outcome_audit.get("complete_outcome_records"))),
+            "count_equality_expected": False,
+        },
+        "by_lane": {},
+        "unmapped_financial_lanes": [],
+        "unmapped_outcome_lanes": [],
+    }
+
+    first_lane_truth = next(
+        (
+            payload
+            for payload in outcome_lane_truth.values()
+            if isinstance(payload, dict) and isinstance(payload.get("claim_boundary"), dict)
+        ),
+        {},
+    )
+    reconciliation["outcome_surface"]["lane_outcome_interpretation"] = str(
+        (first_lane_truth.get("claim_boundary", {}) if isinstance(first_lane_truth, dict) else {}).get(
+            "interpretation"
+        )
+        or ""
+    )
+
+    if not outcome_lane_truth:
+        return reconciliation
+
+    fill_reconcile_flags: List[bool] = []
+    for financial_lane, outcome_lane in lane_mapping.items():
+        financial_lane_payload = (
+            (financial.get("by_lane", {}) if isinstance(financial.get("by_lane"), dict) else {}).get(financial_lane, {})
+        )
+        outcome_lane_payload = outcome_lane_truth.get(outcome_lane, {})
+        if not isinstance(financial_lane_payload, dict) or not isinstance(outcome_lane_payload, dict):
+            reconciliation["by_lane"][financial_lane] = {
+                "financial_lane": financial_lane,
+                "outcome_lane": outcome_lane,
+                "available": False,
+            }
+            continue
+
+        financial_gross_filled_notional = _safe_float(financial_lane_payload.get("gross_filled_notional_usd"))
+        outcome_fill_notional = _safe_float(outcome_lane_payload.get("fill_notional_sum"))
+        fill_notional_reconciles = abs(financial_gross_filled_notional - outcome_fill_notional) <= 1e-6
+        fill_reconcile_flags.append(fill_notional_reconciles)
+        reconciliation["by_lane"][financial_lane] = {
+            "financial_lane": financial_lane,
+            "outcome_lane": outcome_lane,
+            "available": True,
+            "financial_net_pnl_usd": _safe_float(financial_lane_payload.get("net_pnl_usd")),
+            "financial_gross_filled_notional_usd": financial_gross_filled_notional,
+            "financial_closed_trade_count": int(_safe_float(financial_lane_payload.get("closed_trade_count"))),
+            "outcome_edge_realized_x_size_sum": _safe_float(outcome_lane_payload.get("edge_realized_x_size_sum")),
+            "outcome_execution_component_x_size_sum": _safe_float(
+                outcome_lane_payload.get("execution_component_x_size_sum")
+            ),
+            "outcome_decision_component_x_size_sum": _safe_float(
+                outcome_lane_payload.get("decision_component_x_size_sum")
+            ),
+            "outcome_fill_notional_sum": outcome_fill_notional,
+            "outcome_complete_outcome_records": int(
+                _safe_float(outcome_lane_payload.get("complete_outcome_records"))
+            ),
+            "outcome_total_outcome_records": int(_safe_float(outcome_lane_payload.get("total_outcome_records"))),
+            "outcome_unknown_outcome_records": int(_safe_float(outcome_lane_payload.get("unknown_outcome_records"))),
+            "fill_notional_reconciles": fill_notional_reconciles,
+            "numeric_pnl_equivalence_expected": False,
+            "count_equality_expected": False,
+        }
+
+    financial_lane_names = set(
+        key
+        for key in (
+            (financial.get("by_lane", {}) if isinstance(financial.get("by_lane"), dict) else {}).keys()
+        )
+        if key not in lane_mapping
+    )
+    outcome_lane_names = set(key for key in outcome_lane_truth.keys() if key not in set(lane_mapping.values()))
+    reconciliation["unmapped_financial_lanes"] = sorted(financial_lane_names)
+    reconciliation["unmapped_outcome_lanes"] = sorted(outcome_lane_names)
+
+    outcome_fill_notional_total = sum(
+        _safe_float(payload.get("fill_notional_sum"))
+        for payload in outcome_lane_truth.values()
+        if isinstance(payload, dict)
+    )
+    reconciliation["overall"]["outcome_fill_notional_sum"] = outcome_fill_notional_total
+    reconciliation["overall"]["fill_notional_reconciles"] = bool(
+        abs(
+            _safe_float(reconciliation["overall"].get("financial_gross_filled_notional_usd"))
+            - outcome_fill_notional_total
+        )
+        <= 1e-6
+    )
+
+    if reconciliation["overall"]["fill_notional_reconciles"] and all(fill_reconcile_flags):
+        reconciliation["status"] = "quantities_distinct_fill_notional_reconciled"
+    else:
+        reconciliation["status"] = "fill_notional_mismatch_requires_investigation"
+    return reconciliation
+
+
 def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> Dict[str, Any]:
     event_counts: Counter[str] = Counter()
     for evt in events:
@@ -1788,22 +2068,19 @@ def _valuation_truth_stats(
     loss_guard_degraded_rows = 0.0
     held_unpriceable_escalation_rows = 0.0
     held_unpriceable_defect_candidate_rows = 0.0
-    held_book_not_found_404_rows = 0.0
-    preexpiry_404_anomaly_rows = 0.0
-    held_dust_shadow_candidate_rows = 0.0
-    held_dust_shadow_active_rows = 0.0
-    held_dust_enforced_rows = 0.0
+    held_ws_missing_or_unusable_rows = 0.0
+    preexpiry_ws_missing_or_unusable_anomaly_rows = 0.0
     valuation_hard_degraded_enter_count = 0.0
     valuation_hard_degraded_clear_count = 0.0
     held_unpriceable_started_count = 0.0
     held_unpriceable_recovered_count = 0.0
-    preexpiry_404_anomaly_count = 0.0
+    preexpiry_ws_missing_or_unusable_anomaly_count = 0.0
     lifecycle_context_mismatch_count = 0.0
     lifecycle_context_missing_sec_to_expiry_count = 0.0
-    preexpiry_emergency_taker_attempt_count = 0.0
-    preexpiry_emergency_taker_fill_count = 0.0
-    preexpiry_emergency_taker_block_count = 0.0
-    held_dust_hard_degraded_exempt_count = 0.0
+    settlement_hold_required_count = 0.0
+    open_order_cleanup_required_count = 0.0
+    unresolved_lifecycle_obligation_count = 0.0
+    cancel_fail_closed_count = 0.0
     held_dust_count_max = 0.0
     held_dust_quarantined_count_max = 0.0
     held_dust_total_notional_upper_bound_usd_max = 0.0
@@ -1823,7 +2100,6 @@ def _valuation_truth_stats(
     }
     held_unpriceable_cause_counts_run: Counter[str] = Counter()
     valuation_degraded_reason_family_counts_run: Counter[str] = Counter()
-    preexpiry_emergency_taker_block_reasons_run_max: Counter[str] = Counter()
     valuation_degraded_event_rows = 0.0
     valuation_hard_degraded_event_rows = 0.0
     valuation_degraded_reason_family_counts_events: Counter[str] = Counter()
@@ -1856,16 +2132,10 @@ def _valuation_truth_stats(
         degraded_reasons = [str(reason) for reason in list(row.get("valuation_degraded_reasons") or [])]
         for reason in degraded_reasons:
             valuation_degraded_reason_family_counts_run[_reason_family(reason)] += 1
-        if any("held_book_not_found_404" in reason for reason in degraded_reasons):
-            held_book_not_found_404_rows += 1.0
-        if bool(row.get("preexpiry_404_anomaly_active", False)):
-            preexpiry_404_anomaly_rows += 1.0
-        if bool(row.get("held_dust_shadow_candidate_active", False)):
-            held_dust_shadow_candidate_rows += 1.0
-        if bool(row.get("held_dust_shadow_active", False)):
-            held_dust_shadow_active_rows += 1.0
-        if bool(row.get("held_dust_enforced_this_cycle", False)):
-            held_dust_enforced_rows += 1.0
+        if any("held_ws_missing_or_unusable" in reason for reason in degraded_reasons):
+            held_ws_missing_or_unusable_rows += 1.0
+        if bool(row.get("preexpiry_ws_missing_or_unusable_anomaly_active", False)):
+            preexpiry_ws_missing_or_unusable_anomaly_rows += 1.0
         valuation_hard_degraded_enter_count = max(
             valuation_hard_degraded_enter_count,
             _safe_float(row.get("valuation_hard_degraded_enter_count")),
@@ -1882,9 +2152,9 @@ def _valuation_truth_stats(
             held_unpriceable_recovered_count,
             _safe_float(row.get("held_unpriceable_recovered_count")),
         )
-        preexpiry_404_anomaly_count = max(
-            preexpiry_404_anomaly_count,
-            _safe_float(row.get("preexpiry_404_anomaly_count")),
+        preexpiry_ws_missing_or_unusable_anomaly_count = max(
+            preexpiry_ws_missing_or_unusable_anomaly_count,
+            _safe_float(row.get("preexpiry_ws_missing_or_unusable_anomaly_count")),
         )
         lifecycle_context_mismatch_count = max(
             lifecycle_context_mismatch_count,
@@ -1894,21 +2164,21 @@ def _valuation_truth_stats(
             lifecycle_context_missing_sec_to_expiry_count,
             _safe_float(row.get("lifecycle_context_missing_sec_to_expiry_count")),
         )
-        preexpiry_emergency_taker_attempt_count = max(
-            preexpiry_emergency_taker_attempt_count,
-            _safe_float(row.get("preexpiry_emergency_taker_attempt_count")),
+        settlement_hold_required_count = max(
+            settlement_hold_required_count,
+            _safe_float(row.get("settlement_hold_required_count")),
         )
-        preexpiry_emergency_taker_fill_count = max(
-            preexpiry_emergency_taker_fill_count,
-            _safe_float(row.get("preexpiry_emergency_taker_fill_count")),
+        open_order_cleanup_required_count = max(
+            open_order_cleanup_required_count,
+            _safe_float(row.get("open_order_cleanup_required_count")),
         )
-        preexpiry_emergency_taker_block_count = max(
-            preexpiry_emergency_taker_block_count,
-            _safe_float(row.get("preexpiry_emergency_taker_block_count")),
+        unresolved_lifecycle_obligation_count = max(
+            unresolved_lifecycle_obligation_count,
+            _safe_float(row.get("unresolved_lifecycle_obligation_count")),
         )
-        held_dust_hard_degraded_exempt_count = max(
-            held_dust_hard_degraded_exempt_count,
-            _safe_float(row.get("held_dust_hard_degraded_exempt_count")),
+        cancel_fail_closed_count = max(
+            cancel_fail_closed_count,
+            _safe_float(row.get("cancel_fail_closed_count")),
         )
         held_dust_count_max = max(
             held_dust_count_max,
@@ -1957,25 +2227,7 @@ def _valuation_truth_stats(
             if not cause_name:
                 continue
             held_unpriceable_cause_counts_run[cause_name] += _safe_float(count)
-        row_emergency_block_reasons_raw = row.get("preexpiry_emergency_taker_block_reasons")
-        row_emergency_block_reasons = (
-            row_emergency_block_reasons_raw if isinstance(row_emergency_block_reasons_raw, dict) else {}
-        )
-        for reason, count in row_emergency_block_reasons.items():
-            reason_name = str(reason or "").strip().lower()
-            if not reason_name:
-                continue
-            preexpiry_emergency_taker_block_reasons_run_max[reason_name] = max(
-                preexpiry_emergency_taker_block_reasons_run_max.get(reason_name, 0.0),
-                _safe_float(count),
-            )
-    # Fallback signal path: when status-row counters are unavailable/truncated,
-    # derive emergency unwind counters and block reasons directly from events.
     if event_rows:
-        event_attempt_count = 0.0
-        event_fill_count = 0.0
-        event_block_count = 0.0
-        event_block_reasons: Counter[str] = Counter()
         for evt in event_rows:
             if str(evt.get("event_type") or "").strip() == "valuation_degraded":
                 event_weight = max(1.0, _safe_float(evt.get("repeat_count_delta"), 1.0))
@@ -2040,39 +2292,6 @@ def _valuation_truth_stats(
                     held_unpriceable_recovered_count,
                     _safe_float(evt.get("held_unpriceable_recovered_count")),
                 )
-            if str(evt.get("event_type") or "").strip() != "preexpiry_emergency_taker_unwind":
-                continue
-            event_weight = max(1.0, _safe_float(evt.get("repeat_count_delta"), 1.0))
-            event_attempt_count += event_weight
-            outcome = str(evt.get("outcome") or "").strip().lower()
-            if outcome == "filled":
-                event_fill_count += event_weight
-            elif outcome == "blocked":
-                event_block_count += event_weight
-                reason_name = (
-                    str(
-                        evt.get("blocked_reason")
-                        or evt.get("taker_submit_reject_reason")
-                        or evt.get("reason")
-                        or evt.get("outcome_reason")
-                        or "unknown"
-                    )
-                    .strip()
-                    .lower()
-                )
-                if reason_name.startswith("blocked_"):
-                    reason_name = reason_name[len("blocked_") :]
-                if not reason_name:
-                    reason_name = "unknown"
-                event_block_reasons[reason_name] += int(event_weight)
-        preexpiry_emergency_taker_attempt_count = max(preexpiry_emergency_taker_attempt_count, event_attempt_count)
-        preexpiry_emergency_taker_fill_count = max(preexpiry_emergency_taker_fill_count, event_fill_count)
-        preexpiry_emergency_taker_block_count = max(preexpiry_emergency_taker_block_count, event_block_count)
-        for reason_name, reason_count in event_block_reasons.items():
-            preexpiry_emergency_taker_block_reasons_run_max[reason_name] = max(
-                preexpiry_emergency_taker_block_reasons_run_max.get(reason_name, 0.0),
-                float(reason_count),
-            )
     for row in reversed(status_rows):
         if "valuation_degraded" in row:
             latest_status = dict(row)
@@ -2112,28 +2331,18 @@ def _valuation_truth_stats(
         for token_id in list(latest.get("held_dust_token_ids") or [])
         if str(token_id).strip()
     ]
-    latest_held_dust_exempt_count = _safe_float(
-        latest.get("held_dust_hard_degraded_exempt_count")
+    latest_meaningful_escalation_token_ids = [
+        str(token_id)
+        for token_id in list(latest.get("held_unpriceable_meaningful_escalation_token_ids") or [])
+        if str(token_id).strip()
+    ]
+    latest_non_defect_unpriceable_token_ids = sorted(
+        str(token_id)
+        for token_id in list(latest.get("held_unpriceable_non_defect_token_ids") or [])
+        if str(token_id).strip()
     )
-    latest_dust_exemption_active = bool(
-        latest.get("dust_classifier_enforce_enabled", False)
-        and latest.get("held_dust_enforced_this_cycle", False)
-        and latest_held_dust_exempt_count > 0.0
-    )
-    latest_dust_exempted_unpriceable_token_count = 0.0
-    if latest_dust_exemption_active:
-        latest_dust_exempted_unpriceable_token_count = float(
-            len(set(latest_held_unpriceable_token_ids).intersection(latest_held_dust_token_ids))
-        )
-    held_unpriceable_unrecovered_dust_exempted_count = min(
-        held_unpriceable_unrecovered_raw_count,
-        latest_held_dust_exempt_count,
-        latest_dust_exempted_unpriceable_token_count,
-    )
-    held_unpriceable_unrecovered_meaningful_count = max(
-        0.0,
-        held_unpriceable_unrecovered_raw_count - held_unpriceable_unrecovered_dust_exempted_count,
-    )
+    held_unpriceable_unrecovered_meaningful_count = float(len(latest_meaningful_escalation_token_ids))
+    held_unpriceable_unrecovered_non_defect_count = float(len(latest_non_defect_unpriceable_token_ids))
     latest_valuation_degraded = bool(latest.get("valuation_degraded", False))
     latest_valuation_hard_degraded = bool(latest.get("valuation_hard_degraded", False))
     any_degraded_signal = (
@@ -2146,12 +2355,12 @@ def _valuation_truth_stats(
         valuation_bruise_state = "none"
     elif held_unpriceable_unrecovered_meaningful_count > 0.0:
         valuation_bruise_state = "open_meaningful_unpriceable"
+    elif held_unpriceable_unrecovered_non_defect_count > 0.0:
+        valuation_bruise_state = "open_non_defect_unpriceable"
     elif held_unpriceable_unrecovered_raw_count > 0.0:
-        valuation_bruise_state = "open_dust_only_unpriceable"
+        valuation_bruise_state = "held_unpriceable_not_fully_recovered"
     elif latest_valuation_hard_degraded or (valuation_hard_degraded_enter_count > valuation_hard_degraded_clear_count):
         valuation_bruise_state = "hard_degraded_not_fully_cleared"
-    elif held_unpriceable_started_count > held_unpriceable_recovered_count:
-        valuation_bruise_state = "held_unpriceable_not_fully_recovered"
     elif latest_valuation_degraded:
         valuation_bruise_state = "degraded_not_fully_cleared"
     else:
@@ -2174,31 +2383,30 @@ def _valuation_truth_stats(
         "loss_guard_degraded_rows": float(loss_guard_degraded_rows),
         "held_unpriceable_escalation_rows": float(held_unpriceable_escalation_rows),
         "held_unpriceable_defect_candidate_rows": float(held_unpriceable_defect_candidate_rows),
-        "held_book_not_found_404_rows": float(held_book_not_found_404_rows),
-        "preexpiry_404_anomaly_rows": float(preexpiry_404_anomaly_rows),
-        "held_dust_shadow_candidate_rows": float(held_dust_shadow_candidate_rows),
-        "held_dust_shadow_active_rows": float(held_dust_shadow_active_rows),
-        "held_dust_enforced_rows": float(held_dust_enforced_rows),
+        "held_ws_missing_or_unusable_rows": float(held_ws_missing_or_unusable_rows),
+        "preexpiry_ws_missing_or_unusable_anomaly_rows": float(preexpiry_ws_missing_or_unusable_anomaly_rows),
         "valuation_hard_degraded_enter_count": float(valuation_hard_degraded_enter_count),
         "valuation_hard_degraded_clear_count": float(valuation_hard_degraded_clear_count),
         "held_unpriceable_started_count": float(held_unpriceable_started_count),
         "held_unpriceable_recovered_count": float(held_unpriceable_recovered_count),
         "held_unpriceable_unrecovered_raw_count": float(held_unpriceable_unrecovered_raw_count),
-        "held_unpriceable_unrecovered_dust_exempted_count": float(
-            held_unpriceable_unrecovered_dust_exempted_count
+        "held_unpriceable_unrecovered_non_defect_count": float(
+            held_unpriceable_unrecovered_non_defect_count
         ),
         "held_unpriceable_unrecovered_meaningful_count": float(
             held_unpriceable_unrecovered_meaningful_count
         ),
-        "preexpiry_404_anomaly_count": float(preexpiry_404_anomaly_count),
+        "preexpiry_ws_missing_or_unusable_anomaly_count": float(
+            preexpiry_ws_missing_or_unusable_anomaly_count
+        ),
         "lifecycle_context_mismatch_count": float(lifecycle_context_mismatch_count),
         "lifecycle_context_missing_sec_to_expiry_count": float(
             lifecycle_context_missing_sec_to_expiry_count
         ),
-        "preexpiry_emergency_taker_attempt_count": float(preexpiry_emergency_taker_attempt_count),
-        "preexpiry_emergency_taker_fill_count": float(preexpiry_emergency_taker_fill_count),
-        "preexpiry_emergency_taker_block_count": float(preexpiry_emergency_taker_block_count),
-        "held_dust_hard_degraded_exempt_count": float(held_dust_hard_degraded_exempt_count),
+        "settlement_hold_required_count": float(settlement_hold_required_count),
+        "open_order_cleanup_required_count": float(open_order_cleanup_required_count),
+        "unresolved_lifecycle_obligation_count": float(unresolved_lifecycle_obligation_count),
+        "cancel_fail_closed_count": float(cancel_fail_closed_count),
         "held_dust_count_max": float(held_dust_count_max),
         "held_dust_quarantined_count_max": float(held_dust_quarantined_count_max),
         "held_dust_total_notional_upper_bound_usd_max": float(held_dust_total_notional_upper_bound_usd_max),
@@ -2214,28 +2422,13 @@ def _valuation_truth_stats(
         )
         if sample_count > 0
         else 0.0,
-        "held_book_not_found_404_ratio": (
-            held_book_not_found_404_rows / sample_count
+        "held_ws_missing_or_unusable_ratio": (
+            held_ws_missing_or_unusable_rows / sample_count
         )
         if sample_count > 0
         else 0.0,
-        "preexpiry_404_anomaly_ratio": (
-            preexpiry_404_anomaly_rows / sample_count
-        )
-        if sample_count > 0
-        else 0.0,
-        "held_dust_shadow_candidate_ratio": (
-            held_dust_shadow_candidate_rows / sample_count
-        )
-        if sample_count > 0
-        else 0.0,
-        "held_dust_shadow_active_ratio": (
-            held_dust_shadow_active_rows / sample_count
-        )
-        if sample_count > 0
-        else 0.0,
-        "held_dust_enforced_ratio": (
-            held_dust_enforced_rows / sample_count
+        "preexpiry_ws_missing_or_unusable_anomaly_ratio": (
+            preexpiry_ws_missing_or_unusable_anomaly_rows / sample_count
         )
         if sample_count > 0
         else 0.0,
@@ -2259,12 +2452,10 @@ def _valuation_truth_stats(
         "latest_held_unpriceable_token_ids": list(latest_held_unpriceable_token_ids),
         "latest_held_unpriceable_defect_candidate": bool(latest.get("held_unpriceable_defect_candidate", False)),
         "latest_held_unpriceable_escalation_token_ids": list(latest.get("held_unpriceable_escalation_token_ids") or []),
-        "latest_held_unpriceable_dust_exempted_escalation_token_ids": list(
-            latest.get("held_unpriceable_dust_exempted_escalation_token_ids") or []
-        ),
         "latest_held_unpriceable_meaningful_escalation_token_ids": list(
             latest.get("held_unpriceable_meaningful_escalation_token_ids") or []
         ),
+        "latest_held_unpriceable_non_defect_token_ids": list(latest_non_defect_unpriceable_token_ids),
         "latest_held_unpriceable_escalation_reasons": list(latest.get("held_unpriceable_escalation_reasons") or []),
         "latest_held_unpriceable_operator_action": str(latest.get("held_unpriceable_operator_action") or ""),
         "latest_held_unpriceable_escalation_threshold_sec": _safe_float(
@@ -2285,9 +2476,11 @@ def _valuation_truth_stats(
         "latest_held_unpriceable_recovered_count": _safe_float(
             latest.get("held_unpriceable_recovered_count")
         ),
-        "latest_preexpiry_404_anomaly_active": bool(latest.get("preexpiry_404_anomaly_active", False)),
-        "latest_preexpiry_404_anomaly_count": _safe_float(
-            latest.get("preexpiry_404_anomaly_count")
+        "latest_preexpiry_ws_missing_or_unusable_anomaly_active": bool(
+            latest.get("preexpiry_ws_missing_or_unusable_anomaly_active", False)
+        ),
+        "latest_preexpiry_ws_missing_or_unusable_anomaly_count": _safe_float(
+            latest.get("preexpiry_ws_missing_or_unusable_anomaly_count")
         ),
         "latest_lifecycle_context_mismatch_count": _safe_float(
             latest.get("lifecycle_context_mismatch_count")
@@ -2295,30 +2488,23 @@ def _valuation_truth_stats(
         "latest_lifecycle_context_missing_sec_to_expiry_count": _safe_float(
             latest.get("lifecycle_context_missing_sec_to_expiry_count")
         ),
-        "latest_preexpiry_emergency_taker_attempt_count": _safe_float(
-            latest.get("preexpiry_emergency_taker_attempt_count")
+        "latest_settlement_hold_required_count": _safe_float(
+            latest.get("settlement_hold_required_count")
         ),
-        "latest_preexpiry_emergency_taker_fill_count": _safe_float(
-            latest.get("preexpiry_emergency_taker_fill_count")
+        "latest_open_order_cleanup_required_count": _safe_float(
+            latest.get("open_order_cleanup_required_count")
         ),
-        "latest_preexpiry_emergency_taker_block_count": _safe_float(
-            latest.get("preexpiry_emergency_taker_block_count")
+        "latest_unresolved_lifecycle_obligation_count": _safe_float(
+            latest.get("unresolved_lifecycle_obligation_count")
         ),
-        "latest_preexpiry_emergency_taker_block_reasons": dict(
-            latest.get("preexpiry_emergency_taker_block_reasons") or {}
-        ),
-        "latest_held_dust_shadow_candidate_active": bool(latest.get("held_dust_shadow_candidate_active", False)),
-        "latest_held_dust_shadow_active": bool(latest.get("held_dust_shadow_active", False)),
-        "latest_held_dust_enforced_this_cycle": bool(latest.get("held_dust_enforced_this_cycle", False)),
-        "latest_held_dust_hard_degraded_exempt_count": _safe_float(
-            latest.get("held_dust_hard_degraded_exempt_count")
+        "latest_cancel_fail_closed_count": _safe_float(
+            latest.get("cancel_fail_closed_count")
         ),
         "latest_held_dust_count": _safe_float(latest.get("held_dust_count")),
         "latest_held_dust_quarantined_count": _safe_float(latest.get("held_dust_quarantined_count")),
         "latest_held_dust_total_notional_upper_bound_usd": _safe_float(
             latest.get("held_dust_total_notional_upper_bound_usd")
         ),
-        "latest_dust_classifier_enforce_enabled": bool(latest.get("dust_classifier_enforce_enabled", False)),
         "latest_runtime_expiry_boundary_epsilon_sec": _safe_float(
             latest.get("runtime_expiry_boundary_epsilon_sec")
         ),
@@ -2333,12 +2519,6 @@ def _valuation_truth_stats(
         "valuation_source_counts_degraded_rows": dict(dominant_source_degraded_rows),
         "held_unpriceable_cause_counts_run": dict(sorted(held_unpriceable_cause_counts_run.items(), key=lambda kv: kv[0])),
         "held_unpriceable_cause_counts_latest": dict(latest.get("held_unpriceable_cause_counts") or {}),
-        "preexpiry_emergency_taker_block_reasons_run_max": dict(
-            sorted(preexpiry_emergency_taker_block_reasons_run_max.items(), key=lambda kv: kv[0])
-        ),
-        "preexpiry_emergency_taker_block_reason_counts": dict(
-            sorted(preexpiry_emergency_taker_block_reasons_run_max.items(), key=lambda kv: kv[0])
-        ),
         "valuation_source_counts_latest": {
             "live_mid": _safe_float((latest.get("valuation_mid_source_counts") or {}).get("live_mid")),
             "live_side_conservative_quote": _safe_float(
@@ -2437,12 +2617,11 @@ def _edge_truth_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     maker_no_submission_causes = Counter()
     maker_no_submission_categories = Counter()
     maker_market_reference_modes = Counter()
-    maker_market_reference_fallback_bid_count = 0
-    maker_market_reference_fallback_ask_count = 0
+    maker_market_reference_one_sided_context_count = 0
     maker_reference_direct_midpoint_activity = 0
-    maker_reference_bounded_fallback_activity = 0
+    maker_reference_missing_activity = 0
     maker_reference_direct_midpoint_action_activity = 0
-    maker_reference_bounded_fallback_action_activity = 0
+    maker_reference_missing_action_activity = 0
     for row in rows:
         scope = str(row.get("evaluation_scope") or "").strip().lower()
         action = str(row.get("action_taken") or "").strip().lower()
@@ -2455,14 +2634,12 @@ def _edge_truth_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                 maker_reference_direct_midpoint_activity += 1
                 if action == "maker":
                     maker_reference_direct_midpoint_action_activity += 1
-            elif market_reference_mode == "bounded_single_side_touch":
-                maker_reference_bounded_fallback_activity += 1
+            elif market_reference_mode == "missing":
+                maker_reference_missing_activity += 1
                 if action == "maker":
-                    maker_reference_bounded_fallback_action_activity += 1
-                if market_reference_source_side == "bid":
-                    maker_market_reference_fallback_bid_count += 1
-                elif market_reference_source_side == "ask":
-                    maker_market_reference_fallback_ask_count += 1
+                    maker_reference_missing_action_activity += 1
+                if str(row.get("pair_truth_basis") or "").strip().lower() == "one_sided_ws_missing_midpoint":
+                    maker_market_reference_one_sided_context_count += 1
         elif scope == "taker":
             taker_rows += 1
         if action in {"maker", "taker"}:
@@ -2502,16 +2679,15 @@ def _edge_truth_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         "maker_market_reference_mode_distribution": dict(
             sorted(maker_market_reference_modes.items(), key=lambda item: item[0])
         ),
-        "maker_market_reference_fallback_count": float(maker_reference_bounded_fallback_activity),
-        "maker_market_reference_fallback_bid_count": float(maker_market_reference_fallback_bid_count),
-        "maker_market_reference_fallback_ask_count": float(maker_market_reference_fallback_ask_count),
+        "maker_market_reference_missing_count": float(maker_reference_missing_activity),
+        "maker_market_reference_one_sided_context_count": float(maker_market_reference_one_sided_context_count),
         "maker_reference_direct_midpoint_activity": float(maker_reference_direct_midpoint_activity),
-        "maker_reference_bounded_fallback_activity": float(maker_reference_bounded_fallback_activity),
+        "maker_reference_missing_activity": float(maker_reference_missing_activity),
         "maker_reference_direct_midpoint_action_activity": float(
             maker_reference_direct_midpoint_action_activity
         ),
-        "maker_reference_bounded_fallback_action_activity": float(
-            maker_reference_bounded_fallback_action_activity
+        "maker_reference_missing_action_activity": float(
+            maker_reference_missing_action_activity
         ),
     }
 
@@ -2573,7 +2749,9 @@ def _maker_fireability_window_stats(
     active_window_impossible_row_count = 0.0
     active_window_unknown_viability_row_count = 0.0
     active_window_block_reasons: Counter[str] = Counter()
-    active_window_stage_distribution: Counter[str] = Counter()
+    active_window_lifecycle_phase_distribution: Counter[str] = Counter()
+    active_window_lineage_stage_distribution: Counter[str] = Counter()
+    active_window_maker_phase_allowed_distribution: Counter[str] = Counter()
     active_window_target_rows: defaultdict[str, Dict[str, Any]] = defaultdict(
         lambda: {
             "window_row_count": 0.0,
@@ -2615,8 +2793,13 @@ def _maker_fireability_window_stats(
             ):
                 continue
             active_window_row_count += 1.0
-            stage_value = str(evt.get("stage") or "").strip().upper() or "UNKNOWN"
-            active_window_stage_distribution[stage_value] += 1
+            lifecycle_phase_value = _maker_lifecycle_phase_for_report(evt)
+            lineage_stage_value = _maker_lineage_stage_for_report(evt)
+            active_window_lifecycle_phase_distribution[lifecycle_phase_value] += 1
+            active_window_lineage_stage_distribution[lineage_stage_value] += 1
+            active_window_maker_phase_allowed_distribution[
+                "allowed" if _maker_phase_allowed_from_row(evt) else "disallowed"
+            ] += 1
             target_ref = str(evt.get("target_ref") or evt.get("token_id") or "unknown")
             target_row = active_window_target_rows[target_ref]
             target_row["window_row_count"] += 1.0
@@ -2662,7 +2845,7 @@ def _maker_fireability_window_stats(
     for evt in events:
         if str(evt.get("event_type") or "").strip() != "quote_quality_skip":
             continue
-        if _as_bool(evt.get("reduce_only_recovery_active")) is True:
+        if _has_historical_recovery_lineage(evt):
             continue
         raw_quote_quality_skip_event_count += 1.0
         skip_reason = str(evt.get("skip_reason") or "").strip().lower()
@@ -2810,7 +2993,8 @@ def _maker_fireability_window_stats(
         "claim_boundary": (
             "report_only_maker_fireability_window; active-window counts are derived from maker "
             "edge-evaluation rows inside the manifest-configured maker timing gate and paired with "
-            "raw non-recovery quote_quality_skip event severity bins"
+            "raw non-recovery quote_quality_skip event severity bins; maker-facing lifecycle semantics "
+            "lead with lifecycle-phase and lane authority while legacy stage buckets are compatibility ancestry only"
         ),
         "config_complete": bool(config_complete),
         "timing_gate_min_sec_to_expiry": timing_gate_min_sec_to_expiry,
@@ -2877,8 +3061,20 @@ def _maker_fireability_window_stats(
         "active_window_block_reason_distribution": dict(
             sorted(active_window_block_reasons.items(), key=lambda item: item[0])
         ),
-        "active_window_stage_distribution": dict(
-            sorted(active_window_stage_distribution.items(), key=lambda item: item[0])
+        "active_window_lifecycle_phase_distribution": dict(
+            sorted(active_window_lifecycle_phase_distribution.items(), key=lambda item: item[0])
+        ),
+        "active_window_lineage_stage_distribution": dict(
+            sorted(
+                active_window_lineage_stage_distribution.items(),
+                key=lambda item: item[0],
+            )
+        ),
+        "active_window_maker_phase_allowed_distribution": dict(
+            sorted(
+                active_window_maker_phase_allowed_distribution.items(),
+                key=lambda item: item[0],
+            )
         ),
         "active_window_target_summary": active_window_target_summary[:8],
         "active_window_viability_claim_boundary": (
@@ -3035,7 +3231,7 @@ def _resolve_starvation_mode(
             top_block_count = float(count)
         inferred_mode = {
             "normal_taker_authority_closed": "late_window_authority_gate",
-            "stage_disallow_taker": "late_window_authority_gate",
+            "phase_disallow_taker": "late_window_authority_gate",
             "latency_not_armed": "latency_gate",
             "fair_probability_missing": "probability_gate",
             "taker_requires_ws_book_source": "book_source_gate",
@@ -3230,7 +3426,7 @@ def _execution_quality_lane_attribution(
         stage = str(value or "").strip().upper()
         return stage or "UNKNOWN"
 
-    def _is_recovery_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+    def _is_lifecycle_residue_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         candidate_payloads = [
             comp,
             _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness")),
@@ -3240,12 +3436,7 @@ def _execution_quality_lane_attribution(
         for payload in candidate_payloads:
             if not isinstance(payload, dict):
                 continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            reason = str(payload.get("reduce_only_recovery_reason") or "").strip()
-            if reason:
+            if _is_lifecycle_residue_payload(payload):
                 return True
         return False
 
@@ -3267,8 +3458,8 @@ def _execution_quality_lane_attribution(
         stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
         edge_bucket = _taker_edge_bucket(comp.get("edge_abs") if comp else evt.get("edge_abs"))
         if _is_taker_submit_reason(reason):
-            if _is_recovery_override_submit(evt, comp):
-                return "reduce_only_recovery_taker", stage, edge_bucket
+            if _is_lifecycle_residue_override_submit(evt, comp):
+                return "lifecycle_residue_taker", stage, edge_bucket
             if _has_normal_competitiveness_payload(comp):
                 return "normal_taker", stage, edge_bucket
             return "unknown_taker", stage, edge_bucket
@@ -3536,7 +3727,7 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         stage = str(value or "").strip().upper()
         return stage or "UNKNOWN"
 
-    def _is_recovery_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+    def _is_lifecycle_residue_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         for payload in (
             comp,
             _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness")),
@@ -3545,11 +3736,7 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         ):
             if not isinstance(payload, dict):
                 continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            if str(payload.get("reduce_only_recovery_reason") or "").strip():
+            if _is_lifecycle_residue_payload(payload):
                 return True
         return False
 
@@ -3573,8 +3760,8 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
         stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
         if _is_taker_submit_reason(reason) or lane == "taker":
-            if _is_recovery_submit(evt, comp):
-                return "reduce_only_recovery_taker", stage
+            if _is_lifecycle_residue_submit(evt, comp):
+                return "lifecycle_residue_taker", stage
             if _has_normal_competitiveness_payload(comp):
                 return "normal_taker", stage
             return "unknown_taker", stage
@@ -3807,11 +3994,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         ):
             if not isinstance(payload, dict):
                 continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            if str(payload.get("reduce_only_recovery_reason") or "").strip():
+            if _has_historical_recovery_lineage(payload):
                 return True
         return False
 
@@ -3841,7 +4024,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         if not is_taker_event and not is_taker_submit and not is_taker_edge_eval:
             return "", comp
         if _is_recovery(evt, comp):
-            return "recovery_override", comp
+            return "lifecycle_residue_override", comp
         if _has_normal_payload(comp) or _has_normal_payload(evt):
             return "normal_competitiveness", comp
         if is_taker_edge_eval:
@@ -3857,7 +4040,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
             profile_distribution[profile] += 1
 
         event_type = str(evt.get("event_type") or "").strip()
-        if is_taker_stage_window_semantic_check_event_type(event_type):
+        if is_taker_window_semantic_check_event_type(event_type):
             stage_window_checks += 1.0
             latest_stage_window_ts = str(evt.get("ts_utc") or evt.get("timestamp_utc") or "")
             latest_stage_window_semantics = {
@@ -3914,29 +4097,29 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
                 edge_abs = abs(float(edge_signed))
         required_edge = _safe_float(required_min_edge, default=-1.0)
         if edge_abs >= 0.0 and required_edge >= 0.0 and edge_abs + 1e-12 < required_edge:
-            if intent == "recovery_override":
+            if intent == "lifecycle_residue_override":
                 recovery_below_required_min_edge_count += 1.0
             elif intent == "normal_competitiveness":
                 normal_below_required_min_edge_count += 1.0
 
     normal_submit_count = float(submit_events_by_intent.get("normal_competitiveness", 0))
-    recovery_submit_count = float(submit_events_by_intent.get("recovery_override", 0))
+    recovery_submit_count = float(submit_events_by_intent.get("lifecycle_residue_override", 0))
     unknown_submit_count = float(submit_events_by_intent.get("true_unknown", 0))
     normal_event_count = float(event_class_distribution.get("normal_competitiveness", 0))
-    recovery_event_count = float(event_class_distribution.get("recovery_override", 0))
+    recovery_event_count = float(event_class_distribution.get("lifecycle_residue_override", 0))
     unknown_event_count = float(event_class_distribution.get("true_unknown", 0))
     if normal_submit_count > 0.0 and recovery_submit_count > 0.0:
-        observed_intent_classification = "mixed_normal_and_recovery_taker_activity_observed"
+        observed_intent_classification = "mixed_normal_and_lifecycle_residue_taker_activity_observed"
     elif recovery_submit_count > 0.0:
-        observed_intent_classification = "recovery_only_taker_activity_observed"
+        observed_intent_classification = "lifecycle_residue_only_taker_activity_observed"
     elif normal_submit_count > 0.0:
         observed_intent_classification = "normal_taker_activity_observed"
     elif unknown_submit_count > 0.0:
         observed_intent_classification = "unknown_taker_activity_observed"
     elif normal_event_count > 0.0 and recovery_event_count > 0.0:
-        observed_intent_classification = "mixed_normal_and_recovery_taker_gate_activity_observed_no_submit"
+        observed_intent_classification = "mixed_normal_and_lifecycle_residue_taker_gate_activity_observed_no_submit"
     elif recovery_event_count > 0.0:
-        observed_intent_classification = "recovery_only_taker_gate_activity_observed_no_submit"
+        observed_intent_classification = "lifecycle_residue_only_taker_gate_activity_observed_no_submit"
     elif normal_event_count > 0.0:
         observed_intent_classification = "normal_taker_gate_activity_observed_no_submit"
     elif unknown_event_count > 0.0:
@@ -3971,8 +4154,8 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         "required_min_edge_by_intent_stage": _summarize_nested(required_min_edge_by_intent),
         "min_new_exposure_sec_by_intent_stage": _summarize_nested(min_new_exposure_sec_by_intent),
         "normal_below_required_min_edge_count": float(normal_below_required_min_edge_count),
-        "recovery_override_below_required_min_edge_count": float(recovery_below_required_min_edge_count),
-        "recovery_override_crossed_normal_edge_gate_observed": bool(
+        "lifecycle_residue_override_below_required_min_edge_count": float(recovery_below_required_min_edge_count),
+        "lifecycle_residue_override_crossed_normal_edge_gate_observed": bool(
             recovery_below_required_min_edge_count > 0.0
         ),
         "stage_window_semantic_check_count": float(stage_window_checks),
@@ -3993,7 +4176,7 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         lane = str(evt.get("submission_lane") or "").strip().lower()
         return bool(_is_taker_submit_reason(reason) or lane == "taker")
 
-    def _is_recovery_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+    def _is_lifecycle_residue_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         for payload in (
             comp,
             _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness")),
@@ -4002,11 +4185,7 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         ):
             if not isinstance(payload, dict):
                 continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            if str(payload.get("reduce_only_recovery_reason") or "").strip():
+            if _is_lifecycle_residue_payload(payload):
                 return True
         return False
 
@@ -4033,7 +4212,7 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         if event_type != "order_submit" or not _is_taker_order_submit(evt):
             continue
         comp = _payload_dict(evt.get("taker_competitiveness"))
-        if _is_recovery_submit(evt, comp):
+        if _is_lifecycle_residue_submit(evt, comp):
             continue
         if not _has_normal_payload(comp):
             continue
@@ -4044,13 +4223,13 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     return {
         "claim_boundary": (
             "report_only_doctrine_breach_counters; values are derived from emitted taker edge-evaluation "
-            "and order-submit rows"
+            "and order-submit rows; historical recovery block reasons are preserved as lineage only"
         ),
         "hard_window_submit_violation_count": float(hard_window_submit_count),
-        "maker_to_taker_recovery_handoff_disabled_count": float(
-            block_reason_counts.get("maker_to_taker_recovery_handoff_disabled", 0)
+        "historical_recovery_handoff_disabled_count": float(
+            block_reason_counts.get(_HISTORICAL_HANDOFF_DISABLED_BLOCK_REASON, 0)
         ),
-        "taker_recovery_disabled_in_taker_scope_count": float(
+        "historical_recovery_disabled_in_taker_scope_count": float(
             block_reason_counts.get("taker_recovery_disabled_in_taker_scope", 0)
         ),
         "block_reason_distribution": dict(sorted(block_reason_counts.items(), key=lambda item: item[0])),
@@ -4106,6 +4285,10 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     latency = _dict(config.get("latency_verifier"))
     taker = _dict(config.get("taker"))
     taker_comp = _dict(taker.get("competitiveness"))
+    lifecycle = _dict(config.get("lifecycle"))
+    lifecycle_phase = _dict(lifecycle.get("phase"))
+    lifecycle_lane_gates = _dict(lifecycle.get("lane_gates"))
+    lifecycle_maker_lane = _dict(lifecycle_lane_gates.get("maker"))
     strategy = _dict(config.get("strategy"))
     sizing = _dict(config.get("sizing"))
     maker_comp = _dict(strategy.get("maker_competitiveness"))
@@ -4113,14 +4296,13 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     dynamic_scaling = _dict(risk.get("dynamic_scaling"))
 
     held_reduce_only_sec = _optional_float(runtime.get("held_preexpiry_reduce_only_sec"))
-    preexpiry_emergency_sec = _optional_float(runtime.get("preexpiry_emergency_taker_window_sec"))
+    preexpiry_emergency_sec = _optional_float(runtime.get(_HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD))
     terminal_halt_new_risk_sec = _optional_float(runtime.get("terminal_unwind_halt_new_risk_sec"))
     min_new_exposure_sec_global = _optional_float(risk.get("min_sec_to_expiry_for_new_exposure"))
     min_new_exposure_sec_by_lane = _clean_number_mapping(risk.get("min_sec_to_expiry_for_new_exposure_by_lane"))
     min_new_exposure_sec = min_new_exposure_sec_by_lane.get("taker", min_new_exposure_sec_global)
     min_new_exposure_sec_source = "lane_override" if "taker" in min_new_exposure_sec_by_lane else "global"
     final_window_sec = _optional_float(taker_comp.get("final_window_sec"))
-    stage_final_windows = _clean_number_mapping(taker_comp.get("stage_final_window_sec_by_stage"))
 
     boundary_values = [
         value
@@ -4150,26 +4332,13 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     else:
         boundary_class = "terminal_boundary_config_incomplete"
 
-    normal_allowed_final_window_by_stage: Dict[str, Dict[str, Any]] = {}
-    stages = sorted(set(stage_final_windows.keys()) | ({"default"} if final_window_sec is not None else set()))
     final_window_overlap_stages: List[str] = []
     max_normal_entry_width_inside_final_window_sec = 0.0
-    for stage in stages:
-        stage_window = final_window_sec if stage == "default" else stage_final_windows.get(stage)
-        allowed_width = None
-        if stage_window is not None and min_new_exposure_sec is not None:
-            allowed_width = float(max(0.0, stage_window - min_new_exposure_sec))
-            if allowed_width > 1e-9:
-                final_window_overlap_stages.append(str(stage))
-                max_normal_entry_width_inside_final_window_sec = max(
-                    max_normal_entry_width_inside_final_window_sec,
-                    allowed_width,
-                )
-        normal_allowed_final_window_by_stage[stage] = {
-            "effective_final_window_sec": stage_window,
-            "min_sec_to_expiry_for_new_exposure": min_new_exposure_sec,
-            "normal_entry_width_inside_final_window_sec": allowed_width,
-        }
+    if final_window_sec is not None and min_new_exposure_sec is not None:
+        allowed_width = float(max(0.0, final_window_sec - min_new_exposure_sec))
+        if allowed_width > 1e-9:
+            final_window_overlap_stages.append("default")
+            max_normal_entry_width_inside_final_window_sec = allowed_width
     normal_can_open_inside_taker_final_window = bool(final_window_overlap_stages)
 
     posture_flags: List[str] = []
@@ -4183,9 +4352,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
         posture_flags.append("maker_latency_score_min_le_0p08")
     if final_window_sec is not None and final_window_sec >= 60.0:
         posture_flags.append("taker_default_final_window_ge_60s")
-    mts_window = stage_final_windows.get("MAKER_TAKER_SELECTIVE")
-    if mts_window is not None and mts_window >= 60.0:
-        posture_flags.append("maker_taker_selective_final_window_ge_60s")
     if normal_can_open_inside_recovery:
         posture_flags.append("normal_entry_recovery_boundary_overlap")
     if normal_can_open_inside_taker_final_window:
@@ -4212,7 +4378,7 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
         "boundary_class": boundary_class,
         "boundary_alignment": {
             "held_preexpiry_reduce_only_sec": held_reduce_only_sec,
-            "preexpiry_emergency_taker_window_sec": preexpiry_emergency_sec,
+            _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD: preexpiry_emergency_sec,
             "terminal_unwind_halt_new_risk_sec": terminal_halt_new_risk_sec,
             "min_sec_to_expiry_for_new_exposure": min_new_exposure_sec,
             "min_sec_to_expiry_for_new_exposure_global": min_new_exposure_sec_global,
@@ -4257,9 +4423,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             "default_min_edge": _optional_float(taker.get("min_edge")),
             "max_orders_per_cycle": _optional_float(taker.get("max_orders_per_cycle")),
             "per_token_cooldown_sec": _optional_float(taker.get("per_token_cooldown_sec")),
-            "per_token_cooldown_sec_by_stage": _clean_number_mapping(
-                taker.get("per_token_cooldown_sec_by_stage")
-            ),
             "hard_min_target_usd": _optional_float(taker_comp.get("hard_min_target_usd")),
             "hard_min_enforcement": str(taker_comp.get("hard_min_enforcement") or ""),
             "dynamic_size_enabled": _optional_bool(taker_comp.get("dynamic_size_enabled")),
@@ -4276,21 +4439,35 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             "multi_oracle_capital_pct_cap": _optional_float(taker_comp.get("multi_oracle_capital_pct_cap")),
         },
         "maker_gate_posture": {
-            "timing_gate_enabled": _optional_bool(maker_comp.get("timing_gate_enabled")),
-            "timing_gate_min_sec_to_expiry": _optional_float(maker_comp.get("timing_gate_min_sec_to_expiry")),
-            "timing_gate_max_sec_to_expiry": _optional_float(maker_comp.get("timing_gate_max_sec_to_expiry")),
-            "one_sided_enabled": _optional_bool(maker_comp.get("one_sided_enabled")),
-            "one_sided_edge_threshold_abs": _optional_float(maker_comp.get("one_sided_edge_threshold_abs")),
+            "timing_gate_enabled": (
+                _optional_bool(lifecycle_maker_lane.get("timing_gate_enabled"))
+                if "timing_gate_enabled" in lifecycle_maker_lane
+                else _optional_bool(maker_comp.get("timing_gate_enabled"))
+            ),
+            "timing_gate_min_sec_to_expiry": (
+                _optional_float(lifecycle_phase.get("taker_window_open_sec"))
+                if "taker_window_open_sec" in lifecycle_phase
+                else _optional_float(maker_comp.get("timing_gate_min_sec_to_expiry"))
+            ),
+            "timing_gate_max_sec_to_expiry": (
+                _optional_float(lifecycle_phase.get("maker_window_open_sec"))
+                if "maker_window_open_sec" in lifecycle_phase
+                else _optional_float(maker_comp.get("timing_gate_max_sec_to_expiry"))
+            ),
+            "one_sided_enabled": (
+                _optional_bool(lifecycle_maker_lane.get("one_sided_enabled"))
+                if "one_sided_enabled" in lifecycle_maker_lane
+                else _optional_bool(maker_comp.get("one_sided_enabled"))
+            ),
+            "one_sided_edge_threshold_abs": (
+                _optional_float(lifecycle_maker_lane.get("one_sided_edge_threshold_abs"))
+                if "one_sided_edge_threshold_abs" in lifecycle_maker_lane
+                else _optional_float(maker_comp.get("one_sided_edge_threshold_abs"))
+            ),
             "maker_competitive_min_notional_usd": _optional_float(sizing.get("maker_competitive_min_notional_usd")),
             "maker_competitive_max_shares": _optional_float(sizing.get("maker_competitive_max_shares")),
             "min_expected_fill_prob": _optional_float(execution_quality.get("min_expected_fill_prob")),
             "max_queue_ahead_size": _optional_float(execution_quality.get("max_queue_ahead_size")),
-            "reduce_only_recovery_min_expected_fill_prob_floor": _optional_float(
-                execution_quality.get("reduce_only_recovery_min_expected_fill_prob_floor")
-            ),
-            "reduce_only_recovery_max_queue_ahead_size_multiplier": _optional_float(
-                execution_quality.get("reduce_only_recovery_max_queue_ahead_size_multiplier")
-            ),
         },
         "risk_dynamic_scaling": {
             "enabled": _optional_bool(dynamic_scaling.get("enabled")),
@@ -4307,731 +4484,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _preexpiry_recovery_churn_stats(events: List[Dict[str, Any]], *, adjacency_window_sec: float = 2.0) -> Dict[str, Any]:
-    order_class_by_id: Dict[str, str] = {}
-    order_submit_ts_by_id: Dict[str, dt.datetime] = {}
-    normal_submit_sec_to_expiry: List[float] = []
-    recovery_submit_sec_to_expiry: List[float] = []
-    normal_fill_ts: List[dt.datetime] = []
-    recovery_fill_ts: List[dt.datetime] = []
-    held_preexpiry_values: List[float] = []
-    min_new_exposure_values: List[float] = []
-    normal_submit_inside_held_preexpiry_window = 0.0
-    normal_submit_inside_allowed_overlap_window = 0.0
-    normal_submit_count = 0.0
-    recovery_submit_count = 0.0
-
-    def _summary(values: List[float]) -> Dict[str, float]:
-        points = [float(value) for value in values if isinstance(value, (int, float))]
-        if not points:
-            return {
-                "count": 0.0,
-                "min": 0.0,
-                "p50": 0.0,
-                "p90": 0.0,
-                "max": 0.0,
-                "mean": 0.0,
-                "median": 0.0,
-            }
-        ordered = sorted(points)
-        return {
-            "count": float(len(ordered)),
-            "min": float(ordered[0]),
-            "p50": float(_percentile(ordered, 0.50)),
-            "p90": float(_percentile(ordered, 0.90)),
-            "max": float(ordered[-1]),
-            "mean": float(sum(ordered) / len(ordered)),
-            "median": float(median(ordered)),
-        }
-
-    def _payload_dict(value: Any) -> Dict[str, Any]:
-        return value if isinstance(value, dict) else {}
-
-    def _is_recovery_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
-        for payload in (
-            comp,
-            _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness")),
-            _payload_dict(evt.get("risk_decision_basis")),
-            evt,
-        ):
-            if not isinstance(payload, dict):
-                continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            if str(payload.get("reduce_only_recovery_reason") or "").strip():
-                return True
-        return False
-
-    def _has_normal_payload(comp: Dict[str, Any]) -> bool:
-        return any(
-            key in comp
-            for key in (
-                "conviction_score",
-                "timing_window_class",
-                "multi_oracle_status",
-                "submit_capable_static",
-                "submit_capable_dynamic_predicted",
-            )
-        )
-
-    for evt in events:
-        event_type = str(evt.get("event_type") or "").strip()
-        if event_type == "order_submit":
-            order_id = str(evt.get("order_id") or "").strip()
-            reason = str(evt.get("reason") or "").strip().lower()
-            is_taker = _is_taker_submit_reason(reason)
-            if not is_taker:
-                if order_id:
-                    order_class_by_id[order_id] = "maker"
-                continue
-            comp = _payload_dict(evt.get("taker_competitiveness"))
-            risk_basis = _payload_dict(evt.get("risk_decision_basis"))
-            sec_to_expiry = _safe_float(comp.get("sec_to_expiry", evt.get("sec_to_expiry")), default=-1.0)
-            held_preexpiry = _safe_float(comp.get("held_preexpiry_reduce_only_sec"), default=-1.0)
-            min_new_exposure = _safe_float(risk_basis.get("min_sec_to_expiry_for_new_exposure"), default=-1.0)
-            if held_preexpiry >= 0.0:
-                held_preexpiry_values.append(float(held_preexpiry))
-            if min_new_exposure >= 0.0:
-                min_new_exposure_values.append(float(min_new_exposure))
-            submit_ts = parse_ts(evt.get("ts_utc"))
-            if order_id and submit_ts is not None:
-                order_submit_ts_by_id[order_id] = submit_ts
-            if _is_recovery_submit(evt, comp):
-                submit_class = "reduce_only_recovery_taker"
-                recovery_submit_count += 1.0
-                if sec_to_expiry >= 0.0:
-                    recovery_submit_sec_to_expiry.append(float(sec_to_expiry))
-            elif _has_normal_payload(comp):
-                submit_class = "normal_taker"
-                normal_submit_count += 1.0
-                if sec_to_expiry >= 0.0:
-                    normal_submit_sec_to_expiry.append(float(sec_to_expiry))
-                if held_preexpiry > 0.0 and sec_to_expiry >= 0.0 and sec_to_expiry <= (held_preexpiry + 1e-9):
-                    normal_submit_inside_held_preexpiry_window += 1.0
-                if (
-                    held_preexpiry > 0.0
-                    and min_new_exposure >= 0.0
-                    and sec_to_expiry > (min_new_exposure + 1e-9)
-                    and sec_to_expiry <= (held_preexpiry + 1e-9)
-                ):
-                    normal_submit_inside_allowed_overlap_window += 1.0
-            else:
-                submit_class = "unknown_taker"
-            if order_id:
-                order_class_by_id[order_id] = submit_class
-            continue
-
-        if event_type != "fill":
-            continue
-        order_id = str(evt.get("order_id") or "").strip()
-        submit_class = order_class_by_id.get(order_id, "")
-        fill_ts = parse_ts(evt.get("ts_utc"))
-        if fill_ts is None:
-            continue
-        if submit_class == "normal_taker":
-            normal_fill_ts.append(fill_ts)
-        elif submit_class == "reduce_only_recovery_taker":
-            recovery_fill_ts.append(fill_ts)
-
-    recovery_fill_ts = sorted(recovery_fill_ts)
-    normal_with_recovery_within_window = 0.0
-    for fill_ts in sorted(normal_fill_ts):
-        for recovery_ts in recovery_fill_ts:
-            delta = float((recovery_ts - fill_ts).total_seconds())
-            if delta < 0.0:
-                continue
-            if delta > float(adjacency_window_sec):
-                break
-            normal_with_recovery_within_window += 1.0
-            break
-
-    observed_held_preexpiry = max(held_preexpiry_values) if held_preexpiry_values else 0.0
-    observed_min_new_exposure = max(min_new_exposure_values) if min_new_exposure_values else 0.0
-    overlap_detected = bool(
-        normal_submit_inside_allowed_overlap_window > 0.0
-        and observed_held_preexpiry > (observed_min_new_exposure + 1e-9)
-    )
-    adjacency_ratio = (
-        float(normal_with_recovery_within_window / len(normal_fill_ts))
-        if normal_fill_ts
-        else 0.0
-    )
-    return {
-        "claim_boundary": (
-            "report_only_timing_diagnostic; recovery adjacency is temporal because redacted token ids "
-            "can prevent exact token lineage claims"
-        ),
-        "adjacency_window_sec": float(adjacency_window_sec),
-        "observed_held_preexpiry_reduce_only_sec_max": float(observed_held_preexpiry),
-        "observed_min_sec_to_expiry_for_new_exposure_max": float(observed_min_new_exposure),
-        "boundary_overlap_detected": bool(overlap_detected),
-        "normal_taker_submit_count": float(normal_submit_count),
-        "recovery_taker_submit_count": float(recovery_submit_count),
-        "normal_taker_submit_inside_held_preexpiry_window_count": float(
-            normal_submit_inside_held_preexpiry_window
-        ),
-        "normal_taker_submit_inside_allowed_overlap_window_count": float(
-            normal_submit_inside_allowed_overlap_window
-        ),
-        "normal_taker_fill_count": float(len(normal_fill_ts)),
-        "recovery_taker_fill_count": float(len(recovery_fill_ts)),
-        "normal_taker_fill_with_recovery_fill_within_window_count": float(
-            normal_with_recovery_within_window
-        ),
-        "normal_taker_fill_with_recovery_fill_within_window_ratio": float(adjacency_ratio),
-        "normal_taker_submit_sec_to_expiry": _summary(normal_submit_sec_to_expiry),
-        "recovery_taker_submit_sec_to_expiry": _summary(recovery_submit_sec_to_expiry),
-    }
-
-
-def _terminal_handoff_deadband_stats(
-    events: List[Dict[str, Any]],
-    *,
-    taker_config_gate_posture: Dict[str, Any],
-) -> Dict[str, Any]:
-    def _optional_float_local(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        try:
-            return float(str(value).strip())
-        except (TypeError, ValueError):
-            return None
-
-    boundary = (
-        taker_config_gate_posture.get("boundary_alignment", {})
-        if isinstance(taker_config_gate_posture, dict)
-        else {}
-    )
-    maker_gate = (
-        taker_config_gate_posture.get("maker_gate_posture", {})
-        if isinstance(taker_config_gate_posture, dict)
-        else {}
-    )
-
-    held_preexpiry_reduce_only_sec = _optional_float_local(boundary.get("held_preexpiry_reduce_only_sec"))
-    preexpiry_emergency_taker_window_sec = _optional_float_local(
-        boundary.get("preexpiry_emergency_taker_window_sec")
-    )
-    maker_timing_gate_min_sec_to_expiry = _optional_float_local(
-        maker_gate.get("timing_gate_min_sec_to_expiry")
-    )
-    maker_timing_gate_max_sec_to_expiry = _optional_float_local(
-        maker_gate.get("timing_gate_max_sec_to_expiry")
-    )
-
-    config_complete = all(
-        value is not None
-        for value in (
-            held_preexpiry_reduce_only_sec,
-            preexpiry_emergency_taker_window_sec,
-            maker_timing_gate_min_sec_to_expiry,
-        )
-    )
-    maker_gate_closes_at_reduce_only_boundary = bool(
-        config_complete
-        and abs(
-            float(maker_timing_gate_min_sec_to_expiry) - float(held_preexpiry_reduce_only_sec)
-        )
-        <= 1e-9
-    )
-
-    action_distribution: Counter[str] = Counter()
-    block_reason_distribution: Counter[str] = Counter()
-    stage_distribution: Counter[str] = Counter()
-    allowance_distribution: Counter[str] = Counter()
-    candidate_sec_to_expiry: List[float] = []
-    candidate_eval_count = 0.0
-    waiting_for_maker_exit_count = 0.0
-    action_taker_count = 0.0
-
-    if config_complete:
-        for evt in events:
-            if str(evt.get("event_type") or "").strip() != "edge_evaluation":
-                continue
-            if str(evt.get("evaluation_scope") or "").strip().lower() != "taker":
-                continue
-            if _as_bool(evt.get("reduce_only_recovery_active")) is not True:
-                continue
-            sec_to_expiry = _safe_float(
-                evt.get("time_remaining_sec", evt.get("sec_to_expiry")),
-                default=-1.0,
-            )
-            if sec_to_expiry < 0.0:
-                continue
-            if not (
-                float(preexpiry_emergency_taker_window_sec)
-                < float(sec_to_expiry)
-                <= float(held_preexpiry_reduce_only_sec)
-            ):
-                continue
-            candidate_eval_count += 1.0
-            candidate_sec_to_expiry.append(float(sec_to_expiry))
-            action_taken = str(evt.get("action_taken") or "").strip().lower() or "unknown"
-            block_reason = str(evt.get("block_reason") or "").strip().lower() or "none"
-            stage_value = str(evt.get("stage") or "").strip().upper() or "UNKNOWN"
-            maker_allowed = str(evt.get("maker_allowed")).strip().lower() or "unknown"
-            taker_allowed = str(evt.get("taker_allowed")).strip().lower() or "unknown"
-            action_distribution[action_taken] += 1
-            block_reason_distribution[block_reason] += 1
-            stage_distribution[stage_value] += 1
-            allowance_distribution[f"maker_{maker_allowed}_taker_{taker_allowed}"] += 1
-            if block_reason == "reduce_only_recovery_waiting_for_maker_exit":
-                waiting_for_maker_exit_count += 1.0
-            if action_taken == "taker":
-                action_taker_count += 1.0
-
-    classification = "config_incomplete"
-    if config_complete:
-        if candidate_eval_count <= 0.0:
-            classification = "no_recovery_eval_in_candidate_window"
-        elif waiting_for_maker_exit_count <= 0.0:
-            classification = "candidate_window_without_waiting_block"
-        elif action_taker_count > 0.0:
-            classification = "mixed_activity_in_candidate_window"
-        elif maker_gate_closes_at_reduce_only_boundary:
-            classification = "wait_only_deadband_candidate"
-        else:
-            classification = "waiting_block_before_emergency_window"
-
-    def _summary(values: List[float]) -> Dict[str, float]:
-        points = [float(value) for value in values if isinstance(value, (int, float))]
-        if not points:
-            return {"count": 0.0, "min": 0.0, "p50": 0.0, "p90": 0.0, "max": 0.0}
-        ordered = sorted(points)
-        return {
-            "count": float(len(ordered)),
-            "min": float(ordered[0]),
-            "p50": float(_percentile(ordered, 0.50)),
-            "p90": float(_percentile(ordered, 0.90)),
-            "max": float(ordered[-1]),
-        }
-
-    return {
-        "claim_boundary": (
-            "report_only_terminal_handoff_deadband; this is a timing-and-authority diagnostic over "
-            "recovery-active taker edge-evaluation rows, not a profitability verdict"
-        ),
-        "config_complete": bool(config_complete),
-        "held_preexpiry_reduce_only_sec": held_preexpiry_reduce_only_sec,
-        "preexpiry_emergency_taker_window_sec": preexpiry_emergency_taker_window_sec,
-        "maker_timing_gate_min_sec_to_expiry": maker_timing_gate_min_sec_to_expiry,
-        "maker_timing_gate_max_sec_to_expiry": maker_timing_gate_max_sec_to_expiry,
-        "maker_gate_closes_at_reduce_only_boundary": bool(maker_gate_closes_at_reduce_only_boundary),
-        "candidate_recovery_edge_eval_count": float(candidate_eval_count),
-        "waiting_for_maker_exit_count": float(waiting_for_maker_exit_count),
-        "action_taker_count": float(action_taker_count),
-        "action_distribution": dict(sorted(action_distribution.items(), key=lambda item: item[0])),
-        "block_reason_distribution": dict(sorted(block_reason_distribution.items(), key=lambda item: item[0])),
-        "stage_distribution": dict(sorted(stage_distribution.items(), key=lambda item: item[0])),
-        "allowance_distribution": dict(sorted(allowance_distribution.items(), key=lambda item: item[0])),
-        "candidate_sec_to_expiry": _summary(candidate_sec_to_expiry),
-        "classification": classification,
-    }
-
-
-def _recovery_cost_benefit_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
-    recovery_orders: Dict[str, Dict[str, Any]] = {}
-    submit_class_distribution: Counter[str] = Counter()
-    fill_class_distribution: Counter[str] = Counter()
-    submit_refinement_class_distribution: Counter[str] = Counter()
-    fill_refinement_class_distribution: Counter[str] = Counter()
-    fill_side_distribution: Counter[str] = Counter()
-    fill_stage_distribution: Counter[str] = Counter()
-    fill_posture_distribution: Counter[str] = Counter()
-    fill_reason_distribution: Counter[str] = Counter()
-    emergency_outcome_distribution: Counter[str] = Counter()
-    emergency_block_reason_distribution: Counter[str] = Counter()
-    emergency_block_class_distribution: Counter[str] = Counter()
-    emergency_maker_no_submission_distribution: Counter[str] = Counter()
-    emergency_filled_maker_no_submission_distribution: Counter[str] = Counter()
-    emergency_blocked_maker_no_submission_distribution: Counter[str] = Counter()
-    recovery_taker_edge_block_reason_distribution: Counter[str] = Counter()
-    recovery_taker_edge_action_distribution: Counter[str] = Counter()
-    recovery_taker_edge_stage_distribution: Counter[str] = Counter()
-    recovery_taker_edge_allowance_distribution: Counter[str] = Counter()
-    submit_sec_to_expiry: List[float] = []
-    fill_sec_to_expiry: List[float] = []
-    recovery_taker_edge_sec_to_expiry: List[float] = []
-    fill_size_cap_shares: List[float] = []
-    fill_net_shares_abs: List[float] = []
-    fill_cost_to_notional_ratios: List[float] = []
-    fill_net_to_notional_ratios: List[float] = []
-    fill_count = 0.0
-    unlinked_fill_count = 0.0
-    immediate_scored = 0.0
-    immediate_unscored = 0.0
-    immediate_capture = 0.0
-    immediate_adverse = 0.0
-    fill_notional = 0.0
-    submitted_notional = 0.0
-    emergency_attempt_count = 0.0
-    emergency_fill_count = 0.0
-    emergency_block_count = 0.0
-    emergency_maker_blocked_count = 0.0
-
-    def _summary(values: List[float]) -> Dict[str, float]:
-        points = [float(value) for value in values if isinstance(value, (int, float))]
-        if not points:
-            return {"count": 0.0, "min": 0.0, "p50": 0.0, "p90": 0.0, "max": 0.0}
-        ordered = sorted(points)
-        return {
-            "count": float(len(ordered)),
-            "min": float(ordered[0]),
-            "p50": float(_percentile(ordered, 0.50)),
-            "p90": float(_percentile(ordered, 0.90)),
-            "max": float(ordered[-1]),
-        }
-
-    def _payload_dict(value: Any) -> Dict[str, Any]:
-        return value if isinstance(value, dict) else {}
-
-    def _norm(value: Any, default: str = "unknown") -> str:
-        text = str(value or "").strip().lower()
-        return text or default
-
-    def _bool_label(value: Any) -> str:
-        if isinstance(value, bool):
-            return "true" if value else "false"
-        return _norm(value)
-
-    def _stage(value: Any) -> str:
-        text = str(value or "").strip().upper()
-        return text or "UNKNOWN"
-
-    def _is_recovery_submit(evt: Dict[str, Any], comp: Dict[str, Any], risk_basis: Dict[str, Any]) -> bool:
-        for payload in (
-            comp,
-            _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness")),
-            risk_basis,
-            evt,
-        ):
-            if not isinstance(payload, dict):
-                continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            if str(payload.get("reduce_only_recovery_reason") or "").strip():
-                return True
-        return False
-
-    def _first_float(*values: Any, default: float = 0.0) -> float:
-        for value in values:
-            parsed = _safe_float(value, default=-1.0)
-            if parsed >= 0.0:
-                return float(parsed)
-        return float(default)
-
-    def _recovery_class(*, exposure_class: str, below_min_size: bool, net_abs: float, min_size: float, notional: float) -> str:
-        if str(exposure_class).strip().upper() in {"DUST_ELIGIBLE", "DUST_QUARANTINED"}:
-            return "tiny_or_dust_recovery_exit"
-        if bool(below_min_size):
-            return "tiny_or_dust_recovery_exit"
-        if min_size > 0.0 and net_abs > 0.0 and net_abs < (min_size - 1e-9):
-            return "tiny_or_dust_recovery_exit"
-        if str(exposure_class).strip().upper() == "MEANINGFUL":
-            return "meaningful_recovery_exit"
-        if notional > 0.0 and (min_size <= 0.0 or net_abs >= (min_size - 1e-9)):
-            return "meaningful_recovery_exit"
-        return "unknown_recovery_exit"
-
-    def _refinement_class(
-        *,
-        recovery_class: str,
-        reason: str,
-        posture: str,
-        sec_to_expiry: float,
-    ) -> str:
-        if str(recovery_class or "") == "tiny_or_dust_recovery_exit":
-            return "dust_or_below_min_exit"
-        normalized_reason = str(reason or "").strip().lower()
-        normalized_posture = str(posture or "").strip().upper()
-        if normalized_reason == "expired_reduce_only_grace_active":
-            return "necessary_expired_grace_exit"
-        if (
-            normalized_reason == "preexpiry_reduce_only_window_active"
-            and normalized_posture in {"PREEXPIRY_REDUCE_ONLY", "HALT_NEW_RISK", "HARD_DEGRADED_REDUCE_ONLY"}
-            and float(sec_to_expiry) >= 0.0
-        ):
-            return "necessary_terminal_risk_exit"
-        return "unknown_recovery_exit"
-
-    def _emergency_block_class(block_reason: str) -> str:
-        normalized = str(block_reason or "").strip().lower()
-        if normalized in {
-            "risk_reject_size_too_small",
-            "reduce_only_recovery_size_cap_below_min_order_size",
-        }:
-            return "blocked_dust_or_below_min"
-        if normalized in {"reduce_only_recovery_no_reducing_side", "reduce_only_recovery_size_cap_unavailable"}:
-            return "blocked_flat_or_no_reducing_side"
-        if normalized == "taker_token_cooldown":
-            return "blocked_recovery_cooldown"
-        if normalized.startswith("quote_quality_skip"):
-            return "blocked_passive_quality"
-        return "blocked_other"
-
-    for evt in events:
-        if str(evt.get("event_type") or "").strip() != "order_submit":
-            continue
-        reason = str(evt.get("reason") or "").strip().lower()
-        lane = str(evt.get("submission_lane") or "").strip().lower()
-        if (not _is_taker_submit_reason(reason)) and lane != "taker":
-            continue
-        comp = _payload_dict(evt.get("taker_competitiveness"))
-        if not comp:
-            comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
-        risk_basis = _payload_dict(evt.get("risk_decision_basis"))
-        if not _is_recovery_submit(evt, comp, risk_basis):
-            continue
-
-        order_id = str(evt.get("order_id") or "").strip()
-        if not order_id:
-            continue
-        price = _safe_float(evt.get("price"), default=0.0)
-        size = _safe_float(evt.get("size"), default=0.0)
-        order_notional = (
-            float(price * size)
-            if price > 0.0 and size > 0.0
-            else _safe_float(_payload_dict(evt.get("size_resolution")).get("resolved_notional_usd"), default=0.0)
-        )
-        sec_to_expiry = _first_float(comp.get("sec_to_expiry"), evt.get("sec_to_expiry"), risk_basis.get("sec_to_expiry"), default=-1.0)
-        min_size = _safe_float(comp.get("reduce_only_min_order_size_shares"), default=0.0)
-        size_cap = _safe_float(comp.get("reduce_only_size_cap_shares", evt.get("reduce_only_size_cap_shares")), default=0.0)
-        net_abs = abs(_safe_float(comp.get("reduce_only_net_shares"), default=0.0))
-        exposure_class = str(risk_basis.get("intent_exposure_class") or "UNKNOWN").strip().upper() or "UNKNOWN"
-        below_min_size = bool(_as_bool(comp.get("reduce_only_size_cap_below_min_order_size")) is True)
-        recovery_class = _recovery_class(
-            exposure_class=exposure_class,
-            below_min_size=below_min_size,
-            net_abs=float(net_abs),
-            min_size=float(min_size),
-            notional=float(order_notional),
-        )
-        reason_value = _norm(comp.get("reduce_only_recovery_reason"), default="unknown")
-        posture_value = _stage(comp.get("financial_posture_class") or evt.get("financial_posture_class"))
-        refinement_class = _refinement_class(
-            recovery_class=str(recovery_class),
-            reason=str(reason_value),
-            posture=str(posture_value),
-            sec_to_expiry=float(sec_to_expiry),
-        )
-        submit_class_distribution[recovery_class] += 1
-        submit_refinement_class_distribution[refinement_class] += 1
-        if sec_to_expiry >= 0.0:
-            submit_sec_to_expiry.append(float(sec_to_expiry))
-        submitted_notional += float(order_notional)
-        recovery_orders[order_id] = {
-            "class": recovery_class,
-            "refinement_class": refinement_class,
-            "stage": _stage(comp.get("stage") or evt.get("stage")),
-            "posture": posture_value,
-            "reason": reason_value,
-            "side": str(evt.get("side") or "").strip().upper(),
-            "decision_midpoint": _safe_float(evt.get("decision_reference_midpoint", evt.get("midpoint")), default=-1.0),
-            "sec_to_expiry": float(sec_to_expiry),
-            "size_cap": float(size_cap),
-            "net_abs": float(net_abs),
-            "notional": float(order_notional),
-        }
-
-    for evt in events:
-        event_type = str(evt.get("event_type") or "").strip()
-        if event_type == "preexpiry_emergency_taker_unwind":
-            event_weight = max(1.0, _safe_float(evt.get("repeat_count_delta"), 1.0))
-            emergency_attempt_count += event_weight
-            outcome = _norm(evt.get("outcome"))
-            emergency_outcome_distribution[outcome] += int(event_weight)
-            if outcome == "filled":
-                emergency_fill_count += event_weight
-            elif outcome == "blocked":
-                emergency_block_count += event_weight
-                block_reason = _norm(
-                    evt.get("blocked_reason")
-                    or evt.get("taker_submit_reject_reason")
-                    or evt.get("reason")
-                    or evt.get("outcome_reason")
-                )
-                if block_reason.startswith("blocked_"):
-                    block_reason = block_reason[len("blocked_") :]
-                emergency_block_reason_distribution[block_reason] += int(event_weight)
-                emergency_block_class_distribution[_emergency_block_class(block_reason)] += int(event_weight)
-            if _as_bool(evt.get("maker_reduce_only_exit_blocked")) is True:
-                emergency_maker_blocked_count += 1.0
-            maker_reason = _norm(evt.get("maker_no_submission_reason"), default="")
-            if maker_reason:
-                emergency_maker_no_submission_distribution[maker_reason] += 1
-                if outcome == "filled":
-                    emergency_filled_maker_no_submission_distribution[maker_reason] += 1
-                elif outcome == "blocked":
-                    emergency_blocked_maker_no_submission_distribution[maker_reason] += 1
-            continue
-
-        if event_type == "edge_evaluation":
-            if str(evt.get("evaluation_scope") or "").strip().lower() == "taker" and _as_bool(
-                evt.get("reduce_only_recovery_active")
-            ) is True:
-                block_reason = _norm(evt.get("block_reason"), default="none")
-                action_taken = _norm(evt.get("action_taken"))
-                stage_value = _stage(evt.get("stage"))
-                maker_allowed = _norm(evt.get("maker_allowed"), default="unknown")
-                taker_allowed = _norm(evt.get("taker_allowed"), default="unknown")
-                recovery_taker_edge_block_reason_distribution[block_reason] += 1
-                recovery_taker_edge_action_distribution[action_taken] += 1
-                recovery_taker_edge_stage_distribution[stage_value] += 1
-                recovery_taker_edge_allowance_distribution[
-                    f"maker_{maker_allowed}_taker_{taker_allowed}"
-                ] += 1
-                sec_to_expiry = _first_float(
-                    evt.get("time_remaining_sec"),
-                    evt.get("sec_to_expiry"),
-                    default=-1.0,
-                )
-                if sec_to_expiry >= 0.0:
-                    recovery_taker_edge_sec_to_expiry.append(float(sec_to_expiry))
-            continue
-
-        if event_type != "fill":
-            continue
-        order_id = str(evt.get("order_id") or "").strip()
-        order = recovery_orders.get(order_id)
-        if not isinstance(order, dict):
-            continue
-        fill_count += 1.0
-        price = _safe_float(evt.get("price"), default=-1.0)
-        size = _safe_float(evt.get("size"), default=-1.0)
-        side = str(evt.get("side") or order.get("side") or "").strip().upper()
-        notional = float(price * size) if price > 0.0 and size > 0.0 else 0.0
-        fill_notional += float(notional)
-        fill_class_distribution[str(order.get("class") or "unknown_recovery_exit")] += 1
-        fill_refinement_class_distribution[str(order.get("refinement_class") or "unknown_recovery_exit")] += 1
-        fill_side_distribution[side or "UNKNOWN"] += 1
-        fill_stage_distribution[str(order.get("stage") or "UNKNOWN")] += 1
-        fill_posture_distribution[str(order.get("posture") or "UNKNOWN")] += 1
-        fill_reason_distribution[str(order.get("reason") or "unknown")] += 1
-        sec_to_expiry = _safe_float(order.get("sec_to_expiry"), default=-1.0)
-        if sec_to_expiry >= 0.0:
-            fill_sec_to_expiry.append(float(sec_to_expiry))
-        size_cap = _safe_float(order.get("size_cap"), default=0.0)
-        net_abs = _safe_float(order.get("net_abs"), default=0.0)
-        if size_cap > 0.0:
-            fill_size_cap_shares.append(float(size_cap))
-        if net_abs > 0.0:
-            fill_net_shares_abs.append(float(net_abs))
-        midpoint = _safe_float(order.get("decision_midpoint"), default=-1.0)
-        if price <= 0.0 or size <= 0.0 or midpoint <= 0.0 or side not in {"BUY", "SELL"}:
-            immediate_unscored += 1.0
-            continue
-        delta = (midpoint - price) * size if side == "BUY" else (price - midpoint) * size
-        immediate_scored += 1.0
-        if delta >= 0.0:
-            immediate_capture += float(delta)
-        else:
-            adverse = abs(float(delta))
-            immediate_adverse += adverse
-            if notional > 0.0:
-                fill_cost_to_notional_ratios.append(float(adverse / notional))
-        if notional > 0.0:
-            fill_net_to_notional_ratios.append(float(delta / notional))
-
-    recovery_order_ids = set(recovery_orders.keys())
-    filled_recovery_order_ids = {
-        str(evt.get("order_id") or "").strip()
-        for evt in events
-        if str(evt.get("event_type") or "").strip() == "fill"
-        and str(evt.get("order_id") or "").strip() in recovery_order_ids
-    }
-    unlinked_fill_count = float(max(0, len(filled_recovery_order_ids) - int(fill_count)))
-    immediate_net = float(immediate_capture - immediate_adverse)
-    return {
-        "claim_boundary": (
-            "report_only_recovery_cost_benefit; fill economics are scored against the order_submit "
-            "decision_reference_midpoint to avoid redacted-token book joins; this is not final settlement PnL"
-        ),
-        "recovery_submit_count": float(len(recovery_orders)),
-        "recovery_filled_order_count": float(len(filled_recovery_order_ids)),
-        "recovery_fill_event_count": float(fill_count),
-        "recovery_unlinked_fill_count": float(unlinked_fill_count),
-        "submitted_notional": float(submitted_notional),
-        "fill_notional": float(fill_notional),
-        "immediate_fills_scored": float(immediate_scored),
-        "immediate_unscored_fill_count": float(immediate_unscored),
-        "immediate_capture": float(immediate_capture),
-        "immediate_adverse_selection": float(immediate_adverse),
-        "immediate_capture_minus_adverse": float(immediate_net),
-        "immediate_adverse_to_notional_ratio": (
-            float(immediate_adverse / fill_notional) if fill_notional > 0.0 else 0.0
-        ),
-        "immediate_net_to_notional_ratio": (
-            float(immediate_net / fill_notional) if fill_notional > 0.0 else 0.0
-        ),
-        "per_fill_adverse_to_notional_ratio": _summary(fill_cost_to_notional_ratios),
-        "per_fill_net_to_notional_ratio": _summary(fill_net_to_notional_ratios),
-        "submit_class_distribution": dict(sorted(submit_class_distribution.items(), key=lambda item: item[0])),
-        "fill_class_distribution": dict(sorted(fill_class_distribution.items(), key=lambda item: item[0])),
-        "submit_refinement_class_distribution": dict(
-            sorted(submit_refinement_class_distribution.items(), key=lambda item: item[0])
-        ),
-        "fill_refinement_class_distribution": dict(
-            sorted(fill_refinement_class_distribution.items(), key=lambda item: item[0])
-        ),
-        "fill_side_distribution": dict(sorted(fill_side_distribution.items(), key=lambda item: item[0])),
-        "fill_stage_distribution": dict(sorted(fill_stage_distribution.items(), key=lambda item: item[0])),
-        "fill_financial_posture_distribution": dict(
-            sorted(fill_posture_distribution.items(), key=lambda item: item[0])
-        ),
-        "fill_reason_distribution": dict(sorted(fill_reason_distribution.items(), key=lambda item: item[0])),
-        "submit_sec_to_expiry": _summary(submit_sec_to_expiry),
-        "fill_sec_to_expiry": _summary(fill_sec_to_expiry),
-        "fill_size_cap_shares": _summary(fill_size_cap_shares),
-        "fill_net_shares_abs": _summary(fill_net_shares_abs),
-        "preexpiry_emergency_attempt_count": float(emergency_attempt_count),
-        "preexpiry_emergency_fill_count": float(emergency_fill_count),
-        "preexpiry_emergency_block_count": float(emergency_block_count),
-        "preexpiry_emergency_maker_blocked_count": float(emergency_maker_blocked_count),
-        "preexpiry_emergency_outcome_distribution": dict(
-            sorted(emergency_outcome_distribution.items(), key=lambda item: item[0])
-        ),
-        "preexpiry_emergency_block_reason_distribution": dict(
-            sorted(emergency_block_reason_distribution.items(), key=lambda item: item[0])
-        ),
-        "preexpiry_emergency_block_class_distribution": dict(
-            sorted(emergency_block_class_distribution.items(), key=lambda item: item[0])
-        ),
-        "preexpiry_emergency_maker_no_submission_distribution": dict(
-            sorted(emergency_maker_no_submission_distribution.items(), key=lambda item: item[0])
-        ),
-        "preexpiry_emergency_filled_maker_no_submission_distribution": dict(
-            sorted(emergency_filled_maker_no_submission_distribution.items(), key=lambda item: item[0])
-        ),
-        "preexpiry_emergency_blocked_maker_no_submission_distribution": dict(
-            sorted(emergency_blocked_maker_no_submission_distribution.items(), key=lambda item: item[0])
-        ),
-        "recovery_taker_edge_eval_count": float(
-            sum(recovery_taker_edge_action_distribution.values())
-        ),
-        "recovery_taker_edge_block_reason_distribution": dict(
-            sorted(recovery_taker_edge_block_reason_distribution.items(), key=lambda item: item[0])
-        ),
-        "recovery_taker_edge_action_distribution": dict(
-            sorted(recovery_taker_edge_action_distribution.items(), key=lambda item: item[0])
-        ),
-        "recovery_taker_edge_stage_distribution": dict(
-            sorted(recovery_taker_edge_stage_distribution.items(), key=lambda item: item[0])
-        ),
-        "recovery_taker_edge_allowance_distribution": dict(
-            sorted(recovery_taker_edge_allowance_distribution.items(), key=lambda item: item[0])
-        ),
-        "recovery_taker_edge_sec_to_expiry": _summary(recovery_taker_edge_sec_to_expiry),
-    }
-
-
 def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     timing_gate_blocked_edge_eval = 0.0
     timing_gate_blocked_decision = 0.0
@@ -5039,10 +4491,6 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     one_sided_decision_sell = 0.0
     one_sided_submit_buy = 0.0
     one_sided_submit_sell = 0.0
-    queue_pressure_candidate_count = 0.0
-    queue_pressure_adopted_count = 0.0
-    queue_pressure_gate_conversion_count = 0.0
-    queue_pressure_replace_guard_blocked_count = 0.0
     edge_bucket_submit = Counter()
     edge_bucket_fill = Counter()
     aggressiveness_application_counts = Counter()
@@ -5068,16 +4516,6 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                     one_sided_decision_buy += 1.0
                 elif policy == "SELL_ONLY":
                     one_sided_decision_sell += 1.0
-            continue
-
-        if event_type == "maker_queue_pressure_adjustment":
-            queue_pressure_candidate_count += 1.0
-            if bool(evt.get("adopted", False)):
-                queue_pressure_adopted_count += 1.0
-            if bool(evt.get("gate_conversion", False)):
-                queue_pressure_gate_conversion_count += 1.0
-            if bool(evt.get("replace_guard_blocked", False)):
-                queue_pressure_replace_guard_blocked_count += 1.0
             continue
 
         if event_type == "order_submit":
@@ -5123,12 +4561,6 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "one_sided_activation_decision_sell_count": float(one_sided_decision_sell),
         "one_sided_activation_submit_buy_count": float(one_sided_submit_buy),
         "one_sided_activation_submit_sell_count": float(one_sided_submit_sell),
-        "maker_queue_pressure_candidate_count": float(queue_pressure_candidate_count),
-        "maker_queue_pressure_adopted_count": float(queue_pressure_adopted_count),
-        "maker_queue_pressure_gate_conversion_count": float(queue_pressure_gate_conversion_count),
-        "maker_queue_pressure_replace_guard_blocked_count": float(
-            queue_pressure_replace_guard_blocked_count
-        ),
         "maker_submit_edge_bucket_distribution": dict(
             sorted(edge_bucket_submit.items(), key=lambda item: item[0])
         ),
@@ -5175,7 +4607,7 @@ def _maker_complete_outcome_rates(records: List[Dict[str, Any]]) -> Dict[str, An
 
 def _maker_fight_admission_population_class(row: Dict[str, Any]) -> str:
     posture = str(row.get("financial_posture_class") or "").strip().upper()
-    if bool(row.get("reduce_only_recovery_active", False)):
+    if _has_historical_recovery_lineage(row):
         return "external_blocked"
     if posture and posture not in {"NORMAL", "UNKNOWN"}:
         return "external_blocked"
@@ -5256,7 +4688,7 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
 
     soft_driver_flags: List[str] = []
     if queue_delta > 0.0:
-        soft_driver_flags.append("queue_pressure")
+        soft_driver_flags.append("queue_delta_pressure")
     if fill_prob_margin < 0.015:
         soft_driver_flags.append("fill_prob_cushion_thin")
     if repeat_count >= 1:
@@ -5280,7 +4712,7 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
 
     deficits = {
         "geometry_pressure": 30 - geometry_score,
-        "queue_pressure": 25 - queue_score,
+        "queue_delta_pressure": 25 - queue_score,
         "fill_prob_cushion_thin": 20 - fill_prob_score,
         "repeat_target_side_pressure": 15 - repeat_score,
         "size_liquidity_pressure": 10 - size_liquidity_score,
@@ -5361,7 +4793,7 @@ def _infer_side_from_edge_value(edge_value: Any) -> Optional[str]:
     return None
 
 
-def _legacy_maker_admission_thresholds(run_manifest: Dict[str, Any]) -> Dict[str, float]:
+def _maker_admission_thresholds_for_report(run_manifest: Dict[str, Any]) -> Dict[str, float]:
     min_expected_fill_prob = _safe_float(
         _dict_path(run_manifest, ("config", "strategy", "execution_quality", "min_expected_fill_prob"), 0.045),
         default=0.045,
@@ -5369,22 +4801,6 @@ def _legacy_maker_admission_thresholds(run_manifest: Dict[str, Any]) -> Dict[str
     max_queue_ahead_size = _safe_float(
         _dict_path(run_manifest, ("config", "strategy", "execution_quality", "max_queue_ahead_size"), 300.0),
         default=300.0,
-    )
-    reduce_only_fill_prob_floor = _safe_float(
-        _dict_path(
-            run_manifest,
-            ("config", "strategy", "execution_quality", "reduce_only_recovery_min_expected_fill_prob_floor"),
-            min_expected_fill_prob,
-        ),
-        default=min_expected_fill_prob,
-    )
-    reduce_only_queue_multiplier = _safe_float(
-        _dict_path(
-            run_manifest,
-            ("config", "strategy", "execution_quality", "reduce_only_recovery_max_queue_ahead_size_multiplier"),
-            1.0,
-        ),
-        default=1.0,
     )
     maker_min_notional = _safe_float(
         _dict_path(run_manifest, ("config", "sizing", "maker_competitive_min_notional_usd"), 0.0),
@@ -5397,21 +4813,41 @@ def _legacy_maker_admission_thresholds(run_manifest: Dict[str, Any]) -> Dict[str
     geometry_floor_price = 0.0
     if maker_min_notional > 0.0 and maker_max_shares > 0.0:
         geometry_floor_price = maker_min_notional / maker_max_shares
-    maker_timing_gate_min_sec_to_expiry = _safe_float(
-        _dict_path(
-            run_manifest,
-            ("config", "strategy", "maker_competitiveness", "timing_gate_min_sec_to_expiry"),
-            15.0,
-        ),
-        default=15.0,
+    lifecycle_maker_window_open_sec = _safe_float(
+        _dict_path(run_manifest, ("config", "lifecycle", "phase", "maker_window_open_sec"), None),
+        default=None,
     )
-    maker_timing_gate_max_sec_to_expiry = _safe_float(
-        _dict_path(
-            run_manifest,
-            ("config", "strategy", "maker_competitiveness", "timing_gate_max_sec_to_expiry"),
-            20.0,
-        ),
-        default=20.0,
+    lifecycle_taker_window_open_sec = _safe_float(
+        _dict_path(run_manifest, ("config", "lifecycle", "phase", "taker_window_open_sec"), None),
+        default=None,
+    )
+    maker_timing_gate_min_sec_to_expiry = (
+        float(lifecycle_taker_window_open_sec)
+        if lifecycle_taker_window_open_sec is not None
+        else _safe_float(
+            _dict_path(
+                run_manifest,
+                ("config", "strategy", "maker_competitiveness", "timing_gate_min_sec_to_expiry"),
+                15.0,
+            ),
+            default=15.0,
+        )
+    )
+    maker_timing_gate_max_sec_to_expiry = (
+        float(lifecycle_maker_window_open_sec)
+        if lifecycle_maker_window_open_sec is not None
+        else _safe_float(
+            _dict_path(
+                run_manifest,
+                ("config", "strategy", "maker_competitiveness", "timing_gate_max_sec_to_expiry"),
+                20.0,
+            ),
+            default=20.0,
+        )
+    )
+    lifecycle_selection_min_sec_to_expiry = _safe_float(
+        _dict_path(run_manifest, ("config", "lifecycle", "selection", "min_sec_to_expiry"), None),
+        default=None,
     )
     selection_gate_min_sec_to_expiry_raw = _dict_path(
         run_manifest,
@@ -5433,18 +4869,25 @@ def _legacy_maker_admission_thresholds(run_manifest: Dict[str, Any]) -> Dict[str
         if isinstance(selection_gate_max_sec_to_expiry_raw, (int, float))
         else None
     )
-    if selection_gate_min_sec_to_expiry is not None:
-        maker_timing_gate_min_sec_to_expiry = float(selection_gate_min_sec_to_expiry)
-    if selection_gate_max_sec_to_expiry is not None:
-        maker_timing_gate_max_sec_to_expiry = float(selection_gate_max_sec_to_expiry)
+    has_canonical_lifecycle_window = (
+        lifecycle_maker_window_open_sec is not None
+        or lifecycle_taker_window_open_sec is not None
+    )
+    if not has_canonical_lifecycle_window:
+        if selection_gate_min_sec_to_expiry is not None:
+            maker_timing_gate_min_sec_to_expiry = float(selection_gate_min_sec_to_expiry)
+        if selection_gate_max_sec_to_expiry is not None:
+            maker_timing_gate_max_sec_to_expiry = float(selection_gate_max_sec_to_expiry)
+    if lifecycle_selection_min_sec_to_expiry is not None:
+        selection_gate_min_sec_to_expiry = float(lifecycle_selection_min_sec_to_expiry)
     return {
         "min_expected_fill_prob": float(min_expected_fill_prob),
         "max_queue_ahead_size": float(max_queue_ahead_size),
-        "reduce_only_fill_prob_floor": float(reduce_only_fill_prob_floor),
-        "reduce_only_queue_multiplier": float(reduce_only_queue_multiplier),
         "geometry_floor_price": float(geometry_floor_price),
         "maker_timing_gate_min_sec_to_expiry": float(maker_timing_gate_min_sec_to_expiry),
         "maker_timing_gate_max_sec_to_expiry": float(maker_timing_gate_max_sec_to_expiry),
+        "selection_gate_min_sec_to_expiry": selection_gate_min_sec_to_expiry,
+        "selection_gate_max_sec_to_expiry": selection_gate_max_sec_to_expiry,
     }
 
 
@@ -5504,12 +4947,12 @@ def _maker_cannon_probe_population_class(row: Dict[str, Any]) -> Tuple[str, List
         "HALT_NEW_RISK",
         "HARD_DEGRADED_REDUCE_ONLY",
         "PREEXPIRY_REDUCE_ONLY",
-    } or bool(row.get("reduce_only_recovery_active", False)):
+    } or _has_historical_recovery_lineage(row):
         reasons = []
         if posture:
             reasons.append(f"financial_posture_{posture.lower()}")
-        if bool(row.get("reduce_only_recovery_active", False)):
-            reasons.append("reduce_only_recovery_active")
+        if _has_historical_recovery_lineage(row):
+            reasons.append("historical_recovery_lineage_active")
         return "external_blocked", reasons or ["external_blocked"]
 
     missing_fields: List[str] = []
@@ -5621,7 +5064,7 @@ def _maker_cannon_probe_rows(
     events: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    thresholds = _legacy_maker_admission_thresholds(run_manifest)
+    thresholds = _maker_admission_thresholds_for_report(run_manifest)
     book_top_by_token = _maker_cannon_book_top_index(events)
     geometry_floor_price = float(thresholds.get("geometry_floor_price", 0.0) or 0.0)
     total_maker_edge_eval_rows = 0
@@ -5646,6 +5089,7 @@ def _maker_cannon_probe_rows(
             or _infer_side_from_edge_value(evt.get("edge_value"))
             or "UNKNOWN"
         )
+        lifecycle_phase = _maker_lifecycle_phase_for_report(evt)
         target_ref = str(evt.get("target_ref") or "").strip() or None
         target_side_ref = _legacy_target_side_ref(target_ref, evt.get("token_id"), favored_side)
         row = {
@@ -5656,7 +5100,6 @@ def _maker_cannon_probe_rows(
             "target_ref": target_ref,
             "target_side_ref": target_side_ref,
             "side": favored_side,
-            "stage": evt.get("stage"),
             "cycle_index": evt.get("cycle_index"),
             "ts_decision_utc": evt.get("ts_decision_utc") or evt.get("ts_event_utc") or evt.get("ts_utc"),
             "sec_to_expiry": sec_value,
@@ -5668,12 +5111,13 @@ def _maker_cannon_probe_rows(
             "market_reference_source_side": evt.get("market_reference_source_side"),
             "market_reference_class": evt.get("market_reference_class"),
             "financial_posture_class": evt.get("financial_posture_class"),
-            "reduce_only_recovery_active": bool(evt.get("reduce_only_recovery_active", False)),
-            "maker_allowed": bool(evt.get("maker_allowed")),
-            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(evt),
+            _HISTORICAL_RECOVERY_ACTIVE_FIELD: _has_historical_recovery_lineage(evt),
             "block_reason": evt.get("block_reason"),
             "maker_no_submission_cause": evt.get("maker_no_submission_cause"),
             "maker_no_submission_category": evt.get("maker_no_submission_category"),
+            "lifecycle_phase": lifecycle_phase,
+            "lineage_stage": _maker_lineage_stage_for_report(evt),
+            "maker_phase_allowed": bool(phase_allows_action(lifecycle_phase, EDGE_ACTION_MAKER)),
             "probe_favored_side": favored_side,
             "secondary_fair_probability": evt.get("secondary_fair_probability"),
             "secondary_oracle_status": evt.get("secondary_oracle_status"),
@@ -5686,7 +5130,10 @@ def _maker_cannon_probe_rows(
             "probe_visible_depth_shares": evt.get("probe_visible_depth_shares"),
             "visible_depth_shares": evt.get("probe_visible_depth_shares"),
             "open_maker_orders_total": evt.get("open_maker_orders_total"),
+            "selection_gate_min_sec_to_expiry": thresholds.get("selection_gate_min_sec_to_expiry"),
+            "selection_gate_max_sec_to_expiry": thresholds.get("selection_gate_max_sec_to_expiry"),
         }
+        row = _canonicalize_maker_report_row(row)
         row["market_reference_backfill_applied"] = False
         row["market_reference_backfill_pair_delta_sec"] = None
         decision_ts = parse_ts(row.get("ts_decision_utc"))
@@ -5729,7 +5176,7 @@ def _maker_cannon_probe_rows(
         if (
             row.get("probe_visible_depth_shares") is None
             and favored_side in {"BUY", "SELL"}
-            and market_reference_class in {"authoritative", "bounded_approximation"}
+            and market_reference_class == "authoritative"
         ):
             row["probe_visible_depth_shares"] = 0.0
             row["visible_depth_shares"] = 0.0
@@ -5793,7 +5240,7 @@ def _maker_mid_window_probe_rows(
     events: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    thresholds = _legacy_maker_admission_thresholds(run_manifest)
+    thresholds = _maker_admission_thresholds_for_report(run_manifest)
     book_top_by_token = _maker_cannon_book_top_index(events)
     geometry_floor_price = float(thresholds.get("geometry_floor_price", 0.0) or 0.0)
     total_maker_edge_eval_rows = 0
@@ -5818,6 +5265,7 @@ def _maker_mid_window_probe_rows(
             or _infer_side_from_edge_value(evt.get("edge_value"))
             or "UNKNOWN"
         )
+        lifecycle_phase = _maker_lifecycle_phase_for_report(evt)
         target_ref = str(evt.get("target_ref") or "").strip() or None
         target_side_ref = _legacy_target_side_ref(target_ref, evt.get("token_id"), favored_side)
         row = {
@@ -5828,7 +5276,6 @@ def _maker_mid_window_probe_rows(
             "target_ref": target_ref,
             "target_side_ref": target_side_ref,
             "side": favored_side,
-            "stage": evt.get("stage"),
             "cycle_index": evt.get("cycle_index"),
             "ts_decision_utc": evt.get("ts_decision_utc") or evt.get("ts_event_utc") or evt.get("ts_utc"),
             "sec_to_expiry": sec_value,
@@ -5840,12 +5287,13 @@ def _maker_mid_window_probe_rows(
             "market_reference_source_side": evt.get("market_reference_source_side"),
             "market_reference_class": evt.get("market_reference_class"),
             "financial_posture_class": evt.get("financial_posture_class"),
-            "reduce_only_recovery_active": bool(evt.get("reduce_only_recovery_active", False)),
-            "maker_allowed": bool(evt.get("maker_allowed")),
-            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(evt),
+            _HISTORICAL_RECOVERY_ACTIVE_FIELD: _has_historical_recovery_lineage(evt),
             "block_reason": evt.get("block_reason"),
             "maker_no_submission_cause": evt.get("maker_no_submission_cause"),
             "maker_no_submission_category": evt.get("maker_no_submission_category"),
+            "lifecycle_phase": lifecycle_phase,
+            "lineage_stage": _maker_lineage_stage_for_report(evt),
+            "maker_phase_allowed": bool(phase_allows_action(lifecycle_phase, EDGE_ACTION_MAKER)),
             "probe_favored_side": favored_side,
             "secondary_fair_probability": evt.get("secondary_fair_probability"),
             "secondary_oracle_status": evt.get("secondary_oracle_status"),
@@ -5858,7 +5306,10 @@ def _maker_mid_window_probe_rows(
             "probe_visible_depth_shares": evt.get("probe_visible_depth_shares"),
             "visible_depth_shares": evt.get("probe_visible_depth_shares"),
             "open_maker_orders_total": evt.get("open_maker_orders_total"),
+            "selection_gate_min_sec_to_expiry": thresholds.get("selection_gate_min_sec_to_expiry"),
+            "selection_gate_max_sec_to_expiry": thresholds.get("selection_gate_max_sec_to_expiry"),
         }
+        row = _canonicalize_maker_report_row(row)
         row["market_reference_backfill_applied"] = False
         row["market_reference_backfill_pair_delta_sec"] = None
         decision_ts = parse_ts(row.get("ts_decision_utc"))
@@ -5901,7 +5352,7 @@ def _maker_mid_window_probe_rows(
         if (
             row.get("probe_visible_depth_shares") is None
             and favored_side in {"BUY", "SELL"}
-            and market_reference_class in {"authoritative", "bounded_approximation"}
+            and market_reference_class == "authoritative"
         ):
             row["probe_visible_depth_shares"] = 0.0
             row["visible_depth_shares"] = 0.0
@@ -5968,7 +5419,6 @@ def _maker_cannon_late_window_probe_bundle(
     rows, counts = _maker_cannon_probe_rows(events=events, run_manifest=run_manifest)
     population_counts: Counter[str] = Counter()
     reject_reason_counts: Counter[str] = Counter()
-    stage_counts: Counter[str] = Counter()
     market_reference_class_counts: Counter[str] = Counter()
     market_reference_mode_counts: Counter[str] = Counter()
     market_reference_source_side_counts: Counter[str] = Counter()
@@ -5978,9 +5428,10 @@ def _maker_cannon_late_window_probe_bundle(
     window_counts: Counter[str] = Counter()
     session_regime_counts: Counter[str] = Counter()
     stack_pressure_counts: Counter[str] = Counter()
+    lineage_stage_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    maker_new_risk_allowed_counts: Counter[str] = Counter()
+    maker_phase_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -5994,14 +5445,15 @@ def _maker_cannon_late_window_probe_bundle(
     top_reject_target_side_counts: Counter[str] = Counter()
     depth_multiple_values: List[float] = []
     full_cannon_candidate_count = 0
-    full_candidate_runtime_stage_disallow_count = 0
+    full_candidate_runtime_phase_disallow_count = 0
     latent_market_full_cannon_candidate_count = 0
     external_blocked_latent_market_evaluable_count = 0
     external_blocked_latent_market_full_cannon_candidate_count = 0
 
+    lifecycle_phase_counts: Counter[str] = Counter()
     for row in rows:
         population_counts[str(row.get("population_class") or "unknown")] += 1
-        stage_counts[str(row.get("stage") or "unknown")] += 1
+        lifecycle_phase_counts[_maker_lifecycle_phase_for_report(row)] += 1
         market_reference_class_counts[str(row.get("market_reference_class") or "unknown")] += 1
         market_reference_mode_counts[str(row.get("market_reference_mode") or "unknown")] += 1
         market_reference_source_side_counts[str(row.get("market_reference_source_side") or "unknown")] += 1
@@ -6011,12 +5463,13 @@ def _maker_cannon_late_window_probe_bundle(
         window_counts[str(row.get("cannon_window_class") or "unknown")] += 1
         session_regime_counts[str(row.get("session_regime_class") or "unknown")] += 1
         stack_pressure_counts[str(row.get("stack_pressure_class") or "unknown")] += 1
+        lineage_stage_counts[_maker_lineage_stage_for_report(row)] += 1
         secondary_oracle_status_counts[str(row.get("secondary_oracle_status") or "unknown")] += 1
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        maker_new_risk_allowed_counts[
-            "allowed" if _maker_new_risk_allowed_from_row(row) else "disallowed"
+        maker_phase_allowed_counts[
+            "allowed" if _maker_phase_allowed_from_row(row) else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             "imputed_zero" if bool(row.get("probe_visible_depth_fail_closed_zero_imputed", False)) else "reported_or_not_needed"
@@ -6049,11 +5502,9 @@ def _maker_cannon_late_window_probe_bundle(
                     external_blocked_latent_full_examples.append(
                         {
                             "target_side_ref": str(row.get("target_side_ref") or ""),
-                            "stage": str(row.get("stage") or ""),
+                            "lifecycle_phase": _maker_lifecycle_phase_for_report(row),
                             "financial_posture_class": str(row.get("financial_posture_class") or ""),
-                            "reduce_only_recovery_active": bool(
-                                row.get("reduce_only_recovery_active", False)
-                            ),
+                            _HISTORICAL_RECOVERY_ACTIVE_FIELD: _has_historical_recovery_lineage(row),
                             "sec_to_expiry": row.get("sec_to_expiry"),
                             "market_reference_class": row.get("market_reference_class"),
                             "secondary_oracle_status": row.get("secondary_oracle_status"),
@@ -6077,8 +5528,8 @@ def _maker_cannon_late_window_probe_bundle(
                     external_blocked_latent_market_full_cannon_candidate_count += 1
         if bool(row.get("full_cannon_candidate", False)):
             full_cannon_candidate_count += 1
-            if not _maker_new_risk_allowed_from_row(row):
-                full_candidate_runtime_stage_disallow_count += 1
+            if not _maker_phase_allowed_from_row(row):
+                full_candidate_runtime_phase_disallow_count += 1
             top_full_candidate_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
         else:
             top_reject_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
@@ -6093,11 +5544,13 @@ def _maker_cannon_late_window_probe_bundle(
             key: int(population_counts[key]) for key in sorted(population_counts)
         },
         "full_cannon_candidate_count": int(full_cannon_candidate_count),
-        "full_candidate_runtime_stage_disallow_count": int(full_candidate_runtime_stage_disallow_count),
+        "full_candidate_runtime_phase_disallow_count": int(full_candidate_runtime_phase_disallow_count),
         "reject_reason_distribution": {
             key: int(reject_reason_counts[key]) for key in sorted(reject_reason_counts)
         },
-        "stage_distribution": {key: int(stage_counts[key]) for key in sorted(stage_counts)},
+        "lifecycle_phase_distribution": {
+            key: int(lifecycle_phase_counts[key]) for key in sorted(lifecycle_phase_counts)
+        },
         "market_reference_class_distribution": {
             key: int(market_reference_class_counts[key]) for key in sorted(market_reference_class_counts)
         },
@@ -6125,6 +5578,10 @@ def _maker_cannon_late_window_probe_bundle(
         "stack_pressure_class_distribution": {
             key: int(stack_pressure_counts[key]) for key in sorted(stack_pressure_counts)
         },
+        "lineage_stage_distribution": {
+            key: int(lineage_stage_counts[key])
+            for key in sorted(lineage_stage_counts)
+        },
         "secondary_oracle_status_distribution": {
             key: int(secondary_oracle_status_counts[key]) for key in sorted(secondary_oracle_status_counts)
         },
@@ -6132,9 +5589,9 @@ def _maker_cannon_late_window_probe_bundle(
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "maker_new_risk_allowed_distribution": {
-            key: int(maker_new_risk_allowed_counts[key])
-            for key in sorted(maker_new_risk_allowed_counts)
+        "maker_phase_allowed_distribution": {
+            key: int(maker_phase_allowed_counts[key])
+            for key in sorted(maker_phase_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])
@@ -6203,7 +5660,6 @@ def _maker_mid_window_probe_bundle(
     rows, counts = _maker_mid_window_probe_rows(events=events, run_manifest=run_manifest)
     population_counts: Counter[str] = Counter()
     reject_reason_counts: Counter[str] = Counter()
-    stage_counts: Counter[str] = Counter()
     market_reference_class_counts: Counter[str] = Counter()
     market_reference_mode_counts: Counter[str] = Counter()
     market_reference_source_side_counts: Counter[str] = Counter()
@@ -6215,7 +5671,7 @@ def _maker_mid_window_probe_bundle(
     stack_pressure_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    maker_new_risk_allowed_counts: Counter[str] = Counter()
+    maker_phase_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -6229,14 +5685,15 @@ def _maker_mid_window_probe_bundle(
     top_reject_target_side_counts: Counter[str] = Counter()
     depth_multiple_values: List[float] = []
     full_mid_window_candidate_count = 0
-    full_candidate_runtime_stage_disallow_count = 0
+    full_candidate_runtime_phase_disallow_count = 0
     latent_market_full_mid_window_candidate_count = 0
     external_blocked_latent_market_evaluable_count = 0
     external_blocked_latent_market_full_candidate_count = 0
 
+    lifecycle_phase_counts: Counter[str] = Counter()
     for row in rows:
         population_counts[str(row.get("population_class") or "unknown")] += 1
-        stage_counts[str(row.get("stage") or "unknown")] += 1
+        lifecycle_phase_counts[_maker_lifecycle_phase_for_report(row)] += 1
         market_reference_class_counts[str(row.get("market_reference_class") or "unknown")] += 1
         market_reference_mode_counts[str(row.get("market_reference_mode") or "unknown")] += 1
         market_reference_source_side_counts[str(row.get("market_reference_source_side") or "unknown")] += 1
@@ -6250,8 +5707,8 @@ def _maker_mid_window_probe_bundle(
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        maker_new_risk_allowed_counts[
-            "allowed" if _maker_new_risk_allowed_from_row(row) else "disallowed"
+        maker_phase_allowed_counts[
+            "allowed" if _maker_phase_allowed_from_row(row) else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             "imputed_zero" if bool(row.get("probe_visible_depth_fail_closed_zero_imputed", False)) else "reported_or_not_needed"
@@ -6284,11 +5741,9 @@ def _maker_mid_window_probe_bundle(
                     external_blocked_latent_full_examples.append(
                         {
                             "target_side_ref": str(row.get("target_side_ref") or ""),
-                            "stage": str(row.get("stage") or ""),
+                            "lifecycle_phase": _maker_lifecycle_phase_for_report(row),
                             "financial_posture_class": str(row.get("financial_posture_class") or ""),
-                            "reduce_only_recovery_active": bool(
-                                row.get("reduce_only_recovery_active", False)
-                            ),
+                            _HISTORICAL_RECOVERY_ACTIVE_FIELD: _has_historical_recovery_lineage(row),
                             "sec_to_expiry": row.get("sec_to_expiry"),
                             "market_reference_class": row.get("market_reference_class"),
                             "secondary_oracle_status": row.get("secondary_oracle_status"),
@@ -6312,8 +5767,8 @@ def _maker_mid_window_probe_bundle(
                     external_blocked_latent_market_full_candidate_count += 1
         if bool(row.get("full_mid_window_candidate", False)):
             full_mid_window_candidate_count += 1
-            if not _maker_new_risk_allowed_from_row(row):
-                full_candidate_runtime_stage_disallow_count += 1
+            if not _maker_phase_allowed_from_row(row):
+                full_candidate_runtime_phase_disallow_count += 1
             top_full_candidate_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
         else:
             top_reject_target_side_counts[str(row.get("target_side_ref") or "unknown")] += 1
@@ -6328,11 +5783,13 @@ def _maker_mid_window_probe_bundle(
             key: int(population_counts[key]) for key in sorted(population_counts)
         },
         "full_mid_window_candidate_count": int(full_mid_window_candidate_count),
-        "full_candidate_runtime_stage_disallow_count": int(full_candidate_runtime_stage_disallow_count),
+        "full_candidate_runtime_phase_disallow_count": int(full_candidate_runtime_phase_disallow_count),
         "reject_reason_distribution": {
             key: int(reject_reason_counts[key]) for key in sorted(reject_reason_counts)
         },
-        "stage_distribution": {key: int(stage_counts[key]) for key in sorted(stage_counts)},
+        "lifecycle_phase_distribution": {
+            key: int(lifecycle_phase_counts[key]) for key in sorted(lifecycle_phase_counts)
+        },
         "market_reference_class_distribution": {
             key: int(market_reference_class_counts[key]) for key in sorted(market_reference_class_counts)
         },
@@ -6367,9 +5824,9 @@ def _maker_mid_window_probe_bundle(
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "maker_new_risk_allowed_distribution": {
-            key: int(maker_new_risk_allowed_counts[key])
-            for key in sorted(maker_new_risk_allowed_counts)
+        "maker_phase_allowed_distribution": {
+            key: int(maker_phase_allowed_counts[key])
+            for key in sorted(maker_phase_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])
@@ -6481,14 +5938,16 @@ def _legacy_edge_entries(events: List[Dict[str, Any]]) -> Tuple[List[Dict[str, A
             "market_reference_class": evt.get("market_reference_class"),
             "cycle_index": evt.get("cycle_index"),
             "sec_to_expiry": evt.get("time_remaining_sec"),
-            "effective_stage": effective_stage_from_payload(evt),
-            "stage_bucket": stage_bucket_from_payload(evt),
-            "stage": effective_stage_from_payload(evt),
-            "raw_stage": stage_bucket_from_payload(evt),
-            "reduce_only_recovery_active": evt.get("reduce_only_recovery_active"),
+            "lifecycle_phase": _maker_lifecycle_phase_for_report(evt),
+            "lineage_stage": _maker_lineage_stage_for_report(evt),
+            "maker_phase_allowed": bool(
+                phase_allows_action(_maker_lifecycle_phase_for_report(evt), EDGE_ACTION_MAKER)
+            ),
+            _HISTORICAL_RECOVERY_ACTIVE_FIELD: _has_historical_recovery_lineage(evt),
             "block_reason": evt.get("block_reason"),
             "submitted": bool(evt.get("submitted")),
         }
+        entry = _canonicalize_maker_report_row(entry)
         entries.append(entry)
         order_id = str(evt.get("order_id") or "").strip()
         if order_id:
@@ -6557,7 +6016,7 @@ def _legacy_maker_fight_admission_rows(
     status: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    thresholds = _legacy_maker_admission_thresholds(run_manifest)
+    thresholds = _maker_admission_thresholds_for_report(run_manifest)
     status_samples = _legacy_status_samples(status)
     edge_entries, edge_by_order_id = _legacy_edge_entries(events)
     rows: List[Dict[str, Any]] = []
@@ -6607,10 +6066,10 @@ def _legacy_maker_fight_admission_rows(
             or _legacy_financial_posture_at(status_samples, decision_ts)
             or ""
         )
-        reduce_only_active = (
-            bool(evt.get("reduce_only_recovery_active", False))
-            or bool(maker_ctx.get("reduce_only_recovery_active", False))
-            or bool((matched_edge or {}).get("reduce_only_recovery_active", False))
+        reduce_only_active = any(
+            _has_historical_recovery_lineage(payload)
+            for payload in (evt, maker_ctx, matched_edge or {})
+            if isinstance(payload, dict)
         )
         fair_probability = maker_ctx.get("fair_probability")
         if fair_probability is None and matched_edge is not None:
@@ -6632,11 +6091,7 @@ def _legacy_maker_fight_admission_rows(
         expected_fill_prob = evt.get("expected_fill_prob")
         default_min_fill = thresholds["min_expected_fill_prob"]
         effective_min_fill = _safe_float(evt.get("effective_min_expected_fill_prob"), default=default_min_fill)
-        if event_type == "order_submit" and reduce_only_active:
-            effective_min_fill = min(default_min_fill, thresholds["reduce_only_fill_prob_floor"])
         max_queue_ahead = _safe_float(evt.get("effective_max_queue_ahead_size"), default=thresholds["max_queue_ahead_size"])
-        if event_type == "order_submit" and reduce_only_active:
-            max_queue_ahead = thresholds["max_queue_ahead_size"] * thresholds["reduce_only_queue_multiplier"]
         queue_ahead_size = evt.get("queue_ahead_size")
         intended_size_shares = evt.get("size")
         if intended_size_shares is None:
@@ -6671,16 +6126,25 @@ def _legacy_maker_fight_admission_rows(
             or evt.get("reason")
             or (matched_edge or {}).get("block_reason")
         )
-        effective_stage = maker_ctx.get("effective_stage") or maker_ctx.get("stage")
-        if not effective_stage:
-            effective_stage = (matched_edge or {}).get("effective_stage") or (matched_edge or {}).get("stage") or evt.get("stage")
-        stage_bucket = maker_ctx.get("stage_bucket") or maker_ctx.get("raw_stage")
-        if not stage_bucket:
-            stage_bucket = (
-                (matched_edge or {}).get("stage_bucket")
-                or (matched_edge or {}).get("raw_stage")
-                or evt.get("raw_stage")
-            )
+        lineage_source = dict(evt)
+        if isinstance(matched_edge, dict):
+            lineage_source.update(matched_edge)
+        if isinstance(maker_ctx, dict):
+            lineage_source.update(maker_ctx)
+        lineage_stage = _maker_lineage_stage_for_report(
+            {
+                "lineage_stage": lineage_source.get("lineage_stage"),
+                "stage": lineage_source.get("stage"),
+            }
+        )
+        row_lifecycle_phase = _maker_lifecycle_phase_for_report(
+            {
+                "lifecycle_phase": maker_ctx.get("lifecycle_phase") or (matched_edge or {}).get("lifecycle_phase"),
+                "sec_to_expiry": sec_to_expiry,
+                "lineage_stage": lineage_stage,
+                "stage": lineage_source.get("stage"),
+            }
+        )
         row = {
             "admission_shadow_id": f"legacy-{event_type}-{len(rows) + 1}",
             "shadow_source_class": "legacy_quote_or_submit_backfill_v1",
@@ -6689,11 +6153,9 @@ def _legacy_maker_fight_admission_rows(
             "target_ref": target_ref,
             "target_side_ref": _legacy_target_side_ref(target_ref, evt.get("token_id"), side),
             "side": side,
-            **stage_surface_fields(
-                effective_stage=effective_stage,
-                stage_bucket=stage_bucket,
-            ),
-            "stage": effective_stage,
+            "lifecycle_phase": row_lifecycle_phase,
+            "lineage_stage": lineage_stage,
+            "maker_phase_allowed": bool(phase_allows_action(row_lifecycle_phase, EDGE_ACTION_MAKER)),
             "cycle_index": (matched_edge or {}).get("cycle_index"),
             "ts_decision_utc": evt.get("ts_decision_utc") or evt.get("ts_event_utc") or evt.get("ts_utc"),
             "fair_probability": fair_probability,
@@ -6730,11 +6192,12 @@ def _legacy_maker_fight_admission_rows(
             "open_orders_for_token_count": maker_ctx.get("open_orders_for_token_count"),
             "open_orders_same_side_count": maker_ctx.get("open_orders_same_side_count"),
             "financial_posture_class": financial_posture_class or None,
-            "reduce_only_recovery_active": reduce_only_active,
+            _HISTORICAL_RECOVERY_ACTIVE_FIELD: reduce_only_active,
             "decision_result": decision_result,
             "decision_block_reason": decision_block_reason,
             "order_submit_id": order_id if event_type == "order_submit" else None,
         }
+        row = _canonicalize_maker_report_row(row)
         rows.append(row)
 
     rows.sort(
@@ -6787,7 +6250,7 @@ def _maker_fight_admission_shadow_bundle(
         }
 
     runtime_shadow_rows = [
-        dict(evt)
+        _canonicalize_maker_report_row(dict(evt))
         for evt in events
         if str(evt.get("event_type") or "").strip() == "maker_fight_admission_shadow"
     ]
@@ -7117,6 +6580,27 @@ def _maker_fight_admission_shadow_bundle(
 
 def _maker_selection_window_bounds(run_manifest: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
     config = run_manifest.get("config") if isinstance(run_manifest, dict) else {}
+    runtime_cfg = config.get("runtime") if isinstance(config, dict) else {}
+    lifecycle_cfg = runtime_cfg.get("lifecycle") if isinstance(runtime_cfg, dict) else {}
+    phase_cfg = lifecycle_cfg.get("phase") if isinstance(lifecycle_cfg, dict) else {}
+    if not isinstance(phase_cfg, dict):
+        phase_cfg = {}
+    min_sec = phase_cfg.get("taker_window_open_sec")
+    max_sec = phase_cfg.get("maker_window_open_sec")
+    min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
+    max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
+    if min_value is not None or max_value is not None:
+        return min_value, max_value
+    legacy_lifecycle_cfg = config.get("lifecycle") if isinstance(config, dict) else {}
+    legacy_phase_cfg = legacy_lifecycle_cfg.get("phase") if isinstance(legacy_lifecycle_cfg, dict) else {}
+    if not isinstance(legacy_phase_cfg, dict):
+        legacy_phase_cfg = {}
+    min_sec = legacy_phase_cfg.get("taker_window_open_sec")
+    max_sec = legacy_phase_cfg.get("maker_window_open_sec")
+    min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
+    max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
+    if min_value is not None or max_value is not None:
+        return min_value, max_value
     strategy = config.get("strategy") if isinstance(config, dict) else {}
     maker_competitiveness = (
         strategy.get("maker_competitiveness") if isinstance(strategy, dict) else {}
@@ -7131,6 +6615,32 @@ def _maker_selection_window_bounds(run_manifest: Dict[str, Any]) -> Tuple[Option
     min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
     max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
     return min_value, max_value
+
+
+def _canonical_maker_selection_timing_window_met(
+    row: Dict[str, Any],
+    *,
+    selection_min_sec: Optional[float],
+    selection_max_sec: Optional[float],
+) -> Optional[bool]:
+    lifecycle_phase = _maker_lifecycle_phase_for_report(row)
+    if lifecycle_phase in {"scan", "prepare", "maker_window", "taker_window", "resolve"}:
+        return lifecycle_phase == "maker_window"
+    sec_to_expiry = row.get("sec_to_expiry")
+    if not isinstance(sec_to_expiry, (int, float)):
+        sec_to_expiry = row.get("time_remaining_sec")
+    if not isinstance(sec_to_expiry, (int, float)):
+        return None
+    timing_window_met = True
+    if selection_min_sec is not None:
+        timing_window_met = bool(
+            timing_window_met and float(sec_to_expiry) >= float(selection_min_sec) - 1e-9
+        )
+    if selection_max_sec is not None:
+        timing_window_met = bool(
+            timing_window_met and float(sec_to_expiry) <= float(selection_max_sec) + 1e-9
+        )
+    return bool(timing_window_met)
 
 
 def _maker_shadow_match_index(
@@ -7227,21 +6737,11 @@ def _maker_probe_rows_with_shadow_truth(
                 reject_reasons = [primary_reject_reason]
             row["matched_shadow_selection_primary_reject_reason"] = primary_reject_reason
             row["matched_shadow_selection_reject_reasons"] = reject_reasons
-        if row.get("launch_safe_selection_timing_window_met") is None and isinstance(
-            row.get("sec_to_expiry"), (int, float)
-        ):
-            timing_window_met = True
-            if selection_min_sec is not None:
-                timing_window_met = bool(
-                    timing_window_met
-                    and float(row["sec_to_expiry"]) >= float(selection_min_sec) - 1e-9
-                )
-            if selection_max_sec is not None:
-                timing_window_met = bool(
-                    timing_window_met
-                    and float(row["sec_to_expiry"]) <= float(selection_max_sec) + 1e-9
-                )
-            row["launch_safe_selection_timing_window_met"] = bool(timing_window_met)
+        row["launch_safe_selection_timing_window_met"] = _canonical_maker_selection_timing_window_met(
+            row,
+            selection_min_sec=selection_min_sec,
+            selection_max_sec=selection_max_sec,
+        )
         maker_no_submission_cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
         if shadow_match is not None:
             row["desired_quote_present"] = True
@@ -7253,11 +6753,7 @@ def _maker_probe_rows_with_shadow_truth(
             row.get("full_cannon_candidate")
             and row.get("launch_safe_selection_timing_window_met") is False
         )
-        row["effective_stage"] = effective_stage_from_payload(row)
-        row["stage_bucket"] = stage_bucket_from_payload(row)
-        row["stage"] = row["effective_stage"]
-        row["raw_stage"] = row["stage_bucket"]
-        enriched_rows.append(row)
+        enriched_rows.append(_canonicalize_maker_report_row(row))
     return enriched_rows
 
 
@@ -7305,13 +6801,12 @@ def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
     return {
         "policy_name": "paper_universal_minimal_canonical_selection_authority",
         "version": int(MAKER_SELECTION_AUTHORITY_AUDIT_VERSION),
-        "authority_contract": EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-        "allowed_stages": ["MAKER_POSITION", "MAKER_TAKER_SELECTIVE"],
+        "authority_contract": EDGE_MAKER_PHASE_ALLOWED_FIELD,
+        "allowed_lifecycle_phases": ["maker_window"],
         "require_secondary_oracle_confirmation": True,
-        "require_one_sided_active": False,
         "max_same_target_submit_count_prior": 1,
         "max_same_target_side_submit_count_prior": 1,
-        "min_depth_multiple": 0.0,
+        "min_depth_multiple": 1.5,
         "timing_authority": "external_existing_maker_timing_gate_only",
         "market_family_authority": "deferred_missing_clean_truth_surface",
     }
@@ -7319,38 +6814,147 @@ def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
 
 def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     config = run_manifest.get("config") if isinstance(run_manifest, dict) else {}
+    runtime_cfg = config.get("runtime") if isinstance(config, dict) else {}
+    lifecycle_cfg = runtime_cfg.get("lifecycle") if isinstance(runtime_cfg, dict) else {}
+    lifecycle_selection = lifecycle_cfg.get("selection") if isinstance(lifecycle_cfg, dict) else {}
+    if not isinstance(lifecycle_selection, dict):
+        lifecycle_selection = {}
+    lifecycle_lane_gates = lifecycle_cfg.get("lane_gates") if isinstance(lifecycle_cfg, dict) else {}
+    if not isinstance(lifecycle_lane_gates, dict):
+        lifecycle_lane_gates = {}
+    lifecycle_maker_lane = lifecycle_lane_gates.get("maker") if isinstance(lifecycle_lane_gates, dict) else {}
+    if not isinstance(lifecycle_maker_lane, dict):
+        lifecycle_maker_lane = {}
     strategy = config.get("strategy") if isinstance(config, dict) else {}
     maker_comp = strategy.get("maker_competitiveness") if isinstance(strategy, dict) else {}
+    if not isinstance(maker_comp, dict):
+        maker_comp = {}
     selection_gate = maker_comp.get("selection_gate") if isinstance(maker_comp, dict) else {}
     if not isinstance(selection_gate, dict):
         selection_gate = {}
+    selection_owner = lifecycle_selection if lifecycle_selection else selection_gate
     return {
-        "enabled": bool(selection_gate.get("enabled", False)),
-        "authority_contract": EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-        "allowed_stages": [
-            str(stage or "").strip().upper()
-            for stage in list(selection_gate.get("allowed_stages") or [])
-            if str(stage or "").strip()
-        ],
+        "enabled": bool(selection_owner.get("enabled", False)),
+        "authority_contract": EDGE_MAKER_PHASE_ALLOWED_FIELD,
+        "allowed_lifecycle_phases": ["maker_window"],
         "require_secondary_oracle_confirmation": bool(
-            selection_gate.get("require_secondary_oracle_confirmation", True)
+            selection_owner.get("require_secondary_oracle_confirmation", True)
         ),
-        "require_one_sided_active": bool(selection_gate.get("require_one_sided_active", False)),
         "max_same_target_submit_count_prior": int(
-            _safe_float(selection_gate.get("max_same_target_submit_count_prior"), 1.0)
+            _safe_float(selection_owner.get("max_same_target_submit_count_prior"), 1.0)
         ),
         "max_same_target_side_submit_count_prior": int(
-            _safe_float(selection_gate.get("max_same_target_side_submit_count_prior"), 1.0)
+            _safe_float(selection_owner.get("max_same_target_side_submit_count_prior"), 1.0)
         ),
-        "min_depth_multiple": float(_safe_float(selection_gate.get("min_depth_multiple"), 1.5)),
+        "min_depth_multiple": float(
+            _safe_float(
+                selection_owner.get(
+                    "maker_min_depth_multiple",
+                    selection_owner.get("min_depth_multiple"),
+                ),
+                1.5,
+            )
+        ),
+        "one_sided_edge_threshold_abs": (
+            float(
+                _safe_float(
+                    lifecycle_maker_lane.get(
+                        "one_sided_edge_threshold_abs",
+                        maker_comp.get("one_sided_edge_threshold_abs"),
+                    )
+                )
+            )
+            if lifecycle_maker_lane.get("one_sided_edge_threshold_abs") is not None
+            or maker_comp.get("one_sided_edge_threshold_abs") is not None
+            else None
+        ),
     }
 
 
-def _maker_new_risk_allowed_from_row(row: Dict[str, Any]) -> bool:
-    if EDGE_AUTH_MAKER_NEW_RISK_FIELD in row:
-        return bool(row.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD))
-    stage = str(row.get("effective_stage") or row.get("stage") or "").strip().upper()
-    return stage in {"MAKER_POSITION", "MAKER_TAKER_SELECTIVE"}
+def _maker_phase_allowed_from_row(row: Dict[str, Any]) -> bool:
+    if "maker_phase_allowed" in row:
+        return bool(row.get("maker_phase_allowed"))
+    if EDGE_MAKER_PHASE_ALLOWED_FIELD in row:
+        return bool(row.get(EDGE_MAKER_PHASE_ALLOWED_FIELD))
+    lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if not lifecycle_phase:
+        lifecycle_phase = str(lifecycle_phase_from_payload(row) or "").strip().lower()
+    if lifecycle_phase:
+        return bool(phase_allows_action(lifecycle_phase, EDGE_ACTION_MAKER))
+    return False
+
+
+def _maker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
+    explicit_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if explicit_phase:
+        return explicit_phase
+    sec_to_expiry = row.get("sec_to_expiry")
+    if not isinstance(sec_to_expiry, (int, float)):
+        sec_to_expiry = row.get("time_remaining_sec")
+    if isinstance(sec_to_expiry, (int, float)):
+        sec_value = float(sec_to_expiry)
+        if sec_value <= 7.0:
+            return "taker_window"
+        if sec_value <= 15.0:
+            return "maker_window"
+        if sec_value >= 0.0:
+            return "prepare"
+    lifecycle_phase = lifecycle_phase_from_payload(row)
+    if lifecycle_phase:
+        return lifecycle_phase
+    return "unknown"
+
+
+def _maker_lineage_stage_for_report(row: Dict[str, Any]) -> str:
+    lineage_value = str(row.get("lineage_stage") or "").strip().upper()
+    if lineage_value:
+        return lineage_value
+    return lineage_stage_from_payload(row)
+
+
+def _taker_phase_allowed_from_row(row: Dict[str, Any]) -> bool:
+    if "taker_phase_allowed" in row:
+        return bool(row.get("taker_phase_allowed"))
+    if EDGE_TAKER_PHASE_ALLOWED_FIELD in row:
+        return bool(row.get(EDGE_TAKER_PHASE_ALLOWED_FIELD))
+    lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if not lifecycle_phase:
+        lifecycle_phase = str(lifecycle_phase_from_payload(row) or "").strip().lower()
+    if lifecycle_phase:
+        return bool(phase_allows_action(lifecycle_phase, EDGE_ACTION_TAKER))
+    return False
+
+
+def _taker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
+    explicit_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if explicit_phase:
+        return explicit_phase
+    lifecycle_phase = str(lifecycle_phase_from_payload(row) or "").strip().lower()
+    if lifecycle_phase:
+        return lifecycle_phase
+    sec_to_expiry = row.get("sec_to_expiry")
+    if not isinstance(sec_to_expiry, (int, float)):
+        sec_to_expiry = row.get("time_remaining_sec")
+    if isinstance(sec_to_expiry, (int, float)):
+        sec_value = float(sec_to_expiry)
+        if sec_value <= 0.0:
+            return "resolve"
+        if sec_value <= 7.0:
+            return "taker_window"
+        if sec_value <= 15.0:
+            return "maker_window"
+        return "prepare"
+    return "unknown"
+
+
+def _canonicalize_maker_report_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(row)
+    payload["lifecycle_phase"] = _maker_lifecycle_phase_for_report(payload)
+    payload["maker_phase_allowed"] = bool(_maker_phase_allowed_from_row(payload))
+    payload["lineage_stage"] = _maker_lineage_stage_for_report(payload)
+    for legacy_key in LEGACY_EDGE_AUTHORITY_FIELD_NAMES + LEGACY_EDGE_LINEAGE_FIELD_NAMES:
+        payload.pop(legacy_key, None)
+    return payload
 
 
 def _maker_shadow_rows_with_submit_history(
@@ -7442,8 +7046,37 @@ def _maker_selection_authority_bundle(
     run_manifest: Dict[str, Any],
     run_id: str,
 ) -> Dict[str, Any]:
+    def _optional_float_local(value: Any) -> Optional[float]:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                return None
+        return None
+
     profile_name = str(((run_manifest.get("config") or {}).get("profile") or {}).get("name") or "").strip()
     runtime_config = _maker_selection_runtime_config(run_manifest)
+    selection_reject_reason_distribution = Counter(
+        reason
+        for row in shadow_rows
+        for reason in list(row.get("selection_gate_all_reject_reasons") or [])
+        if str(reason or "").strip()
+    )
+    if not bool(runtime_config.get("enabled", False)):
+        runtime_config["enabled"] = bool(
+            selection_reject_reason_distribution
+            or any(
+                str(row.get("decision_result") or "").strip().lower() == "submitted"
+                for row in shadow_rows
+            )
+        )
     counterfactual_policy = _canonical_maker_selection_counterfactual_policy()
     chronology_rows = _maker_shadow_rows_with_submit_history(
         shadow_rows=shadow_rows,
@@ -7464,7 +7097,8 @@ def _maker_selection_authority_bundle(
     block_order_submit_ids: List[str] = []
     audit_rows: List[Dict[str, Any]] = []
     for row in chronology_rows:
-        stage = str(row.get("stage") or "").strip().upper()
+        lifecycle_phase = _maker_lifecycle_phase_for_report(row)
+        lineage_stage = _maker_lineage_stage_for_report(row)
         target_ref = str(row.get("target_ref") or "").strip()
         target_side_ref = str(row.get("target_side_ref") or "").strip()
         one_sided_active = bool(row.get("one_sided_active", False))
@@ -7476,23 +7110,20 @@ def _maker_selection_authority_bundle(
             ] += 1
 
         reject_reasons: List[str] = []
-        counterfactual_applied = _maker_new_risk_allowed_from_row(row)
+        counterfactual_applied = _maker_phase_allowed_from_row(row)
         if (
             not counterfactual_applied
-            and EDGE_AUTH_MAKER_NEW_RISK_FIELD not in row
+            and EDGE_MAKER_PHASE_ALLOWED_FIELD not in row
         ):
-            counterfactual_applied = stage in set(counterfactual_policy.get("allowed_stages") or [])
+            counterfactual_applied = lifecycle_phase in set(
+                counterfactual_policy.get("allowed_lifecycle_phases") or []
+            )
         if counterfactual_applied:
             if (
                 bool(counterfactual_policy.get("require_secondary_oracle_confirmation", True))
                 and not bool(row.get("secondary_oracle_confirmation", False))
             ):
                 reject_reasons.append("secondary_oracle_not_confirmed")
-            if (
-                bool(counterfactual_policy.get("require_one_sided_active", False))
-                and not one_sided_active
-            ):
-                reject_reasons.append("selection_non_one_sided")
             if int(_safe_float(row.get("same_target_submit_count_prior"))) > int(
                 counterfactual_policy.get("max_same_target_submit_count_prior", 0)
             ):
@@ -7520,14 +7151,45 @@ def _maker_selection_authority_bundle(
                 "target_ref": target_ref or None,
                 "target_side_ref": target_side_ref or None,
                 "side": row.get("side"),
-                "stage": stage or None,
-                EDGE_AUTH_MAKER_NEW_RISK_FIELD: bool(_maker_new_risk_allowed_from_row(row)),
+                "lifecycle_phase": lifecycle_phase,
+                "lineage_stage": lineage_stage,
+                "maker_phase_allowed": bool(_maker_phase_allowed_from_row(row)),
                 "ts_decision_utc": row.get("ts_decision_utc"),
                 "runtime_decision_result": current_decision,
                 "runtime_decision_block_reason": row.get("decision_block_reason"),
                 "selector_enabled_runtime": bool(runtime_config.get("enabled", False)),
                 "selector_applied_counterfactual": bool(counterfactual_applied),
+                "edge_abs": _optional_float_local(
+                    row.get("edge_abs")
+                    if row.get("edge_abs") is not None
+                    else abs(_safe_float(row.get("edge_value")))
+                    if row.get("edge_value") is not None
+                    else None
+                ),
+                "one_sided_edge_threshold_abs": _optional_float_local(
+                    row.get("one_sided_edge_threshold_abs")
+                    if row.get("one_sided_edge_threshold_abs") is not None
+                    else runtime_config.get("one_sided_edge_threshold_abs")
+                ),
+                "timing_gate_open": (
+                    bool(row.get("maker_timing_gate_open"))
+                    if row.get("maker_timing_gate_open") is not None
+                    else bool(row.get("timing_gate_open"))
+                    if row.get("timing_gate_open") is not None
+                    else None
+                ),
+                "market_reference_class": row.get("market_reference_class"),
                 "one_sided_active": one_sided_active,
+                "one_sided_allowed_phase": (
+                    bool(row.get("one_sided_allowed_phase"))
+                    if row.get("one_sided_allowed_phase") is not None
+                    else lifecycle_phase in set(runtime_config.get("allowed_lifecycle_phases") or [])
+                ),
+                "one_sided_allowed_authority": (
+                    bool(row.get("one_sided_allowed_authority"))
+                    if row.get("one_sided_allowed_authority") is not None
+                    else bool(_maker_phase_allowed_from_row(row))
+                ),
                 "side_policy": row.get("side_policy"),
                 "market_reference_mode": row.get("market_reference_mode"),
                 "same_target_submit_count_prior": int(_safe_float(row.get("same_target_submit_count_prior"))),
@@ -7561,6 +7223,7 @@ def _maker_selection_authority_bundle(
         "counterfactual_keep_order_submit_ids": keep_order_submit_ids,
         "counterfactual_block_order_submit_ids": block_order_submit_ids,
         "authoritative_for_canonical_selection": True,
+        "rows": audit_rows,
     }
     counterfactual = {
         "maker_selection_authority_audit_version": int(MAKER_SELECTION_AUTHORITY_AUDIT_VERSION),
@@ -7592,6 +7255,7 @@ def _maker_truth_readiness(row: Dict[str, Any]) -> Tuple[str, str]:
     market_reference_class = str(row.get("market_reference_class") or "").strip().lower()
     market_reference_mode = str(row.get("market_reference_mode") or "").strip().lower()
     market_reference_source_side = str(row.get("market_reference_source_side") or "").strip().lower()
+    pair_truth_basis = str(row.get("pair_truth_basis") or "").strip().lower()
     fair_present = isinstance(row.get("fair_probability"), (int, float))
     market_present = isinstance(row.get("market_probability"), (int, float))
     depth_state = _maker_truth_favored_side_depth_state(row)
@@ -7600,28 +7264,11 @@ def _maker_truth_readiness(row: Dict[str, Any]) -> Tuple[str, str]:
         readiness = "authoritative_complete" if depth_state != "unknown" else "authoritative_incomplete"
     elif market_reference_class == "authoritative":
         readiness = "authoritative_incomplete"
-    elif market_reference_class == "bounded_approximation":
-        readiness = "bounded_only"
     else:
         readiness = "missing_truth_input"
 
     if readiness == "authoritative_complete":
         primary = "none"
-    elif market_reference_class == "bounded_approximation":
-        if not fair_present or not market_present:
-            primary = "missing_probability_inputs"
-        elif market_reference_mode == "bounded_single_side_touch" and depth_state == "zero_visible":
-            primary = "bounded_single_side_touch_zero_favored_depth"
-        elif market_reference_mode == "bounded_single_side_touch" and market_reference_source_side in {"", "unknown", "none"}:
-            primary = "bounded_single_side_touch_unknown_side"
-        elif market_reference_mode == "bounded_single_side_touch":
-            primary = "reference_mode_weakness"
-        elif depth_state == "zero_visible":
-            primary = "zero_favored_side_depth"
-        elif depth_state == "unknown":
-            primary = "unknown_favored_side_depth"
-        else:
-            primary = "mixed_truth_degradation"
     elif market_reference_class == "authoritative":
         if not fair_present or not market_present:
             primary = "missing_probability_inputs"
@@ -7632,7 +7279,14 @@ def _maker_truth_readiness(row: Dict[str, Any]) -> Tuple[str, str]:
         else:
             primary = "authoritative_incomplete"
     else:
-        primary = "missing_truth_input"
+        if pair_truth_basis in {"one_sided_ws_missing_midpoint", "pair_missing_one_sided_only"}:
+            primary = "one_sided_ws_missing_midpoint"
+        elif not fair_present or not market_present:
+            primary = "missing_probability_inputs"
+        elif market_reference_source_side in {"", "unknown", "none"} and market_reference_mode == "missing":
+            primary = "missing_truth_input"
+        else:
+            primary = "truth_reference_insufficient"
     return readiness, primary
 
 
@@ -7683,7 +7337,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             full_cannon_candidate_count += 1
         if bool(row.get("off_band_opportunity", False)):
             off_band_opportunity_count += 1
-        if _maker_new_risk_allowed_from_row(row):
+        if _maker_phase_allowed_from_row(row):
             runtime_stage_allowed_count += 1
         cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
         if cause:
@@ -7693,7 +7347,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             shadow_decision_counts[decision_result] += 1
     return {
         "row_count": int(row_count),
-        "maker_new_risk_allowed_count": int(runtime_stage_allowed_count),
+        "maker_phase_allowed_count": int(runtime_stage_allowed_count),
         "authoritative_reference_count": int(authoritative_reference_count),
         "dual_oracle_confirmed_count": int(dual_oracle_confirmed_count),
         "depth_met_count": int(depth_met_count),
@@ -7727,7 +7381,7 @@ def _maker_quote_starvation_bundle(
     market_probability_presence_counts: Counter[str] = Counter()
     favored_depth_truth_state_counts: Counter[str] = Counter()
     for row in probe_rows:
-        if not _maker_new_risk_allowed_from_row(row):
+        if not _maker_phase_allowed_from_row(row):
             continue
         block_reason = str(row.get("block_reason") or "").strip().lower()
         maker_no_submission_cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
@@ -7749,13 +7403,11 @@ def _maker_quote_starvation_bundle(
             "target_ref": row.get("target_ref"),
             "target_side_ref": row.get("target_side_ref"),
             "side": row.get("side"),
-            "effective_stage": effective_stage_from_payload(row),
-            "stage_bucket": stage_bucket_from_payload(row),
-            "raw_stage": stage_bucket_from_payload(row),
-            "stage": effective_stage_from_payload(row),
+            "lineage_stage": _maker_lineage_stage_for_report(row),
             "ts_decision_utc": row.get("ts_decision_utc"),
             "sec_to_expiry": row.get("sec_to_expiry"),
-            "maker_new_risk_allowed": _maker_new_risk_allowed_from_row(row),
+            "lifecycle_phase": _maker_lifecycle_phase_for_report(row),
+            "maker_phase_allowed": _maker_phase_allowed_from_row(row),
             "selection_gate_min_sec_to_expiry": selection_min_sec,
             "selection_gate_max_sec_to_expiry": selection_max_sec,
             "launch_safe_selection_timing_window_met": row.get("launch_safe_selection_timing_window_met"),
@@ -7850,7 +7502,7 @@ def _maker_prequote_prereq_pass_rows(probe_rows: List[Dict[str, Any]]) -> List[D
         row
         for row in probe_rows
         if row.get("launch_safe_selection_timing_window_met") is True
-        and _maker_new_risk_allowed_from_row(row)
+        and _maker_phase_allowed_from_row(row)
         and bool(row.get("secondary_oracle_confirmation", False))
     ]
 
@@ -7882,12 +7534,12 @@ def _maker_truth_reference_starvation_bundle(
             "target_ref": row.get("target_ref"),
             "target_side_ref": row.get("target_side_ref"),
             "side": row.get("side"),
-            "effective_stage": effective_stage_from_payload(row),
-            "stage_bucket": stage_bucket_from_payload(row),
-            "raw_stage": stage_bucket_from_payload(row),
-            "stage": effective_stage_from_payload(row),
+            "lineage_stage": _maker_lineage_stage_for_report(row),
+            "lifecycle_phase": _maker_lifecycle_phase_for_report(row),
+            "maker_phase_allowed": _maker_phase_allowed_from_row(row),
             "ts_decision_utc": row.get("ts_decision_utc"),
             "sec_to_expiry": row.get("sec_to_expiry"),
+            "block_reason": row.get("block_reason"),
             "market_reference_class": row.get("market_reference_class"),
             "market_reference_mode": market_reference_mode,
             "market_reference_source_side": market_reference_source_side,
@@ -7901,6 +7553,11 @@ def _maker_truth_reference_starvation_bundle(
             "desired_quote_present": row.get("desired_quote_present"),
             "maker_no_submission_cause": row.get("maker_no_submission_cause"),
             "maker_no_submission_category": row.get("maker_no_submission_category"),
+            "open_maker_orders_total": row.get("open_maker_orders_total"),
+            "open_orders_for_token_count": row.get("open_orders_for_token_count"),
+            "open_orders_same_side_count": row.get("open_orders_same_side_count"),
+            "same_target_submit_count_prior": row.get("same_target_submit_count_prior"),
+            "same_target_side_submit_count_prior": row.get("same_target_side_submit_count_prior"),
             "matched_shadow_present": bool(row.get("matched_shadow_present", False)),
             "matched_shadow_selection_primary_reject_reason": row.get(
                 "matched_shadow_selection_primary_reject_reason"
@@ -7965,11 +7622,24 @@ def _maker_quote_construction_bundle(
     for raw in truth_sound_rows:
         if raw.get("desired_quote_present") is True:
             continue
-        cause = "unknown_quote_construction_failure"
+        cause = "shadow_gap_without_no_quote_signal"
         favored_depth_truth_state = str(raw.get("favored_side_depth_truth_state") or "unknown")
         maker_no_submission_category = str(raw.get("maker_no_submission_category") or "").strip().lower()
+        maker_no_submission_cause = str(raw.get("maker_no_submission_cause") or "").strip().lower()
+        block_reason = str(raw.get("block_reason") or "").strip().lower()
+        open_maker_orders_total = int(_safe_float(raw.get("open_maker_orders_total"), 0.0))
+        open_orders_for_token_count = int(_safe_float(raw.get("open_orders_for_token_count"), 0.0))
+        open_orders_same_side_count = int(_safe_float(raw.get("open_orders_same_side_count"), 0.0))
+        same_target_submit_count_prior = int(_safe_float(raw.get("same_target_submit_count_prior"), 0.0))
+        same_target_side_submit_count_prior = int(
+            _safe_float(raw.get("same_target_side_submit_count_prior"), 0.0)
+        )
         if maker_no_submission_category == "one_sided_mode_disallow_side":
             cause = "one_sided_mode_disallow_side"
+        elif block_reason == "open_order_cleanup_required":
+            cause = "open_order_cleanup_required"
+        elif block_reason == "settlement_hold_required":
+            cause = "settlement_hold_required"
         elif not isinstance(raw.get("fair_probability"), (int, float)) or not isinstance(
             raw.get("market_probability"), (int, float)
         ):
@@ -7980,8 +7650,16 @@ def _maker_quote_construction_bundle(
             cause = "depth_zero_or_too_thin"
         elif raw.get("geometry_viable") is False:
             cause = "geometry_floor_failure"
-        elif str(raw.get("maker_no_submission_cause") or "").strip().lower() == "no_desired_quote":
+        elif maker_no_submission_cause == "no_desired_quote":
             cause = "expected_no_quote_under_doctrine"
+        elif (
+            open_maker_orders_total > 0
+            or open_orders_for_token_count > 0
+            or open_orders_same_side_count > 0
+            or same_target_submit_count_prior > 0
+            or same_target_side_submit_count_prior > 0
+        ):
+            cause = "resting_quote_already_live_or_shadow_gap"
         rows.append(
             {
                 **raw,
@@ -8026,7 +7704,7 @@ def _maker_timing_band_diagnostic_matrix(
         runtime_active_rows = [
             row
             for row in band_rows
-            if _maker_new_risk_allowed_from_row(row)
+            if _maker_phase_allowed_from_row(row)
             and row.get("launch_safe_selection_timing_window_met") is True
         ]
         matrix["bands"][band_name] = {
@@ -8146,9 +7824,13 @@ def _maker_participation_waterfall_bundle(
     run_manifest: Dict[str, Any],
     truth_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    thresholds = _legacy_maker_admission_thresholds(run_manifest)
-    timing_gate_min_sec_to_expiry = float(thresholds.get("maker_timing_gate_min_sec_to_expiry", 15.0) or 15.0)
-    timing_gate_max_sec_to_expiry = float(thresholds.get("maker_timing_gate_max_sec_to_expiry", 20.0) or 20.0)
+    thresholds = _maker_admission_thresholds_for_report(run_manifest)
+    fallback_timing_gate_min_sec_to_expiry = float(
+        thresholds.get("maker_timing_gate_min_sec_to_expiry", 15.0) or 15.0
+    )
+    fallback_timing_gate_max_sec_to_expiry = float(
+        thresholds.get("maker_timing_gate_max_sec_to_expiry", 20.0) or 20.0
+    )
     maker_rows = [
         evt
         for evt in events
@@ -8214,27 +7896,33 @@ def _maker_participation_waterfall_bundle(
 
     for evt in maker_rows:
         sec_value = evt.get("time_remaining_sec")
-        in_stage_band = False
-        if isinstance(sec_value, (int, float)):
-            in_stage_band = (
-                float(timing_gate_min_sec_to_expiry) - 1e-9
-                <= float(sec_value)
-                <= float(timing_gate_max_sec_to_expiry) + 1e-9
-            )
+        lifecycle_phase = _maker_lifecycle_phase_for_report(evt)
+        if lifecycle_phase in {"scan", "prepare", "maker_window", "taker_window", "resolve"}:
+            in_stage_band = lifecycle_phase == "maker_window"
+        else:
+            in_stage_band = False
+            if isinstance(sec_value, (int, float)):
+                in_stage_band = (
+                    float(fallback_timing_gate_min_sec_to_expiry) - 1e-9
+                    <= float(sec_value)
+                    <= float(fallback_timing_gate_max_sec_to_expiry) + 1e-9
+                )
         if not in_stage_band:
             terminal_path_counts["stage_band_excluded"] += 1
             exclusion_reason = "outside_active_maker_band"
-            if isinstance(sec_value, (int, float)) and float(sec_value) < float(timing_gate_min_sec_to_expiry):
+            if isinstance(sec_value, (int, float)) and float(sec_value) < float(
+                fallback_timing_gate_min_sec_to_expiry
+            ):
                 exclusion_reason = "earlier_or_post_window_outside_active_maker_band"
             stage_band_exclusion_reason_counts[exclusion_reason] += 1
 
     for row in active_band_probe_rows:
-        if _maker_new_risk_allowed_from_row(row) and bool(
+        if _maker_phase_allowed_from_row(row) and bool(
             row.get("secondary_oracle_confirmation", False)
         ):
             continue
         terminal_path_counts["prequote_prereq_blocked"] += 1
-        if not _maker_new_risk_allowed_from_row(row):
+        if not _maker_phase_allowed_from_row(row):
             prequote_prereq_block_reason_counts[
                 str(row.get("block_reason") or "runtime_stage_disallowed").strip().lower()
                 or "runtime_stage_disallowed"
@@ -8403,6 +8091,9 @@ def _maker_participation_waterfall_bundle(
     total_accounted = int(sum(terminal_path_dict.values()))
     return {
         "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
+        "authoritative_for_canonical_selection": False,
+        "applicability": "descriptive_only",
+        "current_owner_artifact": "maker_selection_authority_audit.json",
         "stages": stages,
         "terminal_path_counts": terminal_path_dict,
         "reconciliation": {
@@ -8448,6 +8139,21 @@ def _maker_zero_submit_root_cause_bundle(
             for row in shadow_rows
             if str(row.get("decision_result") or "").strip().lower() == "selection_rejected"
         )
+    )
+    submitted_shadow_row_count = int(
+        sum(
+            1
+            for row in shadow_rows
+            if str(row.get("decision_result") or "").strip().lower() == "submitted"
+        )
+    )
+    selection_rejected_primary_reason_counts: Counter[str] = Counter(
+        _normalize_selection_reject_reason(
+            row.get("selection_gate_primary_reject_reason") or row.get("decision_block_reason")
+        )
+        or "selection_rejected"
+        for row in shadow_rows
+        if str(row.get("decision_result") or "").strip().lower() == "selection_rejected"
     )
 
     contradiction_ledger: List[Dict[str, Any]] = []
@@ -8558,8 +8264,8 @@ def _maker_zero_submit_root_cause_bundle(
 
     measurement_gaps: List[str] = []
     for row in quote_starvation_rows:
-        if not str(row.get("stage_bucket") or row.get("raw_stage") or "").strip():
-            measurement_gaps.append("missing_raw_stage")
+        if not str(row.get("lineage_stage") or "").strip():
+            measurement_gaps.append("missing_lineage_stage")
         if not str(row.get("market_reference_mode") or "").strip():
             measurement_gaps.append("missing_market_reference_mode")
         if not str(row.get("market_reference_source_side") or "").strip():
@@ -8597,6 +8303,47 @@ def _maker_zero_submit_root_cause_bundle(
         ),
         "reject_reason_distribution": _counter_to_sorted_int_dict(active_band_reason_counts),
     }
+    if submitted_shadow_row_count > 0:
+        return {
+            "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
+            "runtime_classification": runtime_class_name or "UNKNOWN",
+            "authoritative_for_canonical_selection": False,
+            "applicability": "not_applicable_submit_run",
+            "current_owner_artifact": "maker_selection_authority_audit.json",
+            "zero_submit_classification": "not_applicable_maker_participated",
+            "classification_factors": ["maker_participated_current_run"],
+            "decision_readiness": "not_applicable_submit_run",
+            "measurement_gaps": [],
+            "known_truths": {
+                "current_run_submit_count": int(submitted_shadow_row_count),
+                "current_run_selection_rejected_row_count": int(shadow_selection_rejected_row_count),
+                "row_universe_caveats": [],
+            },
+            "ranked_cause_stack": [],
+            "contradiction_ledger": [
+                {
+                    "code": "maker_participated_current_run",
+                    "severity": "info",
+                    "detail": (
+                        f"submitted_shadow_row_count={submitted_shadow_row_count},"
+                        f" selection_rejected_shadow_row_count={shadow_selection_rejected_row_count}"
+                    ),
+                }
+            ],
+            "active_band_runtime_summary": active_band_summary,
+            "shadow_row_count": int(len(shadow_rows)),
+            "submitted_shadow_row_count": int(submitted_shadow_row_count),
+            "shadow_selection_rejected_row_count": int(shadow_selection_rejected_row_count),
+            "selection_rejected_primary_reason_distribution": _counter_to_sorted_int_dict(
+                selection_rejected_primary_reason_counts
+            ),
+            "probe_matched_selection_rejected_row_count": int(
+                waterfall.get("stages", {}).get("selection_rejected_rows", {}).get("count", 0)
+            ),
+            "unmatched_selection_rejected_shadow_row_count": 0,
+            "off_band_full_cannon_candidate_count": int(len(off_band_full_candidates)),
+            "off_band_full_cannon_candidate_examples": [],
+        }
     off_band_examples = [
         {
             "target_side_ref": str(row.get("target_side_ref") or ""),
@@ -8625,6 +8372,9 @@ def _maker_zero_submit_root_cause_bundle(
     return {
         "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
         "runtime_classification": runtime_class_name or "UNKNOWN",
+        "authoritative_for_canonical_selection": False,
+        "applicability": "support_only_zero_submit_diagnostic",
+        "current_owner_artifact": "maker_selection_authority_audit.json",
         "zero_submit_classification": zero_submit_classification,
         "classification_factors": classification_factors,
         "decision_readiness": decision_readiness,
@@ -8669,28 +8419,36 @@ def _conviction_bucket(conviction_score: Any) -> str:
 
 
 def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    residue_lane = "lifecycle_residue"
     total_eval_count = 0.0
     lane_eval_count = Counter()
-    lane_action_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_stage_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_block_reason_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_reject_reason_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_suppression_class_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_book_source_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_latency_state_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_edge_bucket_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
+    lane_action_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_lifecycle_phase_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_lineage_stage_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_block_reason_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_reject_reason_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_suppression_class_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_book_source_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_latency_state_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_edge_bucket_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
     lane_submit_candidate_count = Counter()
     lane_taker_action_count = Counter()
-    lane_non_stage_eval_count = Counter()
-    lane_authority_class_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_normal_taker_allowed_count: Dict[str, Counter[str]] = {"normal": Counter(), "recovery": Counter()}
-    lane_reduce_only_recovery_allowed_count: Dict[str, Counter[str]] = {
+    lane_phase_enabled_eval_count = Counter()
+    lane_taker_phase_allowed_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_open_order_cleanup_required_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_settlement_hold_required_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_unresolved_lifecycle_obligation_count: Dict[str, Counter[str]] = {
         "normal": Counter(),
-        "recovery": Counter(),
+        residue_lane: Counter(),
     }
-    lane_preexpiry_emergency_taker_allowed_count: Dict[str, Counter[str]] = {
+    lane_cancel_fail_closed_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
+    lane_historical_recovery_authority_lineage_count: Dict[str, Counter[str]] = {
         "normal": Counter(),
-        "recovery": Counter(),
+        residue_lane: Counter(),
+    }
+    lane_historical_emergency_unwind_authority_lineage_count: Dict[str, Counter[str]] = {
+        "normal": Counter(),
+        residue_lane: Counter(),
     }
 
     def _norm(value: Any, default: str = "unknown") -> str:
@@ -8702,9 +8460,8 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             return "true" if value else "false"
         return _norm(value)
 
-    def _stage(value: Any) -> str:
-        text = str(value or "").strip().upper()
-        return text or "UNKNOWN"
+    def _lineage_stage(evt: Dict[str, Any]) -> str:
+        return _maker_lineage_stage_for_report(evt)
 
     def _edge_abs_from_eval(evt: Dict[str, Any]) -> float:
         explicit = _safe_float(evt.get("edge_abs"), default=-1.0)
@@ -8721,7 +8478,7 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             return "submitted"
         if not block_reason:
             return "unknown_no_action"
-        if block_reason in {"normal_taker_authority_closed", "stage_disallow_taker"}:
+        if block_reason in {"normal_taker_authority_closed", "phase_disallow_taker"}:
             return "late_window_authority_gate"
         if block_reason in {"taker_outside_final_window", "maker_timing_gate_closed"}:
             return "timing_window"
@@ -8733,8 +8490,15 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             return "source_or_quality_gate"
         if block_reason == "taker_token_cooldown":
             return "cooldown"
+        if block_reason in {
+            "open_order_cleanup_required",
+            "settlement_hold_required",
+            "unresolved_lifecycle_obligation",
+            "cancel_fail_closed",
+        }:
+            return "lifecycle_residue_policy"
         if block_reason.startswith("reduce_only_recovery"):
-            return "recovery_policy"
+            return "lifecycle_residue_policy"
         if block_reason == "taker_submit_rejected":
             if reject_reason in {
                 "risk_reject_new_exposure_expiry_gate_blocked",
@@ -8759,32 +8523,41 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
         if str(evt.get("evaluation_scope") or "").strip().lower() != "taker":
             continue
         total_eval_count += 1.0
-        recovery_active = _as_bool(evt.get("reduce_only_recovery_active")) is True
-        lane = "recovery" if recovery_active else "normal"
+        lifecycle_residue_active = _is_lifecycle_residue_payload(evt)
+        lane = residue_lane if lifecycle_residue_active else "normal"
         lane_eval_count[lane] += 1
         action_taken = _norm(evt.get("action_taken"), default="unknown")
-        block_reason = _norm(evt.get("block_reason"), default="")
+        block_reason = normalize_block_reason(evt.get("block_reason"))
         reject_reason = _norm(evt.get("taker_submit_reject_reason"), default="")
-        stage = _stage(evt.get("stage"))
+        lifecycle_phase = _taker_lifecycle_phase_for_report(evt)
+        lineage_stage = _lineage_stage(evt)
         lane_action_count[lane][action_taken] += 1
-        lane_stage_count[lane][stage] += 1
+        lane_lifecycle_phase_count[lane][lifecycle_phase] += 1
+        lane_lineage_stage_count[lane][lineage_stage] += 1
         if block_reason:
             lane_block_reason_count[lane][block_reason] += 1
         if reject_reason:
             lane_reject_reason_count[lane][reject_reason] += 1
         suppression_class = _classify(block_reason, reject_reason, action_taken)
         lane_suppression_class_count[lane][suppression_class] += 1
-        lane_authority_class_count[lane][_norm(evt.get("late_window_authority_class"))] += 1
-        lane_normal_taker_allowed_count[lane][_bool_label(evt.get("normal_taker_allowed"))] += 1
-        lane_reduce_only_recovery_allowed_count[lane][_bool_label(evt.get("reduce_only_recovery_allowed"))] += 1
-        lane_preexpiry_emergency_taker_allowed_count[lane][
-            _bool_label(evt.get("preexpiry_emergency_taker_allowed"))
+        lane_taker_phase_allowed_count[lane][_bool_label(_taker_phase_allowed_from_row(evt))] += 1
+        lane_open_order_cleanup_required_count[lane][_bool_label(evt.get("open_order_cleanup_required"))] += 1
+        lane_settlement_hold_required_count[lane][_bool_label(evt.get("settlement_hold_required"))] += 1
+        lane_unresolved_lifecycle_obligation_count[lane][
+            _bool_label(evt.get("unresolved_lifecycle_obligation"))
+        ] += 1
+        lane_cancel_fail_closed_count[lane][_bool_label(evt.get("cancel_fail_closed"))] += 1
+        lane_historical_recovery_authority_lineage_count[lane][
+            _bool_label(evt.get(_HISTORICAL_RECOVERY_ALLOWED_FIELD))
+        ] += 1
+        lane_historical_emergency_unwind_authority_lineage_count[lane][
+            _bool_label(evt.get(_HISTORICAL_EMERGENCY_ALLOWED_FIELD))
         ] += 1
         lane_book_source_count[lane][_norm(evt.get("book_source"))] += 1
         lane_latency_state_count[lane][_norm(evt.get("latency_state"))] += 1
         lane_edge_bucket_count[lane][_taker_edge_bucket(_edge_abs_from_eval(evt))] += 1
-        if block_reason not in {"normal_taker_authority_closed", "stage_disallow_taker"}:
-            lane_non_stage_eval_count[lane] += 1
+        if block_reason not in {"normal_taker_authority_closed", "phase_disallow_taker"}:
+            lane_phase_enabled_eval_count[lane] += 1
         if action_taken == "taker":
             lane_taker_action_count[lane] += 1
             lane_submit_candidate_count[lane] += 1
@@ -8796,13 +8569,13 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
 
     def _lane_payload(lane: str) -> Dict[str, Any]:
         eval_count = float(lane_eval_count.get(lane, 0))
-        non_stage_count = float(lane_non_stage_eval_count.get(lane, 0))
+        phase_enabled_count = float(lane_phase_enabled_eval_count.get(lane, 0))
         submit_candidate_count = float(lane_submit_candidate_count.get(lane, 0))
         taker_action_count = float(lane_taker_action_count.get(lane, 0))
         return {
             "edge_eval_count": eval_count,
-            "taker_enabled_stage_eval_count": non_stage_count,
-            "taker_enabled_stage_eval_ratio": float(non_stage_count / eval_count) if eval_count > 0.0 else 0.0,
+            "taker_enabled_phase_eval_count": phase_enabled_count,
+            "taker_enabled_phase_eval_ratio": float(phase_enabled_count / eval_count) if eval_count > 0.0 else 0.0,
             "submit_candidate_count": submit_candidate_count,
             "action_taken_taker_count": taker_action_count,
             "submit_candidate_to_action_rate": (
@@ -8811,17 +8584,29 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
                 else 0.0
             ),
             "action_taken_distribution": _counter(lane_action_count[lane]),
-            "stage_distribution": _counter(lane_stage_count[lane]),
+            "lifecycle_phase_distribution": _counter(lane_lifecycle_phase_count[lane]),
+            "lineage_stage_distribution": _counter(lane_lineage_stage_count[lane]),
             "block_reason_distribution": _counter(lane_block_reason_count[lane]),
             "submit_reject_reason_distribution": _counter(lane_reject_reason_count[lane]),
             "suppression_class_distribution": _counter(lane_suppression_class_count[lane]),
-            "late_window_authority_class_distribution": _counter(lane_authority_class_count[lane]),
-            "normal_taker_allowed_distribution": _counter(lane_normal_taker_allowed_count[lane]),
-            "reduce_only_recovery_allowed_distribution": _counter(
-                lane_reduce_only_recovery_allowed_count[lane]
+            "taker_phase_allowed_distribution": _counter(lane_taker_phase_allowed_count[lane]),
+            "open_order_cleanup_required_distribution": _counter(
+                lane_open_order_cleanup_required_count[lane]
             ),
-            "preexpiry_emergency_taker_allowed_distribution": _counter(
-                lane_preexpiry_emergency_taker_allowed_count[lane]
+            "settlement_hold_required_distribution": _counter(
+                lane_settlement_hold_required_count[lane]
+            ),
+            "unresolved_lifecycle_obligation_distribution": _counter(
+                lane_unresolved_lifecycle_obligation_count[lane]
+            ),
+            "cancel_fail_closed_distribution": _counter(
+                lane_cancel_fail_closed_count[lane]
+            ),
+            "historical_recovery_authority_lineage_distribution": _counter(
+                lane_historical_recovery_authority_lineage_count[lane]
+            ),
+            "historical_emergency_unwind_authority_lineage_distribution": _counter(
+                lane_historical_emergency_unwind_authority_lineage_count[lane]
             ),
             "book_source_distribution": _counter(lane_book_source_count[lane]),
             "latency_state_distribution": _counter(lane_latency_state_count[lane]),
@@ -8835,7 +8620,7 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
         ),
         "total_taker_edge_eval_count": float(total_eval_count),
         "normal": _lane_payload("normal"),
-        "recovery": _lane_payload("recovery"),
+        residue_lane: _lane_payload(residue_lane),
     }
 
 
@@ -8864,9 +8649,9 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     submit_normal_taker_side_class = Counter()
     submit_normal_side_policy = Counter()
     submit_class_distribution = Counter()
-    submit_recovery_override_edge_bucket = Counter()
-    submit_recovery_override_stage_distribution = Counter()
-    submit_recovery_override_reason_distribution = Counter()
+    submit_lifecycle_residue_override_edge_bucket = Counter()
+    submit_lifecycle_residue_override_stage_distribution = Counter()
+    submit_lifecycle_residue_override_reason_distribution = Counter()
     submit_true_unknown_stage_distribution = Counter()
     submit_decision_to_submit_latency_ms: List[float] = []
     submit_decision_to_submit_latency_ms_normal: List[float] = []
@@ -8895,10 +8680,10 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     risk_reject_after_capable_count = 0.0
     decision_predicted_reject_reason = Counter()
     normal_competitiveness_submit_count = 0.0
-    recovery_override_submit_count = 0.0
+    lifecycle_residue_override_submit_count = 0.0
     true_unknown_submit_count = 0.0
     partial_competitiveness_payload_count = 0.0
-    recovery_override_without_normal_payload_count = 0.0
+    lifecycle_residue_override_without_normal_payload_count = 0.0
 
     stage_funnel: Dict[str, Dict[str, float]] = {}
     stage_reduction_causes: Dict[str, Counter[str]] = {}
@@ -8974,7 +8759,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     def _payload_dict(value: Any) -> Dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
-    def _is_recovery_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+    def _is_lifecycle_residue_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         candidate_payloads = [
             comp,
             _payload_dict(evt.get("size_resolution")).get("taker_competitiveness"),
@@ -8984,12 +8769,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         for payload in candidate_payloads:
             if not isinstance(payload, dict):
                 continue
-            if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-                return True
-            if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-                return True
-            reason = str(payload.get("reduce_only_recovery_reason") or "").strip().lower()
-            if reason:
+            if _is_lifecycle_residue_payload(payload):
                 return True
         return False
 
@@ -9156,13 +8936,13 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             actual_submit_count += 1.0
             comp = evt.get("taker_competitiveness")
             comp_dict = comp if isinstance(comp, dict) else {}
-            recovery_override = _is_recovery_override_submit(evt, comp_dict)
+            recovery_override = _is_lifecycle_residue_override_submit(evt, comp_dict)
             has_normal_payload = bool(comp_dict) and _has_normal_competitiveness_payload(comp_dict)
             if recovery_override:
-                submit_class = "reduce_only_recovery_override"
-                recovery_override_submit_count += 1.0
+                submit_class = "lifecycle_residue_override"
+                lifecycle_residue_override_submit_count += 1.0
                 if not has_normal_payload:
-                    recovery_override_without_normal_payload_count += 1.0
+                    lifecycle_residue_override_without_normal_payload_count += 1.0
             elif isinstance(comp, dict) and has_normal_payload:
                 submit_class = "normal_competitiveness"
                 normal_competitiveness_submit_count += 1.0
@@ -9195,11 +8975,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 if submit_class == "normal_competitiveness":
                     submit_decision_to_submit_latency_ms_normal.append(float(submit_latency_ms))
 
-            if submit_class == "reduce_only_recovery_override":
-                submit_recovery_override_edge_bucket[edge_bucket] += 1
-                submit_recovery_override_stage_distribution[stage] += 1
-                reason_value = str(comp_dict.get("reduce_only_recovery_reason") or "unknown").strip().lower() or "unknown"
-                submit_recovery_override_reason_distribution[reason_value] += 1
+            if submit_class == "lifecycle_residue_override":
+                submit_lifecycle_residue_override_edge_bucket[edge_bucket] += 1
+                submit_lifecycle_residue_override_stage_distribution[stage] += 1
+                reason_value = _historical_recovery_lineage_reason(comp_dict)
+                submit_lifecycle_residue_override_reason_distribution[reason_value] += 1
                 continue
 
             if submit_class == "true_unknown":
@@ -9394,11 +9174,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "actual_submit_count": float(actual_submit_count),
         "fill_count": float(fill_count),
         "normal_competitiveness_submit_count": float(normal_competitiveness_submit_count),
-        "recovery_override_submit_count": float(recovery_override_submit_count),
+        "lifecycle_residue_override_submit_count": float(lifecycle_residue_override_submit_count),
         "true_unknown_submit_count": float(true_unknown_submit_count),
         "partial_competitiveness_payload_count": float(partial_competitiveness_payload_count),
-        "recovery_override_without_normal_payload_count": float(
-            recovery_override_without_normal_payload_count
+        "lifecycle_residue_override_without_normal_payload_count": float(
+            lifecycle_residue_override_without_normal_payload_count
         ),
         "decision_to_submit_rate": float(decision_to_submit_rate),
         "normal_competitiveness_decision_to_submit_rate": (
@@ -9462,14 +9242,14 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "submit_normal_side_policy_distribution": dict(
             sorted(submit_normal_side_policy.items(), key=lambda item: item[0])
         ),
-        "submit_recovery_override_edge_bucket_distribution": dict(
-            sorted(submit_recovery_override_edge_bucket.items(), key=lambda item: item[0])
+        "submit_lifecycle_residue_override_edge_bucket_distribution": dict(
+            sorted(submit_lifecycle_residue_override_edge_bucket.items(), key=lambda item: item[0])
         ),
-        "submit_recovery_override_stage_distribution": dict(
-            sorted(submit_recovery_override_stage_distribution.items(), key=lambda item: item[0])
+        "submit_lifecycle_residue_override_stage_distribution": dict(
+            sorted(submit_lifecycle_residue_override_stage_distribution.items(), key=lambda item: item[0])
         ),
-        "submit_recovery_override_reason_distribution": dict(
-            sorted(submit_recovery_override_reason_distribution.items(), key=lambda item: item[0])
+        "submit_lifecycle_residue_override_reason_distribution": dict(
+            sorted(submit_lifecycle_residue_override_reason_distribution.items(), key=lambda item: item[0])
         ),
         "decision_to_submit_latency_ms_summary": _latency_summary(submit_decision_to_submit_latency_ms),
         "normal_competitiveness_decision_to_submit_latency_ms_summary": _latency_summary(
@@ -9620,89 +9400,6 @@ def _risk_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         ),
         "global_exposure_near_cap_count": float(near_cap_count),
         "global_exposure_cap_reject_count": float(reject_reason_distribution.get("global_exposure_cap", 0)),
-    }
-
-
-def _reduce_only_recovery_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
-    waiting_for_maker_exit_rows = 0
-    local_size_cap_unavailable_rows = 0
-    local_size_cap_flat_or_wrong_side_rows = 0
-    local_size_cap_nonflat_or_unknown_rows = 0
-    local_reject_lane_distribution: Counter[str] = Counter()
-    local_reject_posture_distribution: Counter[str] = Counter()
-    local_reject_cap_source_distribution: Counter[str] = Counter()
-    accepted_or_reserved_recovery_rows = 0
-
-    for evt in events:
-        event_type = str(evt.get("event_type") or "").strip()
-        reason = str(evt.get("reason") or "").strip().lower()
-        block_reason = str(evt.get("block_reason") or "").strip().lower()
-        recovery_active = _as_bool(evt.get("reduce_only_recovery_active"))
-        if recovery_active is None:
-            risk_context = evt.get("risk_context")
-            if isinstance(risk_context, dict):
-                recovery_active = _as_bool(risk_context.get("reduce_only_recovery_active"))
-
-        if event_type == "edge_evaluation" and block_reason == "reduce_only_recovery_waiting_for_maker_exit":
-            waiting_for_maker_exit_rows += 1
-
-        if event_type in {
-            "order_submit",
-            "order_submission_reserved",
-            "order_submission_transport_attempted",
-            "order_submission_accepted",
-        } and bool(recovery_active):
-            accepted_or_reserved_recovery_rows += 1
-
-        if event_type != "order_submission_rejected_local" or reason != "reduce_only_recovery_size_cap_unavailable":
-            continue
-
-        local_size_cap_unavailable_rows += 1
-        lane = str(evt.get("submission_lane") or "unknown").strip().lower() or "unknown"
-        posture = str(evt.get("financial_posture_class") or "UNKNOWN").strip().upper() or "UNKNOWN"
-        cap_source = (
-            str(evt.get("reduce_only_dynamic_size_cap_source") or "unknown").strip().lower()
-            or "unknown"
-        )
-        local_reject_lane_distribution[lane] += 1
-        local_reject_posture_distribution[posture] += 1
-        local_reject_cap_source_distribution[cap_source] += 1
-
-        net_shares = _safe_float(evt.get("reduce_only_net_shares_live"), 0.0)
-        size_cap = _safe_float(evt.get("reduce_only_size_cap_shares"), 0.0)
-        flat_or_wrong_side = bool(
-            abs(float(net_shares)) <= 1e-9
-            and float(size_cap) <= 1e-9
-            and cap_source == "live_position_flat_or_wrong_side"
-        )
-        if flat_or_wrong_side:
-            local_size_cap_flat_or_wrong_side_rows += 1
-        else:
-            local_size_cap_nonflat_or_unknown_rows += 1
-
-    if local_size_cap_unavailable_rows <= 0:
-        size_cap_classification = "none"
-    elif local_size_cap_nonflat_or_unknown_rows <= 0:
-        size_cap_classification = "flat_or_wrong_side_noop_only"
-    else:
-        size_cap_classification = "nonflat_or_unknown_present"
-
-    return {
-        "edge_waiting_for_maker_exit_rows": float(waiting_for_maker_exit_rows),
-        "accepted_or_reserved_recovery_rows": float(accepted_or_reserved_recovery_rows),
-        "local_size_cap_unavailable_rows": float(local_size_cap_unavailable_rows),
-        "local_size_cap_flat_or_wrong_side_rows": float(local_size_cap_flat_or_wrong_side_rows),
-        "local_size_cap_nonflat_or_unknown_rows": float(local_size_cap_nonflat_or_unknown_rows),
-        "local_size_cap_classification": str(size_cap_classification),
-        "local_reject_lane_distribution": dict(
-            sorted(local_reject_lane_distribution.items(), key=lambda item: item[0])
-        ),
-        "local_reject_posture_distribution": dict(
-            sorted(local_reject_posture_distribution.items(), key=lambda item: item[0])
-        ),
-        "local_reject_cap_source_distribution": dict(
-            sorted(local_reject_cap_source_distribution.items(), key=lambda item: item[0])
-        ),
     }
 
 
@@ -9911,6 +9608,7 @@ def build_report(
         errors = _filter_rows_by_run_id(load_jsonl(error_files, max_lines_per_file=max_lines_per_file), resolved_run_id)
     run_manifest = _load_run_manifest(resolved_log_dir, resolved_run_id)
     outcome_truth_records = _load_outcome_truth_records(resolved_log_dir, resolved_run_id)
+    outcome_truth_audit = _load_outcome_truth_audit(resolved_log_dir, resolved_run_id)
     maker_fight_admission_shadow_bundle = _maker_fight_admission_shadow_bundle(
         events=events,
         status=status,
@@ -9964,13 +9662,16 @@ def build_report(
     valuation_truth = _valuation_truth_stats(status, events)
     secondary_oracle_pyth = _secondary_oracle_pyth_stats(status)
     maker_sizing_competitiveness = _maker_sizing_competitiveness_stats(events)
-    reduce_only_recovery = _reduce_only_recovery_stats(events)
     duration_minutes = _run_duration_minutes(events, status, errors)
     stale_stats = _stale_data_stats(events)
     latency_stats = _latency_distribution(events)
     taker = _taker_summary_stats(events, duration_minutes)
     execution_paths = _execution_path_stats(events, duration_minutes)
     financial_performance = _financial_performance_summary(events, status, run_manifest)
+    financial_outcome_reconciliation = _financial_outcome_reconciliation(
+        financial_performance,
+        outcome_truth_audit,
+    )
     edge_truth = _edge_truth_summary(events)
     harness_realism_grade, harness_realism_grade_breakdown = _harness_realism_grade(
         events=events,
@@ -10049,12 +9750,48 @@ def build_report(
     execution_quality_decision_reference_lane_attribution = (
         _execution_quality_decision_reference_lane_attribution(events)
     )
-    preexpiry_recovery_churn = _preexpiry_recovery_churn_stats(events)
-    recovery_cost_benefit = _recovery_cost_benefit_stats(events)
-    terminal_handoff_deadband = _terminal_handoff_deadband_stats(
-        events,
-        taker_config_gate_posture=taker_config_gate_posture,
-    )
+    lifecycle_residue = {
+        "classification": (
+            "mixed_open_and_settlement"
+            if _safe_float(valuation_truth.get("settlement_hold_required_count")) > 0.0
+            and _safe_float(valuation_truth.get("open_order_cleanup_required_count")) > 0.0
+            else "settlement_hold_only"
+            if _safe_float(valuation_truth.get("settlement_hold_required_count")) > 0.0
+            else "cancel_cleanup_only"
+            if _safe_float(valuation_truth.get("open_order_cleanup_required_count")) > 0.0
+            else "unresolved_only"
+            if _safe_float(valuation_truth.get("unresolved_lifecycle_obligation_count")) > 0.0
+            else "none"
+        ),
+        "settlement_hold_required_count": _safe_float(
+            valuation_truth.get("settlement_hold_required_count")
+        ),
+        "open_order_cleanup_required_count": _safe_float(
+            valuation_truth.get("open_order_cleanup_required_count")
+        ),
+        "unresolved_lifecycle_obligation_count": _safe_float(
+            valuation_truth.get("unresolved_lifecycle_obligation_count")
+        ),
+        "cancel_fail_closed_count": _safe_float(
+            valuation_truth.get("cancel_fail_closed_count")
+        ),
+        "latest_settlement_hold_required_count": _safe_float(
+            valuation_truth.get("latest_settlement_hold_required_count")
+        ),
+        "latest_open_order_cleanup_required_count": _safe_float(
+            valuation_truth.get("latest_open_order_cleanup_required_count")
+        ),
+        "latest_unresolved_lifecycle_obligation_count": _safe_float(
+            valuation_truth.get("latest_unresolved_lifecycle_obligation_count")
+        ),
+        "latest_cancel_fail_closed_count": _safe_float(
+            valuation_truth.get("latest_cancel_fail_closed_count")
+        ),
+        "report_semantics": (
+            "report_only_lifecycle_residue; accepted exposure rides to settlement and open unfilled orders "
+            "use cancel-only fail-close"
+        ),
+    }
     order_submit_total = float(_safe_float(execution_paths.get("maker_submits")) + _safe_float(execution_paths.get("taker_bonus_submits")))
     fill_total = float(_safe_float(execution_paths.get("maker_fills")) + _safe_float(execution_paths.get("taker_bonus_fills")))
     starvation = _resolve_starvation_mode(
@@ -10117,6 +9854,7 @@ def build_report(
         "taker": taker,
         "execution_paths": execution_paths,
         "financial_performance": financial_performance,
+        "financial_outcome_reconciliation": financial_outcome_reconciliation,
         "maker_regression_sentinel": maker_regression_sentinel,
         "maker_fireability": maker_fireability,
         "edge_truth": edge_truth,
@@ -10133,28 +9871,25 @@ def build_report(
         "valuation_truth": valuation_truth,
         "secondary_oracle_pyth": secondary_oracle_pyth,
         "maker_sizing_competitiveness": maker_sizing_competitiveness,
-        "reduce_only_recovery": reduce_only_recovery,
+        "lifecycle_residue": lifecycle_residue,
         EXERCISED_HARNESS_REALISM_FIELD: exercised_harness_realism,
-        "maker_market_reference_fallback_count": _safe_float(
-            edge_truth.get("maker_market_reference_fallback_count")
+        "maker_market_reference_missing_count": _safe_float(
+            edge_truth.get("maker_market_reference_missing_count")
         ),
-        "maker_market_reference_fallback_bid_count": _safe_float(
-            edge_truth.get("maker_market_reference_fallback_bid_count")
-        ),
-        "maker_market_reference_fallback_ask_count": _safe_float(
-            edge_truth.get("maker_market_reference_fallback_ask_count")
+        "maker_market_reference_one_sided_context_count": _safe_float(
+            edge_truth.get("maker_market_reference_one_sided_context_count")
         ),
         "maker_reference_direct_midpoint_activity": _safe_float(
             edge_truth.get("maker_reference_direct_midpoint_activity")
         ),
-        "maker_reference_bounded_fallback_activity": _safe_float(
-            edge_truth.get("maker_reference_bounded_fallback_activity")
+        "maker_reference_missing_activity": _safe_float(
+            edge_truth.get("maker_reference_missing_activity")
         ),
         "maker_reference_direct_midpoint_action_activity": _safe_float(
             edge_truth.get("maker_reference_direct_midpoint_action_activity")
         ),
-        "maker_reference_bounded_fallback_action_activity": _safe_float(
-            edge_truth.get("maker_reference_bounded_fallback_action_activity")
+        "maker_reference_missing_action_activity": _safe_float(
+            edge_truth.get("maker_reference_missing_action_activity")
         ),
         "mode_transitions": mode_timeline,
         "kill_switch_events": kill_switch_events,
@@ -10178,9 +9913,6 @@ def build_report(
         "execution_quality_decision_reference_lane_attribution": (
             execution_quality_decision_reference_lane_attribution
         ),
-        "preexpiry_recovery_churn": preexpiry_recovery_churn,
-        "recovery_cost_benefit": recovery_cost_benefit,
-        "terminal_handoff_deadband": terminal_handoff_deadband,
         "market_data_source": market_data_source,
         "execution_quality": capture_stats,
         "taker_stage_net_breakout": taker_stage_net_breakout,
@@ -10193,7 +9925,7 @@ def build_report(
             "maker_fight_admission_shadow_rows": maker_fight_admission_shadow_bundle["rows"],
             "maker_fight_admission_shadow_summary": maker_fight_admission_shadow_bundle["summary"],
             "maker_fight_admission_calibration_audit": maker_fight_admission_shadow_bundle["calibration_audit"],
-            "maker_cannon_late_window_probe_rows": maker_cannon_late_window_probe_bundle["rows"],
+            "maker_cannon_late_window_probe_rows": maker_probe_rows_with_shadow_truth,
             "maker_cannon_late_window_probe_summary": maker_cannon_late_window_probe_bundle["summary"],
             "maker_mid_window_probe_rows": maker_mid_window_probe_bundle["rows"],
             "maker_mid_window_probe_summary": maker_mid_window_probe_bundle["summary"],
@@ -10223,6 +9955,7 @@ def build_report(
             "maker_selection_authority_counterfactual": maker_selection_authority_bundle[
                 "counterfactual"
             ],
+            "financial_outcome_reconciliation": financial_outcome_reconciliation,
         }
     return report
 
@@ -10285,12 +10018,12 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         for lane, metrics in decision_lane_by_lane.items()
         if isinstance(metrics, dict)
     }
-    preexpiry_churn = (
-        report.get("preexpiry_recovery_churn", {})
-        if isinstance(report.get("preexpiry_recovery_churn"), dict)
+    valuation_truth = report.get("valuation_truth", {}) if isinstance(report.get("valuation_truth"), dict) else {}
+    lifecycle_residue = (
+        report.get("lifecycle_residue", {})
+        if isinstance(report.get("lifecycle_residue"), dict)
         else {}
     )
-    valuation_truth = report.get("valuation_truth", {}) if isinstance(report.get("valuation_truth"), dict) else {}
     taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
@@ -10324,7 +10057,9 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         taker_suppression.get("normal", {}) if isinstance(taker_suppression.get("normal"), dict) else {}
     )
     taker_suppression_recovery = (
-        taker_suppression.get("recovery", {}) if isinstance(taker_suppression.get("recovery"), dict) else {}
+        taker_suppression.get("lifecycle_residue", {})
+        if isinstance(taker_suppression.get("lifecycle_residue"), dict)
+        else {}
     )
     taker_stage_funnel = (
         taker_comp.get("stage_funnel_metrics", {})
@@ -10342,21 +10077,6 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     maker_size_comp = (
         report.get("maker_sizing_competitiveness", {})
         if isinstance(report.get("maker_sizing_competitiveness"), dict)
-        else {}
-    )
-    reduce_only = (
-        report.get("reduce_only_recovery", {})
-        if isinstance(report.get("reduce_only_recovery"), dict)
-        else {}
-    )
-    recovery_cost = (
-        report.get("recovery_cost_benefit", {})
-        if isinstance(report.get("recovery_cost_benefit"), dict)
-        else {}
-    )
-    terminal_handoff_deadband = (
-        report.get("terminal_handoff_deadband", {})
-        if isinstance(report.get("terminal_handoff_deadband"), dict)
         else {}
     )
     runtime_class = report.get("runtime_classification", {}) if isinstance(report.get("runtime_classification"), dict) else {}
@@ -10436,9 +10156,9 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         (
             "maker_reference_activity="
             + f"direct_midpoint={int(_safe_float(edge_truth.get('maker_reference_direct_midpoint_activity')))},"
-            + f"bounded_fallback={int(_safe_float(edge_truth.get('maker_reference_bounded_fallback_activity')))},"
-            + f"fallback_bid={int(_safe_float(edge_truth.get('maker_market_reference_fallback_bid_count')))},"
-            + f"fallback_ask={int(_safe_float(edge_truth.get('maker_market_reference_fallback_ask_count')))}"
+            + f"missing={int(_safe_float(edge_truth.get('maker_reference_missing_activity')))},"
+            + "one_sided_context="
+            + f"{int(_safe_float(edge_truth.get('maker_market_reference_one_sided_context_count')))}"
         ),
         (
             "maker_competitiveness="
@@ -10468,7 +10188,8 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"submit_capable_decisions={int(_safe_float(taker_comp.get('submit_capable_decision_count')))},"
             + f"actual_submits={int(_safe_float(taker_comp.get('actual_submit_count')))},"
             + f"normal_submits={int(_safe_float(taker_comp.get('normal_competitiveness_submit_count')))},"
-            + f"recovery_override_submits={int(_safe_float(taker_comp.get('recovery_override_submit_count')))},"
+            + "lifecycle_residue_override_submits="
+            + f"{int(_safe_float(taker_comp.get('lifecycle_residue_override_submit_count')))},"
             + f"true_unknown_submits={int(_safe_float(taker_comp.get('true_unknown_submit_count')))},"
             + f"fills={int(_safe_float(taker_comp.get('fill_count')))},"
             + f"decision_to_submit_rate={_safe_float(taker_comp.get('decision_to_submit_rate')):.4f},"
@@ -10495,8 +10216,8 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{json.dumps(taker_gate_posture.get('required_min_edge_by_intent_stage', {}), sort_keys=True)},"
             + "stage_windows="
             + f"{json.dumps((taker_gate_posture.get('latest_stage_window_semantics') or {}).get('stage_rows', {}), sort_keys=True)},"
-            + "recovery_below_required_min_edge="
-            + f"{int(_safe_float(taker_gate_posture.get('recovery_override_below_required_min_edge_count')))}"
+            + "lifecycle_residue_below_required_min_edge="
+            + f"{int(_safe_float(taker_gate_posture.get('lifecycle_residue_override_below_required_min_edge_count')))}"
         ),
         (
             "taker_config_gate_posture="
@@ -10507,68 +10228,30 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{1 if bool((taker_config_gate.get('boundary_alignment') or {}).get('normal_can_open_inside_taker_final_window', False)) else 0},"
             + "final_window_overlap_max_sec="
             + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('max_normal_entry_width_inside_final_window_sec')):.2f},"
+            + "final_window_sec="
+            + f"{_safe_float((taker_config_gate.get('normal_taker_entry_gates') or {}).get('final_window_sec')):.2f},"
             + "require_lag_verification="
             + f"{json.dumps((taker_config_gate.get('taker_lag_gate') or {}).get('require_lag_verification'))},"
             + "latency_hit_threshold_ms="
             + f"{_safe_float((taker_config_gate.get('latency_verifier') or {}).get('hit_threshold_ms')):.2f},"
-            + "stage_final_windows="
-            + f"{json.dumps((taker_config_gate.get('normal_taker_entry_gates') or {}).get('stage_final_window_sec_by_stage', {}), sort_keys=True)},"
             + f"flags={json.dumps(taker_config_gate.get('posture_flags', []), sort_keys=True)}"
-        ),
-        (
-            "maker_taker_terminal_handoff="
-            + "maker_gate_min_sec="
-            + f"{_safe_float((taker_config_gate.get('maker_gate_posture') or {}).get('timing_gate_min_sec_to_expiry')):.2f},"
-            + "maker_gate_max_sec="
-            + f"{_safe_float((taker_config_gate.get('maker_gate_posture') or {}).get('timing_gate_max_sec_to_expiry')):.2f},"
-            + "held_preexpiry_reduce_only_sec="
-            + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('held_preexpiry_reduce_only_sec')):.2f},"
-            + "preexpiry_emergency_taker_window_sec="
-            + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('preexpiry_emergency_taker_window_sec')):.2f},"
-            + "taker_min_new_exposure_sec="
-            + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('min_sec_to_expiry_for_new_exposure')):.2f},"
-            + "maker_gate_closes_at_reduce_only_boundary="
-            + (
-                "1"
-                if abs(
-                    _safe_float((taker_config_gate.get('maker_gate_posture') or {}).get('timing_gate_min_sec_to_expiry'))
-                    - _safe_float((taker_config_gate.get('boundary_alignment') or {}).get('held_preexpiry_reduce_only_sec'))
-                )
-                <= 1e-9
-                else "0"
-            )
-        ),
-        (
-            "terminal_handoff_deadband="
-            + f"classification={str(terminal_handoff_deadband.get('classification') or 'unknown')},"
-            + f"candidate_evals={int(_safe_float(terminal_handoff_deadband.get('candidate_recovery_edge_eval_count')))},"
-            + "waiting_for_maker_exit="
-            + f"{int(_safe_float(terminal_handoff_deadband.get('waiting_for_maker_exit_count')))},"
-            + f"action_taker={int(_safe_float(terminal_handoff_deadband.get('action_taker_count')))},"
-            + "maker_gate_closes_at_reduce_only_boundary="
-            + f"{1 if bool(terminal_handoff_deadband.get('maker_gate_closes_at_reduce_only_boundary', False)) else 0},"
-            + "block_reasons="
-            + f"{json.dumps(terminal_handoff_deadband.get('block_reason_distribution', {}), sort_keys=True)},"
-            + "actions="
-            + f"{json.dumps(terminal_handoff_deadband.get('action_distribution', {}), sort_keys=True)},"
-            + "allowance="
-            + f"{json.dumps(terminal_handoff_deadband.get('allowance_distribution', {}), sort_keys=True)},"
-            + "sec_to_expiry="
-            + f"{json.dumps(terminal_handoff_deadband.get('candidate_sec_to_expiry', {}), sort_keys=True)}"
         ),
         (
             "taker_opportunity_suppression="
             + f"edge_evals={int(_safe_float(taker_suppression.get('total_taker_edge_eval_count')))},"
             + f"normal_evals={int(_safe_float(taker_suppression_normal.get('edge_eval_count')))},"
-            + f"normal_enabled_stage_evals={int(_safe_float(taker_suppression_normal.get('taker_enabled_stage_eval_count')))},"
+            + f"normal_enabled_phase_evals={int(_safe_float(taker_suppression_normal.get('taker_enabled_phase_eval_count')))},"
             + f"normal_submit_candidates={int(_safe_float(taker_suppression_normal.get('submit_candidate_count')))},"
             + f"normal_actions={int(_safe_float(taker_suppression_normal.get('action_taken_taker_count')))},"
             + "normal_classes="
             + f"{json.dumps(taker_suppression_normal.get('suppression_class_distribution', {}), sort_keys=True)},"
-            + f"recovery_evals={int(_safe_float(taker_suppression_recovery.get('edge_eval_count')))},"
-            + f"recovery_submit_candidates={int(_safe_float(taker_suppression_recovery.get('submit_candidate_count')))},"
-            + f"recovery_actions={int(_safe_float(taker_suppression_recovery.get('action_taken_taker_count')))},"
-            + "recovery_classes="
+            + "lifecycle_residue_evals="
+            + f"{int(_safe_float(taker_suppression_recovery.get('edge_eval_count')))},"
+            + "lifecycle_residue_submit_candidates="
+            + f"{int(_safe_float(taker_suppression_recovery.get('submit_candidate_count')))},"
+            + "lifecycle_residue_actions="
+            + f"{int(_safe_float(taker_suppression_recovery.get('action_taken_taker_count')))},"
+            + "lifecycle_residue_classes="
             + f"{json.dumps(taker_suppression_recovery.get('suppression_class_distribution', {}), sort_keys=True)}"
         ),
         (
@@ -10604,72 +10287,21 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"resolved_notional_p90={_safe_float(maker_size_comp.get('resolved_notional_usd_p90')):.2f}"
         ),
         (
-            "reduce_only_recovery="
-            + f"waiting_for_maker_exit={int(_safe_float(reduce_only.get('edge_waiting_for_maker_exit_rows')))},"
-            + f"local_size_cap_unavailable={int(_safe_float(reduce_only.get('local_size_cap_unavailable_rows')))},"
-            + f"flat_or_wrong_side={int(_safe_float(reduce_only.get('local_size_cap_flat_or_wrong_side_rows')))},"
-            + f"nonflat_or_unknown={int(_safe_float(reduce_only.get('local_size_cap_nonflat_or_unknown_rows')))},"
-            + f"classification={str(reduce_only.get('local_size_cap_classification') or 'none')},"
-            + f"cap_sources={json.dumps(reduce_only.get('local_reject_cap_source_distribution', {}), sort_keys=True)}"
-        ),
-        (
-            "recovery_cost_benefit="
-            + f"submits={int(_safe_float(recovery_cost.get('recovery_submit_count')))},"
-            + f"fills={int(_safe_float(recovery_cost.get('recovery_fill_event_count')))},"
-            + f"fill_notional={_safe_float(recovery_cost.get('fill_notional')):.6f},"
-            + f"immediate_capture={_safe_float(recovery_cost.get('immediate_capture')):.6f},"
-            + f"immediate_adverse={_safe_float(recovery_cost.get('immediate_adverse_selection')):.6f},"
-            + f"immediate_net={_safe_float(recovery_cost.get('immediate_capture_minus_adverse')):.6f},"
-            + "fill_classes="
-            + f"{json.dumps(recovery_cost.get('fill_class_distribution', {}), sort_keys=True)},"
-            + "refinement_classes="
-            + f"{json.dumps(recovery_cost.get('fill_refinement_class_distribution', {}), sort_keys=True)},"
-            + "emergency_blocks="
-            + f"{json.dumps(recovery_cost.get('preexpiry_emergency_block_reason_distribution', {}), sort_keys=True)},"
-            + "emergency_block_classes="
-            + f"{json.dumps(recovery_cost.get('preexpiry_emergency_block_class_distribution', {}), sort_keys=True)}"
-        ),
-        (
-            "preexpiry_emergency_handoff="
-            + f"attempts={int(_safe_float(recovery_cost.get('preexpiry_emergency_attempt_count')))},"
-            + f"fills={int(_safe_float(recovery_cost.get('preexpiry_emergency_fill_count')))},"
-            + f"blocks={int(_safe_float(recovery_cost.get('preexpiry_emergency_block_count')))},"
-            + f"maker_blocked={int(_safe_float(recovery_cost.get('preexpiry_emergency_maker_blocked_count')))},"
-            + "maker_blocked_ratio="
-            + (
-                f"{_safe_float(recovery_cost.get('preexpiry_emergency_maker_blocked_count')) / _safe_float(recovery_cost.get('preexpiry_emergency_attempt_count')):.4f}"
-                if _safe_float(recovery_cost.get('preexpiry_emergency_attempt_count')) > 0.0
-                else "0.0000"
-            )
-            + ",maker_no_submission="
-            + f"{json.dumps(recovery_cost.get('preexpiry_emergency_maker_no_submission_distribution', {}), sort_keys=True)},"
-            + "filled_maker_no_submission="
-            + f"{json.dumps(recovery_cost.get('preexpiry_emergency_filled_maker_no_submission_distribution', {}), sort_keys=True)},"
-            + "blocked_maker_no_submission="
-            + f"{json.dumps(recovery_cost.get('preexpiry_emergency_blocked_maker_no_submission_distribution', {}), sort_keys=True)}"
-        ),
-        (
-            "preexpiry_recovery_taker_gate="
-            + f"evals={int(_safe_float(recovery_cost.get('recovery_taker_edge_eval_count')))},"
-            + "actions="
-            + f"{json.dumps(recovery_cost.get('recovery_taker_edge_action_distribution', {}), sort_keys=True)},"
-            + "block_reasons="
-            + f"{json.dumps(recovery_cost.get('recovery_taker_edge_block_reason_distribution', {}), sort_keys=True)},"
-            + "stages="
-            + f"{json.dumps(recovery_cost.get('recovery_taker_edge_stage_distribution', {}), sort_keys=True)},"
-            + "allowance="
-            + f"{json.dumps(recovery_cost.get('recovery_taker_edge_allowance_distribution', {}), sort_keys=True)},"
-            + "sec_to_expiry="
-            + f"{json.dumps(recovery_cost.get('recovery_taker_edge_sec_to_expiry', {}), sort_keys=True)}"
+            "lifecycle_residue="
+            + f"classification={str(lifecycle_residue.get('classification') or 'none')},"
+            + f"settlement_hold_required_count={int(_safe_float(lifecycle_residue.get('settlement_hold_required_count')))},"
+            + f"open_order_cleanup_required_count={int(_safe_float(lifecycle_residue.get('open_order_cleanup_required_count')))},"
+            + f"unresolved_lifecycle_obligation_count={int(_safe_float(lifecycle_residue.get('unresolved_lifecycle_obligation_count')))},"
+            + f"cancel_fail_closed_count={int(_safe_float(lifecycle_residue.get('cancel_fail_closed_count')))}"
         ),
         (
             "taker_doctrine_breaches="
             + "hard_window_submit_violations="
             + f"{int(_safe_float(taker_doctrine_breaches.get('hard_window_submit_violation_count')))},"
-            + "maker_to_taker_recovery_handoff_disabled="
-            + f"{int(_safe_float(taker_doctrine_breaches.get('maker_to_taker_recovery_handoff_disabled_count')))},"
-            + "taker_recovery_disabled_in_taker_scope="
-            + f"{int(_safe_float(taker_doctrine_breaches.get('taker_recovery_disabled_in_taker_scope_count')))},"
+            + "historical_recovery_handoff_disabled="
+            + f"{int(_safe_float(taker_doctrine_breaches.get('historical_recovery_handoff_disabled_count')))},"
+            + "historical_recovery_disabled_in_taker_scope="
+            + f"{int(_safe_float(taker_doctrine_breaches.get('historical_recovery_disabled_in_taker_scope_count')))},"
             + "block_reasons="
             + f"{json.dumps(taker_doctrine_breaches.get('block_reason_distribution', {}), sort_keys=True)}"
         ),
@@ -10689,8 +10321,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         (
             "market_data_source="
             + f"ws_delta={int(_safe_float(market_data_source.get('book_updates_ws_delta')))},"
-            + f"rest_delta={int(_safe_float(market_data_source.get('book_updates_rest_delta')))},"
-            + f"rest_ratio={_safe_float(market_data_source.get('book_updates_rest_ratio')):.4f}"
+            + f"total_delta={int(_safe_float(market_data_source.get('book_updates_total_delta')))},"
+            + f"pair_missing_ratio={_safe_float(market_data_source.get('pair_truth_missing_pair_row_ratio')):.4f},"
+            + f"pair_missing_max={int(_safe_float(market_data_source.get('pair_truth_missing_pair_count_max')))},"
+            + "pair_one_sided_ratio="
+            + f"{_safe_float(market_data_source.get('pair_truth_one_sided_row_ratio')):.4f}"
         ),
         (
             "execution_quality_immediate_midpoint="
@@ -10716,20 +10351,6 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{_safe_float((decision_lane_attr.get('total') or {}).get('immediate_capture_minus_adverse')):.6f}"
         ),
         (
-            "preexpiry_recovery_churn="
-            + f"overlap_detected={1 if bool(preexpiry_churn.get('boundary_overlap_detected', False)) else 0},"
-            + "normal_inside_overlap="
-            + f"{int(_safe_float(preexpiry_churn.get('normal_taker_submit_inside_allowed_overlap_window_count')))},"
-            + "normal_fill_recovery_within_window="
-            + f"{int(_safe_float(preexpiry_churn.get('normal_taker_fill_with_recovery_fill_within_window_count')))},"
-            + "normal_fill_recovery_within_window_ratio="
-            + f"{_safe_float(preexpiry_churn.get('normal_taker_fill_with_recovery_fill_within_window_ratio')):.4f},"
-            + "held_preexpiry_sec="
-            + f"{_safe_float(preexpiry_churn.get('observed_held_preexpiry_reduce_only_sec_max')):.2f},"
-            + "min_new_exposure_sec="
-            + f"{_safe_float(preexpiry_churn.get('observed_min_sec_to_expiry_for_new_exposure_max')):.2f}"
-        ),
-        (
             "valuation_truth="
             + "bruise_state="
             + str(valuation_truth.get("valuation_bruise_state") or "unknown")
@@ -10737,22 +10358,22 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"degraded_ratio={_safe_float(valuation_truth.get('valuation_degraded_ratio')):.4f},"
             + f"degraded_event_rows={int(_safe_float(valuation_truth.get('valuation_degraded_event_rows')))},"
             + f"hard_degraded_ratio={_safe_float(valuation_truth.get('valuation_hard_degraded_ratio')):.4f},"
-            + f"held_book_not_found_404_ratio={_safe_float(valuation_truth.get('held_book_not_found_404_ratio')):.4f},"
-            + f"preexpiry_404_anomaly_ratio={_safe_float(valuation_truth.get('preexpiry_404_anomaly_ratio')):.4f},"
+            + "held_ws_missing_or_unusable_ratio="
+            + f"{_safe_float(valuation_truth.get('held_ws_missing_or_unusable_ratio')):.4f},"
+            + "preexpiry_ws_missing_or_unusable_anomaly_ratio="
+            + f"{_safe_float(valuation_truth.get('preexpiry_ws_missing_or_unusable_anomaly_ratio')):.4f},"
             + f"held_unpriceable_escalation_ratio={_safe_float(valuation_truth.get('held_unpriceable_escalation_ratio')):.4f},"
             + f"held_unpriceable_defect_candidate_ratio={_safe_float(valuation_truth.get('held_unpriceable_defect_candidate_ratio')):.4f},"
-            + f"held_dust_shadow_active_ratio={_safe_float(valuation_truth.get('held_dust_shadow_active_ratio')):.4f},"
-            + f"held_dust_enforced_ratio={_safe_float(valuation_truth.get('held_dust_enforced_ratio')):.4f},"
             + f"hard_degraded_enter_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_enter_count')))},"
             + f"hard_degraded_clear_count={int(_safe_float(valuation_truth.get('valuation_hard_degraded_clear_count')))},"
             + f"held_unpriceable_started_count={int(_safe_float(valuation_truth.get('held_unpriceable_started_count')))},"
             + f"held_unpriceable_recovered_count={int(_safe_float(valuation_truth.get('held_unpriceable_recovered_count')))},"
             + f"lifecycle_context_mismatch_count={int(_safe_float(valuation_truth.get('lifecycle_context_mismatch_count')))},"
             + f"lifecycle_context_missing_sec_to_expiry_count={int(_safe_float(valuation_truth.get('lifecycle_context_missing_sec_to_expiry_count')))},"
-            + f"preexpiry_emergency_taker_attempt_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_attempt_count')))},"
-            + f"preexpiry_emergency_taker_fill_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_fill_count')))},"
-            + f"preexpiry_emergency_taker_block_count={int(_safe_float(valuation_truth.get('preexpiry_emergency_taker_block_count')))},"
-            + f"held_dust_hard_degraded_exempt_count={int(_safe_float(valuation_truth.get('held_dust_hard_degraded_exempt_count')))},"
+            + f"settlement_hold_required_count={int(_safe_float(valuation_truth.get('settlement_hold_required_count')))},"
+            + f"open_order_cleanup_required_count={int(_safe_float(valuation_truth.get('open_order_cleanup_required_count')))},"
+            + f"unresolved_lifecycle_obligation_count={int(_safe_float(valuation_truth.get('unresolved_lifecycle_obligation_count')))},"
+            + f"cancel_fail_closed_count={int(_safe_float(valuation_truth.get('cancel_fail_closed_count')))},"
             + f"dominant_reason_family_run={json.dumps(str(valuation_truth.get('valuation_dominant_reason_family_run') or 'none'), sort_keys=True)},"
             + f"dominant_held_cause_run={json.dumps(str(valuation_truth.get('valuation_dominant_held_unpriceable_cause_run') or 'none'), sort_keys=True)},"
             + f"dominant_source_degraded_rows={json.dumps(str(valuation_truth.get('valuation_dominant_source_degraded_rows') or 'none'), sort_keys=True)},"
@@ -10762,7 +10383,6 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"latest_operator_action={json.dumps(str(valuation_truth.get('latest_held_unpriceable_operator_action') or ''), sort_keys=True)},"
             + f"held_unpriceable_cause_counts_latest={json.dumps(valuation_truth.get('held_unpriceable_cause_counts_latest', {}), sort_keys=True)},"
             + f"valuation_degraded_reason_family_counts_run={json.dumps(valuation_truth.get('valuation_degraded_reason_family_counts_run', {}), sort_keys=True)},"
-            + f"preexpiry_emergency_taker_block_reasons_run_max={json.dumps(valuation_truth.get('preexpiry_emergency_taker_block_reasons_run_max', {}), sort_keys=True)},"
             + f"source_counts_degraded_rows={json.dumps(valuation_truth.get('valuation_source_counts_degraded_rows', {}), sort_keys=True)},"
             + f"source_counts_run={json.dumps(valuation_truth.get('valuation_source_counts_run', {}), sort_keys=True)}"
         ),
@@ -11194,19 +10814,12 @@ def _maker_quote_mutation_materiality(trace_row: Dict[str, Any]) -> Tuple[str, D
         or quality_blind_mutation
         or (isinstance(tick_delta, (int, float)) and float(tick_delta) >= 1.0)
     )
-    queue_mutated = bool(mutation_flags.get("queue_pressure_mutated_quote", False))
     cross_guard_mutated = bool(mutation_flags.get("cross_guard_mutated_quote", False))
 
-    if not queue_mutated and not cross_guard_mutated:
+    if not cross_guard_mutated:
         mutation_class = "none"
-    elif queue_mutated and cross_guard_mutated:
-        mutation_class = "material_multi_step_mutation" if material else "minor_non_material"
-    elif cross_guard_mutated:
-        mutation_class = "material_cross_guard_only" if material else "minor_non_material"
-    elif queue_mutated:
-        mutation_class = "material_queue_pressure_only" if material else "minor_non_material"
     else:
-        mutation_class = "minor_non_material"
+        mutation_class = "material_cross_guard_only" if material else "minor_non_material"
 
     return mutation_class, {
         "certified_to_submitted_tick_delta": tick_delta,
@@ -11471,6 +11084,49 @@ def _maker_quote_integrity_bundle(
         )
         events_by_type[event_type] = filtered
         observed_event_counts[event_type] = int(len(filtered))
+    historical_only_lineage_event_counts: Dict[str, int] = {}
+    historical_only_lineage_event_summaries: Dict[str, Dict[str, Any]] = {}
+    legacy_queue_pressure_events = [
+        evt
+        for evt in events
+        if str(evt.get("event_type") or "").strip() == LEGACY_MAKER_QUEUE_PRESSURE_EVENT_TYPE
+    ]
+    if legacy_queue_pressure_events:
+        def _legacy_event_flag(event: Dict[str, Any], key: str) -> bool:
+            value = event.get(key)
+            if isinstance(value, bool):
+                return value
+            text = str(value or "").strip().lower()
+            return text in {"1", "true", "yes", "y", "on"}
+
+        legacy_queue_pressure_event_count = int(len(legacy_queue_pressure_events))
+        legacy_side_counts: Counter[str] = Counter()
+        legacy_stage_counts: Counter[str] = Counter()
+        legacy_adopted_count = 0
+        legacy_gate_conversion_count = 0
+        legacy_replace_guard_blocked_count = 0
+        for evt in legacy_queue_pressure_events:
+            legacy_side = str(evt.get("side") or "").strip().upper() or "UNKNOWN"
+            legacy_stage = str(evt.get("stage") or "").strip() or "unknown"
+            legacy_side_counts[legacy_side] += 1
+            legacy_stage_counts[legacy_stage] += 1
+            if _legacy_event_flag(evt, "adopted"):
+                legacy_adopted_count += 1
+            if _legacy_event_flag(evt, "gate_conversion"):
+                legacy_gate_conversion_count += 1
+            if _legacy_event_flag(evt, "replace_guard_blocked"):
+                legacy_replace_guard_blocked_count += 1
+        historical_only_lineage_event_counts[LEGACY_MAKER_QUEUE_PRESSURE_EVENT_TYPE] = (
+            legacy_queue_pressure_event_count
+        )
+        historical_only_lineage_event_summaries[LEGACY_MAKER_QUEUE_PRESSURE_EVENT_TYPE] = {
+            "count": legacy_queue_pressure_event_count,
+            "adopted_count": int(legacy_adopted_count),
+            "gate_conversion_count": int(legacy_gate_conversion_count),
+            "replace_guard_blocked_count": int(legacy_replace_guard_blocked_count),
+            "side_distribution": _counter_to_sorted_int_dict(legacy_side_counts),
+            "stage_distribution": _counter_to_sorted_int_dict(legacy_stage_counts),
+        }
 
     submit_events = {
         str(evt.get("order_id") or "").strip(): evt
@@ -11546,19 +11202,6 @@ def _maker_quote_integrity_bundle(
             max_delta_sec=0.5,
             direction="before",
         )
-        queue_pressure_evt = _nearest_event_for_quote_integrity(
-            events_by_type.get("maker_queue_pressure_adjustment", []),
-            pivot_ts=submit_ts,
-            predicate=lambda evt: (
-                str(evt.get("side") or "").strip().upper() == side
-                and (
-                    not token_id
-                    or str(evt.get("token_id") or "").strip() == token_id
-                )
-            ),
-            max_delta_sec=3.0,
-            direction="before",
-        )
         next_shadow = _maker_next_shadow_after_submit(
             shadow_index=shadow_index,
             target_side_ref=str(shadow_row.get("target_side_ref") or ""),
@@ -11598,16 +11241,6 @@ def _maker_quote_integrity_bundle(
             cannon_target_notional_usd=shadow_row.get("cannon_target_notional_usd"),
         )
         quote_plane = {
-            "queue_pressure_base_price": (
-                float(queue_pressure_evt.get("base_price"))
-                if isinstance((queue_pressure_evt or {}).get("base_price"), (int, float))
-                else None
-            ),
-            "queue_pressure_adjusted_price": (
-                float(queue_pressure_evt.get("adjusted_price"))
-                if isinstance((queue_pressure_evt or {}).get("adjusted_price"), (int, float))
-                else None
-            ),
             "pre_submit_cross_guard_original_price": (
                 float(cross_guard_evt.get("original_price"))
                 if isinstance((cross_guard_evt or {}).get("original_price"), (int, float))
@@ -11645,15 +11278,6 @@ def _maker_quote_integrity_bundle(
             ),
         }
         quote_plane["mutation_flags"] = {
-            "queue_pressure_mutated_quote": bool(
-                isinstance(quote_plane["queue_pressure_base_price"], (int, float))
-                and isinstance(quote_plane["queue_pressure_adjusted_price"], (int, float))
-                and abs(
-                    float(quote_plane["queue_pressure_base_price"])
-                    - float(quote_plane["queue_pressure_adjusted_price"])
-                )
-                > 1e-12
-            ),
             "cross_guard_mutated_quote": bool(
                 isinstance(quote_plane["pre_submit_cross_guard_original_price"], (int, float))
                 and isinstance(quote_plane["pre_submit_cross_guard_adjusted_price"], (int, float))
@@ -11814,7 +11438,6 @@ def _maker_quote_integrity_bundle(
                 "certified_shadow_ts_utc": _maker_quote_integrity_event_ts_text(shadow_row),
                 "submit_ts_utc": _maker_quote_integrity_event_ts_text(submit_evt or {}),
                 "cross_guard_ts_utc": _maker_quote_integrity_event_ts_text(cross_guard_evt or {}),
-                "queue_pressure_ts_utc": _maker_quote_integrity_event_ts_text(queue_pressure_evt or {}),
                 "next_shadow_ts_utc": _maker_quote_integrity_event_ts_text(next_shadow or {}),
                 "cancel_ts_utc": _maker_quote_integrity_event_ts_text(cancel_evt or {}),
                 "edge_eval_ts_utc": _maker_quote_integrity_event_ts_text(edge_evt or {}),
@@ -11901,8 +11524,6 @@ def _maker_quote_integrity_bundle(
         )
     elif dominant_mutation_class in {
         "material_cross_guard_only",
-        "material_queue_pressure_only",
-        "material_multi_step_mutation",
     }:
         next_repair_lane = "B. Quote-consistency repair"
         next_repair_lane_reason = (
@@ -11960,6 +11581,12 @@ def _maker_quote_integrity_bundle(
         "observed_event_type_counts": {
             key: int(observed_event_counts.get(key, 0)) for key in consulted_event_types
         },
+        "historical_only_lineage_event_counts": dict(
+            sorted(historical_only_lineage_event_counts.items(), key=lambda item: item[0])
+        ),
+        "historical_only_lineage_event_summaries": dict(
+            sorted(historical_only_lineage_event_summaries.items(), key=lambda item: item[0])
+        ),
         "used_existing_events_only": True,
         "required_minimal_runtime_fields": False,
         "logic_pathology_specimen_only": bool(run_id == MAKER_QUOTE_INTEGRITY_PRIMARY_RUN_ID),
@@ -12073,6 +11700,9 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
     maker_selection_authority_counterfactual = dict(
         support_artifacts.get("maker_selection_authority_counterfactual") or {}
     )
+    financial_outcome_reconciliation = dict(
+        support_artifacts.get("financial_outcome_reconciliation") or {}
+    )
     maker_submit_count = sum(
         1 for row in rows if str(row.get("decision_result") or "").strip().lower() == "submitted"
     )
@@ -12085,6 +11715,12 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
         ):
             artifact["authoritative_for_canonical_selection"] = False
             artifact["applicability"] = "descriptive_only"
+            artifact["current_owner_artifact"] = "maker_selection_authority_audit.json"
+        maker_zero_submit_root_cause_audit["authoritative_for_canonical_selection"] = False
+        maker_zero_submit_root_cause_audit["applicability"] = "not_applicable_submit_run"
+        maker_zero_submit_root_cause_audit["current_owner_artifact"] = (
+            "maker_selection_authority_audit.json"
+        )
 
     rows_path = report_dir / "maker_fight_admission_shadow.jsonl"
     with rows_path.open("w", encoding="utf-8") as handle:
@@ -12187,6 +11823,13 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
         json.dumps(maker_selection_authority_counterfactual, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    if financial_outcome_reconciliation:
+        financial_outcome_reconciliation["authoritative_for_runtime_or_strategy"] = False
+        financial_outcome_reconciliation["applicability"] = "support_only_cross_surface_reconciliation"
+    (report_dir / "financial_outcome_reconciliation.json").write_text(
+        json.dumps(financial_outcome_reconciliation, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     specimen_manifest = _maker_zero_submit_specimen_manifest(
         report_dir=report_dir,
         support_artifacts=support_artifacts,
@@ -12196,7 +11839,7 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
         support_artifacts=support_artifacts,
         manifest=specimen_manifest,
     )
-    if named_specimens:
+    if named_specimens and str(maker_zero_submit_root_cause_audit.get("applicability") or "") != "not_applicable_submit_run":
         maker_zero_submit_root_cause_audit["known_truths"] = {
             "packet_b_350": {
                 "quote_starvation_row_count": int(

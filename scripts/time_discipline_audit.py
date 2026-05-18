@@ -23,6 +23,7 @@ TIMESTAMP_DOMAIN_FIELDS = ("ts_event_utc", "ts_receive_utc", "ts_source_utc", "t
 HOST_SYNC_SAMPLE_ARTIFACT = "host_time_sync_active_samples.jsonl"
 HOST_SYNC_REQUIRED_BOOL_FIELDS = ("system_clock_synchronized", "ntp_service_active")
 HOST_SYNC_REQUIRED_NUMERIC_FIELDS = ("stratum", "offset_ms", "jitter_ms", "root_distance_ms")
+TIMING_WATCH_WARN_RATIO = 0.75
 
 
 def _parse_ts(value: Any) -> Optional[datetime]:
@@ -315,6 +316,44 @@ def _read_json_object(path: pathlib.Path) -> Optional[Dict[str, Any]]:
     return raw
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if out != out:
+        return None
+    return out
+
+
+def _percentile(values: List[float], ratio: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(v) for v in values)
+    idx = int(round((len(ordered) - 1) * ratio))
+    idx = max(0, min(len(ordered) - 1, idx))
+    return float(ordered[idx])
+
+
+def _latency_summary_ms(values: List[float]) -> Dict[str, float]:
+    cleaned = [float(v) for v in values if isinstance(v, (int, float))]
+    if not cleaned:
+        return {
+            "sample_count": 0.0,
+            "median_ms": 0.0,
+            "p90_ms": 0.0,
+            "p95_ms": 0.0,
+            "max_ms": 0.0,
+        }
+    return {
+        "sample_count": float(len(cleaned)),
+        "median_ms": _percentile(cleaned, 0.50),
+        "p90_ms": _percentile(cleaned, 0.90),
+        "p95_ms": _percentile(cleaned, 0.95),
+        "max_ms": float(max(cleaned)),
+    }
+
+
 def _evaluate_host_sync_payload(
     *,
     payload: Dict[str, Any],
@@ -397,6 +436,29 @@ def _host_time_sync_audit(
             f"host_time_sync_active_sample_elapsed_non_monotonic_rows:{int(sample_elapsed_non_monotonic_rows)}"
         )
 
+    def _payload_compact(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        return {
+            "clock_state": str(payload.get("clock_state") or "").strip().lower() or None,
+            "stratum": payload.get("stratum") if isinstance(payload.get("stratum"), (int, float)) else None,
+            "offset_ms": payload.get("offset_ms") if isinstance(payload.get("offset_ms"), (int, float)) else None,
+            "jitter_ms": payload.get("jitter_ms") if isinstance(payload.get("jitter_ms"), (int, float)) else None,
+            "root_distance_ms": (
+                payload.get("root_distance_ms") if isinstance(payload.get("root_distance_ms"), (int, float)) else None
+            ),
+        }
+
+    observed_payloads = [payload for payload in [start_payload, *sample_payloads, stop_payload] if isinstance(payload, dict)]
+    observed_offsets = [abs(float(payload.get("offset_ms"))) for payload in observed_payloads if isinstance(payload.get("offset_ms"), (int, float))]
+    observed_jitters = [float(payload.get("jitter_ms")) for payload in observed_payloads if isinstance(payload.get("jitter_ms"), (int, float))]
+    observed_root_distances = [
+        float(payload.get("root_distance_ms"))
+        for payload in observed_payloads
+        if isinstance(payload.get("root_distance_ms"), (int, float))
+    ]
+    observed_strata = [int(float(payload.get("stratum"))) for payload in observed_payloads if isinstance(payload.get("stratum"), (int, float))]
+
     evidence = {
         "report_root": str(report_root),
         "start_path": str(start_path),
@@ -404,6 +466,12 @@ def _host_time_sync_audit(
         "sample_path": str(sample_path),
         "sample_count": int(len(sample_payloads)),
         "thresholds": thresholds,
+        "active_start": _payload_compact(start_payload),
+        "active_stop": _payload_compact(stop_payload),
+        "max_abs_offset_ms": (float(max(observed_offsets)) if observed_offsets else None),
+        "max_jitter_ms": (float(max(observed_jitters)) if observed_jitters else None),
+        "max_root_distance_ms": (float(max(observed_root_distances)) if observed_root_distances else None),
+        "max_stratum": (int(max(observed_strata)) if observed_strata else None),
     }
     return evidence, findings
 
@@ -523,6 +591,194 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
         "maker_timing_missing_context_rows": int(maker_timing_missing_context_rows),
     }
     return evidence, findings
+
+
+def _timing_watchboard(
+    *,
+    cfg: Dict[str, Any],
+    scoped_status_rows: List[Dict[str, Any]],
+    event_rows: List[Dict[str, Any]],
+    host_time_sync_evidence: Dict[str, Any],
+    warnings: List[str],
+) -> Dict[str, Any]:
+    preflight_cfg = cfg.get("preflight", {}) if isinstance(cfg.get("preflight"), dict) else {}
+    operating_mode_cfg = cfg.get("operating_mode", {}) if isinstance(cfg.get("operating_mode"), dict) else {}
+    strategy_cfg = cfg.get("strategy", {}) if isinstance(cfg.get("strategy"), dict) else {}
+    maker_cfg = (
+        strategy_cfg.get("maker_competitiveness", {})
+        if isinstance(strategy_cfg.get("maker_competitiveness"), dict)
+        else {}
+    )
+    selection_gate_cfg = (
+        maker_cfg.get("selection_gate", {}) if isinstance(maker_cfg.get("selection_gate"), dict) else {}
+    )
+    risk_cfg = cfg.get("risk", {}) if isinstance(cfg.get("risk"), dict) else {}
+    lane_thresholds = (
+        risk_cfg.get("min_sec_to_expiry_for_new_exposure_by_lane", {})
+        if isinstance(risk_cfg.get("min_sec_to_expiry_for_new_exposure_by_lane"), dict)
+        else {}
+    )
+
+    thresholds = {
+        "host_offset_ms": _safe_float(preflight_cfg.get("max_clock_offset_ms")) or 10.0,
+        "host_jitter_ms": _safe_float(preflight_cfg.get("max_clock_jitter_ms")) or 10.0,
+        "host_root_distance_ms": _safe_float(preflight_cfg.get("max_clock_root_distance_ms")) or 100.0,
+        "book_last_msg_age_sec": _safe_float(operating_mode_cfg.get("ws_slo_max_book_last_msg_age_sec")) or 12.0,
+        "chainlink_last_tick_age_sec": (
+            _safe_float(operating_mode_cfg.get("ws_slo_max_chainlink_last_tick_age_sec")) or 30.0
+        ),
+        "warn_ratio": float(TIMING_WATCH_WARN_RATIO),
+    }
+
+    book_ages = []
+    chain_ages = []
+    for row in scoped_status_rows:
+        book_feed = row.get("book_feed") if isinstance(row.get("book_feed"), dict) else {}
+        chainlink = row.get("chainlink") if isinstance(row.get("chainlink"), dict) else {}
+        book_age = _safe_float(book_feed.get("last_msg_age_sec"))
+        chain_age = _safe_float(chainlink.get("last_tick_age_sec"))
+        if book_age is not None:
+            book_ages.append(float(book_age))
+        if chain_age is not None:
+            chain_ages.append(float(chain_age))
+
+    submit_latencies = []
+    for row in event_rows:
+        if str(row.get("event_type") or "").strip().lower() != "order_submit":
+            continue
+        if str(row.get("submission_state") or "").strip().lower() != "accepted":
+            continue
+        latency_ms = _safe_float(row.get("decision_to_submit_latency_ms"))
+        if latency_ms is not None and latency_ms >= 0.0:
+            submit_latencies.append(float(latency_ms))
+
+    host_thresholds = host_time_sync_evidence.get("thresholds", {}) if isinstance(host_time_sync_evidence, dict) else {}
+    host_summary = {
+        "max_abs_offset_ms": host_time_sync_evidence.get("max_abs_offset_ms"),
+        "max_jitter_ms": host_time_sync_evidence.get("max_jitter_ms"),
+        "max_root_distance_ms": host_time_sync_evidence.get("max_root_distance_ms"),
+        "max_stratum": host_time_sync_evidence.get("max_stratum"),
+        "thresholds": host_thresholds,
+    }
+
+    offset_max = _safe_float(host_summary.get("max_abs_offset_ms"))
+    jitter_max = _safe_float(host_summary.get("max_jitter_ms"))
+    root_distance_max = _safe_float(host_summary.get("max_root_distance_ms"))
+    offset_warn = float(thresholds["host_offset_ms"]) * float(TIMING_WATCH_WARN_RATIO)
+    jitter_warn = float(thresholds["host_jitter_ms"]) * float(TIMING_WATCH_WARN_RATIO)
+    root_distance_warn = float(thresholds["host_root_distance_ms"]) * float(TIMING_WATCH_WARN_RATIO)
+    if offset_max is not None and offset_max > offset_warn:
+        warnings.append(
+            f"timing_watch_host_offset_warn_band:{offset_max:.3f}>warn:{offset_warn:.3f}:limit:{float(thresholds['host_offset_ms']):.3f}"
+        )
+    if jitter_max is not None and jitter_max > jitter_warn:
+        warnings.append(
+            f"timing_watch_host_jitter_warn_band:{jitter_max:.3f}>warn:{jitter_warn:.3f}:limit:{float(thresholds['host_jitter_ms']):.3f}"
+        )
+    if root_distance_max is not None and root_distance_max > root_distance_warn:
+        warnings.append(
+            "timing_watch_host_root_distance_warn_band:"
+            + f"{root_distance_max:.3f}>warn:{root_distance_warn:.3f}:limit:{float(thresholds['host_root_distance_ms']):.3f}"
+        )
+
+    book_age_summary = _latency_summary_ms(book_ages)
+    chain_age_summary = _latency_summary_ms(chain_ages)
+    book_warn = float(thresholds["book_last_msg_age_sec"]) * float(TIMING_WATCH_WARN_RATIO)
+    chain_warn = float(thresholds["chainlink_last_tick_age_sec"]) * float(TIMING_WATCH_WARN_RATIO)
+    if book_age_summary["sample_count"] > 0.0 and book_age_summary["p95_ms"] / 1000.0 > book_warn:
+        warnings.append(
+            "timing_watch_book_feed_last_msg_age_warn_band_p95:"
+            + f"{book_age_summary['p95_ms'] / 1000.0:.3f}>warn:{book_warn:.3f}:limit:{float(thresholds['book_last_msg_age_sec']):.3f}"
+        )
+    if book_age_summary["sample_count"] > 0.0 and book_age_summary["max_ms"] / 1000.0 > book_warn:
+        warnings.append(
+            "timing_watch_book_feed_last_msg_age_warn_band_max:"
+            + f"{book_age_summary['max_ms'] / 1000.0:.3f}>warn:{book_warn:.3f}:limit:{float(thresholds['book_last_msg_age_sec']):.3f}"
+        )
+    if chain_age_summary["sample_count"] > 0.0 and chain_age_summary["p95_ms"] / 1000.0 > chain_warn:
+        warnings.append(
+            "timing_watch_chainlink_last_tick_age_warn_band_p95:"
+            + f"{chain_age_summary['p95_ms'] / 1000.0:.3f}>warn:{chain_warn:.3f}:limit:{float(thresholds['chainlink_last_tick_age_sec']):.3f}"
+        )
+    if chain_age_summary["sample_count"] > 0.0 and chain_age_summary["max_ms"] / 1000.0 > chain_warn:
+        warnings.append(
+            "timing_watch_chainlink_last_tick_age_warn_band_max:"
+            + f"{chain_age_summary['max_ms'] / 1000.0:.3f}>warn:{chain_warn:.3f}:limit:{float(thresholds['chainlink_last_tick_age_sec']):.3f}"
+        )
+
+    lifecycle_cfg = cfg.get("lifecycle", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(lifecycle_cfg, dict):
+        lifecycle_cfg = {}
+    lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
+    if not isinstance(lifecycle_phase_cfg, dict):
+        lifecycle_phase_cfg = {}
+    selection_gate_min = selection_gate_cfg.get("min_sec_to_expiry")
+    selection_gate_max = selection_gate_cfg.get("max_sec_to_expiry")
+    selection_gate_active = bool(
+        isinstance(selection_gate_min, (int, float)) or isinstance(selection_gate_max, (int, float))
+    )
+    if selection_gate_active:
+        warnings.append("timing_watch_duplicate_selection_gate_timing_owner_active")
+
+    maker_gate_min = _safe_float(lifecycle_phase_cfg.get("taker_window_open_sec"))
+    if maker_gate_min is None:
+        maker_gate_min = _safe_float(maker_cfg.get("timing_gate_min_sec_to_expiry"))
+    maker_gate_max = _safe_float(lifecycle_phase_cfg.get("maker_window_open_sec"))
+    if maker_gate_max is None:
+        maker_gate_max = _safe_float(maker_cfg.get("timing_gate_max_sec_to_expiry"))
+    risk_global_min = _safe_float(risk_cfg.get("min_sec_to_expiry_for_new_exposure"))
+    risk_maker_min = _safe_float(lane_thresholds.get("maker"))
+    risk_effective_maker_min = risk_maker_min if risk_maker_min is not None else risk_global_min
+    layered_left_edge_split_active = (
+        bool(maker_cfg.get("timing_gate_enabled", False))
+        and isinstance(maker_gate_min, float)
+        and isinstance(risk_effective_maker_min, float)
+        and abs(float(maker_gate_min) - float(risk_effective_maker_min)) <= 1e-9
+    )
+
+    return {
+        "host_sync": host_summary,
+        "freshness": {
+            "status_row_count": int(len(scoped_status_rows)),
+            "thresholds_sec": {
+                "book_last_msg_age_sec": float(thresholds["book_last_msg_age_sec"]),
+                "chainlink_last_tick_age_sec": float(thresholds["chainlink_last_tick_age_sec"]),
+            },
+            "book_last_msg_age_summary_sec": {
+                "sample_count": float(book_age_summary["sample_count"]),
+                "median_sec": float(book_age_summary["median_ms"] / 1000.0),
+                "p90_sec": float(book_age_summary["p90_ms"] / 1000.0),
+                "p95_sec": float(book_age_summary["p95_ms"] / 1000.0),
+                "max_sec": float(book_age_summary["max_ms"] / 1000.0),
+            },
+            "chainlink_last_tick_age_summary_sec": {
+                "sample_count": float(chain_age_summary["sample_count"]),
+                "median_sec": float(chain_age_summary["median_ms"] / 1000.0),
+                "p90_sec": float(chain_age_summary["p90_ms"] / 1000.0),
+                "p95_sec": float(chain_age_summary["p95_ms"] / 1000.0),
+                "max_sec": float(chain_age_summary["max_ms"] / 1000.0),
+            },
+        },
+        "submit_latency": {
+            "accepted_submit_latency_ms_summary": _latency_summary_ms(submit_latencies),
+        },
+        "maker_timing_authority": {
+            "timing_gate_enabled": bool(maker_cfg.get("timing_gate_enabled", False)),
+            "timing_gate_min_sec_to_expiry": maker_gate_min,
+            "timing_gate_max_sec_to_expiry": maker_gate_max,
+            "risk_min_sec_to_expiry_for_new_exposure_global": risk_global_min,
+            "risk_min_sec_to_expiry_for_new_exposure_maker_effective": risk_effective_maker_min,
+            "selection_gate_timing_min_sec_to_expiry": (
+                float(selection_gate_min) if isinstance(selection_gate_min, (int, float)) else None
+            ),
+            "selection_gate_timing_max_sec_to_expiry": (
+                float(selection_gate_max) if isinstance(selection_gate_max, (int, float)) else None
+            ),
+            "selection_gate_timing_duplicate_owner_active": bool(selection_gate_active),
+            "layered_left_edge_split_active": bool(layered_left_edge_split_active),
+        },
+        "warning_band_ratio": float(TIMING_WATCH_WARN_RATIO),
+    }
 
 
 def run_audit(
@@ -696,6 +952,14 @@ def run_audit(
         if status_age_sec > float(max_status_age_sec):
             findings.append(f"status_ts_too_stale:{status_age_sec:.3f}>max:{float(max_status_age_sec):.3f}")
 
+    timing_watchboard = _timing_watchboard(
+        cfg=cfg,
+        scoped_status_rows=scoped_status_rows,
+        event_rows=event_rows,
+        host_time_sync_evidence=host_time_sync_evidence,
+        warnings=warnings,
+    )
+
     return {
         "config_path": str(config_path.resolve()),
         "session_phase": normalized_phase,
@@ -717,7 +981,9 @@ def run_audit(
         "event_timestamp_domain_audit": event_domain_evidence,
         "critical_timing_evidence": critical_timing_evidence,
         "host_time_sync": host_time_sync_evidence,
+        "timing_watchboard": timing_watchboard,
         "finding_count": len(findings),
+        "warning_count": len(warnings),
         "findings": findings,
         "warnings": warnings,
         "error_codes": summarize_error_codes(findings),

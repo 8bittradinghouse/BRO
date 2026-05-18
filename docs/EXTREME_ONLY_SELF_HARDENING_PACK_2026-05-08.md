@@ -1,5 +1,11 @@
 # EXTREME_ONLY Self-Hardening Pack (2026-05-08)
 
+## Classification
+- `historical-only`
+- this packet-entry hardening pack belongs to the pre-lifecycle-surgery
+  `EXTREME_ONLY` family
+- old stage-family language here is ancestry only
+
 ## Purpose
 - `VERIFIED`: this is the packet-entry hardening pack for all current `EXTREME_ONLY` surgery.
 - `VERIFIED`: it is the first document to load before changing code, tests, or current board truth for this family.
@@ -7,7 +13,7 @@
 
 ## Working Authority Ladder
 ### Tier 0: doctrine roots
-- `docs/TAKER_SWORD_BLUEPRINT_2026-05-07.md`
+- `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
 - `BRO_CANONICAL_DOCTRINE.txt`
 - `docs/DOCTRINE_RUNBOOK.md`
 - `docs/EDGE_TRUTH_RUNBOOK.md`

@@ -15,13 +15,13 @@ class MarketDiscoveryTests(unittest.TestCase):
         cfg["targets"]["discovery"]["enabled"] = True
         cfg["targets"]["discovery"]["symbols"] = ["BTC"]
         cfg["targets"]["discovery"]["keywords_any"] = ["5 minute", "up or down"]
-        cfg["targets"]["discovery"]["max_pairs"] = 2
+        cfg["targets"]["discovery"]["max_pairs"] = 1
         cfg["targets"]["discovery"]["max_pages"] = 1
         cfg["targets"]["discovery"]["page_limit"] = 100
         cfg["targets"]["discovery"]["require_fee_enabled"] = True
         return cfg
 
-    def test_discovery_selects_multiple_pairs(self):
+    def test_discovery_selects_single_earliest_pair(self):
         cfg = self._cfg()
         discovery = MarketDiscovery(cfg)
         payload = [
@@ -56,8 +56,9 @@ class MarketDiscoveryTests(unittest.TestCase):
         try:
             with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
                 result = discovery.discover()
-            self.assertEqual(result.pairs_selected, 2)
-            self.assertEqual(result.token_ids, ["yes1", "no1", "yes2", "no2"])
+            self.assertEqual(result.pairs_selected, 1)
+            self.assertEqual(result.token_ids, ["yes1", "no1"])
+            self.assertEqual(result.candidate_pairs_token_ids, [["yes1", "no1"]])
         finally:
             discovery.close()
 

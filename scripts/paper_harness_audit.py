@@ -14,6 +14,7 @@ from prodesk.artifact_identity import build_artifact_identity
 from prodesk.config import load_execution_config
 from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.jsonl_utils import load_jsonl
+from prodesk.models import book_source_is_ws, decision_input_type_from_book_source
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
 from prodesk.session_phase import enforce_validation_phase
 from prodesk.runtime_semantics import (
@@ -35,8 +36,8 @@ DEFAULT_CONFIG_PATH = (ROOT_DIR / "configs" / "profiles" / "paper_universal.yaml
 DEFAULT_SOAK_BUDGET_PATH = (ROOT_DIR / "ops" / "soak_budget.yaml").resolve()
 DEFAULT_REALISM_DOCTRINE_PATH = (ROOT_DIR / "BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt").resolve()
 
-DECISION_INPUT_TYPES = ("observed_live", "replayed", "emulated", "bounded_derived", "unknown")
-EXECUTION_REALISM_CLASSES = ("bounded_approximation", "not_modeled")
+DECISION_INPUT_TYPES = ("observed_live", "observed_other", "replayed", "emulated", "unknown")
+EXECUTION_REALISM_CLASSES = ("not_modeled",)
 TRUTH_QUALITY_BLOCK_REASONS = frozenset(
     {
         "stale_book",
@@ -62,20 +63,18 @@ def _decision_input_type_from_row(row: Dict[str, Any]) -> str:
     if data_class == "emulated" or bool(emulated_flag):
         return "emulated"
     if data_class == "observed_live":
-        if source == "rest":
-            return "bounded_derived"
         return "observed_live"
     if data_class == "observed_other":
         if source in {"replay", "replayed"}:
             return "replayed"
-        return "bounded_derived"
+        return "observed_other"
     if source in {"replay", "replayed"}:
         return "replayed"
     if source in {"paper", "simulated", "synthetic", "emulated"}:
         return "emulated"
     if source == "rest":
-        return "bounded_derived"
-    if source in {"ws", "chainlink"}:
+        return "observed_other"
+    if decision_input_type_from_book_source(source) == "observed_live":
         return "observed_live"
     return "unknown"
 
@@ -84,11 +83,6 @@ def _execution_realism_class_from_row(row: Dict[str, Any]) -> str:
     explicit = str(row.get("execution_realism_class") or "").strip().lower()
     if explicit in EXECUTION_REALISM_CLASSES:
         return explicit
-    scope = str(row.get("evaluation_scope") or "").strip().lower()
-    if scope == "maker":
-        return "not_modeled"
-    if scope == "taker":
-        return "bounded_approximation"
     return "not_modeled"
 
 
@@ -101,10 +95,10 @@ def _status_files_exist(log_dir: pathlib.Path) -> bool:
 
 def _load_market_data_realism_policy(budget_path: pathlib.Path) -> tuple[Dict[str, float], List[str]]:
     defaults = {
-        "max_book_updates_rest_ratio": 0.35,
+        "max_pair_truth_missing_pair_row_ratio": 0.0,
         "min_book_updates_ws_delta": 1.0,
         "min_book_updates_total_delta": 1.0,
-        "min_status_rows_for_rest_ratio_gate": 20.0,
+        "min_status_rows_for_pair_truth_missing_gate": 20.0,
     }
     findings: List[str] = []
     resolved = budget_path.resolve()
@@ -123,14 +117,14 @@ def _load_market_data_realism_policy(budget_path: pathlib.Path) -> tuple[Dict[st
 
     policy = dict(defaults)
     for key in (
-        "max_book_updates_rest_ratio",
+        "max_pair_truth_missing_pair_row_ratio",
         "min_book_updates_ws_delta",
         "min_book_updates_total_delta",
-        "min_status_rows_for_rest_ratio_gate",
+        "min_status_rows_for_pair_truth_missing_gate",
     ):
         raw = websocket_cfg.get(key)
         if raw is None:
-            if key == "min_status_rows_for_rest_ratio_gate":
+            if key == "min_status_rows_for_pair_truth_missing_gate":
                 continue
             findings.append(f"paper_harness_budget_missing:{key}")
             continue
@@ -325,21 +319,15 @@ def run_audit(
         runtime.get("paper_chainlink_lag_penalty_bps_above_window", 0.0) or 0.0
     )
     queue_position_mode = str(runtime.get("paper_queue_position_mode", "not_modeled")).strip().lower() or "not_modeled"
-    if queue_position_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
+    if queue_position_mode != "not_modeled":
         findings.append(f"paper_harness_queue_position_mode_invalid:{queue_position_mode}")
         queue_position_mode = "not_modeled"
     checks["paper_queue_position_ahead_ratio"] = float(runtime.get("paper_queue_position_ahead_ratio", 0.0) or 0.0)
-    maker_queue_proxy_active = (
-        queue_position_mode == "bounded_top_depth_proxy"
-        and not checks["paper_passive_touch_fill_enabled"]
-        and checks["paper_passive_touch_fill_ratio"] <= 0.0
-        and checks["paper_passive_near_touch_fill_ratio"] <= 0.0
-        and checks["paper_background_fill_ratio"] <= 0.0
-    )
+    maker_queue_proxy_active = False
     checks["maker_queue_proxy_depth_model_active"] = bool(maker_queue_proxy_active)
-    maker_realism_class = "bounded_approximation" if maker_queue_proxy_active else "not_modeled"
+    maker_realism_class = "not_modeled"
     lag_enabled = bool(checks["paper_chainlink_lag_emulation_enabled"])
-    taker_latency_model = "bounded_lag_emulation" if lag_enabled else "none"
+    taker_latency_model = "lag_emulation" if lag_enabled else "none"
     lag_unknown_handling = "fail_closed_no_penalty" if lag_enabled else "none"
     if lag_enabled and (
         checks["paper_chainlink_lag_window_high_sec"] < checks["paper_chainlink_lag_window_low_sec"]
@@ -376,20 +364,20 @@ def run_audit(
         "lag_penalty_bps_within_window": float(checks["paper_chainlink_lag_penalty_bps_within_window"]),
         "lag_penalty_bps_above_window": float(checks["paper_chainlink_lag_penalty_bps_above_window"]),
         "stale_view_risk": "disclosed_true",
-        "taker_realism_class": "bounded_approximation",
+        "taker_realism_class": "not_modeled",
     }
     checks["paper_claim_boundary"] = {
         "control_plane_truth": "authoritative",
         "lifecycle_truth": "authoritative",
-        "decision_source_truth": "bounded_approximation",
-        "action_source_truth": "bounded_approximation",
-        "maker_fill_expectancy": maker_realism_class,
-        "taker_fill_expectancy": "bounded_approximation",
+        "decision_source_truth": "not_modeled",
+        "action_source_truth": "not_modeled",
+        "maker_fill_expectancy": "not_modeled",
+        "taker_fill_expectancy": "not_modeled",
         "live_pnl_equivalence": False,
     }
     checks["paper_execution_realism_summary"] = {
-        "maker_realism_class": maker_realism_class,
-        "taker_realism_class": "bounded_approximation",
+        "maker_realism_class": "not_modeled",
+        "taker_realism_class": "not_modeled",
         "queue_position_mode": queue_position_mode,
         "latency_model": taker_latency_model,
         "stale_view_modeling": "disclosed_true",
@@ -472,34 +460,37 @@ def run_audit(
         if not isinstance(market_data_source, dict):
             market_data_source = {}
         checks["market_data_source"] = market_data_source
-        max_rest_ratio = float(market_data_policy.get("max_book_updates_rest_ratio", 0.35) or 0.35)
+        max_pair_missing_ratio = float(
+            market_data_policy.get("max_pair_truth_missing_pair_row_ratio", 0.0) or 0.0
+        )
         min_ws_updates = float(market_data_policy.get("min_book_updates_ws_delta", 1.0) or 1.0)
         min_total_updates = float(market_data_policy.get("min_book_updates_total_delta", 1.0) or 1.0)
-        min_rows_for_rest_ratio_gate = float(
-            market_data_policy.get("min_status_rows_for_rest_ratio_gate", 20.0) or 20.0
+        min_rows_for_pair_missing_gate = float(
+            market_data_policy.get("min_status_rows_for_pair_truth_missing_gate", 20.0) or 20.0
         )
         ws_delta = float(market_data_source.get("book_updates_ws_delta", 0.0) or 0.0)
-        rest_ratio = float(market_data_source.get("book_updates_rest_ratio", 0.0) or 0.0)
         total_delta = float(market_data_source.get("book_updates_total_delta", 0.0) or 0.0)
+        pair_missing_ratio = float(market_data_source.get("pair_truth_missing_pair_row_ratio", 0.0) or 0.0)
         status_rows = float(runtime_report.get("status_rows", 0.0) or 0.0)
-        checks["paper_max_rest_book_updates_ratio"] = max_rest_ratio
+        checks["paper_max_pair_truth_missing_pair_row_ratio"] = max_pair_missing_ratio
         checks["paper_min_ws_book_updates_delta"] = min_ws_updates
         checks["paper_min_total_book_updates_delta"] = min_total_updates
-        checks["paper_min_status_rows_for_rest_ratio_gate"] = float(min_rows_for_rest_ratio_gate)
+        checks["paper_min_status_rows_for_pair_truth_missing_gate"] = float(min_rows_for_pair_missing_gate)
         if total_delta < min_total_updates:
             findings.append(f"paper_harness_book_updates_total_too_low:{total_delta:.6f}<min:{min_total_updates:.6f}")
         if ws_delta < min_ws_updates:
             findings.append(f"paper_harness_book_updates_ws_too_low:{ws_delta:.6f}<min:{min_ws_updates:.6f}")
-        if rest_ratio > max_rest_ratio:
-            if status_rows >= min_rows_for_rest_ratio_gate:
+        if pair_missing_ratio > max_pair_missing_ratio:
+            if status_rows >= min_rows_for_pair_missing_gate:
                 warnings.append(
-                    f"paper_harness_book_updates_rest_ratio_watch_high:{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
+                    "paper_harness_pair_truth_missing_ratio_watch_high:"
+                    + f"{pair_missing_ratio:.6f}>max:{max_pair_missing_ratio:.6f}"
                 )
             else:
                 warnings.append(
-                    "paper_harness_book_updates_rest_ratio_watch_high_short_window:"
-                    + f"{rest_ratio:.6f}>max:{max_rest_ratio:.6f}"
-                    + f":status_rows={status_rows:.0f}<min_rows_for_rest_ratio_gate:{min_rows_for_rest_ratio_gate:.0f}"
+                    "paper_harness_pair_truth_missing_ratio_watch_high_short_window:"
+                    + f"{pair_missing_ratio:.6f}>max:{max_pair_missing_ratio:.6f}"
+                    + f":status_rows={status_rows:.0f}<min_rows_for_pair_truth_missing_gate:{min_rows_for_pair_missing_gate:.0f}"
                 )
         if classification in {RUNTIME_CLASS_INVALID_DEADLOCK, RUNTIME_CLASS_INVALID_SAFETY}:
             findings.append(f"paper_harness_runtime_invalid:{classification}")
@@ -539,7 +530,7 @@ def run_audit(
         action_on_emulated_rows = 0
         action_on_non_observed_live_rows = 0
         no_action_due_truth_quality_rows = 0
-        actions_under_bounded_approx_rows = 0
+        actions_under_not_modeled_rows = 0
         maker_action_rows_total = 0
         maker_action_rows_non_ws = 0
         taker_action_rows_total = 0
@@ -565,11 +556,11 @@ def run_audit(
             if action_taken in {"maker", "taker"}:
                 if action_taken == "maker":
                     maker_action_rows_total += 1
-                    if book_source != "ws":
+                    if not book_source_is_ws(book_source):
                         maker_action_rows_non_ws += 1
                 else:
                     taker_action_rows_total += 1
-                    if book_source != "ws":
+                    if not book_source_is_ws(book_source):
                         taker_action_rows_non_ws += 1
                 action_counts_by_input_type[normalized_input_type] = int(
                     action_counts_by_input_type.get(normalized_input_type, 0)
@@ -578,8 +569,8 @@ def run_audit(
                     action_on_emulated_rows += 1
                 if normalized_input_type != "observed_live":
                     action_on_non_observed_live_rows += 1
-                if normalized_realism == "bounded_approximation":
-                    actions_under_bounded_approx_rows += 1
+                if normalized_realism == "not_modeled":
+                    actions_under_not_modeled_rows += 1
             elif action_taken == "none" and block_reason in TRUTH_QUALITY_BLOCK_REASONS:
                 no_action_due_truth_quality_rows += 1
             if not isinstance(decision_input_emulated, bool):
@@ -627,7 +618,7 @@ def run_audit(
                 passive_fill_policy_basis_counts[fill_basis] = int(passive_fill_policy_basis_counts.get(fill_basis, 0)) + 1
             else:
                 unknown_fill_rows += 1
-            if decision_input_type in {"emulated", "replayed", "bounded_derived", "unknown"}:
+            if decision_input_type in {"emulated", "observed_other", "replayed", "unknown"}:
                 degraded_fill_rows += 1
 
         synthetic_passive_fills_possible = any(
@@ -643,9 +634,9 @@ def run_audit(
             for name in ("synthetic_touch_fill", "synthetic_near_touch_fill", "synthetic_background_fill")
         )
         synthetic_passive_fills_used = synthetic_passive_fill_basis_rows > 0
-        immediate_fills_bounded_visible_only = (
+        immediate_fills_visible_liquidity_only = (
             immediate_fill_rows == 0
-            or set(immediate_fill_policy_basis_counts.keys()).issubset({"bounded_visible_liquidity_top_of_book"})
+            or set(immediate_fill_policy_basis_counts.keys()).issubset({"visible_liquidity_top_of_book"})
         )
         checks["edge_decision_input_type_counts"] = dict(decision_input_type_counts)
         checks["edge_action_counts_by_input_type"] = dict(action_counts_by_input_type)
@@ -667,12 +658,12 @@ def run_audit(
             "unknown_fill_rows": int(unknown_fill_rows),
             "immediate_fill_policy_basis_counts": dict(sorted(immediate_fill_policy_basis_counts.items())),
             "passive_fill_policy_basis_counts": dict(sorted(passive_fill_policy_basis_counts.items())),
-            "immediate_fills_bounded_visible_liquidity_only": bool(immediate_fills_bounded_visible_only),
+            "immediate_fills_visible_liquidity_only": bool(immediate_fills_visible_liquidity_only),
             "fills_under_degraded_data_truth_rows": int(degraded_fill_rows),
         }
         checks["paper_constraint_behavior"] = {
             "no_action_due_truth_quality_rows": int(no_action_due_truth_quality_rows),
-            "actions_allowed_under_bounded_approximation_rows": int(actions_under_bounded_approx_rows),
+            "actions_allowed_under_not_modeled_rows": int(actions_under_not_modeled_rows),
             "actions_blocked_by_truth_quality_policy_rows": int(no_action_due_truth_quality_rows),
         }
         decision_source_truth = (
@@ -680,20 +671,20 @@ def run_audit(
             if (
                 decision_input_type_counts.get("emulated", 0) == 0
                 and decision_input_type_counts.get("replayed", 0) == 0
-                and decision_input_type_counts.get("bounded_derived", 0) == 0
+                and decision_input_type_counts.get("observed_other", 0) == 0
                 and decision_input_type_counts.get("unknown", 0) == 0
             )
-            else "bounded_approximation"
+            else "not_modeled"
         )
         action_source_truth = (
             "authoritative"
             if (
                 action_counts_by_input_type.get("emulated", 0) == 0
                 and action_counts_by_input_type.get("replayed", 0) == 0
-                and action_counts_by_input_type.get("bounded_derived", 0) == 0
+                and action_counts_by_input_type.get("observed_other", 0) == 0
                 and action_counts_by_input_type.get("unknown", 0) == 0
             )
-            else "bounded_approximation"
+            else "not_modeled"
         )
         checks["paper_claim_boundary"] = {
             "control_plane_truth": "authoritative",
@@ -701,12 +692,12 @@ def run_audit(
             "decision_source_truth": decision_source_truth,
             "action_source_truth": action_source_truth,
             "maker_fill_expectancy": str(checks.get("maker_policy", {}).get("maker_realism_class") or "not_modeled"),
-            "taker_fill_expectancy": str(checks.get("taker_policy", {}).get("taker_realism_class") or "bounded_approximation"),
+            "taker_fill_expectancy": str(checks.get("taker_policy", {}).get("taker_realism_class") or "not_modeled"),
             "live_pnl_equivalence": False,
         }
         checks["paper_execution_realism_summary"] = {
             "maker_realism_class": str(checks.get("maker_policy", {}).get("maker_realism_class") or "not_modeled"),
-            "taker_realism_class": str(checks.get("taker_policy", {}).get("taker_realism_class") or "bounded_approximation"),
+            "taker_realism_class": str(checks.get("taker_policy", {}).get("taker_realism_class") or "not_modeled"),
             "queue_position_mode": str(checks.get("maker_policy", {}).get("queue_position_mode") or "not_modeled"),
             "latency_model": str(checks.get("taker_policy", {}).get("latency_model") or "none"),
             "lag_unknown_handling": str(checks.get("taker_policy", {}).get("lag_unknown_handling") or "none"),
@@ -719,7 +710,7 @@ def run_audit(
             "ws_slo_degraded_rows": int(
                 sum(1 for row in ws_slo_rows if bool(row.get("degraded", False)))
             ),
-            "bounded_or_emulated_action_rows": int(action_on_non_observed_live_rows),
+            "non_observed_live_action_rows": int(action_on_non_observed_live_rows),
             "maker_action_rows_total": int(maker_action_rows_total),
             "maker_action_rows_non_ws": int(maker_action_rows_non_ws),
             "taker_action_rows_total": int(taker_action_rows_total),
@@ -751,13 +742,13 @@ def run_audit(
             findings.append(f"paper_harness_fill_policy_disclosure_missing:{missing_fill_policy_basis_rows}")
         if (not synthetic_passive_fills_possible) and synthetic_passive_fills_used:
             findings.append("paper_harness_synthetic_passive_fill_observed_while_disabled")
-        if not immediate_fills_bounded_visible_only:
-            findings.append("paper_harness_immediate_fill_policy_not_bounded_visible_liquidity")
+        if not immediate_fills_visible_liquidity_only:
+            findings.append("paper_harness_immediate_fill_policy_not_visible_liquidity")
 
     realism_breakdown: Dict[str, int] = empty_harness_realism_breakdown()
     if bool(checks.get("paper_liquidity_tod_scaler_enabled", False)):
         realism_breakdown["tod_liquidity_scaling"] = 20
-    if str(checks.get("maker_policy", {}).get("maker_realism_class") or "") == "bounded_approximation":
+    if str(checks.get("maker_policy", {}).get("maker_realism_class") or "") != "not_modeled":
         realism_breakdown["maker_queue_proxy_depth_model"] = 20
     taker_policy = checks.get("taker_policy", {}) if isinstance(checks.get("taker_policy"), dict) else {}
     if (
@@ -766,7 +757,7 @@ def run_audit(
     ):
         realism_breakdown["taker_depth_slippage_model"] = 20
     if (
-        str(taker_policy.get("latency_model") or "") == "bounded_lag_emulation"
+        str(taker_policy.get("latency_model") or "") == "lag_emulation"
         and str(taker_policy.get("lag_unknown_handling") or "") == "fail_closed_no_penalty"
     ):
         realism_breakdown["taker_lag_emulation_with_unknown_guard"] = 20

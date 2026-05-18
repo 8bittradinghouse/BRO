@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from collections import deque
+import json
 import re
+import threading
 import time
 import uuid
 from typing import Any, Deque, Dict, List, Optional
 
 from .common import first_non_none, parse_float, parse_ts, utc_iso
 from .edge_truth_contract import is_taker_reason
-from .models import BookTop, FillEvent, LiveOrder, OrderIntent
+from .models import (
+    BookTop,
+    FillEvent,
+    LiveOrder,
+    OrderIntent,
+    decision_input_type_from_book_source,
+)
 from .secrets import SecretLoadError, load_auth_secrets
 
 
@@ -22,6 +30,14 @@ class PostOnlyRejectError(GatewayError):
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _PAPER_TRADE_ID_RE = re.compile(r"^paper-trade-[0-9a-f]{12}-[1-9][0-9]*$")
+
+_WALLET_MODE_TO_SIGNATURE_TYPE = {
+    "eoa": 0,
+    "poly_proxy": 1,
+    "gnosis_safe": 2,
+    "poly_1271": 3,
+}
+_SIGNATURE_TYPE_TO_WALLET_MODE = {value: key for key, value in _WALLET_MODE_TO_SIGNATURE_TYPE.items()}
 
 
 def _normalize_private_key(raw: str) -> str:
@@ -49,6 +65,71 @@ def _normalize_evm_address(raw: str) -> str:
     return "0x" + body.lower()
 
 
+def _normalize_wallet_mode(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return "poly_proxy"
+    if text not in _WALLET_MODE_TO_SIGNATURE_TYPE:
+        raise GatewayError(
+            "wallet_mode must be one of eoa|poly_proxy|gnosis_safe|poly_1271"
+        )
+    return text
+
+
+def _resolve_signature_type(auth_cfg: Dict[str, Any]) -> tuple[str, int]:
+    wallet_mode = _normalize_wallet_mode(auth_cfg.get("wallet_mode", "poly_proxy"))
+    resolved = int(_WALLET_MODE_TO_SIGNATURE_TYPE[wallet_mode])
+    compat_raw = auth_cfg.get("signature_type")
+    if compat_raw is not None:
+        compat = int(compat_raw)
+        if compat != resolved:
+            raise GatewayError(
+                f"auth.signature_type={compat} conflicts with auth.wallet_mode={wallet_mode}"
+            )
+    return wallet_mode, resolved
+
+
+def _poly_status_code(exc: BaseException) -> Optional[int]:
+    value = getattr(exc, "status_code", None)
+    if isinstance(value, int):
+        return value
+    resp = getattr(exc, "resp", None)
+    if resp is not None:
+        status_code = getattr(resp, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+    return None
+
+
+def _poly_error_payload(exc: BaseException) -> Any:
+    if hasattr(exc, "error_msg"):
+        return getattr(exc, "error_msg")
+    resp = getattr(exc, "resp", None)
+    if resp is None:
+        return None
+    try:
+        return resp.json()
+    except Exception:
+        return getattr(resp, "text", None)
+
+
+def _extract_heartbeat_id(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("heartbeat_id", "heartbeatID"):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+    elif isinstance(value, str):
+        text = value.strip()
+        if text:
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return ""
+            return _extract_heartbeat_id(parsed)
+    return ""
+
+
 class BaseGateway:
     def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
         raise NotImplementedError
@@ -68,6 +149,9 @@ class BaseGateway:
     def on_book(self, top: BookTop) -> None:
         # Paper gateways use this hook for fill simulation.
         return None
+
+    def status(self) -> Dict[str, Any]:
+        return {}
 
     def close(self) -> None:
         return None
@@ -105,9 +189,7 @@ class PaperGateway(BaseGateway):
             float(cfg.get("paper_liquidity_tod_depth_multiplier", 1.0)),
         )
         queue_mode = str(cfg.get("paper_queue_position_mode", "not_modeled")).strip().lower()
-        if queue_mode not in {"not_modeled", "bounded_top_depth_proxy"}:
-            queue_mode = "not_modeled"
-        self._paper_queue_position_mode = queue_mode
+        self._paper_queue_position_mode = "not_modeled" if queue_mode != "not_modeled" else queue_mode
         self._paper_queue_position_ahead_ratio = max(
             0.0,
             min(1.0, float(cfg.get("paper_queue_position_ahead_ratio", 0.0))),
@@ -161,14 +243,9 @@ class PaperGateway(BaseGateway):
         return 1.0
 
     def _paper_queue_fill_multiplier(self) -> float:
-        if self._paper_queue_position_mode != "bounded_top_depth_proxy":
-            return 1.0
-        # Deterministic bounded proxy: reserve a fixed fraction of visible depth
-        # as queue-ahead before this order is eligible to fill.
-        return max(0.0, min(1.0, 1.0 - float(self._paper_queue_position_ahead_ratio)))
+        return 1.0
 
     def _maker_depth_fill_plan(self, *, side_liq: float, remaining: float) -> Dict[str, float]:
-        # Deterministic bounded plan for maker on-book fills.
         queue_mult = self._paper_queue_fill_multiplier()
         eligible_depth = max(0.0, float(side_liq) * float(queue_mult))
         fill_size = max(0.0, min(float(remaining), eligible_depth))
@@ -220,16 +297,7 @@ class PaperGateway(BaseGateway):
 
     @staticmethod
     def _decision_input_type_from_book_source(source: Any) -> str:
-        normalized = str(source or "").strip().lower()
-        if normalized in {"ws", "chainlink"}:
-            return "observed_live"
-        if normalized == "rest":
-            return "bounded_derived"
-        if normalized in {"paper", "simulated", "synthetic", "emulated"}:
-            return "emulated"
-        if normalized in {"replay", "replayed"}:
-            return "replayed"
-        return "unknown"
+        return decision_input_type_from_book_source(source)
 
     def _next_order_id(self) -> str:
         self._seq += 1
@@ -273,7 +341,7 @@ class PaperGateway(BaseGateway):
             "visible_size": float(max(0.0, visible_size)),
             "visible_notional_usd": float(max(0.0, visible_notional_usd)),
             "paper_liquidity_depth_multiplier": float(liquidity_depth_multiplier),
-            "fill_policy_basis": "bounded_visible_liquidity_top_of_book",
+            "fill_policy_basis": "visible_liquidity_top_of_book",
         }
 
     def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
@@ -364,8 +432,8 @@ class PaperGateway(BaseGateway):
                             ts_utc=utc_iso(),
                             order_id=order_id,
                             source="paper",
-                            fill_policy_basis="bounded_visible_liquidity_top_of_book",
-                            execution_realism_class="bounded_approximation",
+                            fill_policy_basis="visible_liquidity_top_of_book",
+                            execution_realism_class="not_modeled",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
                             paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
                             paper_queue_position_mode="not_applicable",
@@ -396,8 +464,8 @@ class PaperGateway(BaseGateway):
                             ts_utc=utc_iso(),
                             order_id=order_id,
                             source="paper",
-                            fill_policy_basis="bounded_visible_liquidity_top_of_book",
-                            execution_realism_class="bounded_approximation",
+                            fill_policy_basis="visible_liquidity_top_of_book",
+                            execution_realism_class="not_modeled",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
                             paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
                             paper_queue_position_mode="not_applicable",
@@ -571,8 +639,6 @@ class PaperGateway(BaseGateway):
             else:
                 candidate = ask_liq * self._paper_background_fill_ratio
                 fill_size = min(order.remaining_size, candidate)
-            if self._paper_queue_position_mode == "bounded_top_depth_proxy" and not crossed:
-                fill_size *= float(order_queue_fill_multiplier)
             if fill_size < self._passive_min_fill_size and touched:
                 continue
             if fill_size < self._passive_min_fill_size and near_touched:
@@ -586,10 +652,8 @@ class PaperGateway(BaseGateway):
             else:
                 ask_liq = max(0.0, ask_liq - fill_size)
 
-            fill_policy_basis = "bounded_visible_liquidity_top_of_book"
-            execution_realism_class = "bounded_approximation"
-            if self._paper_queue_position_mode == "bounded_top_depth_proxy":
-                fill_policy_basis = "bounded_visible_liquidity_top_of_book_with_queue_proxy"
+            fill_policy_basis = "visible_liquidity_top_of_book"
+            execution_realism_class = "not_modeled"
             if touched:
                 fill_policy_basis = "synthetic_touch_fill"
                 execution_realism_class = "not_modeled"
@@ -599,13 +663,6 @@ class PaperGateway(BaseGateway):
             elif background_touched:
                 fill_policy_basis = "synthetic_background_fill"
                 execution_realism_class = "not_modeled"
-            if self._paper_queue_position_mode == "bounded_top_depth_proxy":
-                if touched:
-                    fill_policy_basis = "synthetic_touch_fill_with_queue_proxy"
-                elif near_touched:
-                    fill_policy_basis = "synthetic_near_touch_fill_with_queue_proxy"
-                elif background_touched:
-                    fill_policy_basis = "synthetic_background_fill_with_queue_proxy"
 
             order.remaining_size -= fill_size
             if order.remaining_size <= 1e-9:
@@ -632,7 +689,7 @@ class PaperGateway(BaseGateway):
                     paper_queue_position_mode=str(self._paper_queue_position_mode),
                     paper_queue_fill_multiplier=(
                         float(order_queue_fill_multiplier)
-                        if self._paper_queue_position_mode == "bounded_top_depth_proxy"
+                        if self._paper_queue_position_mode != "not_modeled"
                         else 1.0
                     ),
                     paper_maker_depth_consumption_ratio=maker_depth_consumption_ratio,
@@ -677,20 +734,58 @@ class LiveClobGateway(BaseGateway):
         self._open_orders_cache_ttl_sec = max(0.0, float(auth_cfg.get("open_orders_cache_ttl_sec", 0.25)))
         self._open_orders_cache_expires_mono = 0.0
         self._open_orders_cache: Optional[List[LiveOrder]] = None
+        self._market_info_cache_ttl_sec = max(0.0, float(auth_cfg.get("market_info_cache_ttl_sec", 30.0)))
+        self._market_info_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._market_info_cache_lock = threading.Lock()
+        self._matching_engine_retry_attempts = max(1, int(auth_cfg.get("matching_engine_retry_attempts", 4)))
+        self._matching_engine_retry_initial_sec = max(
+            0.1, float(auth_cfg.get("matching_engine_retry_initial_sec", 0.5))
+        )
+        self._matching_engine_retry_max_sec = max(
+            self._matching_engine_retry_initial_sec,
+            float(auth_cfg.get("matching_engine_retry_max_sec", 4.0)),
+        )
+        self._matching_engine_last_status = "unknown"
+        self._matching_engine_last_error: Optional[str] = None
+        self._matching_engine_restart_windows = 0
+        self._matching_engine_last_restart_monotonic: Optional[float] = None
+        self._heartbeat_enabled = bool(auth_cfg.get("heartbeat_enabled", True))
+        self._heartbeat_interval_sec = max(1.0, float(auth_cfg.get("heartbeat_interval_sec", 8.0)))
+        self._heartbeat_retry_sec = max(0.25, float(auth_cfg.get("heartbeat_retry_sec", 2.0)))
+        self._heartbeat_id = ""
+        self._heartbeat_last_success_monotonic: Optional[float] = None
+        self._heartbeat_last_error: Optional[str] = None
+        self._heartbeat_failures = 0
+        self._resting_orders_present = False
+        self._heartbeat_lock = threading.Lock()
+        self._heartbeat_stop_event = threading.Event()
+        self._heartbeat_thread: Optional[threading.Thread] = None
 
         try:
-            from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import OpenOrderParams, OrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY, SELL
+            from py_builder_relayer_client.client import RelayClient
+            from py_clob_client_v2 import ClobClient, SignatureTypeV2
+            from py_clob_client_v2.clob_types import (
+                AssetType,
+                BalanceAllowanceParams,
+                OpenOrderParams,
+                OrderArgsV2,
+                OrderPayload,
+                OrderType,
+                TradeParams,
+            )
+            from py_clob_client_v2.exceptions import PolyApiException
         except ImportError as exc:
             raise GatewayError(
-                "py-clob-client is required for live mode. Install it with `pip install py-clob-client`."
+                "py-clob-client-v2 and py-builder-relayer-client are required for live mode."
             ) from exc
+        self._PolyApiException = PolyApiException
 
         private_key_env = str(auth_cfg["private_key_env"])
         funder_env = str(auth_cfg["funder_env"])
+        wallet_mode, signature_type = _resolve_signature_type(auth_cfg)
+        requires_funder = wallet_mode != "eoa"
         try:
-            private_key, funder, source_meta = load_auth_secrets(auth_cfg)
+            private_key, funder, source_meta = load_auth_secrets(auth_cfg, require_funder=requires_funder)
         except SecretLoadError as exc:
             raise GatewayError(str(exc)) from exc
         try:
@@ -698,28 +793,28 @@ class LiveClobGateway(BaseGateway):
         except GatewayError as exc:
             src = str(source_meta.get("private_key_source", private_key_env))
             raise GatewayError(f"invalid private key from {src}: {exc}") from exc
-        try:
-            funder = _normalize_evm_address(funder)
-        except GatewayError as exc:
-            src = str(source_meta.get("funder_source", funder_env))
-            raise GatewayError(f"invalid funder address from {src}: {exc}") from exc
+        funder_address: Optional[str] = None
+        if requires_funder:
+            try:
+                funder_address = _normalize_evm_address(funder)
+            except GatewayError as exc:
+                src = str(source_meta.get("funder_source", funder_env))
+                raise GatewayError(f"invalid funder address from {src}: {exc}") from exc
 
-        self._OrderArgs = OrderArgs
+        self._OrderArgsV2 = OrderArgsV2
         self._OrderType = OrderType
         self._OpenOrderParams = OpenOrderParams
-        self._BUY = BUY
-        self._SELL = SELL
-        try:
-            from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
-        except ImportError as exc:
-            raise GatewayError("py-clob-client missing clob_types for live wallet truth") from exc
         self._AssetType = AssetType
         self._BalanceAllowanceParams = BalanceAllowanceParams
+        self._TradeParams = TradeParams
+        self._OrderPayload = OrderPayload
+        self._SignatureTypeV2 = SignatureTypeV2
+        self._RelayClient = RelayClient
 
         host = str(auth_cfg["host"])
         chain_id = int(auth_cfg["chain_id"])
-        signature_type = int(auth_cfg["signature_type"])
-        self._wallet_address = funder
+        self._wallet_mode = wallet_mode
+        self._wallet_address = funder_address or ""
         self._chain_id = chain_id
         self._host = host
 
@@ -728,10 +823,23 @@ class LiveClobGateway(BaseGateway):
             key=private_key,
             chain_id=chain_id,
             signature_type=signature_type,
-            funder=funder,
+            funder=funder_address,
+            retry_on_error=False,
         )
-        api_creds = self.client.create_or_derive_api_creds()
+        api_creds = self.client.create_or_derive_api_key()
         self.client.set_api_creds(api_creds)
+        self._relayer_client = self._build_relayer_client(
+            auth_cfg=auth_cfg,
+            private_key=private_key,
+            wallet_mode=wallet_mode,
+        )
+        if self._heartbeat_enabled:
+            self._heartbeat_thread = threading.Thread(
+                target=self._heartbeat_loop,
+                name="live-clob-heartbeat",
+                daemon=True,
+            )
+            self._heartbeat_thread.start()
 
     def wallet_address(self) -> str:
         return str(self._wallet_address)
@@ -744,7 +852,7 @@ class LiveClobGateway(BaseGateway):
 
     def get_collateral_balance_allowance(self) -> Dict[str, Any]:
         params = self._BalanceAllowanceParams(asset_type=self._AssetType.COLLATERAL, signature_type=-1)
-        payload = self.client.get_balance_allowance(params)
+        payload = self._call_with_retry("get_balance_allowance", self.client.get_balance_allowance, params)
         if not isinstance(payload, dict):
             raise GatewayError(f"unexpected balance/allowance payload type: {type(payload).__name__}")
         return payload
@@ -771,28 +879,41 @@ class LiveClobGateway(BaseGateway):
             self._seen_trade_ids.discard(old)
 
     def place_order(self, intent: OrderIntent, client_order_id: str) -> LiveOrder:
-        side = self._BUY if intent.side == "BUY" else self._SELL
-        order_args = self._OrderArgs(token_id=intent.token_id, price=float(intent.price), size=float(intent.size), side=side)
+        side = str(intent.side or "").strip().upper()
+        if side not in {"BUY", "SELL"}:
+            raise GatewayError(f"unsupported order side: {intent.side!r}")
+        order_args = self._OrderArgsV2(
+            token_id=intent.token_id,
+            price=float(intent.price),
+            size=float(intent.size),
+            side=side,
+        )
         signed_order = self.client.create_order(order_args)
 
         tif = intent.tif.upper()
         post_only = self._enforce_post_only if intent.post_only is None else bool(intent.post_only)
         if self._enforce_post_only and not post_only and not self._allow_taker:
             raise GatewayError("post-only enforcement active; set auth.allow_taker=true to allow taker overrides")
-        if post_only and tif != "GTC":
-            raise GatewayError(f"post-only requires GTC tif, got {tif!r}")
+        if post_only and tif not in {"GTC", "GTD"}:
+            raise GatewayError(f"post-only requires GTC or GTD tif, got {tif!r}")
         order_type = self._OrderType.GTC
         if hasattr(self._OrderType, tif):
             order_type = getattr(self._OrderType, tif)
 
         try:
-            response = self.client.post_order(signed_order, order_type, post_only=post_only)
+            response = self._call_with_retry(
+                "post_order",
+                self.client.post_order,
+                signed_order,
+                order_type,
+                post_only=post_only,
+            )
         except TypeError as exc:
             if post_only:
                 raise GatewayError(
-                    "py-clob-client post_order does not support post_only. Upgrade py-clob-client for maker-safe operation."
+                    "py-clob-client-v2 post_order post_only contract mismatch"
                 ) from exc
-            response = self.client.post_order(signed_order, order_type)
+            response = self._call_with_retry("post_order", self.client.post_order, signed_order, order_type)
         if not isinstance(response, dict):
             raise GatewayError(f"unexpected post_order response type: {type(response).__name__}")
         status = str(first_non_none(response.get("status"), response.get("state"), "")).strip().lower()
@@ -809,6 +930,8 @@ class LiveClobGateway(BaseGateway):
             raise GatewayError(f"missing order id in response: {response}")
 
         self._invalidate_open_orders_cache()
+        if tif in {"GTC", "GTD"}:
+            self._set_resting_orders_present(True)
         return LiveOrder(
             order_id=order_id,
             token_id=intent.token_id,
@@ -838,14 +961,24 @@ class LiveClobGateway(BaseGateway):
         )
 
     def cancel_order(self, order_id: str) -> bool:
-        response = self.client.cancel(order_id)
+        if hasattr(self.client, "cancel_order"):
+            response = self._call_with_retry(
+                "cancel_order",
+                self.client.cancel_order,
+                self._OrderPayload(orderID=order_id),
+            )
+        else:  # pragma: no cover - compatibility with older fakes only
+            response = self._call_with_retry("cancel_order", self.client.cancel, order_id)
         self._invalidate_open_orders_cache()
         if isinstance(response, dict):
             canceled = first_non_none(response.get("canceled"), response.get("cancelled"), response.get("success"))
             if isinstance(canceled, bool):
+                if canceled:
+                    self._refresh_resting_orders_presence()
                 return canceled
             state = str(first_non_none(response.get("status"), response.get("state"), "")).strip().lower()
             if state in {"canceled", "cancelled", "ok", "success"}:
+                self._refresh_resting_orders_presence()
                 return True
             if state in {"not_found", "missing", "failed", "error", "rejected"}:
                 return False
@@ -858,8 +991,9 @@ class LiveClobGateway(BaseGateway):
         raise GatewayError(f"cancel_order_unconfirmed_response_type:{type(response).__name__}")
 
     def cancel_all(self) -> int:
-        response = self.client.cancel_all()
+        response = self._call_with_retry("cancel_all", self.client.cancel_all)
         self._invalidate_open_orders_cache()
+        self._set_resting_orders_present(False)
         if isinstance(response, dict):
             count = first_non_none(response.get("count"), response.get("canceled_count"))
             if isinstance(count, int):
@@ -877,9 +1011,16 @@ class LiveClobGateway(BaseGateway):
             if cache is not None and now < expires:
                 return list(cache)
         try:
-            raw = self.client.get_orders(self._OpenOrderParams())
+            open_order_params = getattr(self, "_OpenOrderParams", lambda: None)
+            if hasattr(self.client, "get_open_orders"):
+                raw = self._call_with_retry("get_open_orders", self.client.get_open_orders, open_order_params())
+            else:  # pragma: no cover - compatibility with older fakes only
+                raw = self._call_with_retry("get_open_orders", self.client.get_orders, open_order_params())
         except TypeError:
-            raw = self.client.get_orders()
+            if hasattr(self.client, "get_open_orders"):
+                raw = self._call_with_retry("get_open_orders", self.client.get_open_orders)
+            else:  # pragma: no cover - compatibility with older fakes only
+                raw = self._call_with_retry("get_open_orders", self.client.get_orders)
         rows = _extract_rows(raw)
         out: List[LiveOrder] = []
         for row in rows:
@@ -915,10 +1056,14 @@ class LiveClobGateway(BaseGateway):
         if ttl_sec > 0:
             self._open_orders_cache = list(out)
             self._open_orders_cache_expires_mono = time.monotonic() + ttl_sec
+        self._set_resting_orders_present(bool(out))
         return out
 
     def poll_fills(self) -> List[FillEvent]:
-        raw = self.client.get_trades()
+        if hasattr(self.client, "get_trades"):
+            raw = self._call_with_retry("get_trades", self.client.get_trades)
+        else:  # pragma: no cover - compatibility with older fakes only
+            raw = []
         rows = _extract_rows(raw)
         fills: List[FillEvent] = []
         newest_trade_ts_epoch = self._last_trade_ts_epoch
@@ -972,4 +1117,201 @@ class LiveClobGateway(BaseGateway):
         self._last_trade_ts_epoch = newest_trade_ts_epoch
         if fills:
             self._invalidate_open_orders_cache()
+            self._refresh_resting_orders_presence()
         return fills
+
+    def status(self) -> Dict[str, Any]:
+        with self._heartbeat_lock:
+            heartbeat_last_success = self._heartbeat_last_success_monotonic
+            heartbeat_last_error = self._heartbeat_last_error
+            heartbeat_id = self._heartbeat_id
+            heartbeat_failures = self._heartbeat_failures
+            resting_orders_present = self._resting_orders_present
+        heartbeat_age_sec = (
+            time.monotonic() - heartbeat_last_success
+            if heartbeat_last_success is not None
+            else None
+        )
+        restart_window_age_sec = (
+            time.monotonic() - self._matching_engine_last_restart_monotonic
+            if self._matching_engine_last_restart_monotonic is not None
+            else None
+        )
+        return {
+            "host": self._host,
+            "wallet_mode": self._wallet_mode,
+            "matching_engine_status": self._matching_engine_last_status,
+            "matching_engine_last_error": self._matching_engine_last_error,
+            "matching_engine_restart_windows": self._matching_engine_restart_windows,
+            "matching_engine_restart_window_age_sec": restart_window_age_sec,
+            "heartbeat_enabled": self._heartbeat_enabled,
+            "heartbeat_required": resting_orders_present,
+            "heartbeat_id": heartbeat_id or None,
+            "heartbeat_last_success_age_sec": heartbeat_age_sec,
+            "heartbeat_last_error": heartbeat_last_error,
+            "heartbeat_failures": heartbeat_failures,
+            "resting_orders_present": resting_orders_present,
+        }
+
+    def get_clob_market_info(self, condition_id: str) -> Dict[str, Any]:
+        key = str(condition_id or "").strip()
+        if not key:
+            raise GatewayError("condition_id is required for get_clob_market_info")
+        if self._market_info_cache_ttl_sec > 0.0:
+            with self._market_info_cache_lock:
+                cached = self._market_info_cache.get(key)
+                if cached is not None:
+                    expires_mono, payload = cached
+                    if time.monotonic() < expires_mono:
+                        return dict(payload)
+        payload = self._call_with_retry("get_clob_market_info", self.client.get_clob_market_info, condition_id)
+        if not isinstance(payload, dict):
+            raise GatewayError(f"unexpected get_clob_market_info payload type: {type(payload).__name__}")
+        if self._market_info_cache_ttl_sec > 0.0:
+            with self._market_info_cache_lock:
+                self._market_info_cache[key] = (
+                    time.monotonic() + self._market_info_cache_ttl_sec,
+                    dict(payload),
+                )
+        return dict(payload)
+
+    def close(self) -> None:
+        self._heartbeat_stop_event.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=5)
+            self._heartbeat_thread = None
+
+    def _call_with_retry(self, op_name: str, func: Any, *args: Any, **kwargs: Any) -> Any:
+        delay = max(0.1, float(getattr(self, "_matching_engine_retry_initial_sec", 0.5)))
+        attempts = max(1, int(getattr(self, "_matching_engine_retry_attempts", 1)))
+        delay_max = max(delay, float(getattr(self, "_matching_engine_retry_max_sec", delay)))
+        poly_api_exc = getattr(self, "_PolyApiException", None)
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                result = func(*args, **kwargs)
+                self._matching_engine_last_status = "ok"
+                self._matching_engine_last_error = None
+                return result
+            except Exception as exc:
+                last_error = exc
+                status_code = _poly_status_code(exc)
+                if poly_api_exc is not None and isinstance(exc, poly_api_exc) and status_code == 425:
+                    self._matching_engine_last_status = "restart_window"
+                    self._matching_engine_last_restart_monotonic = time.monotonic()
+                    restart_windows = int(getattr(self, "_matching_engine_restart_windows", 0)) + 1
+                    self._matching_engine_restart_windows = restart_windows
+                    self._matching_engine_last_error = str(exc)
+                    if attempt < attempts:
+                        time.sleep(delay)
+                        delay = min(delay_max, delay * 2.0)
+                        continue
+                    raise GatewayError(f"{op_name}_restart_window_exhausted:{exc}") from exc
+                self._matching_engine_last_status = "error"
+                self._matching_engine_last_error = str(exc)
+                raise GatewayError(f"{op_name}_failed:{exc}") from exc
+        raise GatewayError(f"{op_name}_failed:{last_error}")
+
+    def _build_relayer_client(
+        self,
+        *,
+        auth_cfg: Dict[str, Any],
+        private_key: str,
+        wallet_mode: str,
+    ) -> Any:
+        if wallet_mode != "poly_1271":
+            return None
+        relayer_url = str(auth_cfg.get("relayer_url", "")).strip()
+        if not relayer_url:
+            return None
+        try:
+            return self._RelayClient(
+                relayer_url=relayer_url,
+                chain_id=self._chain_id,
+                private_key=private_key,
+            )
+        except Exception as exc:  # pragma: no cover - defensive setup guard
+            raise GatewayError(f"relayer_client_init_failed:{exc}") from exc
+
+    def _set_resting_orders_present(self, value: bool) -> None:
+        heartbeat_lock = getattr(self, "_heartbeat_lock", None)
+        if heartbeat_lock is None:
+            self._resting_orders_present = bool(value)
+            return
+        with heartbeat_lock:
+            self._resting_orders_present = bool(value)
+
+    def _refresh_resting_orders_presence(self) -> None:
+        try:
+            open_orders = self.get_open_orders()
+        except GatewayError:
+            return
+        self._set_resting_orders_present(bool(open_orders))
+
+    def _heartbeat_loop(self) -> None:
+        while not self._heartbeat_stop_event.is_set():
+            with self._heartbeat_lock:
+                enabled = self._heartbeat_enabled
+                resting_orders_present = self._resting_orders_present
+                heartbeat_id = self._heartbeat_id
+            wait_for = self._heartbeat_retry_sec
+            if enabled and resting_orders_present:
+                try:
+                    response = self._post_heartbeat_once(heartbeat_id)
+                    new_heartbeat_id = _extract_heartbeat_id(response)
+                    with self._heartbeat_lock:
+                        if new_heartbeat_id:
+                            self._heartbeat_id = new_heartbeat_id
+                        self._heartbeat_last_success_monotonic = time.monotonic()
+                        self._heartbeat_last_error = None
+                        self._heartbeat_failures = 0
+                    wait_for = self._heartbeat_interval_sec
+                except GatewayError as exc:
+                    with self._heartbeat_lock:
+                        self._heartbeat_last_error = str(exc)
+                        self._heartbeat_failures += 1
+                    wait_for = self._heartbeat_retry_sec
+            self._heartbeat_stop_event.wait(wait_for)
+
+    def _post_heartbeat_once(self, heartbeat_id: str) -> Dict[str, Any]:
+        poly_api_exc = getattr(self, "_PolyApiException", None)
+        delay = max(0.1, float(getattr(self, "_matching_engine_retry_initial_sec", 0.5)))
+        delay_max = max(delay, float(getattr(self, "_matching_engine_retry_max_sec", delay)))
+        attempts = max(1, int(getattr(self, "_matching_engine_retry_attempts", 1)))
+        current_heartbeat_id = str(heartbeat_id or "")
+        corrected_once = False
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self.client.post_heartbeat(current_heartbeat_id)
+                self._matching_engine_last_status = "ok"
+                self._matching_engine_last_error = None
+                if not isinstance(response, dict):
+                    raise GatewayError(f"post_heartbeat_unexpected_response_type:{type(response).__name__}")
+                if not _extract_heartbeat_id(response) and current_heartbeat_id:
+                    response = dict(response)
+                    response["heartbeat_id"] = current_heartbeat_id
+                return response
+            except Exception as exc:
+                last_error = exc
+                status_code = _poly_status_code(exc)
+                if poly_api_exc is not None and isinstance(exc, poly_api_exc) and status_code == 400 and not corrected_once:
+                    corrected_heartbeat_id = _extract_heartbeat_id(_poly_error_payload(exc))
+                    if corrected_heartbeat_id:
+                        current_heartbeat_id = corrected_heartbeat_id
+                        corrected_once = True
+                        continue
+                if poly_api_exc is not None and isinstance(exc, poly_api_exc) and status_code == 425:
+                    self._matching_engine_last_status = "restart_window"
+                    self._matching_engine_last_restart_monotonic = time.monotonic()
+                    self._matching_engine_restart_windows = int(self._matching_engine_restart_windows) + 1
+                    self._matching_engine_last_error = str(exc)
+                    if attempt < attempts:
+                        time.sleep(delay)
+                        delay = min(delay_max, delay * 2.0)
+                        continue
+                    raise GatewayError(f"post_heartbeat_restart_window_exhausted:{exc}") from exc
+                self._matching_engine_last_status = "error"
+                self._matching_engine_last_error = str(exc)
+                raise GatewayError(f"post_heartbeat_failed:{exc}") from exc
+        raise GatewayError(f"post_heartbeat_failed:{last_error}")

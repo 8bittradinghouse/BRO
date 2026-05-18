@@ -1,5 +1,11 @@
 # BRO Doctrine Runbook (Canonical vs Degraded)
 
+## Classification
+- `current owner`
+- this is an active BRO runtime/runbook doctrine surface
+- historical packet language may appear only as bounded ancestry, not as live
+  authority
+
 ## Authority Boundary
 - This file is BRO's downstream fighter-specific runtime/runbook policy surface.
 - It is not spinal-cord doctrine.
@@ -11,18 +17,35 @@
   - `BRO_MODULE_ARCHITECTURE.txt`
   - `docs/BRO_WALLET_DOCTRINE.md`
 - This file may define current BRO-specific runtime weapon policy, timing
-  windows, stage bindings, and recovery posture only inside that higher
+  windows, stage bindings, and lifecycle posture only inside that higher
   doctrine frame.
+- canonical lifecycle doctrine anchor:
+  - `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
+    - canonical top-level market lifecycle and ownership contract
+    - owns the clean parent lifecycle vocabulary for market selection,
+      ownership, and maker/taker phase containment
+    - canonical build-law target even when runtime still drifts
+  - `docs/BRO_MARKET_LIFECYCLE_CUTOVER_PLAN_2026-05-16.md`
+    - implementation-planning companion for cutting the current timing-family
+      stack down to the canonical lifecycle system
+    - keep/repurpose/cut map only; not independent doctrine
 - Maker-support surfaces split into three roles:
   - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
     - pathway / heuristic / support-map surface only; not runtime authority by
       itself
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
-    - intended maker-weapon doctrine anchor for the late-window cannon design
-    - authoritative for intended timing doctrine:
-      - final `15-20s` doctrine window
-      - final `10-15s` sweet-spot zone
-    - not automatic proof that current runtime already matches that posture
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+    - high-value external maker-lane doctrine proposal inside the market lifecycle blueprint
+    - intended maker-lane design target:
+      - maker gate opens at `15s`
+      - maker rides the owned market through the commitment window unless real
+        safety / lifecycle law intervenes
+    - not automatic proof and not runtime law by itself
+  - `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
+    - high-value external taker-lane doctrine proposal inside the market lifecycle blueprint
+    - intended taker-lane design target:
+      - taker gate opens at `7s`
+      - taker fires only when its own gates are green inside the owned market
+    - not automatic proof and not runtime law by itself
   - `docs/BRO_WEAPON_NOMENCLATURE.md`
     - mnemonic alias surface only
 
@@ -54,21 +77,23 @@ Restoration rule:
 
 | Contract family | Live contract names | Runtime meaning |
 | --- | --- | --- |
-| Runtime posture / readiness | `runtime_state`, `active_targets_present`, `no_target_standdown`, `book_feed_required`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, `primary_suppression_cause`, `contributing_suppression_causes`, `ambiguous_suppression_cause` | posture and runtime/readiness classification only; not market actionability or execution realism |
-| Runtime transition | `previous_runtime_state`, `previous_book_feed_required`, `transition_reason_code`, `transition_reason_detail` | transition-domain truth only; not steady-state runtime classification |
-| Market truth / selection | `maker_allowed`, `taker_allowed`, `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, `preexpiry_emergency_taker_allowed`, `late_window_authority_class`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | emitted lane-authority plus market-truth/reference semantics for the lane; not wallet authority |
+| Runtime posture / readiness | `runtime_state`, `lifecycle_phase`, `scan_phase`, `market_truth_required`, `owned_market_ref`, `challenger_market_ref`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, `primary_suppression_cause`, `contributing_suppression_causes`, `ambiguous_suppression_cause` | posture and runtime/readiness classification only; not market actionability or execution realism |
+| Runtime transition | `previous_runtime_state`, `previous_market_truth_required`, `transition_reason_code`, `transition_reason_detail`, `ownership_drop_reason`, `ownership_replacement_reason` | transition-domain truth only; not steady-state runtime classification |
+| Market truth / selection | `maker_phase_allowed`, `taker_phase_allowed`, `maker_gate_open`, `taker_gate_open`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | emitted lifecycle/lane-permission plus market-truth/reference semantics for the lane; not wallet authority |
+| Lifecycle / settlement residue | `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, `cancel_fail_closed` | emitted lifecycle residue / settlement / cancel semantics only; never late-window submit authority |
 | Quote / submit path | `block_reason`, `decision_block_reason`, `decision_result`, `action_taken`, `submitted`, `filled`, `result`, `evaluation_scope`, `financial_posture_class` | local emitted stop/action/submit semantics for the lane or submit path; not cross-system owner by themselves |
 | Wallet/startup authority | `canonical_live_wallet_truth`, `local_tx_lifecycle_state`, `open_order_state`, `integrity_tripwire_reconcile_state`, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`, `canonical_live_nonce_source`, `canonical_live_nonce_detail`, `canonical_live_pending_wallet_tx_source`, `canonical_live_pending_wallet_tx_detail`, `live_truth_gap_reasons` | wallet/startup-domain authority only; not edge validity or quote truth |
 | Decision lineage / provenance | `target_ref`, `source_target_ref`, `decision_input_source`, `decision_input_type`, `decision_input_emulated`, `decision_input_data_class` | lineage and decision-input provenance only; not authority class by themselves |
 | Paper realism / outcome truth | `execution_realism_class`, `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status` | paper-realism and outcome-layer classification only; not runtime actionability or market authority |
 
 Required distinctions:
-- `maker_allowed` / `taker_allowed` are emitted lane-action booleans for the current row, not raw stage-bucket authority by themselves
-- `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, and `preexpiry_emergency_taker_allowed` are the Packet 1 late-window authority contract
+- `maker_phase_allowed` / `taker_phase_allowed` are lifecycle-phase permission facts for the current row
+- `maker_gate_open` / `taker_gate_open` are lane-gate verdicts layered beneath lifecycle phase
+- `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, and `cancel_fail_closed` are lifecycle residue terms only; they do not authorize maker or taker submits
 - `runtime_state`, `runtime_classification`, `promotion_eligibility_hint`, and `promotion_eligible` are runtime posture/readiness terms only
 - `promotion_eligibility_hint` is a live posture hint only; it is not the final `promotion_eligible` classification verdict
 - `secondary_oracle_status` is emitted selection/oracle status only; it does not replace confirmation
-- `market_reference_class` may legitimately be `authoritative`, `bounded_approximation`, or `not_available`
+- `market_reference_class` may legitimately be `authoritative` or `not_available`
 - `authority_status_class` and `order_submit_eligible` are wallet/startup
   authority terms only
 - `startup_authority_ready` and `authoritative_refresh_completed` are wallet/startup readiness facts only; they do not create market actionability by themselves
@@ -82,25 +107,25 @@ Required distinctions:
 - downstream `runtime_*` mirrors in reports are not runtime doctrine terms
 
 Runtime-classification value vocabulary:
-- `runtime_state`: `active`, `no_target_standdown`, `safety_halt`
-- `active_targets_present`: `true|false`
-- `no_target_standdown`: `true|false`
-- `book_feed_required`: `true|false`
-- `previous_book_feed_required`: `true|false`
+- `runtime_state`: `scan`, `prepare`, `maker_window`, `taker_window`, `resolve`
+- `lifecycle_phase`: `scan|prepare|maker_window|taker_window|resolve`
+- `scan_phase`: `true|false`
+- `market_truth_required`: `true|false`
+- `previous_market_truth_required`: `true|false`
 - `promotion_eligibility_hint`: `true|false`
 - `VALID_ACTIVE`: active targets plus meaningful participation
-- `VALID_STANDDOWN`: healthy doctrinal standdown
+- `VALID_SCAN`: healthy doctrinal scan posture
 - `NON_PROMOTABLE_NO_PARTICIPATION`: not invalid, but not promotable
 - `INVALID_DEADLOCK`: fail-closed runtime deadlock/participation violation
 - `INVALID_SAFETY`: fail-closed runtime safety violation
-- `transition_reason_code`: `runtime_state_changed`, `book_requirement_changed`, `kill_switch_engaged`, `targets_activated`, `targets_absent`
+- `transition_reason_code`: `runtime_state_changed`, `market_truth_requirement_changed`, `kill_switch_engaged`, `owned_market_absent`, `owned_market_prepare`, `maker_window_open`, `taker_window_open`, `resolve_required`
 - `secondary_oracle_status`: `confirmed`, `direction_mismatch`, `disabled`, `unknown`
   - compatibility input `available` must normalize to `unknown` before emission
-- `market_reference_basis`: `direct_book_midpoint`, `ws_recent_paired_touch`, `ws_single_side_touch`, `missing`
+- `market_reference_basis`: `direct_book_midpoint`, `ws_recent_paired_touch`, `missing`
   - report-only `report_book_top_pair_backfill` is a downstream reconstructed basis label, not a live emitted runtime basis
-- `market_reference_confidence`: `authoritative`, `bounded_low`, `none`
+- `market_reference_confidence`: `authoritative`, `none`
 - `decision_input_source`: `ws`, `rest`, `chainlink`, `replay`, `replayed`, `paper`, `simulated`, `synthetic`, `emulated`, `unknown`
-- `decision_input_type`: `observed_live`, `replayed`, `bounded_derived`, `emulated`, `unknown`
+- `decision_input_type`: `observed_live`, `observed_other`, `replayed`, `emulated`, `unknown`
 - `decision_input_data_class`: `observed_live`, `observed_other`, `emulated`, `unknown`
 - `authority_status_class`: `authoritative`, `bootstrap_non_authoritative`
   - `legacy_fallback_non_authoritative` is report/readout fallback only, not a live wallet contract value
@@ -111,15 +136,20 @@ Runtime-classification value vocabulary:
 - `financial_posture_class`: `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, `HALT_NEW_RISK`
 - `decision_result`: `submitted`, `submit_rejected`, `selection_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged`
 
-## Maker Timing Authority Split
-- Intended maker-weapon timing doctrine is anchored on:
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+## Lifecycle And Lane Authority Split
+- Intended parent lifecycle doctrine is anchored on:
+  - `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
+- Intended maker-lane behavior is anchored on:
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+- Intended taker-lane behavior is anchored on:
+  - `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
 - Current runtime configs, packet notes, and support artifacts may drift from
   that intended posture.
 - When they do, describe them as runtime posture / implementation history, not
-  as maker doctrine.
-- Drifted runtime windows must not silently outrank the intended late-window
-  cannon doctrine in support or control docs.
+  as lifecycle doctrine.
+- Drifted runtime windows, old stage buckets, and compatibility timing labels
+  must not silently outrank the intended lifecycle contract in support or
+  control docs.
 
 ## Canonical System Mapping + Diagnostic Kernel (Required Reading)
 - Doctrine-critical operator references:
@@ -139,15 +169,20 @@ Runtime-classification value vocabulary:
 ## Modes
 - `doctrine.mode=canonical`:
   - fail-closed on missing expiry/threshold/side/fair/oracle freshness
-  - normal taker submit authority is `EXTREME_ONLY (<=7s)` only
+  - normal taker submit authority is the explicit `<=7s` taker commitment lane only
   - earlier taker stages are diagnostic/observability only unless explicitly opened in a non-canonical investigation mode
+  - target-pair authority uses:
+    - `owned_market_pair` for the currently owned market; this pair remains the runtime truth owner through `prepare`, `maker_window`, `taker_window`, and `resolve` while the hard ownership floor remains intact
+    - `challenger_market_pair` for one ranked candidate only; it may be transport-watched and scored, but it has zero decision authority until explicit replacement law fires
+    - `lifecycle_watch_tokens` for held/open-order cleanup and settlement only; they remain watched for lifecycle safety but must not impersonate active target truth
+    - current runtime may still emit `authoritative_active_pair` / `pending_prewarm_pair` during migration; treat those as implementation residue, not canonical doctrine
   - maker market-reference uses:
     - `direct_midpoint` when both ws sides are present
-    - `bounded_single_side_touch` only when midpoint is unavailable and exactly one ws side is present
-  - bounded single-side maker reference is explicitly labeled `bounded_approximation` (never midpoint-authoritative)
+    - `backfilled_paired_touch` only when midpoint is unavailable and a recent complementary ws side exists within the bounded paired-touch delta
+    - otherwise maker fails closed with missing / non-authoritative market reference truth
   - taker market-reference uses:
     - `direct_midpoint` when ws midpoint is present
-    - `bounded_single_side_touch` when midpoint is unavailable and exactly one ws side is present
+    - midpoint-backed `direct_midpoint` only when ws midpoint exists
     - fully missing ws market reference remains explicit fail-closed `market_probability_missing`
   - `taker.allow_without_expiry_metadata` must be `false`
 - `doctrine.mode=degraded`:
@@ -202,15 +237,19 @@ Runtime-classification value vocabulary:
   - every timing change packet must be proven with a monitored short canonical run before it is trusted
   - green tests or wrapper completion alone do not close timing work
 
-## Stage Policy (Canonical)
-- `OBSERVE`, `EVALUATE`, `UNKNOWN`, `EXPIRED`: maker/taker forbidden
-- `MAKER_POSITION`: maker only
-- `MAKER_TAKER_SELECTIVE`: maker only
-- `SNIPER_PRIMARY`: maker/taker forbidden in canonical live doctrine; reserved for diagnostic staging only
-- `EXTREME_ONLY`: raw late-window lineage bucket only; raw stage policy itself grants neither maker nor taker live authority
-  - normal taker live authority is the explicit `<=7s` commitment lane surfaced through `normal_taker_allowed`
-  - maker new-risk late authority is the explicit `15-20s` lane surfaced through `maker_new_risk_allowed`
-  - reduce-only recovery remains a separate explicit authority lane surfaced through `reduce_only_recovery_allowed`
+## Stage-Family Compatibility Note
+- old stage-family names may still appear in current runtime, config, report,
+  and packet-history surfaces during migration
+- those names are compatibility lineage only; they are not canonical lifecycle
+  doctrine
+- canonical live authority now belongs to:
+  - the market lifecycle blueprint
+  - owned-market continuity
+  - lifecycle phase
+  - shared safety precedence
+  - lane-local maker/taker gates
+- if runtime still emits stage-family residue, describe it as implementation
+  drift or migration compatibility, not as canonical doctrine
 
 ## Taker Competitiveness Semantics (Canonical)
 - hard floor:
@@ -259,7 +298,7 @@ Runtime-classification value vocabulary:
   - if the complementary token cannot be identified with authoritative `YES/NO`, strike, expiry, and market pairing metadata, skip
   - if the complementary book is unavailable, stale, one-sided in the required direction, or fails liquidity/price checks, skip
 - Taker timing is intentionally narrow:
-  - normal taker should fire only inside the canonical `EXTREME_ONLY <=7s` sniper window where oracle freshness and market-delay edge are strongest
+  - normal taker should fire only inside the canonical `<=7s` taker commitment lane where oracle freshness and market-delay edge are strongest
   - broader diagnostic taker windows may be used for paper investigation only and must be labeled as diagnostic, not production doctrine
   - `MAKER_TAKER_SELECTIVE` and `SNIPER_PRIMARY` taker activity are not canonical live authority
 - Entry requires expected-value discipline:
@@ -267,13 +306,12 @@ Runtime-classification value vocabulary:
   - submit requires `fair_probability - entry_price` margin for buys of the expected winner, after all configured edge, confidence, multi-oracle, liquidity, and wallet/risk gates
   - buying a high-priced likely winner is allowed only when confidence clears the price-implied break-even probability plus the configured edge margin
   - if the market has already caught up to the oracle signal, skip
-- Recovery is an emergency guardrail only:
-  - recovery exists to reduce or flatten unintended or stuck exposure, preserve risk posture, and keep valuation/lifecycle gates honest
-  - recovery never authorizes new risk, never upgrades a marginal normal taker setup into an acceptable one, and never counts as normal taker strategy success
-  - taker-side recovery is admissible only for unintended, non-doctrine baggage; it is not part of the canonical planned lifecycle for an accepted normal taker sniper shot
-  - maker-originated handoff into taker recovery is not valid authority for canonical taker
-  - for accepted normal taker, taker-side recovery is dead-power doctrine: present in shared code, unplugged in canonical authority
-  - emergency taker unwind should be evaluated as a safety outcome, not as alpha
+- Lifecycle residue is explicit, not a trading lane:
+  - open unfilled orders are cancel/cleanup patients only; they surface through `open_order_cleanup_required` and `cancel_fail_closed`
+  - accepted maker or taker exposure is a settlement-hold patient; it surfaces through `settlement_hold_required`
+  - unresolved lifecycle residue must stay explicit through `unresolved_lifecycle_obligation`; it does not create a new submit authority lane
+  - maker-to-taker recovery handoff and pre-expiry emergency taker unwind are historical artifact lineage / compatibility archaeology only, not canonical taker authority
+  - lifecycle residue is a safety/state truth surface, not alpha and not a substitute for clean entry doctrine
 - Promotion rule:
   - no paper run is live-promotable if it contains normal taker same-token short-style entry, unrecovered meaningful held exposure, `pnl_degraded=true`, unrecovered hard-degraded valuation, or unresolved lifecycle obligation caused by normal taker entry
   - clean taker proof requires accepted normal taker entries to be buy-side expected-winner or audited complement-token buys, with no unrecovered meaningful exposure at report close
@@ -296,11 +334,10 @@ Required observability surfaces:
   - normal taker same-token risk-increasing `SELL` count
   - complement-token mapping authority/failure counts
   - unrecovered meaningful exposure caused by normal taker entry
-  - recovery usage split between last-resort safety and normal path
+  - lifecycle residue split between `open_order_cleanup_required`, `settlement_hold_required`, and unresolved residue
   - doctrine-breach counters for:
     - taker submit outside hard `<=7s`
-    - maker-to-taker recovery handoff attempts
-    - taker-side recovery activity in taker scope
+    - historical recovery/unwind lineage attempts observed in active artifacts
     - same-market lane-collision attempts while market ownership is still active
 
 ## Risk Competitiveness Semantics (Canonical)
@@ -353,102 +390,62 @@ Required observability surfaces:
   - `pnl_degraded`
   - `loss_guard_degraded`
   - `valuation_degraded_reasons`
-- Dust residual handling is explicit and two-phase (`shadow -> enforce`), not implicit:
-  - one canonical classifier emits per-token exposure class:
+- Dust residual handling is descriptive-only, not a control plane:
+  - one canonical classifier may still emit per-token exposure class:
     - `MEANINGFUL`
     - `DUST_ELIGIBLE`
     - `DUST_QUARANTINED`
-  - classifier uncertainty is fail-closed (`MEANINGFUL`)
-  - aggregate containment is bounded by:
+  - classifier uncertainty remains fail-closed (`MEANINGFUL`)
+  - aggregate containment descriptors remain bounded by:
     - `risk.position_dust_total_notional_usd_cap`
     - `risk.position_dust_token_count_cap`
     - `risk.position_dust_max_age_sec`
-  - shadow posture transitions are hysteresis-bounded by:
-    - `risk.position_dust_enter_consecutive_cycles`
-    - `risk.position_dust_clear_consecutive_cycles`
-  - enforcement is opt-in and rollback-ready:
-    - `runtime.dust_classifier_enforce_enabled=false` keeps pure shadow mode
-    - enabling enforcement allows dust-only hard-degraded exemption only when:
-      - all raw hard-degraded held tokens are `DUST_ELIGIBLE`
-      - no open-order/lifecycle obligation blocks remain
-      - aggregate containment caps are not breached
-    - any uncertainty or cap breach stays fail-closed (`MEANINGFUL` behavior)
+  - current code no longer carries dust shadow / enforcement authority, dust-only hard-degraded exemption, or dust-only operator-action suppression
+  - the only non-defect carveout preserved is the narrow post-expiry retired-market held-unpriceable path, owned directly by held-unpriceable cause handling rather than dust authority
 - Held-token market-data starvation remains explicitly classified, not hidden:
-  - `valuation_degraded_reasons` may include `held_book_not_found_404_age_sec=...` when a held token repeatedly returns `/book` 404.
-  - held-token 404 recovery refresh is bounded and rate-limited by:
-    - `runtime.held_book_not_found_force_refresh_interval_sec`
-    - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec`
-  - pre-expiry reduce-only recovery activation is explicit and bounded by:
-    - `runtime.held_preexpiry_reduce_only_sec` (default `15.0`)
-    - activation requires held exposure (`non-flat` or `open-order`) and `sec_to_expiry <= held_preexpiry_reduce_only_sec`
-    - terminal unwind priority can elevate posture to `HALT_NEW_RISK` when:
-      - `runtime.terminal_unwind_halt_new_risk_sec` (default `7.0`) is reached
-      - at least one held recovery token remains meaningful (`|net_shares| >= risk.min_order_size`) or has open-order lifecycle obligations
-      - in this posture, risk-increasing intents are blocked globally while pure reduction/flattening remains allowed
-    - expired-grace and pre-expiry recovery share the same canonical payload:
-      - `reduce_only_recovery_active`
-      - `reduce_only_side`
-      - `reduce_only_size_cap_shares`
-      - `financial_posture_class` + `sec_to_expiry` lifecycle context (required when `runtime.require_lifecycle_context_for_decisions=true`)
-      - invalid payload combinations are surfaced explicitly (`lifecycle_context_mismatch`, `lifecycle_context_missing`)
-    - maker and taker both consume this payload; recovery mode never authorizes risk increase
-    - if recovery-side touch price is unavailable, submit is explicitly blocked (`reduce_only_recovery_touch_price_unavailable`)
-    - pre-expiry emergency taker unwind is bounded and explicit:
-      - `runtime.preexpiry_emergency_taker_window_sec` (default `7.0`)
-      - emits explicit outcomes (`preexpiry_emergency_taker_unwind`) with `attempted`, `filled`, and `blocked_*` reason codes
-      - current runtime has two explicit emit paths:
-        - true emergency-window path when `sec_to_expiry <= preexpiry_emergency_taker_window_sec` and maker reduce-only exit is blocked/ineffective in-cycle
-        - timing-gate handoff override path when maker reduce-only exit is blocked by `maker_timing_gate_closed` before that emergency window
-      - the timing-gate handoff override path is diagnostic / safety-only and remains dead-power on the taker side; it does not restore normal taker live authority
-      - repeated identical blocked rows may be compressed into repeat-summary events carrying:
-        - `compression_mode`
-        - `repeat_count_delta`
-        - `repeat_count_total`
-        - `repeat_distinct_token_count`
-        - `repeat_token_ids_sample`
-    - terminal tiny-notional reduce-only fallback is bounded and non-bypass:
-      - `risk.reduce_only_terminal_min_notional_usd` (default `2.0`)
-      - only for pure risk-reducing recovery intents in `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, or `HALT_NEW_RISK`
-      - never authorizes risk increase, never bypasses wallet/risk authority, and remains fail-closed on missing lifecycle context
-  - recovery-only maker quote-quality relaxation is bounded and non-bypass:
-    - `strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor` (default `0.02`)
-    - `strategy.execution_quality.reduce_only_recovery_max_queue_ahead_size_multiplier` (default `2.0`)
-    - applies only for true risk-reducing recovery intents
-    - does not bypass post-only cross checks, stale-book checks, wallet authority, or risk authority
-  - recovery-only lag/fair prereq relaxation is explicit and bounded:
-    - when `reduce_only_recovery_active=true`, maker/taker lag-verification prereq gates and maker fair-probability prereq may be relaxed for de-risking continuity
-    - this does not authorize risk increase and does not bypass WS-source, touch-price, stale-book, wallet, or risk authority checks
+  - `valuation_degraded_reasons` may include `held_ws_missing_or_unusable_age_sec=...` when a held token remains unpriceable from missing or unusable WS truth.
+  - held-token WS-missing recovery refresh is bounded and rate-limited by:
+    - `runtime.held_ws_missing_or_unusable_refresh_interval_sec`
+    - `runtime.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec`
+  - current lifecycle residue contract is explicit:
+    - `open_order_cleanup_required`
+    - `settlement_hold_required`
+    - `unresolved_lifecycle_obligation`
+    - `cancel_fail_closed`
+    - `financial_posture_class` + `sec_to_expiry` lifecycle context (required when `runtime.require_lifecycle_context_for_decisions=true`)
+    - invalid payload combinations are surfaced explicitly (`lifecycle_context_mismatch`, `lifecycle_context_missing`)
+    - open-order residue fails closed through cancel-only cleanup; accepted exposure remains settlement-hold truth
+    - `HALT_NEW_RISK` remains a real safety posture when owned by kill-switch or hard-degraded valuation, but not by the removed pre-expiry recovery / unwind family
+  - removed pre-expiry recovery / unwind config keys may remain parseable for compatibility, but they are ignored and are not canonical owner-law:
+    - `runtime.held_preexpiry_reduce_only_sec`
+    - `runtime.preexpiry_emergency_taker_window_sec`
+    - `runtime.terminal_unwind_halt_new_risk_sec`
   - canonical paper profile currently uses:
-    - `runtime.held_book_not_found_backoff_sec = 5.0`
-    - `runtime.held_book_not_found_force_refresh_min_unpriceable_age_sec = 20.0`
-    - `runtime.held_book_not_found_force_refresh_interval_sec = 45.0`
-    - `runtime.held_preexpiry_reduce_only_sec = 15.0`
-    - `runtime.preexpiry_emergency_taker_window_sec = 7.0`
-    - `runtime.terminal_unwind_halt_new_risk_sec = 7.0`
+    - `runtime.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec = 20.0`
+    - `runtime.held_ws_missing_or_unusable_refresh_interval_sec = 45.0`
   - transition/anomaly truth surfaces are explicit:
     - `valuation_hard_degraded_enter_count`
     - `valuation_hard_degraded_clear_count`
     - `held_unpriceable_started_count`
     - `held_unpriceable_recovered_count`
-    - `preexpiry_404_anomaly_count`
-    - `preexpiry_404_anomaly_active`
+    - `preexpiry_ws_missing_or_unusable_anomaly_count`
+    - `preexpiry_ws_missing_or_unusable_anomaly_active`
     - `lifecycle_context_mismatch_count`
     - `lifecycle_context_missing_sec_to_expiry_count`
-    - `preexpiry_emergency_taker_attempt_count`
-    - `preexpiry_emergency_taker_fill_count`
-    - `preexpiry_emergency_taker_block_count`
-    - `preexpiry_emergency_taker_block_reasons`
+    - `settlement_hold_required_count`
+    - `open_order_cleanup_required_count`
+    - `unresolved_lifecycle_obligation_count`
+    - `cancel_fail_closed_count`
     - `held_unpriceable_cause_counts`
+  - downstream artifact readers may still interpret older `reduce_only_recovery_*` or `preexpiry_emergency_taker_*` fields from historical runs, but those are ancestry terms only and must not be reintroduced as current active doctrine
   - additive dust truth surfaces are explicit:
     - `held_exposure_class_by_token`
     - `held_exposure_detail_by_token`
     - `held_dust_token_ids`, `held_dust_count`
     - `held_dust_quarantined_token_ids`, `held_dust_quarantined_count`
     - `held_dust_total_notional_upper_bound_usd`
-    - `held_dust_shadow_candidate_active`
-    - `held_dust_shadow_active`
-    - `held_dust_enforced_this_cycle`
-    - `held_dust_hard_degraded_exempt_count`
+    - `held_unpriceable_meaningful_escalation_token_ids`
+    - `held_unpriceable_non_defect_token_ids`
     - `raw_valuation_degraded`, `raw_valuation_hard_degraded`
 
 ## Execution-Quality Semantic Split (Canonical Reporting)
@@ -544,21 +541,20 @@ Required wallet events:
 ## Verification Signals
 - `doctrine_decision` event includes:
   - `market_key`
-  - `effective_stage` and `stage_bucket`
-  - legacy `stage` and `raw_stage` as compatibility aliases only
+  - `lifecycle_phase`
+  - ownership, market-truth, and lane-permission surfaces
   - `doctrine_gate_verdict` (`pass|fail`)
   - `reason`
 - `doctrine_prereq_failure` event explicitly marks unknown-stage prerequisite failures.
-- `stage_transition` emits stage changes with market key.
+- `lifecycle_phase_transition` emits lifecycle-phase changes with market key.
 - `degraded_path_status` emits degraded fallback activation/deactivation.
 - maker reference observability surfaces (run/report):
-  - `maker_market_reference_fallback_count`
-  - `maker_market_reference_fallback_bid_count`
-  - `maker_market_reference_fallback_ask_count`
+  - `maker_market_reference_missing_count`
+  - `maker_market_reference_one_sided_context_count`
   - `maker_reference_direct_midpoint_activity`
-  - `maker_reference_bounded_fallback_activity`
+  - `maker_reference_missing_activity`
 - readiness/reporting semantics:
-  - direct-midpoint maker activity and bounded-fallback maker activity remain separate observational categories
+  - direct-midpoint maker activity and missing-reference maker activity remain separate observational categories
   - categories must not be silently blended into a single undifferentiated maker-activity claim
 
 ## Local Validation

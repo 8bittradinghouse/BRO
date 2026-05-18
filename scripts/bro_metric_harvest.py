@@ -11,6 +11,8 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Any
 
+from prodesk.edge_truth_contract import lifecycle_phase_from_payload, maker_phase_allowed_from_payload
+
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_REPORT_ROOT = REPO_ROOT / "logs_exec" / "paper_universal" / "reports"
@@ -22,6 +24,7 @@ MANIFEST_SCHEMA_VERSION = 1
 REPORT_FILES = [
     "validation_summary.json",
     "canonical_paper_validation.json",
+    "readiness_gate.json",
     "nightly_soak_report.json",
     "edge_truth_audit.json",
     "order_lifecycle_audit.json",
@@ -90,7 +93,7 @@ CSV_FIELDS = [
     "maker_cannon_probe_full_candidate_count",
     "maker_cannon_probe_latent_market_full_candidate_count",
     "maker_cannon_probe_external_blocked_latent_market_full_candidate_count",
-    "maker_reference_fallback_ratio",
+    "maker_reference_missing_ratio",
     "maker_complete_record_count",
     "maker_incomplete_record_count",
     "maker_complete_bad_ratio",
@@ -123,19 +126,43 @@ CSV_FIELDS = [
     "valuation_bruise_state",
     "valuation_dominant_reason_family_run",
     "valuation_dominant_held_unpriceable_cause_run",
-    "preexpiry_emergency_taker_block_rate",
-    "preexpiry_emergency_taker_fill_rate",
+    "settlement_hold_required_count",
+    "open_order_cleanup_required_count",
+    "unresolved_lifecycle_obligation_count",
+    "cancel_fail_closed_count",
     "risk_reject_total_count",
-    "market_data_rest_ratio",
+    "market_data_pair_truth_missing_ratio",
+    "market_data_pair_truth_one_sided_ratio",
     "market_data_ws_ratio",
     "chainlink_down_ratio",
     "book_feed_down_ratio",
+    "book_feed_worker_unusable_rows",
+    "chainlink_worker_unusable_rows",
+    "book_feed_worker_restart_exhausted_rows",
+    "chainlink_worker_restart_exhausted_rows",
+    "gateway_heartbeat_missing_or_invalid_rows",
+    "gateway_heartbeat_disabled_resting_rows",
+    "gateway_matching_engine_error_rows",
     "outcome_attribution_usability_ratio",
     "outcome_truth_attribution_usability_ratio",
     "error_rows",
     "runtime_primary_suppression_cause",
 ]
 MISSING = object()
+HISTORICAL_LIFECYCLE_RESIDUE_ACTIVE_FIELD = "reduce_only_recovery_active"
+
+_LEGACY_STAGE_TO_LIFECYCLE_PHASE = {
+    "OBSERVE": "prepare",
+    "EVALUATE": "prepare",
+    "MAKER_POSITION": "prepare",
+    "MAKER_TAKER_SELECTIVE": "prepare",
+    "SNIPER_PRIMARY": "prepare",
+    "LATE_DIAGNOSTIC": "prepare",
+    "EXTREME_ONLY": "prepare",
+    "MAKER_LATE_WINDOW": "maker_window",
+    "TAKER_COMMITMENT": "taker_window",
+    "EXPIRED": "resolve",
+}
 
 
 def _safe_get(data: Any, path: tuple[str, ...]) -> Any:
@@ -169,6 +196,20 @@ def _sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _probe_lifecycle_phase(row: dict[str, Any]) -> str:
+    raw_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if raw_phase:
+        return raw_phase
+    lifecycle_phase = str(lifecycle_phase_from_payload(row) or "").strip().lower()
+    return lifecycle_phase or "unknown"
+
+
+def _probe_maker_phase_allowed(row: dict[str, Any]) -> bool:
+    if "maker_phase_allowed" in row:
+        return bool(row.get("maker_phase_allowed"))
+    return bool(maker_phase_allowed_from_payload(row))
 
 
 def _merge_counter(counter: Counter[str], value: dict[str, Any] | None) -> None:
@@ -766,7 +807,7 @@ def _maker_truth_population_note() -> dict[str, Any]:
         "complete_outcome_truth": {
             "surface": "outcome_truth_audit complete records",
             "population": "matured complete order outcomes",
-            "warning": "Complete-outcome truth is the right lane for decision-quality debt, but it is still measured under a bounded horizon lens.",
+            "warning": "Complete-outcome truth is the right lane for decision-quality debt, but it is still measured under a fixed short-horizon lens.",
         },
         "warnings": {
             "maker_fill_rate": "Order-completion rate, not fill-event rate.",
@@ -1061,8 +1102,8 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         loaded,
         "runtime_classification",
         [
-            ("canonical_paper_validation.json", ("runtime_classification",)),
             ("nightly_soak_report.json", ("runtime_classification", "classification")),
+            ("canonical_paper_validation.json", ("runtime_classification",)),
         ],
     )
     _record_derived(
@@ -1072,6 +1113,48 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         provenance["runtime_classification"]["source"],
         provenance["runtime_classification"]["source"] or "none",
         "selected source for runtime classification",
+    )
+    _record_first_present(
+        row,
+        provenance,
+        loaded,
+        "highest_passing_stage",
+        [
+            ("readiness_gate.json", ("highest_passing_stage",)),
+            ("canonical_paper_validation.json", ("highest_passing_stage",)),
+            ("soak_hardening_gate.json", ("readiness", "highest_passing_stage")),
+        ],
+    )
+    _record_first_present(
+        row,
+        provenance,
+        loaded,
+        "blocking_stage",
+        [
+            ("readiness_gate.json", ("blocking_stage",)),
+            ("canonical_paper_validation.json", ("blocking_stage",)),
+            ("soak_hardening_gate.json", ("readiness", "blocking_stage")),
+        ],
+    )
+    _record_first_present(
+        row,
+        provenance,
+        loaded,
+        "recommended_next_stage",
+        [
+            ("readiness_gate.json", ("recommended_next_stage",)),
+            ("canonical_paper_validation.json", ("recommended_next_stage",)),
+        ],
+    )
+    _record_first_present(
+        row,
+        provenance,
+        loaded,
+        "promotion_eligible",
+        [
+            ("nightly_soak_report.json", ("runtime_classification", "promotion_eligible")),
+            ("canonical_paper_validation.json", ("promotion_eligible",)),
+        ],
     )
     direct_specs = [
         ("profile_name", "nightly_soak_report.json", ("artifact_identity", "profile_name")),
@@ -1090,17 +1173,13 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("validation_parse_error_reports", "canonical_paper_validation.json", ("parse_error_reports",)),
         ("gate_passed", "canonical_paper_validation.json", ("gate_passed",)),
         ("reports_complete", "canonical_paper_validation.json", ("reports_complete",)),
-        ("highest_passing_stage", "canonical_paper_validation.json", ("highest_passing_stage",)),
-        ("blocking_stage", "canonical_paper_validation.json", ("blocking_stage",)),
-        ("promotion_eligible", "canonical_paper_validation.json", ("promotion_eligible",)),
-        ("recommended_next_stage", "canonical_paper_validation.json", ("recommended_next_stage",)),
         ("runtime_classification_name", "nightly_soak_report.json", ("runtime_classification", "classification")),
         ("runtime_primary_suppression_cause", "nightly_soak_report.json", ("runtime_classification", "primary_suppression_cause")),
         ("runtime_promotion_eligible", "nightly_soak_report.json", ("runtime_classification", "promotion_eligible")),
         ("runtime_active_targets_seen", "nightly_soak_report.json", ("runtime_classification", "metrics", "active_targets_seen")),
         ("runtime_meaningful_participation", "nightly_soak_report.json", ("runtime_classification", "metrics", "meaningful_participation")),
         ("runtime_decision_events", "nightly_soak_report.json", ("runtime_classification", "metrics", "decision_events")),
-        ("runtime_required_book_feed_disconnected_rows", "nightly_soak_report.json", ("runtime_classification", "metrics", "required_book_feed_disconnected_rows")),
+        ("runtime_required_market_truth_disconnected_rows", "nightly_soak_report.json", ("runtime_classification", "metrics", "required_market_truth_disconnected_rows")),
         ("duration_minutes", "nightly_soak_report.json", ("duration_minutes",)),
         ("error_rows", "nightly_soak_report.json", ("error_rows",)),
         ("quote_uptime_ratio", "nightly_soak_report.json", ("quote_uptime_ratio",)),
@@ -1114,9 +1193,9 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("maker_timing_gate_blocked_decision", "nightly_soak_report.json", ("maker_competitiveness", "timing_gate_blocked_count_decision")),
         ("maker_timing_gate_blocked_edge_eval", "nightly_soak_report.json", ("maker_competitiveness", "timing_gate_blocked_count_edge_eval")),
         ("maker_reference_direct_midpoint_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_direct_midpoint_activity")),
-        ("maker_reference_bounded_fallback_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_bounded_fallback_activity")),
+        ("maker_reference_missing_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_missing_activity")),
         ("maker_reference_direct_midpoint_action_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_direct_midpoint_action_activity")),
-        ("maker_reference_bounded_fallback_action_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_bounded_fallback_action_activity")),
+        ("maker_reference_missing_action_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_missing_action_activity")),
         ("maker_regression_triggered", "nightly_soak_report.json", ("maker_regression_sentinel", "triggered")),
         ("maker_regression_freeze_state", "nightly_soak_report.json", ("maker_regression_sentinel", "maker_behavior_freeze_state")),
         ("maker_regression_watch_item_primary", "nightly_soak_report.json", ("maker_regression_sentinel", "watch_item_primary")),
@@ -1299,12 +1378,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("taker_fill_stage_distribution", "nightly_soak_report.json", ("taker_competitiveness", "fill_stage_distribution")),
         ("taker_decision_predicted_reject_reason_distribution", "nightly_soak_report.json", ("taker_competitiveness", "decision_predicted_reject_reason_distribution")),
         ("taker_stage_final_risk_reject_reason_distribution", "nightly_soak_report.json", ("taker_competitiveness", "stage_final_risk_reject_reason_distribution")),
-        ("recovery_waiting_for_maker_exit_rows", "nightly_soak_report.json", ("reduce_only_recovery", "edge_waiting_for_maker_exit_rows")),
-        ("recovery_local_size_cap_classification", "nightly_soak_report.json", ("reduce_only_recovery", "local_size_cap_classification")),
-        ("recovery_nonflat_or_unknown_rows", "nightly_soak_report.json", ("reduce_only_recovery", "local_size_cap_nonflat_or_unknown_rows")),
-        ("recovery_flat_or_wrong_side_rows", "nightly_soak_report.json", ("reduce_only_recovery", "local_size_cap_flat_or_wrong_side_rows")),
-        ("recovery_local_size_cap_unavailable_rows", "nightly_soak_report.json", ("reduce_only_recovery", "local_size_cap_unavailable_rows")),
-        ("recovery_local_reject_lane_distribution", "nightly_soak_report.json", ("reduce_only_recovery", "local_reject_lane_distribution")),
         ("wallet_authority_status_class", "nightly_soak_report.json", ("wallet_authority", "authority_status_class")),
         ("wallet_authoritative_contract_present", "nightly_soak_report.json", ("wallet_authority", "authoritative_wallet_contract_present")),
         ("wallet_order_capable_live", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "order_capable_live")),
@@ -1358,15 +1431,27 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("held_unpriceable_started_count", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_started_count")),
         ("held_unpriceable_recovered_count", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_recovered_count")),
         ("held_unpriceable_unrecovered_meaningful_count", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_unrecovered_meaningful_count")),
-        ("held_unpriceable_unrecovered_dust_exempted_count", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_unrecovered_dust_exempted_count")),
+        ("held_unpriceable_unrecovered_non_defect_count", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_unrecovered_non_defect_count")),
         ("held_unpriceable_escalation_ratio", "nightly_soak_report.json", ("valuation_truth", "held_unpriceable_escalation_ratio")),
-        ("preexpiry_emergency_taker_attempt_count", "nightly_soak_report.json", ("valuation_truth", "preexpiry_emergency_taker_attempt_count")),
-        ("preexpiry_emergency_taker_block_count", "nightly_soak_report.json", ("valuation_truth", "preexpiry_emergency_taker_block_count")),
-        ("preexpiry_emergency_taker_fill_count", "nightly_soak_report.json", ("valuation_truth", "preexpiry_emergency_taker_fill_count")),
-        ("preexpiry_emergency_taker_block_reason_counts", "nightly_soak_report.json", ("valuation_truth", "preexpiry_emergency_taker_block_reason_counts")),
-        ("market_data_rest_ratio", "nightly_soak_report.json", ("market_data_source", "book_updates_rest_ratio")),
+        ("settlement_hold_required_count", "nightly_soak_report.json", ("valuation_truth", "settlement_hold_required_count")),
+        ("open_order_cleanup_required_count", "nightly_soak_report.json", ("valuation_truth", "open_order_cleanup_required_count")),
+        (
+            "unresolved_lifecycle_obligation_count",
+            "nightly_soak_report.json",
+            ("valuation_truth", "unresolved_lifecycle_obligation_count"),
+        ),
+        ("cancel_fail_closed_count", "nightly_soak_report.json", ("valuation_truth", "cancel_fail_closed_count")),
+        (
+            "market_data_pair_truth_missing_ratio",
+            "nightly_soak_report.json",
+            ("market_data_source", "pair_truth_missing_pair_row_ratio"),
+        ),
+        (
+            "market_data_pair_truth_one_sided_ratio",
+            "nightly_soak_report.json",
+            ("market_data_source", "pair_truth_one_sided_row_ratio"),
+        ),
         ("market_data_ws_delta", "nightly_soak_report.json", ("market_data_source", "book_updates_ws_delta")),
-        ("market_data_rest_delta", "nightly_soak_report.json", ("market_data_source", "book_updates_rest_delta")),
         ("market_data_total_delta", "nightly_soak_report.json", ("market_data_source", "book_updates_total_delta")),
         ("stale_data_disarmed_edge_blocks", "nightly_soak_report.json", ("stale_data", "disarmed_edge_blocks")),
         ("secondary_oracle_connected_ratio_when_enabled", "nightly_soak_report.json", ("secondary_oracle_pyth", "connected_ratio_when_enabled")),
@@ -1398,6 +1483,33 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("chainlink_last_tick_age_p95_sec", "soak_hardening_gate.json", ("websocket", "metrics", "chainlink_last_tick_age_p95_sec")),
         ("book_feed_down_ratio", "soak_hardening_gate.json", ("websocket", "metrics", "book_feed_down_ratio")),
         ("book_feed_last_msg_age_p95_sec", "soak_hardening_gate.json", ("websocket", "metrics", "book_feed_last_msg_age_p95_sec")),
+        ("book_feed_worker_unusable_rows", "soak_hardening_gate.json", ("websocket", "metrics", "book_feed_worker_unusable_rows")),
+        ("chainlink_worker_unusable_rows", "soak_hardening_gate.json", ("websocket", "metrics", "chainlink_worker_unusable_rows")),
+        (
+            "book_feed_worker_restart_exhausted_rows",
+            "soak_hardening_gate.json",
+            ("websocket", "metrics", "book_feed_worker_restart_exhausted_rows"),
+        ),
+        (
+            "chainlink_worker_restart_exhausted_rows",
+            "soak_hardening_gate.json",
+            ("websocket", "metrics", "chainlink_worker_restart_exhausted_rows"),
+        ),
+        (
+            "gateway_heartbeat_missing_or_invalid_rows",
+            "soak_hardening_gate.json",
+            ("websocket", "metrics", "gateway_heartbeat_missing_or_invalid_rows"),
+        ),
+        (
+            "gateway_heartbeat_disabled_resting_rows",
+            "soak_hardening_gate.json",
+            ("websocket", "metrics", "gateway_heartbeat_disabled_resting_rows"),
+        ),
+        (
+            "gateway_matching_engine_error_rows",
+            "soak_hardening_gate.json",
+            ("websocket", "metrics", "gateway_matching_engine_error_rows"),
+        ),
         ("lifecycle_ok", "order_lifecycle_audit.json", ("ok",)),
         ("lifecycle_finding_count", "order_lifecycle_audit.json", ("finding_count",)),
         ("lifecycle_warning_count", "order_lifecycle_audit.json", ("warning_count",)),
@@ -1417,6 +1529,16 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
     for field_name, source_name, path in direct_specs:
         _record_path(row, provenance, loaded, field_name, source_name, path)
 
+    if row.get("gate_passed") is None and isinstance(row.get("validation_ok"), bool):
+        _record_derived(
+            row,
+            provenance,
+            "gate_passed",
+            bool(row.get("validation_ok")),
+            "validation_summary.json",
+            "derived from validation ok when canonical summary is unavailable",
+        )
+
     if row.get("valuation_bruise_state") is None:
         degraded_ratio = row.get("valuation_degraded_ratio")
         hard_enter_count = row.get("valuation_hard_degraded_enter_count")
@@ -1424,7 +1546,9 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         held_started_count = row.get("held_unpriceable_started_count")
         held_recovered_count = row.get("held_unpriceable_recovered_count")
         meaningful_unrecovered_count = row.get("held_unpriceable_unrecovered_meaningful_count")
-        dust_unrecovered_count = row.get("held_unpriceable_unrecovered_dust_exempted_count")
+        dust_unrecovered_count = row.get("held_unpriceable_unrecovered_non_defect_count")
+        if dust_unrecovered_count is None:
+            dust_unrecovered_count = row.get("held_unpriceable_unrecovered_dust_exempted_count")
         has_bruise_evidence = any(
             isinstance(value, (int, float)) and value > 0
             for value in (degraded_ratio, hard_enter_count, held_started_count)
@@ -1633,48 +1757,23 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         "derived",
         "taker_fills / taker_decision_count",
     )
-    preexpiry_attempts = row.get("preexpiry_emergency_taker_attempt_count")
-    preexpiry_blocks = row.get("preexpiry_emergency_taker_block_count")
-    preexpiry_fills = row.get("preexpiry_emergency_taker_fill_count")
-    if isinstance(preexpiry_attempts, (int, float)) and preexpiry_attempts > 0:
-        block_rate = preexpiry_blocks / preexpiry_attempts if isinstance(preexpiry_blocks, (int, float)) else None
-        fill_rate = preexpiry_fills / preexpiry_attempts if isinstance(preexpiry_fills, (int, float)) else None
-    else:
-        block_rate = None
-        fill_rate = None
-    _record_derived(
-        row,
-        provenance,
-        "preexpiry_emergency_taker_block_rate",
-        block_rate,
-        "derived",
-        "preexpiry_emergency_taker_block_count / preexpiry_emergency_taker_attempt_count",
-    )
-    _record_derived(
-        row,
-        provenance,
-        "preexpiry_emergency_taker_fill_rate",
-        fill_rate,
-        "derived",
-        "preexpiry_emergency_taker_fill_count / preexpiry_emergency_taker_attempt_count",
-    )
     direct_mid = row.get("maker_reference_direct_midpoint_activity")
-    bounded_fallback = row.get("maker_reference_bounded_fallback_activity")
+    missing_reference = row.get("maker_reference_missing_activity")
     total_reference = 0.0
     if isinstance(direct_mid, (int, float)):
         total_reference += direct_mid
-    if isinstance(bounded_fallback, (int, float)):
-        total_reference += bounded_fallback
-    fallback_ratio = None
-    if total_reference > 0 and isinstance(bounded_fallback, (int, float)):
-        fallback_ratio = bounded_fallback / total_reference
+    if isinstance(missing_reference, (int, float)):
+        total_reference += missing_reference
+    missing_ratio = None
+    if total_reference > 0 and isinstance(missing_reference, (int, float)):
+        missing_ratio = missing_reference / total_reference
     _record_derived(
         row,
         provenance,
-        "maker_reference_fallback_ratio",
-        fallback_ratio,
+        "maker_reference_missing_ratio",
+        missing_ratio,
         "derived",
-        "maker_reference_bounded_fallback_activity / (maker_reference_direct_midpoint_activity + maker_reference_bounded_fallback_activity)",
+        "maker_reference_missing_activity / (maker_reference_direct_midpoint_activity + maker_reference_missing_activity)",
     )
     _record_derived(
         row,
@@ -1952,7 +2051,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("maker_cannon_probe_truth_thin_count", "maker_cannon_late_window_probe_summary.json", ("population_class_counts", "truth_thin")),
         ("maker_cannon_probe_full_candidate_count", "maker_cannon_late_window_probe_summary.json", ("full_cannon_candidate_count",)),
         ("maker_cannon_probe_reject_reason_distribution", "maker_cannon_late_window_probe_summary.json", ("reject_reason_distribution",)),
-        ("maker_cannon_probe_stage_distribution", "maker_cannon_late_window_probe_summary.json", ("stage_distribution",)),
         ("maker_cannon_probe_market_reference_class_distribution", "maker_cannon_late_window_probe_summary.json", ("market_reference_class_distribution",)),
         ("maker_cannon_probe_market_reference_mode_distribution", "maker_cannon_late_window_probe_summary.json", ("market_reference_mode_distribution",)),
         ("maker_cannon_probe_market_reference_source_side_distribution", "maker_cannon_late_window_probe_summary.json", ("market_reference_source_side_distribution",)),
@@ -1976,13 +2074,36 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("maker_cannon_probe_external_blocked_latent_market_evaluable_count", "maker_cannon_late_window_probe_summary.json", ("external_blocked_latent_market_evaluable_count",)),
         ("maker_cannon_probe_external_blocked_latent_market_full_candidate_count", "maker_cannon_late_window_probe_summary.json", ("external_blocked_latent_market_full_cannon_candidate_count",)),
         ("maker_cannon_probe_external_blocked_latent_market_reject_reason_distribution", "maker_cannon_late_window_probe_summary.json", ("external_blocked_latent_market_reject_reason_distribution",)),
-        ("maker_cannon_probe_full_candidate_runtime_stage_disallow_count", "maker_cannon_late_window_probe_summary.json", ("full_candidate_runtime_stage_disallow_count",)),
         ("maker_cannon_probe_total_maker_edge_eval_rows", "maker_cannon_late_window_probe_summary.json", ("total_maker_edge_eval_rows",)),
         ("maker_cannon_probe_late_window_raw_row_count", "maker_cannon_late_window_probe_summary.json", ("late_window_raw_row_count",)),
         ("maker_cannon_probe_ignored_non_late_window_row_count", "maker_cannon_late_window_probe_summary.json", ("ignored_non_late_window_row_count",)),
     ]
     for field_name, source_name, path in cannon_probe_specs:
         _record_path(row, provenance, loaded, field_name, source_name, path)
+    _record_path(
+        row,
+        provenance,
+        loaded,
+        "maker_cannon_probe_lifecycle_phase_distribution",
+        "maker_cannon_late_window_probe_summary.json",
+        ("lifecycle_phase_distribution",),
+    )
+    _record_path(
+        row,
+        provenance,
+        loaded,
+        "maker_cannon_probe_maker_phase_allowed_distribution",
+        "maker_cannon_late_window_probe_summary.json",
+        ("maker_phase_allowed_distribution",),
+    )
+    _record_path(
+        row,
+        provenance,
+        loaded,
+        "maker_cannon_probe_full_candidate_runtime_phase_disallow_count",
+        "maker_cannon_late_window_probe_summary.json",
+        ("full_candidate_runtime_phase_disallow_count",),
+    )
     row["field_provenance"] = provenance
     return row, loaded, provenance
 
@@ -2144,7 +2265,12 @@ def _build_engineer_focus(rows: list[dict[str, Any]], coverage: dict[str, Any]) 
             row.get("maker_window_queue_depth_on_impossible_targets_count") or 0 for row in rows
         ),
         "risk_reject_total_count": sum(row.get("risk_reject_total_count") or 0 for row in rows),
-        "preexpiry_emergency_taker_block_count": sum(row.get("preexpiry_emergency_taker_block_count") or 0 for row in rows),
+        "settlement_hold_required_count_total": sum(row.get("settlement_hold_required_count") or 0 for row in rows),
+        "open_order_cleanup_required_count_total": sum(row.get("open_order_cleanup_required_count") or 0 for row in rows),
+        "unresolved_lifecycle_obligation_count_total": sum(
+            row.get("unresolved_lifecycle_obligation_count") or 0 for row in rows
+        ),
+        "cancel_fail_closed_count_total": sum(row.get("cancel_fail_closed_count") or 0 for row in rows),
         "valuation_bruise_open_run_count": sum(
             1 for row in rows if row.get("valuation_bruise_state") not in (None, "none", "recovered_clean")
         ),
@@ -2168,7 +2294,7 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     taker_windows = Counter()
     taker_predicted_rejects = Counter()
     taker_stage_fills = Counter()
-    preexpiry_blocks = Counter()
+    lifecycle_residue_counts = Counter()
     valuation_bruise_states = Counter()
     valuation_reason_families = Counter()
     valuation_held_causes = Counter()
@@ -2231,7 +2357,8 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     maker_admission_trash_but_okay_examples: list[dict[str, Any]] = []
     maker_cannon_probe_population_counts = Counter()
     maker_cannon_probe_reject_reason_counts = Counter()
-    maker_cannon_probe_stage_counts = Counter()
+    maker_cannon_probe_lifecycle_phase_counts = Counter()
+    maker_cannon_probe_maker_phase_allowed_counts = Counter()
     maker_cannon_probe_financial_posture_counts = Counter()
     maker_cannon_probe_window_counts = Counter()
     maker_cannon_probe_session_regime_counts = Counter()
@@ -2313,7 +2440,18 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         _merge_counter(taker_windows, row.get("taker_decision_timing_window_distribution"))
         _merge_counter(taker_predicted_rejects, row.get("taker_decision_predicted_reject_reason_distribution"))
         _merge_counter(taker_stage_fills, row.get("taker_fill_stage_distribution"))
-        _merge_counter(preexpiry_blocks, row.get("preexpiry_emergency_taker_block_reason_counts"))
+        lifecycle_residue_counts["settlement_hold_required_count"] += int(
+            float(row.get("settlement_hold_required_count") or 0.0)
+        )
+        lifecycle_residue_counts["open_order_cleanup_required_count"] += int(
+            float(row.get("open_order_cleanup_required_count") or 0.0)
+        )
+        lifecycle_residue_counts["unresolved_lifecycle_obligation_count"] += int(
+            float(row.get("unresolved_lifecycle_obligation_count") or 0.0)
+        )
+        lifecycle_residue_counts["cancel_fail_closed_count"] += int(
+            float(row.get("cancel_fail_closed_count") or 0.0)
+        )
         _merge_counter(valuation_reason_families, row.get("valuation_degraded_reason_family_counts_run"))
         _merge_counter(valuation_held_causes, row.get("held_unpriceable_cause_counts_run"))
         _merge_counter(valuation_degraded_sources, row.get("valuation_source_counts_degraded_rows"))
@@ -2529,8 +2667,12 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             row.get("maker_cannon_probe_reject_reason_distribution"),
         )
         _merge_counter(
-            maker_cannon_probe_stage_counts,
-            row.get("maker_cannon_probe_stage_distribution"),
+            maker_cannon_probe_lifecycle_phase_counts,
+            row.get("maker_cannon_probe_lifecycle_phase_distribution"),
+        )
+        _merge_counter(
+            maker_cannon_probe_maker_phase_allowed_counts,
+            row.get("maker_cannon_probe_maker_phase_allowed_distribution"),
         )
         _merge_counter(
             maker_cannon_probe_financial_posture_counts,
@@ -2765,7 +2907,10 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 maker_cannon_probe_external_blocked_latent_market_full_candidate_total
             ),
             "reject_reason_counts": dict(maker_cannon_probe_reject_reason_counts.most_common()),
-            "stage_counts": dict(maker_cannon_probe_stage_counts.most_common()),
+            "lifecycle_phase_counts": dict(maker_cannon_probe_lifecycle_phase_counts.most_common()),
+            "maker_phase_allowed_counts": dict(
+                maker_cannon_probe_maker_phase_allowed_counts.most_common()
+            ),
             "financial_posture_class_counts": dict(
                 maker_cannon_probe_financial_posture_counts.most_common()
             ),
@@ -2817,7 +2962,7 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "taker_decision_window_counts": dict(taker_windows.most_common()),
             "taker_predicted_reject_reason_counts": dict(taker_predicted_rejects.most_common()),
             "taker_fill_stage_counts": dict(taker_stage_fills.most_common()),
-            "preexpiry_emergency_block_reason_counts": dict(preexpiry_blocks.most_common()),
+            "lifecycle_residue_counts": dict(lifecycle_residue_counts.most_common()),
             "valuation_bruise_state_counts": dict(valuation_bruise_states.most_common()),
             "valuation_degraded_reason_family_counts": dict(valuation_reason_families.most_common()),
             "valuation_held_unpriceable_cause_counts": dict(valuation_held_causes.most_common()),
@@ -2834,7 +2979,20 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "numeric_ranges": {
             "wallet_deployable_capital": _numeric_summary([row["wallet_deployable_capital"] for row in rows if isinstance(row.get("wallet_deployable_capital"), (int, float))]),
             "valuation_degraded_ratio": _numeric_summary([row["valuation_degraded_ratio"] for row in rows if isinstance(row.get("valuation_degraded_ratio"), (int, float))]),
-            "market_data_rest_ratio": _numeric_summary([row["market_data_rest_ratio"] for row in rows if isinstance(row.get("market_data_rest_ratio"), (int, float))]),
+            "market_data_pair_truth_missing_ratio": _numeric_summary(
+                [
+                    row["market_data_pair_truth_missing_ratio"]
+                    for row in rows
+                    if isinstance(row.get("market_data_pair_truth_missing_ratio"), (int, float))
+                ]
+            ),
+            "market_data_pair_truth_one_sided_ratio": _numeric_summary(
+                [
+                    row["market_data_pair_truth_one_sided_ratio"]
+                    for row in rows
+                    if isinstance(row.get("market_data_pair_truth_one_sided_ratio"), (int, float))
+                ]
+            ),
             "quote_uptime_ratio": _numeric_summary([row["quote_uptime_ratio"] for row in rows if isinstance(row.get("quote_uptime_ratio"), (int, float))]),
             "maker_fill_rate": _numeric_summary([row["maker_fill_rate"] for row in rows if isinstance(row.get("maker_fill_rate"), (int, float))]),
             "maker_fills_per_filled_order": _numeric_summary([row["maker_fills_per_filled_order"] for row in rows if isinstance(row.get("maker_fills_per_filled_order"), (int, float))]),
@@ -2865,15 +3023,22 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
     determinism_consistent_runs = sum(1 for row in rows if row.get("validation_determinism_consistent") is True)
     deployable_values = [row["wallet_deployable_capital"] for row in rows if isinstance(row.get("wallet_deployable_capital"), (int, float))]
     attribution_values = [row["outcome_attribution_usability_ratio"] for row in rows if isinstance(row.get("outcome_attribution_usability_ratio"), (int, float))]
-    rest_ratio_values = [row["market_data_rest_ratio"] for row in rows if isinstance(row.get("market_data_rest_ratio"), (int, float))]
+    pair_missing_ratio_values = [
+        row["market_data_pair_truth_missing_ratio"]
+        for row in rows
+        if isinstance(row.get("market_data_pair_truth_missing_ratio"), (int, float))
+    ]
     total_maker_submits = sum(row.get("maker_submits") or 0 for row in rows)
     total_maker_fills = sum(row.get("maker_fills") or 0 for row in rows)
     total_taker_decisions = sum(row.get("taker_decision_count") or 0 for row in rows)
     total_taker_submits = sum(row.get("taker_submits") or 0 for row in rows)
     total_taker_fills = sum(row.get("taker_fills") or 0 for row in rows)
-    total_preexpiry_attempts = sum(row.get("preexpiry_emergency_taker_attempt_count") or 0 for row in rows)
-    total_preexpiry_blocks = sum(row.get("preexpiry_emergency_taker_block_count") or 0 for row in rows)
-    total_preexpiry_fills = sum(row.get("preexpiry_emergency_taker_fill_count") or 0 for row in rows)
+    total_settlement_hold_required = sum(row.get("settlement_hold_required_count") or 0 for row in rows)
+    total_open_order_cleanup_required = sum(row.get("open_order_cleanup_required_count") or 0 for row in rows)
+    total_unresolved_lifecycle_obligation = sum(
+        row.get("unresolved_lifecycle_obligation_count") or 0 for row in rows
+    )
+    total_cancel_fail_closed = sum(row.get("cancel_fail_closed_count") or 0 for row in rows)
     total_maker_quote_quality_skips = sum(row.get("maker_quote_quality_skip_total_count") or 0 for row in rows)
     total_maker_sizing_rejects = sum(row.get("maker_sizing_reject_total_count") or 0 for row in rows)
     total_maker_replace_guard = sum(row.get("maker_replace_guard_min_rest_count") or 0 for row in rows)
@@ -2997,7 +3162,8 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         f"- Reject reasons: `{json.dumps(maker_cannon_probe.get('reject_reason_counts', {}), sort_keys=True)}`",
         f"- Latent-market reject reasons: `{json.dumps(maker_cannon_probe.get('latent_market_reject_reason_counts', {}), sort_keys=True)}`",
         f"- External-blocked latent-market reject reasons: `{json.dumps(maker_cannon_probe.get('external_blocked_latent_market_reject_reason_counts', {}), sort_keys=True)}`",
-        f"- Stage counts: `{json.dumps(maker_cannon_probe.get('stage_counts', {}), sort_keys=True)}`",
+        f"- Lifecycle-phase counts: `{json.dumps(maker_cannon_probe.get('lifecycle_phase_counts', {}), sort_keys=True)}`",
+        f"- Maker-phase-allowed counts: `{json.dumps(maker_cannon_probe.get('maker_phase_allowed_counts', {}), sort_keys=True)}`",
         f"- Financial posture classes: `{json.dumps(maker_cannon_probe.get('financial_posture_class_counts', {}), sort_keys=True)}`",
         f"- Cannon window classes: `{json.dumps(maker_cannon_probe.get('cannon_window_class_counts', {}), sort_keys=True)}`",
         f"- Session regime classes: `{json.dumps(maker_cannon_probe.get('session_regime_class_counts', {}), sort_keys=True)}`",
@@ -3019,9 +3185,9 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         "## Money / Authority Surfaces",
         f"- Deployable capital summary: `{json.dumps(_numeric_summary(deployable_values), sort_keys=True)}`",
         f"- Total risk rejects harvested: `{total_risk_rejects}`",
-        f"- Pre-expiry emergency taker attempts/blocks/fills: `{total_preexpiry_attempts}` / `{total_preexpiry_blocks}` / `{total_preexpiry_fills}`",
+        f"- Lifecycle residue settlement/open/unresolved/cancel: `{total_settlement_hold_required}` / `{total_open_order_cleanup_required}` / `{total_unresolved_lifecycle_obligation}` / `{total_cancel_fail_closed}`",
         *(_format_counter_lines(anomaly_summary["aggregates"]["risk_reject_reason_counts"]) or ["- No risk reject distribution harvested."]),
-        *(_format_counter_lines(anomaly_summary["aggregates"]["preexpiry_emergency_block_reason_counts"]) or ["- No pre-expiry emergency block reasons harvested."]),
+        *(_format_counter_lines(anomaly_summary["aggregates"]["lifecycle_residue_counts"]) or ["- No lifecycle residue counts harvested."]),
         "",
         "## Valuation / Bruise Surfaces",
         f"- Bruise states: `{json.dumps(anomaly_summary['aggregates']['valuation_bruise_state_counts'], sort_keys=True)}`",
@@ -3030,7 +3196,7 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         *(_format_counter_lines(anomaly_summary["aggregates"]["valuation_source_counts_degraded_rows"]) or ["- No degraded-row valuation source counts harvested."]),
         "",
         "## Feed / Data Surfaces",
-        f"- Market-data REST ratio summary: `{json.dumps(_numeric_summary(rest_ratio_values), sort_keys=True)}`",
+        f"- Market-data pair-missing ratio summary: `{json.dumps(_numeric_summary(pair_missing_ratio_values), sort_keys=True)}`",
         f"- Chainlink down-ratio summary: `{json.dumps(anomaly_summary['numeric_ranges']['chainlink_down_ratio'], sort_keys=True)}`",
         f"- Book-feed down-ratio summary: `{json.dumps(anomaly_summary['numeric_ranges']['book_feed_down_ratio'], sort_keys=True)}`",
         "",
@@ -3438,6 +3604,18 @@ def _build_maker_admission_bundle_outputs(
     return summary, calibration_audit
 
 
+def _row_has_lifecycle_residue_truth(row: dict[str, Any]) -> bool:
+    current_lifecycle_truth = bool(
+        row.get("open_order_cleanup_required", False)
+        or row.get("settlement_hold_required", False)
+        or row.get("unresolved_lifecycle_obligation", False)
+        or row.get("cancel_fail_closed", False)
+    )
+    if current_lifecycle_truth:
+        return True
+    return bool(row.get(HISTORICAL_LIFECYCLE_RESIDUE_ACTIVE_FIELD, False))
+
+
 def _build_maker_cannon_probe_bundle_outputs(rows: list[dict[str, Any]]) -> dict[str, Any]:
     population_counts: Counter[str] = Counter()
     reject_reason_counts: Counter[str] = Counter()
@@ -3446,7 +3624,7 @@ def _build_maker_cannon_probe_bundle_outputs(rows: list[dict[str, Any]]) -> dict
     latent_market_truth_class_counts: Counter[str] = Counter()
     latent_market_full_candidate_population_counts: Counter[str] = Counter()
     external_blocked_latent_market_reject_reason_counts: Counter[str] = Counter()
-    stage_counts: Counter[str] = Counter()
+    lifecycle_phase_counts: Counter[str] = Counter()
     financial_posture_counts: Counter[str] = Counter()
     window_counts: Counter[str] = Counter()
     session_regime_counts: Counter[str] = Counter()
@@ -3470,7 +3648,7 @@ def _build_maker_cannon_probe_bundle_outputs(rows: list[dict[str, Any]]) -> dict
         if version is not None:
             version_counts[str(version)] += 1
         population_counts[str(row.get("population_class") or "unknown")] += 1
-        stage_counts[str(row.get("stage") or "unknown")] += 1
+        lifecycle_phase_counts[_probe_lifecycle_phase(row)] += 1
         financial_posture_counts[str(row.get("financial_posture_class") or "unknown")] += 1
         window_counts[str(row.get("cannon_window_class") or "unknown")] += 1
         session_regime_counts[str(row.get("session_regime_class") or "unknown")] += 1
@@ -3509,13 +3687,11 @@ def _build_maker_cannon_probe_bundle_outputs(rows: list[dict[str, Any]]) -> dict
                     external_blocked_latent_full_examples.append(
                         {
                             "target_side_ref": str(row.get("target_side_ref") or ""),
-                            "stage": str(row.get("stage") or ""),
+                            "lifecycle_phase": _probe_lifecycle_phase(row),
                             "financial_posture_class": str(
                                 row.get("financial_posture_class") or ""
                             ),
-                            "reduce_only_recovery_active": bool(
-                                row.get("reduce_only_recovery_active", False)
-                            ),
+                            "lifecycle_residue_active": _row_has_lifecycle_residue_truth(row),
                             "sec_to_expiry": row.get("sec_to_expiry"),
                             "market_reference_class": row.get("market_reference_class"),
                             "secondary_oracle_status": row.get("secondary_oracle_status"),
@@ -3597,7 +3773,9 @@ def _build_maker_cannon_probe_bundle_outputs(rows: list[dict[str, Any]]) -> dict
             key: int(external_blocked_latent_market_reject_reason_counts[key])
             for key in sorted(external_blocked_latent_market_reject_reason_counts)
         },
-        "stage_distribution": {key: int(stage_counts[key]) for key in sorted(stage_counts)},
+        "lifecycle_phase_distribution": {
+            key: int(lifecycle_phase_counts[key]) for key in sorted(lifecycle_phase_counts)
+        },
         "financial_posture_class_distribution": {
             key: int(financial_posture_counts[key]) for key in sorted(financial_posture_counts)
         },
@@ -3660,7 +3838,6 @@ def _build_maker_cannon_probe_session_sweep(
             "external_blocked_latent_market_evaluable_count": 0,
             "external_blocked_latent_market_full_cannon_candidate_count": 0,
             "authoritative_reference_count": 0,
-            "bounded_reference_count": 0,
             "not_available_reference_count": 0,
             "positive_favored_depth_count": 0,
             "zero_imputed_favored_depth_count": 0,
@@ -3698,7 +3875,6 @@ def _build_maker_cannon_probe_session_sweep(
                 "external_blocked_latent_market_evaluable_count": 0,
                 "external_blocked_latent_market_full_cannon_candidate_count": 0,
                 "authoritative_reference_count": 0,
-                "bounded_reference_count": 0,
                 "not_available_reference_count": 0,
                 "positive_favored_depth_count": 0,
                 "zero_imputed_favored_depth_count": 0,
@@ -3731,9 +3907,9 @@ def _build_maker_cannon_probe_session_sweep(
         reference_class = str(probe_row.get("market_reference_class") or "unknown")
         if reference_class == "authoritative":
             summary["authoritative_reference_count"] += 1
-        elif reference_class == "bounded_approximation":
-            summary["bounded_reference_count"] += 1
         elif reference_class == "not_available":
+            summary["not_available_reference_count"] += 1
+        else:
             summary["not_available_reference_count"] += 1
         depth_class = str(probe_row.get("favored_side_depth_class") or "unknown")
         if depth_class == "positive":
@@ -3773,7 +3949,6 @@ def _build_maker_cannon_probe_session_sweep(
                 "external_blocked_latent_market_evaluable_count": 0,
                 "external_blocked_latent_market_full_cannon_candidate_count": 0,
                 "authoritative_reference_count": 0,
-                "bounded_reference_count": 0,
                 "not_available_reference_count": 0,
                 "positive_favored_depth_count": 0,
                 "zero_imputed_favored_depth_count": 0,
@@ -3801,7 +3976,6 @@ def _build_maker_cannon_probe_session_sweep(
             "external_blocked_latent_market_evaluable_count",
             "external_blocked_latent_market_full_cannon_candidate_count",
             "authoritative_reference_count",
-            "bounded_reference_count",
             "not_available_reference_count",
             "positive_favored_depth_count",
             "zero_imputed_favored_depth_count",
@@ -3847,7 +4021,6 @@ def _build_maker_cannon_probe_session_sweep(
                     summary["external_blocked_latent_market_full_cannon_candidate_count"]
                 ),
                 "authoritative_reference_count": int(summary["authoritative_reference_count"]),
-                "bounded_reference_count": int(summary["bounded_reference_count"]),
                 "not_available_reference_count": int(summary["not_available_reference_count"]),
                 "positive_favored_depth_count": int(summary["positive_favored_depth_count"]),
                 "zero_imputed_favored_depth_count": int(summary["zero_imputed_favored_depth_count"]),
@@ -3887,7 +4060,6 @@ def _build_maker_cannon_probe_session_sweep(
                 bucket_summary["external_blocked_latent_market_full_cannon_candidate_count"]
             ),
             "authoritative_reference_count": int(bucket_summary["authoritative_reference_count"]),
-            "bounded_reference_count": int(bucket_summary["bounded_reference_count"]),
             "not_available_reference_count": int(bucket_summary["not_available_reference_count"]),
             "positive_favored_depth_count": int(bucket_summary["positive_favored_depth_count"]),
             "zero_imputed_favored_depth_count": int(
@@ -3933,7 +4105,7 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
     latent_market_truth_class_counts: Counter[str] = Counter()
     latent_market_full_candidate_population_counts: Counter[str] = Counter()
     external_blocked_latent_market_reject_reason_counts: Counter[str] = Counter()
-    stage_counts: Counter[str] = Counter()
+    lifecycle_phase_counts: Counter[str] = Counter()
     market_reference_class_counts: Counter[str] = Counter()
     market_reference_mode_counts: Counter[str] = Counter()
     market_reference_source_side_counts: Counter[str] = Counter()
@@ -3945,7 +4117,7 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
     stack_pressure_counts: Counter[str] = Counter()
     secondary_oracle_status_counts: Counter[str] = Counter()
     secondary_oracle_confirmation_counts: Counter[str] = Counter()
-    maker_new_risk_allowed_counts: Counter[str] = Counter()
+    maker_phase_allowed_counts: Counter[str] = Counter()
     probe_visible_depth_fail_closed_zero_counts: Counter[str] = Counter()
     geometry_viable_counts: Counter[str] = Counter()
     cannon_depth_requirement_counts: Counter[str] = Counter()
@@ -3964,7 +4136,7 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
         if version is not None:
             version_counts[str(version)] += 1
         population_counts[str(row.get("population_class") or "unknown")] += 1
-        stage_counts[str(row.get("stage") or "unknown")] += 1
+        lifecycle_phase_counts[_probe_lifecycle_phase(row)] += 1
         market_reference_class_counts[str(row.get("market_reference_class") or "unknown")] += 1
         market_reference_mode_counts[str(row.get("market_reference_mode") or "unknown")] += 1
         market_reference_source_side_counts[str(row.get("market_reference_source_side") or "unknown")] += 1
@@ -3978,10 +4150,8 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
         secondary_oracle_confirmation_counts[
             "confirmed" if bool(row.get("secondary_oracle_confirmation", False)) else "not_confirmed"
         ] += 1
-        maker_new_risk_allowed_counts[
-            "allowed"
-            if bool(row.get("maker_new_risk_allowed", row.get("maker_allowed", False)))
-            else "disallowed"
+        maker_phase_allowed_counts[
+            "allowed" if _probe_maker_phase_allowed(row) else "disallowed"
         ] += 1
         probe_visible_depth_fail_closed_zero_counts[
             str(row.get("probe_visible_depth_fail_closed_zero") or "unknown")
@@ -4016,13 +4186,11 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
                     external_blocked_latent_full_examples.append(
                         {
                             "target_side_ref": str(row.get("target_side_ref") or ""),
-                            "stage": str(row.get("stage") or ""),
+                            "lifecycle_phase": _probe_lifecycle_phase(row),
                             "financial_posture_class": str(
                                 row.get("financial_posture_class") or ""
                             ),
-                            "reduce_only_recovery_active": bool(
-                                row.get("reduce_only_recovery_active", False)
-                            ),
+                            "lifecycle_residue_active": _row_has_lifecycle_residue_truth(row),
                             "sec_to_expiry": row.get("sec_to_expiry"),
                             "market_reference_class": row.get("market_reference_class"),
                             "secondary_oracle_status": row.get("secondary_oracle_status"),
@@ -4104,7 +4272,9 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
             key: int(external_blocked_latent_market_reject_reason_counts[key])
             for key in sorted(external_blocked_latent_market_reject_reason_counts)
         },
-        "stage_distribution": {key: int(stage_counts[key]) for key in sorted(stage_counts)},
+        "lifecycle_phase_distribution": {
+            key: int(lifecycle_phase_counts[key]) for key in sorted(lifecycle_phase_counts)
+        },
         "market_reference_class_distribution": {
             key: int(market_reference_class_counts[key]) for key in sorted(market_reference_class_counts)
         },
@@ -4141,9 +4311,9 @@ def _build_maker_mid_window_probe_bundle_outputs(rows: list[dict[str, Any]]) -> 
             key: int(secondary_oracle_confirmation_counts[key])
             for key in sorted(secondary_oracle_confirmation_counts)
         },
-        "maker_new_risk_allowed_distribution": {
-            key: int(maker_new_risk_allowed_counts[key])
-            for key in sorted(maker_new_risk_allowed_counts)
+        "maker_phase_allowed_distribution": {
+            key: int(maker_phase_allowed_counts[key])
+            for key in sorted(maker_phase_allowed_counts)
         },
         "probe_visible_depth_fail_closed_zero_distribution": {
             key: int(probe_visible_depth_fail_closed_zero_counts[key])
@@ -4192,7 +4362,6 @@ def _build_maker_mid_window_probe_session_sweep(
             "external_blocked_latent_market_evaluable_count": 0,
             "external_blocked_latent_market_full_mid_window_candidate_count": 0,
             "authoritative_reference_count": 0,
-            "bounded_reference_count": 0,
             "not_available_reference_count": 0,
             "positive_favored_depth_count": 0,
             "zero_imputed_favored_depth_count": 0,
@@ -4230,7 +4399,6 @@ def _build_maker_mid_window_probe_session_sweep(
                 "external_blocked_latent_market_evaluable_count": 0,
                 "external_blocked_latent_market_full_mid_window_candidate_count": 0,
                 "authoritative_reference_count": 0,
-                "bounded_reference_count": 0,
                 "not_available_reference_count": 0,
                 "positive_favored_depth_count": 0,
                 "zero_imputed_favored_depth_count": 0,
@@ -4263,9 +4431,9 @@ def _build_maker_mid_window_probe_session_sweep(
         reference_class = str(probe_row.get("market_reference_class") or "unknown")
         if reference_class == "authoritative":
             summary["authoritative_reference_count"] += 1
-        elif reference_class == "bounded_approximation":
-            summary["bounded_reference_count"] += 1
         elif reference_class == "not_available":
+            summary["not_available_reference_count"] += 1
+        else:
             summary["not_available_reference_count"] += 1
         depth_class = str(probe_row.get("favored_side_depth_class") or "unknown")
         if depth_class == "positive":
@@ -4305,7 +4473,6 @@ def _build_maker_mid_window_probe_session_sweep(
                 "external_blocked_latent_market_evaluable_count": 0,
                 "external_blocked_latent_market_full_mid_window_candidate_count": 0,
                 "authoritative_reference_count": 0,
-                "bounded_reference_count": 0,
                 "not_available_reference_count": 0,
                 "positive_favored_depth_count": 0,
                 "zero_imputed_favored_depth_count": 0,
@@ -4333,7 +4500,6 @@ def _build_maker_mid_window_probe_session_sweep(
             "external_blocked_latent_market_evaluable_count",
             "external_blocked_latent_market_full_mid_window_candidate_count",
             "authoritative_reference_count",
-            "bounded_reference_count",
             "not_available_reference_count",
             "positive_favored_depth_count",
             "zero_imputed_favored_depth_count",
@@ -4379,7 +4545,6 @@ def _build_maker_mid_window_probe_session_sweep(
                     summary["external_blocked_latent_market_full_mid_window_candidate_count"]
                 ),
                 "authoritative_reference_count": int(summary["authoritative_reference_count"]),
-                "bounded_reference_count": int(summary["bounded_reference_count"]),
                 "not_available_reference_count": int(summary["not_available_reference_count"]),
                 "positive_favored_depth_count": int(summary["positive_favored_depth_count"]),
                 "zero_imputed_favored_depth_count": int(summary["zero_imputed_favored_depth_count"]),
@@ -4419,7 +4584,6 @@ def _build_maker_mid_window_probe_session_sweep(
                 bucket_summary["external_blocked_latent_market_full_mid_window_candidate_count"]
             ),
             "authoritative_reference_count": int(bucket_summary["authoritative_reference_count"]),
-            "bounded_reference_count": int(bucket_summary["bounded_reference_count"]),
             "not_available_reference_count": int(bucket_summary["not_available_reference_count"]),
             "positive_favored_depth_count": int(bucket_summary["positive_favored_depth_count"]),
             "zero_imputed_favored_depth_count": int(

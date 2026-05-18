@@ -88,7 +88,7 @@ def main() -> None:
             "editable_install_user",
             [py, "-m", "pip", "install", "--break-system-packages", "--user", "-e", "."],
         )
-    run_step("compileall", [py, "-m", "compileall", "executor.py", "observer.py", "prodesk", "scripts", "tests"])
+    run_step("compileall", [py, "-m", "compileall", "executor.py", "prodesk", "scripts", "tests"])
     run_step("dependency_repro_audit", [py, "scripts/dependency_repro_audit.py", "--lock-manifest", "ops/dependency_lock.json"])
     run_step(
         "config_consistency_audit",

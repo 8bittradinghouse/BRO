@@ -579,7 +579,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
     def test_strict_policy_builder_rejects_noncanonical_stage_overlays(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "stage_final_window_sec_by_stage keys must be taker-allowed stages",
+            "stage_final_window_sec_by_stage is retired",
         ):
             build_taker_competitiveness_policy(
                 {
@@ -587,6 +587,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                     "final_window_enabled": True,
                     "final_window_sec": 7.0,
                     "aggressive_window_sec": 7.0,
+                    "multi_oracle_boost_window_sec": 7.0,
                     "stage_final_window_sec_by_stage": {"LEGACY_STAGE": 20.0},
                 },
                 strict=True,

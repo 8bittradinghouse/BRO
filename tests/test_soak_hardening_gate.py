@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -43,7 +44,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                 "gauge.latency_sampling_inactive_cycles": 1.0,
                 "counter.book_updates": 11.0,
                 "counter.book_updates_ws": 10.0,
-                "counter.book_updates_rest": 1.0,
+                "pair_truth_pair_count": 1.0,
+                "pair_truth_missing_pair_count": 0.0,
+                "pair_truth_one_sided_pair_count": 0.0,
+                "pair_truth_authoritative_pair_count": 1.0,
                 "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                 "chainlink": {
                     "connected": True,
@@ -66,7 +70,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                 "gauge.latency_sampling_inactive_cycles": 2.0,
                 "counter.book_updates": 22.0,
                 "counter.book_updates_ws": 20.0,
-                "counter.book_updates_rest": 2.0,
+                "pair_truth_pair_count": 1.0,
+                "pair_truth_missing_pair_count": 0.0,
+                "pair_truth_one_sided_pair_count": 0.0,
+                "pair_truth_authoritative_pair_count": 1.0,
                 "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                 "chainlink": {
                     "connected": True,
@@ -143,12 +150,83 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertIn("protected_no_trade_explanation", soak_report)
             self.assertIn("control_authority_clarity", soak_report)
             self.assertIn("protection_path_trigger_chain", soak_report)
-            self.assertIn("preexpiry_404_anomaly_count", soak_report)
+            self.assertIn("preexpiry_ws_missing_or_unusable_anomaly_count", soak_report)
             self.assertIn("lifecycle_context_mismatch_count", soak_report)
             self.assertIn("lifecycle_context_missing_sec_to_expiry_count", soak_report)
             self.assertIn("valuation_counter_limits", soak_report)
 
-    def test_soak_gate_allows_dust_exempted_unpriceable_residue(self):
+    def test_soak_gate_uses_readiness_runtime_findings_as_required_stage_causes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-runtime-override"
+            log_dir = self._write_fixture(root, run_id)
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {"min_status_rows": 1},
+                        "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {"min_duration_minutes": 20, "min_quote_uptime_ratio": 0.5, "max_error_rows": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch(
+                    "scripts.soak_hardening_gate.run_readiness_gate",
+                    return_value={
+                        "highest_passing_stage": None,
+                        "blocking_stage": "paper",
+                        "recommended_next_stage": "paper",
+                        "runtime_findings": [
+                            "readiness_runtime_invalid:INVALID_SAFETY",
+                            "readiness_runtime_non_promotable:INVALID_SAFETY",
+                        ],
+                        "stage_results": [{"stage": "paper", "passed": True, "checks": []}],
+                    },
+                ),
+                mock.patch("scripts.soak_hardening_gate.run_integrity_audit", return_value={"findings": []}),
+                mock.patch("scripts.soak_hardening_gate.run_performance_budget_gate", return_value={"findings": []}),
+                mock.patch("scripts.soak_hardening_gate.run_websocket_reliability_gate", return_value={"findings": []}),
+                mock.patch(
+                    "scripts.soak_hardening_gate.build_report",
+                    return_value={
+                        "duration_minutes": 20.0,
+                        "quote_uptime_ratio": 1.0,
+                        "error_rows": 0.0,
+                        "execution_paths": {"maker_submits": 0.0, "maker_fill_rate": 0.0, "taker_bonus_submits": 0.0, "taker_bonus_fills": 0.0, "taker_bonus_fill_rate": 0.0},
+                        "execution_quality": {"capture_minus_adverse": 0.0},
+                        "market_data_source": {},
+                        "valuation_truth": {},
+                        "runtime_classification": {"classification": "INVALID_SAFETY", "promotion_eligible": False, "metrics": {}},
+                        "primary_suppression_cause": "safety_kill_switch_or_external_guard",
+                        "contributing_suppression_causes": ["kill_switch"],
+                        "ambiguous_suppression_cause": False,
+                        "suppression_dominated_run": True,
+                        "execution_starvation_mode": "kill_switch",
+                        "protected_no_trade_explanation": "safety_control_engaged",
+                        "control_authority_clarity": {},
+                        "protection_path_trigger_chain": {},
+                    },
+                ),
+            ):
+                result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+
+            finding = next(
+                item for item in result["findings"] if item.startswith("soak_readiness_below_required_stage:")
+            )
+            self.assertIn("readiness_runtime_invalid:INVALID_SAFETY", finding)
+            self.assertIn("readiness_runtime_non_promotable:INVALID_SAFETY", finding)
+
+    def test_soak_gate_allows_non_defect_unpriceable_residue(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "r1"
@@ -167,7 +245,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.latency_sampling_inactive_cycles": 1.0,
                     "counter.book_updates": 11.0,
                     "counter.book_updates_ws": 10.0,
-                    "counter.book_updates_rest": 1.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {
                         "connected": True,
@@ -190,7 +271,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.latency_sampling_inactive_cycles": 2.0,
                     "counter.book_updates": 22.0,
                     "counter.book_updates_ws": 20.0,
-                    "counter.book_updates_rest": 2.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {
                         "connected": True,
@@ -204,14 +288,12 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "valuation_raw_hard_degraded": True,
                     "held_unpriceable_started_count": 1,
                     "held_unpriceable_recovered_count": 0,
+                    "held_unpriceable_unrecovered_non_defect_count": 1,
+                    "held_unpriceable_unrecovered_meaningful_count": 0,
                     "held_unpriceable_token_count": 1,
                     "held_unpriceable_token_ids": ["t1"],
-                    "dust_classifier_enforce_enabled": True,
-                    "held_dust_enforced_this_cycle": True,
-                    "held_dust_hard_degraded_exempt_count": 1,
-                    "held_dust_token_ids": ["t1"],
-                    "held_dust_count": 1,
-                    "held_dust_total_notional_upper_bound_usd": 0.01,
+                    "held_unpriceable_non_defect_token_ids": ["t1"],
+                    "held_unpriceable_meaningful_escalation_token_ids": [],
                 },
             ]
             (log_dir / "status_2099-01-01.jsonl").write_text(
@@ -240,7 +322,6 @@ class SoakHardeningGateTests(unittest.TestCase):
                             "min_quote_uptime_ratio": 0.5,
                             "max_error_rows": 0,
                             "max_held_unpriceable_unrecovered_count": 0,
-                            "max_book_updates_rest_ratio": 1.0,
                         },
                     }
                 ),
@@ -250,7 +331,7 @@ class SoakHardeningGateTests(unittest.TestCase):
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertTrue(result["ok"], msg=result["findings"])
             self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_raw_count"], 1.0)
-            self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_dust_exempted_count"], 1.0)
+            self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_non_defect_count"], 1.0)
             self.assertEqual(result["soak_report"]["held_unpriceable_unrecovered_meaningful_count"], 0.0)
 
     def test_soak_gate_fails_when_lifecycle_context_mismatch_count_exceeds_budget(self):
@@ -262,7 +343,7 @@ class SoakHardeningGateTests(unittest.TestCase):
             status_rows = [json.loads(line) for line in status_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             status_rows[-1]["lifecycle_context_mismatch_count"] = 1
             status_rows[-1]["lifecycle_context_missing_sec_to_expiry_count"] = 0
-            status_rows[-1]["preexpiry_404_anomaly_count"] = 0
+            status_rows[-1]["preexpiry_ws_missing_or_unusable_anomaly_count"] = 0
             status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
 
             policy = root / "policy.yaml"
@@ -294,7 +375,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                             "max_error_rows": 0,
                             "max_lifecycle_context_mismatch_count": 0,
                             "max_lifecycle_context_missing_sec_to_expiry_count": 0,
-                            "max_preexpiry_404_anomaly_count": 0,
+                            "max_preexpiry_ws_missing_or_unusable_anomaly_count": 0,
                         },
                     }
                 ),
@@ -307,7 +388,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                 msg=result.get("findings", []),
             )
 
-    def test_soak_gate_does_not_fail_when_rest_fallback_ratio_exceeds_budget(self):
+    def test_soak_gate_exposes_pair_truth_missing_metrics_without_failing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "r1"
@@ -320,7 +401,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.open_orders": 1,
                     "counter.book_updates": 10.0,
                     "counter.book_updates_ws": 1.0,
-                    "counter.book_updates_rest": 9.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 1.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 0.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -330,7 +414,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.open_orders": 1,
                     "counter.book_updates": 20.0,
                     "counter.book_updates_ws": 2.0,
-                    "counter.book_updates_rest": 18.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 1.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 0.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -352,7 +439,6 @@ class SoakHardeningGateTests(unittest.TestCase):
                             "min_status_rows": 1,
                             "max_book_feed_down_ratio": 1.0,
                             "max_chainlink_down_ratio": 1.0,
-                            "max_book_updates_rest_ratio": 0.50,
                             "min_book_updates_ws_delta": 1,
                             "min_book_updates_total_delta": 1,
                         },
@@ -364,10 +450,8 @@ class SoakHardeningGateTests(unittest.TestCase):
             )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertTrue(result["ok"], msg=result.get("findings", []))
-            self.assertFalse(
-                any("soak_book_updates_rest_ratio_too_high:" in finding for finding in result.get("findings", [])),
-                msg=result.get("findings", []),
-            )
+            self.assertAlmostEqual(float(result["soak_report"]["pair_truth_missing_pair_row_ratio"]), 1.0)
+            self.assertAlmostEqual(float(result["soak_report"]["pair_truth_missing_pair_count_max"]), 1.0)
 
     def test_soak_gate_resolves_repo_owned_budget_and_policy_outside_repo_cwd(self):
         with tempfile.TemporaryDirectory() as td:
@@ -803,10 +887,11 @@ class SoakHardeningGateTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "scan_phase": True,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                                 "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": 45.0},
                                 "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5},
@@ -816,10 +901,11 @@ class SoakHardeningGateTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "scan_phase": True,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                                 "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": 45.0},
                                 "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5},
@@ -879,7 +965,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.quote_active": 0,
                     "counter.book_updates": 10.0,
                     "counter.book_updates_ws": 10.0,
-                    "counter.book_updates_rest": 0.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -890,7 +979,10 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "gauge.quote_active": 0,
                     "counter.book_updates": 20.0,
                     "counter.book_updates_ws": 20.0,
-                    "counter.book_updates_rest": 0.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -932,14 +1024,17 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "ts_utc": "2099-01-01T00:00:00Z",
                     "runtime_state": "active",
                     "active_targets_present": True,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "gauge.open_orders": 0,
                     "gauge.quote_active": 0,
                     "gauge.actions_last_cycle": 0,
                     "gauge.order_submission_attempts_last_cycle": 0,
                     "counter.book_updates": 10.0,
                     "counter.book_updates_ws": 10.0,
-                    "counter.book_updates_rest": 0.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -948,14 +1043,17 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "ts_utc": "2099-01-01T00:30:00Z",
                     "runtime_state": "active",
                     "active_targets_present": True,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "gauge.open_orders": 0,
                     "gauge.quote_active": 0,
                     "gauge.actions_last_cycle": 0,
                     "gauge.order_submission_attempts_last_cycle": 0,
                     "counter.book_updates": 20.0,
                     "counter.book_updates_ws": 20.0,
-                    "counter.book_updates_rest": 0.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
                     "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
                     "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
                 },
@@ -1081,7 +1179,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "evaluation_scope": "taker",
                     "action_taken": "none",
-                    "block_reason": "stage_disallow_taker",
+                    "block_reason": "phase_disallow_taker",
                 },
             ]
             event_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")

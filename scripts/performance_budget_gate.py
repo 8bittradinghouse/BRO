@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from prodesk.artifact_identity import candidate_run_log_dirs
 from prodesk.error_codes import summarize_error_codes
@@ -21,6 +21,16 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     if out != out:
         return default
     return out
+
+
+def _row_is_scan_phase(row: Dict[str, Any]) -> bool:
+    lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+    if lifecycle_phase:
+        return lifecycle_phase == "scan"
+    runtime_state = str(row.get("runtime_state") or "").strip().lower()
+    if runtime_state:
+        return runtime_state == "scan"
+    return False
 
 
 def _percentile(values: List[float], q: float) -> float:
@@ -153,7 +163,11 @@ def run_gate(
     order_breach_ratio = float(order_breach_rows) / float(sample_count)
     cancel_breach_ratio = float(cancel_breach_rows) / float(sample_count)
 
-    inactive_vals = [_safe_float(r.get("gauge.latency_sampling_inactive_cycles"), default=0.0) for r in rows]
+    inactive_vals = [
+        _safe_float(r.get("gauge.latency_sampling_inactive_cycles"), default=0.0)
+        for r in rows
+        if not _row_is_scan_phase(r)
+    ]
     inactive_max = max(inactive_vals) if inactive_vals else 0.0
     span_market_data_vals = [_safe_float(r.get("gauge.cycle_span_market_data_ms"), default=-1.0) for r in rows]
     span_market_data_vals = [x for x in span_market_data_vals if x >= 0]
@@ -437,6 +451,7 @@ def run_gate(
             "cancel_capacity_breach_rows": cancel_breach_rows,
             "cancel_capacity_breach_ratio": cancel_breach_ratio,
             "latency_sampling_inactive_cycles_max": inactive_max,
+            "latency_sampling_inactive_cycles_scoped_row_count": float(len(inactive_vals)),
             "cycle_span_market_data_max_ms": span_market_data_max,
             "cycle_span_strategy_exec_max_ms": span_strategy_exec_max,
             "cycle_span_state_io_max_ms": span_state_io_max,

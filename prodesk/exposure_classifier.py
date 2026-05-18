@@ -21,8 +21,6 @@ class ExposureClassifierConfig:
     dust_total_notional_usd_cap: float
     dust_token_count_cap: int
     dust_max_age_sec: float
-    dust_enter_consecutive_cycles: int
-    dust_clear_consecutive_cycles: int
 
 
 @dataclass(frozen=True)

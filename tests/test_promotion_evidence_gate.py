@@ -55,10 +55,17 @@ class PromotionEvidenceGateTests(unittest.TestCase):
         return {
             "metrics": {
                 "book_feed_down_ratio": 0.0,
+                "book_feed_worker_unusable_rows": 0.0,
+                "book_feed_worker_restart_exhausted_rows": 0.0,
                 "chainlink_down_ratio": 0.0,
+                "chainlink_worker_unusable_rows": 0.0,
+                "chainlink_worker_restart_exhausted_rows": 0.0,
                 "book_feed_reconnects_per_hour": 0.0,
                 "chainlink_reconnects_per_hour": 0.0,
                 "chainlink_dropped_ticks_max": 0.0,
+                "gateway_heartbeat_missing_or_invalid_rows": 0.0,
+                "gateway_heartbeat_disabled_resting_rows": 0.0,
+                "gateway_matching_engine_error_rows": 0.0,
             },
             "artifact_identity": self._good_identity(),
         }
@@ -96,18 +103,18 @@ class PromotionEvidenceGateTests(unittest.TestCase):
             soak.update(
                 {
                     "maker_reference_direct_midpoint_activity": 9.0,
-                    "maker_reference_bounded_fallback_activity": 4.0,
-                    "maker_market_reference_fallback_bid_count": 1.0,
-                    "maker_market_reference_fallback_ask_count": 3.0,
+                    "maker_reference_missing_activity": 4.0,
+                    "maker_market_reference_missing_count": 1.0,
+                    "maker_market_reference_one_sided_context_count": 3.0,
                 }
             )
             result = self._run_gate(root, soak=soak, reconcile=self._good_reconcile())
             self.assertTrue(result["ok"], msg=result["findings"])
             metrics = result.get("metrics", {})
             self.assertEqual(metrics.get("maker_reference_direct_midpoint_activity"), 9.0)
-            self.assertEqual(metrics.get("maker_reference_bounded_fallback_activity"), 4.0)
-            self.assertEqual(metrics.get("maker_market_reference_fallback_bid_count"), 1.0)
-            self.assertEqual(metrics.get("maker_market_reference_fallback_ask_count"), 3.0)
+            self.assertEqual(metrics.get("maker_reference_missing_activity"), 4.0)
+            self.assertEqual(metrics.get("maker_market_reference_missing_count"), 1.0)
+            self.assertEqual(metrics.get("maker_market_reference_one_sided_context_count"), 3.0)
 
     def test_gate_passes_for_good_evidence(self):
         with tempfile.TemporaryDirectory() as td:
@@ -143,6 +150,30 @@ class PromotionEvidenceGateTests(unittest.TestCase):
             result = self._run_gate(root, soak=self._good_soak(), reconcile=self._good_reconcile(), websocket=websocket)
             self.assertFalse(result["ok"])
             self.assertIn("BRO-2201", result["error_codes"])
+
+    def test_gate_fails_for_gateway_websocket_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            websocket = self._good_websocket()
+            websocket["metrics"]["gateway_heartbeat_missing_or_invalid_rows"] = 1.0
+            result = self._run_gate(root, soak=self._good_soak(), reconcile=self._good_reconcile(), websocket=websocket)
+            self.assertFalse(result["ok"])
+            self.assertIn(
+                "websocket_promotion_gateway_heartbeat_missing_or_invalid_rows_too_high",
+                "\n".join(result["findings"]),
+            )
+
+    def test_gate_fails_for_worker_unusable_websocket_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            websocket = self._good_websocket()
+            websocket["metrics"]["book_feed_worker_unusable_rows"] = 1.0
+            result = self._run_gate(root, soak=self._good_soak(), reconcile=self._good_reconcile(), websocket=websocket)
+            self.assertFalse(result["ok"])
+            self.assertIn(
+                "websocket_promotion_book_feed_worker_unusable_rows_too_high",
+                "\n".join(result["findings"]),
+            )
 
     def test_gate_marks_reconcile_venue_unavailable_as_advisory(self):
         with tempfile.TemporaryDirectory() as td:

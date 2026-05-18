@@ -10,6 +10,13 @@ websocket:
   max_book_feed_reconnects_per_hour: 40
   max_chainlink_reconnects_per_hour: 40
   max_chainlink_dropped_ticks: 0
+  max_book_feed_worker_unusable_rows: 0
+  max_chainlink_worker_unusable_rows: 0
+  max_book_feed_worker_restart_exhausted_rows: 0
+  max_chainlink_worker_restart_exhausted_rows: 0
+  max_gateway_heartbeat_missing_or_invalid_rows: 0
+  max_gateway_heartbeat_disabled_resting_rows: 0
+  max_gateway_matching_engine_error_rows: 0
 
 reconcile:
   # Optional non-venue verification levels that are acceptable for promotion

@@ -7,7 +7,6 @@ Semantic Alignment:
 - `BRO_CANONICAL_DOCTRINE.txt` is the semantic root.
 - `execution_realism_class` is the emitted paper-realism contract field.
 - current emitted `execution_realism_class` values are:
-  - `bounded_approximation`
   - `not_modeled`
 - `harness_realism_grade_semantics=descriptive_non_gating`
 - `harness_realism_grade_authority=non_authoritative`
@@ -19,12 +18,11 @@ Canonical paper harness is BRO's emulation/proving lane for paper evidence.
 It is not a generic simulator and must not be described as one in active operator or control surfaces.
 
 Core Rule:
-Paper harness artifacts must be truthful about what is authoritative, what is bounded approximation, and what is not modeled.
+Paper harness artifacts must be truthful about what is authoritative and what is not modeled.
 No implied venue-fidelity claims are allowed outside explicit modeled scope.
 
 Paper Claim-Boundary Classes:
 - authoritative
-- bounded_approximation
 - not_modeled
 
 Authoritative Claims (paper-valid):
@@ -33,12 +31,10 @@ Authoritative Claims (paper-valid):
 - canonical decision-path causality (observation -> decision -> action/no-action)
 - run-scoped artifact truth and deterministic validator replay
 
-Bounded Approximation Claims (paper-valid, bounded):
-- taker immediate execution using visible best-touch price and observed top-size bounds
-- source fallback behavior (for example REST under websocket pressure)
-- stale-view risk signaling and degraded-path disclosure
-
 Not Modeled Claims (paper-invalid):
+- taker immediate execution using visible best-touch price and observed top-size bounds
+- source degradation behavior outside fully authoritative observed-live truth
+- stale-view risk signaling and degraded-path disclosure
 - venue queue position and exact time-priority outcomes
 - exact maker expectancy and full passive fill economics
 - full transport/exchange race microstructure
@@ -48,31 +44,27 @@ Maker Policy Semantics:
 - synthetic_touch_fill: disabled by canonical paper profile
 - near_touch_fill: disabled by canonical paper profile
 - background_fill: disabled by canonical paper profile
-- queue_position_mode:
-  - not_modeled
-  - bounded_top_depth_proxy (bounded depth-consumption approximation)
-- maker_realism_class:
-  - bounded_approximation when queue_position_mode == bounded_top_depth_proxy and synthetic maker fill paths are disabled
-  - not_modeled otherwise
+- queue_position_mode: not_modeled
+- maker_realism_class: not_modeled
 
 Taker Policy Semantics:
 - price_basis: best_touch
 - size_basis: observed_top_size
 - latency_model:
   - none
-  - bounded_lag_emulation
+  - lag_emulation
 - lag_unknown_handling: fail_closed_no_penalty
 - lag classes: within_window | below_window | above_window | unknown
 - unknown lag class never applies inferred lag penalty
 - stale_view_risk: disclosed_true
-- taker_realism_class: bounded_approximation
+- taker_realism_class: not_modeled
 
 Decision Input Truth Semantics:
 Every decision surface must disclose decision_input_type:
 - observed_live
+- observed_other
 - replayed
 - emulated
-- bounded_derived
 
 If action uses anything except observed_live, disclosure is mandatory and auditable.
 Action on emulated input is forbidden unless explicitly enabled for controlled scenarios.

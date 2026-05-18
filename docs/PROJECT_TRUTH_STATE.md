@@ -1,9 +1,15 @@
 # BRO Project Truth State
 
 ## Authority Role
-- This is the repo-level current truth screen for BRO.
+- This is the repo-level broad truth screen for BRO.
 - It is the front-of-house current-truth surface for active operator use.
 - It must be backed by explicit run artifacts, fingerprints, and report paths.
+- It is not the active Packet 2 maker-local pickup owner.
+- Active Packet 2 maker-local pickup belongs to:
+  - `docs/OPEN_LIMITATIONS.md`
+  - `docs/NEXT_PACKET_PLAN.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+  - current `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_*` owner boards
 - `docs/CURRENT_BASELINE.md` remains a baseline/reference/history surface and
   does not replace this file as the current truth screen.
 
@@ -49,8 +55,10 @@
   current proof; Packet 1 now closes `bounded-live-test ready` on watched
   proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the active next move inside the
   bounded `pilot_live` live-trust qualification lane is `Packet 2 Maker-Live`;
-  the current working tree is now clean and the closeout semantics are
-  artifact-backed, code-backed, and test-backed on the fresh watched specimen:
+  this file stays broad whole-repo truth only while the active Packet 2
+  maker-local pickup lives in the packet queue, board sink, and maker owner
+  boards; verify current tree cleanliness with `git status` instead of reading
+  older continuity wording as present-tense truth:
   - companion deep relock audit:
     - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
@@ -178,9 +186,15 @@
 - `soak_maker_submits_too_low` was diagnosed as a maker-submit enforcement taxonomy gap, not a proven maker-execution defect. `ops/soak_budget.yaml` now counts maker-scope `fair_probability_missing` as non-actionable for this enforcement path.
 - Current-code `soak_hardening_gate.py` replays of `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6` and `7e0a7dcf-947a-4d88-9f0c-9a6790ed6b69` both passed with `ok=true` and `finding_count=0`.
 - Requested 5-minute smoke run `ec26dedd-84ee-4cc9-9f5f-d448ea834f9d` verified packet-1 behavior in runtime: maker submit enforcement required `1` submit and observed `1` submit.
-- `reduce_only_recovery_size_cap_unavailable` was diagnosed across the clean anchor, 10-minute proof, and 5-minute smoke artifacts. All local size-cap-unavailable rows were flat/wrong-side no-op local rejects: clean anchor `16/16`, 10-minute proof `2/2`, smoke `1/1`; non-flat/unknown rows `0`.
-- `required_book_feed_disconnected_rows=1` was diagnosed across the same three artifacts as startup/bootstrap telemetry: first status row only, `ws_slo_bootstrap_active=1`, no order attempts/actions, connected by the next status row, websocket audit `ok=true`.
-- Current-code nightly soak report now emits `reduce_only_recovery` diagnostics so future artifacts can separate flat/wrong-side no-op churn from true non-flat recovery weakness.
+- Historical `reduce_only_recovery_size_cap_unavailable` lineage was diagnosed across the clean anchor, 10-minute proof, and 5-minute smoke artifacts. All local size-cap-unavailable rows were flat/wrong-side no-op local rejects: clean anchor `16/16`, 10-minute proof `2/2`, smoke `1/1`; non-flat/unknown rows `0`.
+- `required_market_truth_disconnected_rows=1` was diagnosed across the same three artifacts as startup/bootstrap telemetry: first status row only, `ws_slo_bootstrap_active=1`, no order attempts/actions, required market-truth transport connected by the next status row, websocket audit `ok=true`.
+- Current-code nightly soak report now emits lifecycle-residue truth through `valuation_truth` and `lifecycle_residue` so future artifacts separate settlement-hold, cancel-only cleanup, and unresolved lifecycle residue without reintroducing recovery authority as a current report owner.
+- Current-code recovery / unwind root-death is materially landed across the
+  active runtime/report/doctrine stack. Remaining old names are now bounded to
+  compatibility readers, ignored dead-key config support, and historical
+  lineage/docs rather than active current-owner authority.
+- Optional later archaeology/extinction packet for that tail:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
 - Current-code canonical 10-minute run `7fd90a69-2be3-4aff-9e3d-88c85cf3df77` completed full lifecycle with complete proving lineage:
   - `run_id=7fd90a69-2be3-4aff-9e3d-88c85cf3df77`
   - `git_commit=519f6ed188c7bde92e674512072d34ecc9d0ba1e`
@@ -239,9 +253,10 @@
   - `strategy.maker_competitiveness.timing_gate_min_sec_to_expiry=15.0`
   - `strategy.maker_competitiveness.timing_gate_max_sec_to_expiry=20.0`
   - `risk.min_sec_to_expiry_for_new_exposure=15.0`
-  - `runtime.held_preexpiry_reduce_only_sec=15.0`
-  - `runtime.preexpiry_emergency_taker_window_sec=7.0`
-  - `runtime.terminal_unwind_halt_new_risk_sec=7.0`
+  - historical contrast run still carried now-removed compatibility keys:
+    - `runtime.held_preexpiry_reduce_only_sec=15.0`
+    - `runtime.preexpiry_emergency_taker_window_sec=7.0`
+    - `runtime.terminal_unwind_halt_new_risk_sec=7.0`
 - Live-under-the-hood canonical 10-minute run `8a389b34-5df7-4d78-a750-3e2b909f17c8` closed the active spinal-cord paper-stage blocker on current code:
   - `run_id=8a389b34-5df7-4d78-a750-3e2b909f17c8`
   - `git_commit=519f6ed188c7bde92e674512072d34ecc9d0ba1e`
@@ -308,8 +323,8 @@
   - `runtime_classification=VALID_ACTIVE`
   - `quote_uptime_ratio=0.09598189269320323`
   - `runtime_meaningful_participation=1.0`
-  - live doctrine rows in the `15-20s` band carried:
-    - `maker_allowed=true`
+  - historical pre-correction doctrine rows in the `15-20s` band carried:
+    - `maker_phase_allowed=true`
     - `maker_prereq_ok=true`
   - live event tape contains `0` occurrences of
     `token_lag_not_verified_for_maker`
@@ -346,7 +361,7 @@
     - those spikes coexist with:
       - `gauge.latency_verifier_state=2.0`
       - visible tracked `leadlag_verified=1.0`
-    - active `15-20s` maker-allowed rows are mixed:
+    - active pre-correction `15-20s` maker-allowed rows are mixed:
       - one path reaches authoritative truth and real submit/fill
       - other rows remain truth-thin with:
         - `market_reference_class=not_available`
@@ -376,11 +391,13 @@
     hard-fail contract:
     - `ok=false`
     - `finding_count=1`
-    - `findings=['paper_harness_book_updates_rest_ratio_high:0.393103>max:0.350000']`
+    - historical-only finding under the retired REST-mix watch contract:
+      `findings=['paper_harness_book_updates_rest_ratio_high:0.393103>max:0.350000']`
     - `proving_lineage_complete=true`
     - `manifest_present=true`
   - current source-purity contract is tighter and narrower:
-    - whole-stream `book_updates_rest_ratio` remains watch/descriptive truth
+    - whole-stream REST-mix grading is historical-only; current support truth
+      is pair-truth missing / bounded WS classification
     - hard source-purity closure now belongs only to action-row
       `edge_evaluation` records with `action_taken in {maker,taker}`
     - `soak_hardening_gate` no longer co-owns this blocker lane through a
@@ -395,7 +412,8 @@
     while surfacing bounded realism pressure under that older contract:
     - `readiness_gate.metrics.quote_uptime_ratio=0.18949293894558247`
     - `readiness_gate.metrics.runtime_meaningful_participation=1.0`
-    - `soak_hardening_gate.findings=['soak_book_updates_rest_ratio_too_high:0.393103>max:0.350000','soak_maker_fill_rate_too_high:1.000000>max:0.850000','soak_maker_submits_too_low:6.000000<min:21.000000']`
+    - historical soak finding under the retired REST-mix hard-fail contract:
+      `soak_hardening_gate.findings=['soak_book_updates_rest_ratio_too_high:0.393103>max:0.350000','soak_maker_fill_rate_too_high:1.000000>max:0.850000','soak_maker_submits_too_low:6.000000<min:21.000000']`
   - live runtime tape on the same specimen showed:
     - sustained `cl_connected=true` / `ws_book_connected=true`
     - real maker submits and fills before the postrun validators landed
@@ -466,24 +484,30 @@
 - BRO remains paper-stage only.
 - Additional watched peak-hours canonical paper specimens are no longer the
   highest-ROI next proving move unless a fresh contradiction appears.
-- Current next proving move is bounded `pilot_live` live-trust qualification:
-  - taker live trust
+- Current remaining `pilot_live` proving order is:
   - maker live trust
   - wallet live trust
   - then bounded live hookup
   - then immediate-performance proof after bounded hookup is clean
 - latest closed Packet 1 artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
-- next packet to open inside that lane is `Maker-Live / Economic Trust Qualification`
-- active Packet 2 recovery/entry artifact is:
+- active packet inside that lane is `Maker-Live / Economic Trust Qualification`
+- active Packet 2 maker entry artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
-- Packet 2 recovery philosophy lock:
+- active Packet 2 recovery / unwind closeout artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
+- optional later Packet 2 recovery / unwind archaeology artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
+- Packet 2 recovery / unwind philosophy lock:
   - treat maker as capital-trust engineering, not a fill-count vanity lane
   - carry forward Packet 1 restoration method:
     - restore first
     - owner-first, wrapper-second
     - one concept / one term / one owner
     - contradiction compression plus negative-proof before closure
+  - open unfilled orders are cancel / cleanup patients, not recovery-trading
+    authority
+  - accepted real exposure rides to settlement / outcome truth
   - require recurring self-hardening:
     - after every 2 investigation slices
     - after watched runtime proof
@@ -517,8 +541,9 @@
       path
     - stage-local taker threshold and stage-local aggression authority are dead
       in current runtime/config truth
-    - taker bounded single-side ws market reference is now live; fully missing
-      ws market reference still fail-closes as `market_probability_missing`
+    - taker one-sided ws market reference now fail-closes without midpoint;
+      current doctrine/runtime uses midpoint-backed `direct_midpoint` or
+      explicit `market_probability_missing`
   - latest watched 10-minute current-tree specimen is now:
     - `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
     - stored `validation_summary.json`: `ok=true`, `overall_exit_code=0`, all
@@ -582,6 +607,13 @@
   - `soak_hardening_gate.ok=true`
   - non-blocking residual finding:
     - `soak_maker_submits_too_low:3.000000<min:32.000000`
+- Current WS/CLOB canonical owner path is the official split, not the retired
+  handmade websocket/CLOB stack:
+  - gateway/auth = `py-clob-client-v2`
+  - market stream = `bro-market-stream-worker`
+  - RTDS/oracle stream = `bro-rtds-stream-worker`
+  - legacy custom-websocket observer-family residue has been retired from the
+    active repo path
 - Fresh live 10-minute Brain closure specimen `656c9d42-070c-4f82-84cf-34aa333a9e7f` now proves the source-layer report mutation seam is closed on current code:
   - `maker_cannon_late_window_probe.jsonl`:
     - `row_count=78`
@@ -651,6 +683,11 @@
     `clock_state=partial_visibility` when runtime `timedatectl` visibility is
     unavailable
 - Maker low-price floor/cap adaptation remains a future policy/strategy decision, not a current safety defect.
+- Phase 2 WS/CLOB closure hardening is not yet closure-grade complete:
+  - targeted worker/gateway/governance hardening is landed on current code
+  - deterministic container build proof is now landed on current code
+  - watched 20-minute paper specimen and under-the-hood artifact review are
+    still required before declaring the substrate clean
 
 ## INFERRED
 - The spinal-cord current-code paper-stage blocker is now materially closed on `8a389b34-5df7-4d78-a750-3e2b909f17c8` and reconfirmed on `1966bf8a-b0e1-401d-8d1e-913e5260f60f` and `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`.
@@ -704,7 +741,7 @@
     - `secondary_oracle_confirmation=true`
     - non-null `secondary_fair_probability`
   - same-time null-oracle duplicates are taker-scope authority-closed rows
-    (`stage_disallow_taker` on older specimens; `normal_taker_authority_closed`
+    (`phase_disallow_taker` on older specimens; `normal_taker_authority_closed`
     on current canonical Packet 1 code), not a proven maker-scope owner split
   - `maker_fight_admission_shadow` matched the maker-scope rows on this
     specimen

@@ -1,5 +1,10 @@
 # Residual Flag Triage
 
+## Classification
+- `support-only`
+- this is a report-only residual triage surface
+- it does not own current lifecycle doctrine or runtime authority
+
 ## Scope
 Clean-tree anchor run: `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6`
 
@@ -28,13 +33,13 @@ VERIFIED: Requested 5-minute smoke validation run `ec26dedd-84ee-4cc9-9f5f-d448e
 | Signal | Count / Evidence | Classification | Truth Label | Next Action |
 |---|---:|---|---|---|
 | `new_exposure_expiry_gate_blocked` | `243` top reject count | Expected protective behavior | VERIFIED | No code change from this evidence alone |
-| `stage_disallow_taker` | `4540` edge block rows | Expected stage-policy behavior | VERIFIED | No code change from this evidence alone |
+| `phase_disallow_taker` | `4540` edge block rows | Expected lifecycle-phase behavior | VERIFIED | No code change from this evidence alone |
 | `maker_timing_gate_closed` | `217` maker block rows | Expected timing-gate behavior | VERIFIED | No code change from this evidence alone |
 | `token_lag_not_verified_for_maker` | `283` maker block rows | Expected protective behavior unless over-applied | INFERRED | Revisit only if tied to a stronger suppression proof |
 | `fair_probability_missing` | Clean run: `233` taker block rows. Post-patch run: `0` taker rows, `13` maker rows | Taker map-scope bug runtime-closed; maker rows remain maker-gated protective behavior from this evidence | VERIFIED_CLOSED_TAKER_SCOPE | No further taker patch from this evidence; keep maker scope on watch only if tied to suppression proof |
 | `market_probability_missing` | `2` taker block rows | Low-count telemetry candidate | VERIFIED_OPEN | Keep on watch; no immediate patch |
 | `taker_requires_ws_book_source` | `4` taker block rows | Fail-closed source guard | INFERRED | Keep on watch unless recurrence grows |
-| `required_book_feed_disconnected_rows` | `1` row in each inspected run; first status row only; `ws_slo_bootstrap_active=1`; no order attempts/actions; connected by next status row | Startup/bootstrap telemetry | VERIFIED_BOOTSTRAP_TRANSIENT | No code change; keep websocket audits authoritative |
+| `required_market_truth_disconnected_rows` | `1` row in each inspected run; first status row only; `ws_slo_bootstrap_active=1`; no order attempts/actions; required market-truth transport connected by next status row | Startup/bootstrap telemetry | VERIFIED_BOOTSTRAP_TRANSIENT | No code change; keep websocket audits authoritative |
 | `size_notional_bounds` | Clean run current-code replay: `30` maker rejects, `30` min-notional/max-shares conflicts. Post-patch replay: `4` maker rejects, `4` conflicts | Fail-closed maker floor/cap feasibility constraint | VERIFIED_CLASSIFIED_REPORT_PATCHED | No behavior/config change in this packet; future policy decision if maker should quote low-priced markets |
 | `sizing_reject` | Clean run report: `15` maker no-submission category rows. Post-patch report: `2` rows | Same floor/cap feasibility constraint, surfaced through maker no-submission aggregation | VERIFIED_CLASSIFIED_REPORT_PATCHED | Preserve as protective unless strategy owners approve floor/cap adaptation |
 | `submit_rejected_reduce_only_recovery_size_cap_unavailable` | Current-code report replay: clean anchor `16/16`, post-patch `2/2`, smoke `1/1` flat/wrong-side local rejects; non-flat/unknown `0` | Flat/wrong-side no-op local rejection | VERIFIED_CLOSED_REPORT_VISIBILITY | No trading behavior change; keep watching for future non-flat/unknown cases |
@@ -74,6 +79,6 @@ Packet 1 changed validation/report policy only. No wallet semantics, risk semant
 
 Current packet decision: `scripts/nightly_soak_report.py` now emits a `reduce_only_recovery` report section so future artifacts classify this condition directly. Trading behavior, wallet semantics, risk semantics, and live-readiness gates were not changed.
 
-`required_book_feed_disconnected_rows=1` was rechecked across the same three artifacts. In each run, the disconnected row was the first status row only, with `ws_slo_bootstrap_active=1`, zero order attempts/actions, and a connected book feed by the next status row. Websocket audits passed with `ok=true` and `finding_count=0`.
+`required_market_truth_disconnected_rows=1` was rechecked across the same three artifacts. In each run, the disconnected row was the first status row only, with `ws_slo_bootstrap_active=1`, zero order attempts/actions, and the required market-truth transport connected by the next status row. Websocket audits passed with `ok=true` and `finding_count=0`.
 
 Current packet decision: classify as VERIFIED bootstrap telemetry, not a recurring market-data defect. No code change.

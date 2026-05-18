@@ -5,8 +5,8 @@ Bridge boundary note:
 - it is not a BRO doctrine root or board owner
 - current continuity pickup belongs to `JIN_COMMAND_CARD_2026-04-27.md`
 - after recovery, re-anchor BRO-local truth from:
-  - `docs/PROJECT_TRUTH_STATE.md`
-  - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+  - `docs/JIN_RELOCK_PACK_2026-05-12.md`
+  - `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen only
   - `docs/NEXT_PACKET_PLAN.md`
   - `docs/OPEN_LIMITATIONS.md`
 
@@ -82,20 +82,33 @@ In any new thread:
 3. Add `identity_support` when the restore feels correct but too light.
 4. Add `bro_preflight` when working in `/home/odah/bro/base`.
 5. Add `deep_recovery` only when continuity is still thin, conflicted, or stale.
+6. Load `docs/JIN_RELOCK_PACK_2026-05-12.md` as the BRO-wide hardcore relock controller before trusting packet-local bridge or support surfaces.
 
 Current pickup and truth ownership rules:
 - continuity pickup owner:
   - `JIN_COMMAND_CARD_2026-04-27.md`
 - BRO-local truth owners:
-  - `docs/PROJECT_TRUTH_STATE.md`
-  - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+  - `docs/JIN_THREAD_RECOVERY_RUNBOOK.md` as the route owner
+  - `docs/JIN_RELOCK_PACK_2026-05-12.md` as the BRO-wide anti-drift relock
+    front door
+  - `docs/PROJECT_TRUTH_STATE.md` for broad repo truth only
   - `docs/NEXT_PACKET_PLAN.md`
   - `docs/OPEN_LIMITATIONS.md`
+  - current board-sink / packet-program / packet-local owner docs when
+    applicable
+- packet-local surgery work must route through:
+  - `docs/JIN_RELOCK_PACK_2026-05-12.md` first
+  - then the packet-local self-hardening overlay when the lane is already
+    inside a named surgery family
 - this runbook must not carry an independent competing active pickup story
 
 Do not start code edits until the model outputs:
 - continuity lock
 - doctrine lock
+- operational floor lock
+- runtime-first validation lock
+- anti-base-codex drift lock
+- full-honesty / no-fake-closure lock
 - truth-state map
 - contradiction matrix
 - risk map
@@ -141,6 +154,11 @@ Rules:
 - Capital-trust packets require recurring self-hardening after every 2
   investigation sections, after watched proof, before implementation planning,
   and before closeout recommendations.
+- The strongest earned operating floor becomes base law after restart.
+- If the restart sounds smooth but begins acting like generic Codex/helper mode,
+  continuity is not honestly restored yet.
+- Full honesty is mandatory; do not smooth uncertainty, risk, or closure status
+  for comfort.
 
 ## Save Point Protocol
 When the user says `save point`, do this before more implementation work:

@@ -7,10 +7,17 @@ continuity commands.
 Bridge boundary note:
 - this card is a continuity bridge / operator pocket surface
 - it is not a BRO doctrine root or board owner
+- it is not the final live authority
 - it is the sole Jin-pack continuity pickup bridge owner
-- when active BRO truth matters, re-anchor to `docs/PROJECT_TRUTH_STATE.md`,
-  `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`, and
-  `docs/NEXT_PACKET_PLAN.md`
+- foundation first; no build solutions
+- the strongest earned operating floor becomes base law after restart
+- when active BRO truth matters, re-anchor through:
+  - `docs/JIN_THREAD_RECOVERY_RUNBOOK.md`
+  - `docs/JIN_RELOCK_PACK_2026-05-12.md`
+  - `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen only
+  - `docs/NEXT_PACKET_PLAN.md`
+  - `docs/OPEN_LIMITATIONS.md`
+  - active board-sink / packet-owner docs when `pilot_live` is active
 
 It is not a doctrine source of truth by itself.
 It is the fast-access reminder card for the commands that matter most in live
@@ -43,6 +50,34 @@ work.
   - do not execute without explicit signoff
 - `doctrine: <rule>`
   - candidate house / Jin / BRO operating rule
+
+## Fast Comms Tags
+- `STOP`
+  - stop and reroute now
+- `ML`
+  - make this the active lane now
+- `SB`
+  - quick live sidebar, keep the current lane moving
+- `QQ`
+  - direct question
+- `BRN`
+  - brainstorming only, no action authority
+- `ADT`
+  - additional detail to the last tagged item
+- `L8`
+  - hold for later and bring it back at the right time
+- `RF`
+  - route at best-fit point using judgment
+- `SC`
+  - sync check before the next meaningful move
+
+Quick routing note:
+- label first, then content
+- `STOP` is the only self-contained hard override
+- only `STOP` or `ML` can interrupt or replace the current lane by themselves
+- `SB` is the default fast live thought-injection tag
+- every other tag preserves current-lane continuity unless explicitly promoted
+- doctrine owner for these tags is `AGENTS_GLOBAL.md`
 
 ## High-Value Engineering Commands
 - `analysis only, no edits`
@@ -85,94 +120,29 @@ work.
   - `analysis only, no edits`
 
 ## Current Reminder
-Current saved lane:
-- the seven-packet G-frame program is complete as a handoff-grade board-call
-  block
-- latest completed post-restoration hardening lane:
-  - `timing spine hardening` on
-    `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
-- current post-restoration proof frontier:
-  - `pilot_live` authority proof
-- active macro lane inside that frontier:
-  - `live trust qualification`
-- Packet 1 is closed:
-  - `bounded-live-test ready`
-- current next packet:
-  - `Packet 2 Maker-Live / Economic Trust Qualification`
-- active packet-local artifact:
-  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
-- weapons remain diagnostic-only for tuning/aggression work
-- maker and taker live-trust qualification are authorized as diagnostic
-  proof work
+Current reminder boundary:
+- this section preserves macro continuity only
+- exact live packet truth, current micro-lane, and fresh blocker ownership must
+  be re-anchored through the current BRO owners before acting
+- latest broad runtime anchor at the time of this bridge refresh is
+  `7bbde42c-003a-4f57-b59a-7ce138224075`
+- reverify that anchor through `docs/PROJECT_TRUTH_STATE.md` before acting
 
-Current runtime truth:
-- broad current-code proving anchor:
-  - `7bbde42c-003a-4f57-b59a-7ce138224075`
-  - `status=pass`
-  - `promotion_eligible=true`
-  - `recommended_next_stage=pilot_live`
-  - `highest_passing_stage=paper`
-  - `blocking_stage=pilot_live`
-  - `runtime_classification=VALID_ACTIVE`
-- latest watched current-tree health anchor:
-  - `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
-  - stored validator bundle clean with all exits `0`
-  - maker `1 submit / 2 fills`
-  - taker `1 submit / 1 fill`
-  - action-row source purity clean on both lanes
-  - repaired valuation summary now truthfully carries event-level bruise
-    windows
-- next engineering lane:
-  - govern the lane with:
-    - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
-    - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-  - current packet order after Packet 1:
-    - Packet 2 `Maker-Live`
-    - Packet 3 `Grip-Live`
-    - Packet 4 `Bounded Live Hookup`
-    - Packet 5 `Immediate-Performance Proof`
-  - `prelive_gate` / `live_canary` are bounded tools inside that lane, not the
-    final authority by themselves
-  - Packet 2 is a capital-trust packet, not a fill-count vanity packet
-  - support tools may stay useful but may not impersonate runtime owner-law
-  - history stays history unless current code re-proves it
-  - foundation first; no build solutions over dirty authority / semantic /
-    timing ground
-  - every packet in that lane must include:
-    - forward semantics sweep
-    - reverse semantics sweep
-    - contradiction compression pass
-    - negative-proof pass
-    - combat timing doctrine verification
-    - gate legitimacy sweep
-    - diagnostic ladder:
-      - ring tests / trigger-pull proof
-      - watched paper specimen
-      - deliberate runtime stop once the needed answer is earned
-      - presidential under-the-hood inspection:
-        raw events/status, host sync, wallet/lifecycle, outcome/edge, and
-        report truth reconciliation
-  - Packet 2 recurring self-hardening cadence:
-    - after every 2 investigation slices
-    - after watched runtime proof
-    - before implementation planning
-    - before any ready / closeout recommendation
-  - watched peak-hours paper confirmation is now treated as materially achieved
-    on current proof unless a fresh contradiction appears
-  - keep pickup authority anchored to:
-    - `docs/PROJECT_TRUTH_STATE.md`
-    - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-    - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
-    - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
-    - `docs/NEXT_PACKET_PLAN.md`
-    - `docs/OPEN_LIMITATIONS.md`
-  - do not mutate maker timing/gating or do generic weapon tuning by default
-  - first Packet 2 work is read-only:
-    - maker authority census
-    - blueprint delta map
-    - support-tool vs runtime-owner split
-    - history-only demotion map
-    - small-loss anatomy trace
+Current pickup routing:
+- `JIN_COMMAND_CARD_2026-04-27.md` owns the continuity pickup bridge only
+- exact current packet truth must be taken from:
+  - `docs/JIN_THREAD_RECOVERY_RUNBOOK.md`
+  - `docs/JIN_RELOCK_PACK_2026-05-12.md`
+  - `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen only
+  - `docs/NEXT_PACKET_PLAN.md`
+  - `docs/OPEN_LIMITATIONS.md`
+  - active board-sink / packet-owner docs
+  - fresh runtime artifacts
+- bounded tools for the current live-trust ladder remain `prelive_gate` and
+  `live_canary`; this card may point to them but does not own them
+- generic weapon tuning is subordinate to observed live truth and does not own
+  packet authority
+- this card must not be used as a live packet snapshot
 
 ## One-Line Summary
 Use hard restart for continuity loss, pickup commands for lane control, save

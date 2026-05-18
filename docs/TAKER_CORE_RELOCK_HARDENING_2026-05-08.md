@@ -82,7 +82,7 @@ If taker still looks too sheathed, use this order:
 ## Reload Use
 When asked to "reharden to core taker docs" or equivalent:
 1. load this file
-2. load the taker blueprint
+2. load the taker doctrine proposal
 3. load current canonical doctrine
 4. load the active Packet 1 artifact and board sink
 5. judge every surviving taker gate by one binary question:

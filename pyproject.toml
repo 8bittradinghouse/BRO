@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "requests==2.32.5",
-  "websockets==15.0.1",
   "PyYAML==6.0.2",
   "prometheus-client==0.23.1",
-  "py-clob-client==0.25.0",
+  "py-clob-client-v2 @ git+https://github.com/Polymarket/py-clob-client-v2.git@394ecc18ab9ab20b48095b0b5c5de0042bdd6bb3",
+  "py-builder-relayer-client @ git+https://github.com/Polymarket/py-builder-relayer-client.git@6589f36740a2a98736f5b0499f29d2d234c583bc",
 ]
 
 [project.scripts]

@@ -1,6 +1,7 @@
 import unittest
 
 from prodesk.chainlink_feed import ChainlinkFeed
+from prodesk.stream_worker_contracts import EVENT_FATAL
 
 
 class ChainlinkFeedTests(unittest.TestCase):
@@ -308,6 +309,58 @@ class ChainlinkFeedTests(unittest.TestCase):
         assert tick is not None
         self.assertEqual(tick.source_ts_utc, "1970-01-01T00:50:00.000Z")
         self.assertEqual(tick.price, 65002.0)
+
+    def test_worker_fatal_marks_failed_closed_status(self):
+        feed = ChainlinkFeed({"enabled": True, "topic": "crypto_prices_chainlink", "symbols": ["btc/usd"]})
+        feed._mark_worker_fatal(reason="queue_overflow", restart_exhausted=True)
+        status = feed.status()
+        self.assertEqual(status["subscription_state"], "failed_closed")
+        self.assertFalse(status["worker_usable"])
+        self.assertEqual(status["worker_fatal_reason"], "queue_overflow")
+        self.assertTrue(status["worker_restart_exhausted"])
+
+    def test_worker_fatal_event_raises_protocol_error(self):
+        feed = ChainlinkFeed({"enabled": True, "topic": "crypto_prices_chainlink", "symbols": ["btc/usd"]})
+        with self.assertRaisesRegex(Exception, "RTDS worker fatal:decode_error"):
+            feed._handle_worker_payload(
+                {"event": EVENT_FATAL, "fatal_reason": "decode_error"},
+                received_monotonic=100.0,
+            )
+
+    def test_configured_unusable_health_event_is_nonfatal_and_updates_status(self):
+        feed = ChainlinkFeed({"enabled": True, "topic": "crypto_prices_chainlink", "symbols": ["btc/usd"]})
+        feed._handle_worker_payload(
+            {
+                "contract": "bro.rtds_stream.event.v1",
+                "event": "ack",
+                "request_id": "probe",
+                "provider": "rs-clob-client-v2",
+                "contract_version": "v1",
+                "subscription_state": "configured",
+            },
+            received_monotonic=100.0,
+        )
+        feed._handle_worker_payload(
+            {
+                "contract": "bro.rtds_stream.event.v1",
+                "event": "health",
+                "provider": "rs-clob-client-v2",
+                "contract_version": "v1",
+                "connected": False,
+                "transport_connected": False,
+                "usable": False,
+                "fatal_reason": None,
+                "restart_exhausted": False,
+                "subscription_state": "configured",
+                "last_error": None,
+            },
+            received_monotonic=101.0,
+        )
+        status = feed.status()
+        self.assertEqual(status["subscription_state"], "configured")
+        self.assertFalse(status["worker_usable"])
+        self.assertFalse(status["connected"])
+        self.assertFalse(status["transport_connected"])
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ def load_wallet_config(cfg: Mapping[str, Any]) -> WalletConfig:
         ),
         chain=str(raw.get("chain", "polygon") or "polygon").strip().lower(),
         gas_asset_symbol=str(raw.get("gas_asset_symbol", "POL") or "POL").strip(),
-        stable_asset_symbol=str(raw.get("stable_asset_symbol", "USDC.e") or "USDC.e").strip(),
+        stable_asset_symbol=str(raw.get("stable_asset_symbol", "pUSD") or "pUSD").strip(),
         approval_spender_targets=tuple(targets),
         active_wallet_address_source=str(raw.get("active_wallet_address_source", "auth.funder") or "auth.funder").strip(),
         treasury_mode=str(raw.get("treasury_mode", "logical") or "logical").strip().lower(),

@@ -104,9 +104,9 @@
 - Current-code report replay now surfaces maker sizing reject counts and min-notional/max-shares conflict rows.
 - `soak_maker_submits_too_low` was diagnosed as a maker-submit enforcement taxonomy gap. `ops/soak_budget.yaml` now treats maker-scope `fair_probability_missing` as non-actionable for this enforcement path. Current-code replays of `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6` and `7e0a7dcf-947a-4d88-9f0c-9a6790ed6b69` pass with `finding_count=0`.
 - Requested 5-minute smoke run `ec26dedd-84ee-4cc9-9f5f-d448ea834f9d` verified packet-1 behavior in runtime: maker submit enforcement required `1` submit and observed `1` submit.
-- `reduce_only_recovery_size_cap_unavailable` is classified in current artifacts as flat/wrong-side no-op local rejection, not a proven non-flat recovery weakness: clean anchor `16/16`, post-patch run `2/2`, and smoke run `1/1` local size-cap rejects were `flat_or_wrong_side_noop_only`.
-- `required_book_feed_disconnected_rows=1` is classified in current artifacts as startup/bootstrap telemetry: first status row only, `ws_slo_bootstrap_active=1`, no order attempts/actions, connected by the next status row, websocket audits passed.
-- Current-code nightly report now surfaces `reduce_only_recovery` diagnostics, including flat/wrong-side vs non-flat/unknown size-cap reject classification.
+- Historical `reduce_only_recovery_size_cap_unavailable` lineage is classified in current artifacts as flat/wrong-side no-op local rejection, not a proven non-flat lifecycle residue weakness: clean anchor `16/16`, post-patch run `2/2`, and smoke run `1/1` local size-cap rejects were `flat_or_wrong_side_noop_only`.
+- `required_market_truth_disconnected_rows=1` is classified in current artifacts as startup/bootstrap telemetry: first status row only, `ws_slo_bootstrap_active=1`, no order attempts/actions, required market-truth transport connected by the next status row, websocket audits passed.
+- Current-code nightly report now surfaces lifecycle-residue truth directly; old `reduce_only_recovery*` labels remain historical artifact lineage only when older runs are replayed.
 
 ## Verified Open / Residual Candidates
 - A literal 5-minute canonical session does not satisfy the current canonical 10-minute soak budget. This is a validation-duration constraint, not a proven bot behavior defect.

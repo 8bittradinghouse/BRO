@@ -33,7 +33,7 @@ Edge doctrine must use one language all the way through:
 
 - stage permission is not actionability
 - observation is not authorization
-- bounded truth is not authoritative truth
+- non-authoritative or incomplete truth is not authoritative truth
 - blocked is not the same as not quoteable
 
 Required rule:
@@ -178,30 +178,33 @@ For current BRO:
 - downstream design-input/reference surfaces:
   - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
     - pathway/reference support surface
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
     - intended maker-weapon doctrine anchor for the late-window cannon design
-    - doctrine window: final `15-20s`
-    - sweet spot: final `10-15s`
+    - maker gate opens at `15s`
+    - taker handoff opens at `7s`
 - mnemonic alias surface:
   - `docs/BRO_WEAPON_NOMENCLATURE.md`
 
 If a fighter has edge-execution arms but lacks both a downstream runtime
-runbook surface and downstream blueprint/reference surfaces, doctrine is
+runbook surface and downstream proposal/reference surfaces, doctrine is
 incomplete.
 
-3. Stage-Machine Binding
+3. Lifecycle Binding
 
-Execution behavior must be bound to the canonical stage machine.
+Execution behavior must be bound to the canonical market lifecycle and lane-permission model.
 
 Rules:
 
-- stage determines which execution modes are stage-allowed
-- resolver/capability model determines which actions are authorized
+- lifecycle phase determines which operating window is live
+- lane-permission model determines which actions are authorized
 - edge truth determines whether opportunity is valid
 
 All three must align before execution.
 
-Exact fighter-specific stage bindings and timing windows belong in the
+Old stage-family names may survive temporarily as compatibility lineage during
+migration, but they are not the canonical execution owner.
+
+Exact fighter-specific lifecycle bindings and timing windows belong in the
 downstream fighter runtime/runbook surface, not here.
 
 4. Edge Truth Doctrine
@@ -257,7 +260,7 @@ Decision:
 - action_taken (maker/taker/none)
 - block_reason (if not taken)
 - decision_input_source (nullable string)
-- decision_input_type (`observed_live|replayed|bounded_derived|emulated|unknown`)
+- decision_input_type (`observed_live|observed_other|replayed|emulated|unknown`)
 - decision_input_emulated (bool)
 - decision_input_data_class (`observed_live|observed_other|emulated|unknown`)
 

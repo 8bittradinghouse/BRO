@@ -348,15 +348,14 @@ class GuardianWatchdogTests(unittest.TestCase):
         self.assertEqual(reason, "chainlink_disconnected")
         self.assertFalse(bool(details.get("chainlink_age_unknown_startup_suppressed")))
 
-    def test_evaluate_guard_no_target_standdown_does_not_require_book_feed(self):
+    def test_evaluate_guard_scan_phase_does_not_require_market_truth(self):
         now = dt.datetime.now(dt.timezone.utc)
         status = {
             "ts_utc": _utc_iso(now),
             "kill_switch": False,
-            "runtime_state": "no_target_standdown",
+            "lifecycle_phase": "scan",
             "active_targets_present": False,
-            "no_target_standdown": True,
-            "book_feed_required": False,
+            "market_truth_required": False,
             "book_feed": {
                 "enabled": True,
                 "connected": False,
@@ -381,18 +380,17 @@ class GuardianWatchdogTests(unittest.TestCase):
         )
         self.assertFalse(arm)
         self.assertEqual(reason, "")
-        self.assertFalse(bool(details.get("book_feed_required")))
-        self.assertTrue(bool(details.get("no_target_standdown")))
+        self.assertFalse(bool(details.get("market_truth_required")))
+        self.assertTrue(bool(details.get("scan_phase")))
 
-    def test_evaluate_guard_active_targets_still_require_book_feed(self):
+    def test_evaluate_guard_active_targets_still_require_market_truth(self):
         now = dt.datetime.now(dt.timezone.utc)
         status = {
             "ts_utc": _utc_iso(now),
             "kill_switch": False,
-            "runtime_state": "active",
+            "lifecycle_phase": "prepare",
             "active_targets_present": True,
-            "no_target_standdown": False,
-            "book_feed_required": True,
+            "market_truth_required": True,
             "book_feed": {
                 "enabled": True,
                 "connected": False,
@@ -417,17 +415,16 @@ class GuardianWatchdogTests(unittest.TestCase):
         )
         self.assertTrue(arm)
         self.assertEqual(reason, "book_feed_disconnected")
-        self.assertTrue(bool(details.get("book_feed_required")))
+        self.assertTrue(bool(details.get("market_truth_required")))
 
     def test_evaluate_guard_requirement_transitions_with_runtime_context(self):
         now = dt.datetime.now(dt.timezone.utc)
         no_target = {
             "ts_utc": _utc_iso(now),
             "kill_switch": False,
-            "runtime_state": "no_target_standdown",
+            "lifecycle_phase": "scan",
             "active_targets_present": False,
-            "no_target_standdown": True,
-            "book_feed_required": False,
+            "market_truth_required": False,
             "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": 45.0},
         }
         arm_no_target, reason_no_target, _details_no_target = evaluate_guard(
@@ -449,10 +446,9 @@ class GuardianWatchdogTests(unittest.TestCase):
         active_target = dict(no_target)
         active_target.update(
             {
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
             }
         )
         arm_active, reason_active, _details_active = evaluate_guard(
@@ -576,9 +572,9 @@ class GuardianWatchdogTests(unittest.TestCase):
             row = {
                 "ts_utc": _utc_iso(dt.datetime.now(dt.timezone.utc)),
                 "kill_switch": False,
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "book_feed": {
                     "enabled": True,
                     "connected": False,
@@ -625,7 +621,7 @@ class GuardianWatchdogTests(unittest.TestCase):
             row = {
                 "ts_utc": _utc_iso(dt.datetime.now(dt.timezone.utc)),
                 "kill_switch": False,
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
                 "chainlink": {
                     "enabled": True,

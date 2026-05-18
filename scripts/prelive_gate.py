@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 
 from prodesk.common import utc_iso
-from prodesk.config import load_execution_config
+from prodesk.config import extract_config_compatibility_metadata, load_execution_config
 from prodesk.error_codes import summarize_error_codes
 from prodesk.gateway import _normalize_evm_address, _normalize_private_key
 from prodesk.repo import resolve_repo_root
@@ -251,8 +251,18 @@ def run_prelive_gate(
     cfg = load_execution_config(config_path.resolve())
     repo_root = resolve_repo_root()
     findings: list[str] = []
+    timing_warnings: list[str] = []
+    compatibility_warnings: list[str] = []
     decision_trace: list[dict[str, Any]] = []
     checks: Dict[str, Any] = {}
+    compatibility_meta = extract_config_compatibility_metadata(cfg)
+    ignored_compatibility_fields = list(compatibility_meta.get("ignored_compatibility_fields") or [])
+    compatibility_warnings.extend(str(x) for x in compatibility_meta.get("compatibility_warnings", []))
+    checks["config_compatibility"] = {
+        "ignored_compatibility_fields": ignored_compatibility_fields,
+        "compatibility_warning_count": int(compatibility_meta.get("compatibility_warning_count") or 0),
+        "compatibility_warnings": list(compatibility_meta.get("compatibility_warnings") or []),
+    }
 
     mode = str(cfg.get("mode", "paper")).strip().lower()
     if mode != "live":
@@ -431,13 +441,18 @@ def run_prelive_gate(
         ws_audit = run_websocket_hardening_audit(config_path=config_path)
         checks["websocket_hardening_audit"] = ws_audit
         findings.extend(str(x) for x in ws_audit.get("findings", []))
+        timing_warnings.extend(str(x) for x in ws_audit.get("warnings", []))
     else:
         checks["websocket_hardening_audit"] = {"skipped": True}
 
     if not skip_guardian_profile_audit:
-        guardian_audit = run_guardian_profile_audit(compose_path=repo_root / "docker-compose.yml")
+        guardian_audit = run_guardian_profile_audit(
+            compose_path=repo_root / "docker-compose.yml",
+            config_path=config_path.resolve(),
+        )
         checks["guardian_profile_audit"] = guardian_audit
         findings.extend(str(x) for x in guardian_audit.get("findings", []))
+        compatibility_warnings.extend(str(x) for x in guardian_audit.get("compatibility_warnings", []))
     else:
         checks["guardian_profile_audit"] = {"skipped": True}
 
@@ -466,6 +481,7 @@ def run_prelive_gate(
         )
         checks["time_discipline_audit"] = time_audit
         findings.extend(str(x) for x in time_audit.get("findings", []))
+        timing_warnings.extend(str(x) for x in time_audit.get("warnings", []))
     else:
         checks["time_discipline_audit"] = {"skipped": True}
 
@@ -501,6 +517,8 @@ def run_prelive_gate(
         checks["readiness_gate"] = {"skipped": True}
 
     unique_findings = sorted(set(findings))
+    unique_timing_warnings = sorted(set(timing_warnings))
+    unique_compatibility_warnings = sorted(set(compatibility_warnings))
     return {
         "ts_utc": utc_iso(),
         "repo_root": str(repo_root),
@@ -509,6 +527,10 @@ def run_prelive_gate(
         "ok": len(unique_findings) == 0,
         "finding_count": len(unique_findings),
         "findings": unique_findings,
+        "timing_warning_count": len(unique_timing_warnings),
+        "timing_warnings": unique_timing_warnings,
+        "compatibility_warning_count": len(unique_compatibility_warnings),
+        "compatibility_warnings": unique_compatibility_warnings,
         "decision_trace": decision_trace,
         "error_codes": summarize_error_codes(unique_findings),
         "checks": checks,

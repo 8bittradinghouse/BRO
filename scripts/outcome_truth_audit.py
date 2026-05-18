@@ -21,7 +21,9 @@ EDGE_EVALUATION = "edge_evaluation"
 ORDER_SUBMIT = "order_submit"
 FILL = "fill"
 BOOK_TOP = "book_top"
-
+HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
+HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
 CANONICAL_EVALUATION_HORIZON_MS = 5000
 REDACTED_TOKEN_ID = "[REDACTED]"
 
@@ -90,7 +92,7 @@ COMBINED_CLASSES = {
     COMBINED_CLASS_UNKNOWN,
 }
 
-CLAIM_BOUNDARY_COMPLETE = "bounded_approximation"
+CLAIM_BOUNDARY_COMPLETE = "not_provable_missing_inputs"
 CLAIM_BOUNDARY_UNKNOWN = "not_provable_missing_inputs"
 CLAIM_BOUNDARY_INCOMPLETE = "not_modeled_incomplete_lifecycle"
 
@@ -270,6 +272,32 @@ def _payload_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _has_lifecycle_residue_truth(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for field in (
+        "open_order_cleanup_required",
+        "settlement_hold_required",
+        "unresolved_lifecycle_obligation",
+        "cancel_fail_closed",
+    ):
+        if _as_bool(payload.get(field)) is True:
+            return True
+    return False
+
+
+def _has_historical_lifecycle_lineage(payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if _as_bool(payload.get(HISTORICAL_RECOVERY_ACTIVE_FIELD)) is True:
+        return True
+    if _as_bool(payload.get(HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD)) is True:
+        return True
+    if str(payload.get(HISTORICAL_RECOVERY_REASON_FIELD) or "").strip():
+        return True
+    return False
+
+
 def _submit_scope_hint(row: Dict[str, Any]) -> str:
     reason = str(row.get("reason") or "").strip().lower()
     execution_preference = str(row.get("execution_preference") or "").strip().lower()
@@ -284,7 +312,7 @@ def _submit_scope_hint(row: Dict[str, Any]) -> str:
     return ""
 
 
-def _is_recovery_submit(row: Dict[str, Any]) -> bool:
+def _is_lifecycle_residue_submit(row: Dict[str, Any]) -> bool:
     candidate_payloads = [
         _payload_dict(row.get("taker_competitiveness")),
         _payload_dict(_payload_dict(row.get("size_resolution")).get("taker_competitiveness")),
@@ -292,11 +320,7 @@ def _is_recovery_submit(row: Dict[str, Any]) -> bool:
         row,
     ]
     for payload in candidate_payloads:
-        if _as_bool(payload.get("reduce_only_recovery_active")) is True:
-            return True
-        if _as_bool(payload.get("preexpiry_reduce_only_active")) is True:
-            return True
-        if str(payload.get("reduce_only_recovery_reason") or "").strip():
+        if _has_lifecycle_residue_truth(payload) or _has_historical_lifecycle_lineage(payload):
             return True
     return False
 
@@ -322,8 +346,8 @@ def _submission_lane_truth(row: Dict[str, Any]) -> str:
     if scope == "maker":
         return "maker"
     if scope == "taker":
-        if _is_recovery_submit(row):
-            return "reduce_only_recovery_taker"
+        if _is_lifecycle_residue_submit(row):
+            return "lifecycle_residue_taker"
         if _has_normal_taker_payload(row):
             return "normal_taker"
         return "unknown_taker"
@@ -621,7 +645,7 @@ def _lane_outcome_truth(records: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str
             "filled_complete": int(len(filled_complete)),
             "filled_unknown": int(max(0, len(filled_rows) - len(filled_complete))),
             "filled_complete_ratio": float(filled_complete_ratio),
-            "recovery_override_records": int(sum(1 for row in lane_rows if bool(row.get("recovery_override")))),
+            "lifecycle_residue_records": int(sum(1 for row in lane_rows if bool(row.get("lifecycle_residue_override")))),
             "outcome_truth_status_distribution": _field_distribution(
                 lane_rows,
                 field="outcome_truth_status",
@@ -1840,7 +1864,7 @@ def run_audit(
             "fill_trade_id": fill_trade_id,
             "submission_lane_truth": _submission_lane_truth(submit),
             "submission_scope_hint": _submit_scope_hint(submit) or "unknown",
-            "recovery_override": bool(_is_recovery_submit(submit)),
+            "lifecycle_residue_override": bool(_is_lifecycle_residue_submit(submit)),
             "ts_decision_utc": _format_ts(decision_ts),
             "ts_fill_utc": _format_ts(ts_fill),
             "ts_eval_utc": _format_ts(ts_eval),

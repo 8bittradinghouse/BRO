@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import concurrent.futures
 import contextlib
 import dataclasses
 import datetime as dt
@@ -35,14 +34,24 @@ from prodesk.canonical_authority import (
 from prodesk.common import parse_float, parse_ts, utc_iso, utc_now
 from prodesk.config import load_execution_config, validate_execution_config
 from prodesk.edge_truth_contract import (
-    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-    EDGE_AUTH_NORMAL_TAKER_FIELD,
-    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
-    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
-    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+    EDGE_CHALLENGER_MARKET_REF_FIELD,
+    EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD,
+    EDGE_LIFECYCLE_PHASE_FIELD,
+    EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD,
+    EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD,
+    EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD,
+    EDGE_MAKER_GATE_OPEN_FIELD,
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
+    EDGE_MARKET_TRUTH_REQUIRED_FIELD,
+    EDGE_OWNED_MARKET_REF_FIELD,
+    EDGE_OWNERSHIP_DROP_REASON_FIELD,
+    EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD,
     EDGE_STAGE_BUCKET_FIELD,
+    EDGE_STAGE_EFFECTIVE_FIELD,
+    EDGE_TAKER_GATE_OPEN_FIELD,
+    EDGE_TAKER_PHASE_ALLOWED_FIELD,
     EVENT_TAKER_DECISION,
-    EVENT_TAKER_STAGE_WINDOW_SEMANTIC_CHECK,
+    EVENT_TAKER_WINDOW_SEMANTIC_CHECK,
     EVENT_TAKER_SUBMIT,
     EDGE_ACTIONS,
     EDGE_ACTION_MAKER,
@@ -52,13 +61,19 @@ from prodesk.edge_truth_contract import (
     EDGE_EVAL_SCOPES,
     EDGE_EVAL_SCOPE_TAKER,
     TAKER_CHAINLINK_REASON,
-    authority_surface_fields,
     compute_edge_value,
     is_canonical_block_reason,
-    stage_surface_fields,
+    lane_permission_surface_fields,
+    legacy_stage_to_lifecycle_phase,
+    lifecycle_phase_from_payload,
+    lifecycle_phase_surface_fields,
+    lifecycle_surface_fields,
+    lineage_stage_surface_fields,
+    market_truth_surface_fields,
+    ownership_surface_fields,
+    lineage_stage_from_payload,
     validate_edge_inputs,
     EdgeInputSnapshot,
-    stage_policy as edge_stage_policy,
 )
 from prodesk.exposure_classifier import (
     EXPOSURE_CLASS_DUST_ELIGIBLE,
@@ -78,8 +93,7 @@ from prodesk.latency_verifier import (
     LatencyVerifier,
 )
 from prodesk.market_discovery import MarketDiscovery
-from prodesk.market_data import RestBookClient
-from prodesk.models import BookTop, Position
+from prodesk.models import BookTop, Position, book_source_is_ws, decision_input_type_from_book_source
 from prodesk.operating_mode import (
     MODE_CAUTIOUS,
     MODE_MAKER_ONLY,
@@ -118,14 +132,17 @@ STAGE_EVALUATE = "EVALUATE"
 STAGE_MAKER_POSITION = "MAKER_POSITION"
 STAGE_MAKER_TAKER_SELECTIVE = "MAKER_TAKER_SELECTIVE"
 STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
+STAGE_LATE_DIAGNOSTIC = "LATE_DIAGNOSTIC"
+STAGE_MAKER_LATE_WINDOW = "MAKER_LATE_WINDOW"
+STAGE_TAKER_COMMITMENT = "TAKER_COMMITMENT"
 STAGE_EXTREME_ONLY = "EXTREME_ONLY"
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
 CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset(
     stage_name
-    for stage_name in (STAGE_EXTREME_ONLY,)
+    for stage_name in (STAGE_TAKER_COMMITMENT,)
 )
-HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE = "preexpiry_fetch_failure"
+HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE = "preexpiry_ws_missing_or_unusable"
 HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED = "postexpiry_market_retired"
 HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP = "unknown_data_gap"
 FINANCIAL_POSTURE_NORMAL = "NORMAL"
@@ -218,6 +235,7 @@ class ExecutionRunner:
         self._resource_metrics_error_log_interval_sec = 60.0
         self._resource_metrics_last_error_log_mono = 0.0
         self.token_ids = [str(x) for x in self.cfg["targets"]["token_ids"]]
+        self._challenger_token_ids: List[str] = []
         self._base_runtime_poll_interval_sec = float(self.cfg["runtime"]["poll_interval_sec"])
         self._base_runtime_actions_per_cycle = int(self.cfg["runtime"]["max_actions_per_cycle"])
         self.log_book_top = bool(self.cfg["runtime"].get("log_book_top", True))
@@ -233,10 +251,18 @@ class ExecutionRunner:
         self._external_guard_error_log_interval_sec = 30.0
         self._external_guard_last_error_log_mono = 0.0
         self._runtime_state = "initializing"
+        self._runtime_lifecycle_phase = "scan"
         self._runtime_active_targets_present = bool(self.token_ids)
-        self._runtime_no_target_standdown = False
-        self._runtime_book_feed_required = bool(self.token_ids)
         self._runtime_promotion_eligibility_hint = False
+        self._runtime_owned_market_ref: Optional[str] = None
+        self._runtime_challenger_market_ref: Optional[str] = None
+        self._runtime_market_truth_required = bool(self.token_ids)
+        self._runtime_maker_phase_allowed = False
+        self._runtime_taker_phase_allowed = False
+        self._runtime_maker_gate_open = False
+        self._runtime_taker_gate_open = False
+        self._runtime_ownership_drop_reason: Optional[str] = None
+        self._runtime_ownership_replacement_reason: Optional[str] = None
         self._order_submission_attempts_last_cycle = 0
         self._state_save_error_log_interval_sec = 30.0
         self._state_save_last_error_log_mono = 0.0
@@ -289,22 +315,12 @@ class ExecutionRunner:
             0.0,
             float(parse_float(risk_cfg.get("position_dust_max_age_sec")) or 0.0),
         )
-        self.position_dust_enter_consecutive_cycles = max(
-            1,
-            int(float(parse_float(risk_cfg.get("position_dust_enter_consecutive_cycles")) or 1.0)),
-        )
-        self.position_dust_clear_consecutive_cycles = max(
-            1,
-            int(float(parse_float(risk_cfg.get("position_dust_clear_consecutive_cycles")) or 1.0)),
-        )
         self._dust_classifier_cfg = ExposureClassifierConfig(
             dust_shares_epsilon=float(self.position_dust_shares_epsilon),
             dust_notional_usd_epsilon=float(self.position_dust_notional_usd_epsilon),
             dust_total_notional_usd_cap=float(self.position_dust_total_notional_usd_cap),
             dust_token_count_cap=int(self.position_dust_token_count_cap),
             dust_max_age_sec=float(self.position_dust_max_age_sec),
-            dust_enter_consecutive_cycles=int(self.position_dust_enter_consecutive_cycles),
-            dust_clear_consecutive_cycles=int(self.position_dust_clear_consecutive_cycles),
         )
         self.risk_min_order_size_shares = max(1e-9, float(risk_cfg.get("min_order_size", 1.0)))
         configured_held_unpriceable_escalation_sec = parse_float(risk_cfg.get("held_unpriceable_escalation_sec"))
@@ -330,7 +346,7 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_max_age_sec: float = 0.0
         self._held_unpriceable_defect_candidate: bool = False
         self._held_unpriceable_operator_action: str = "none"
-        self._held_unpriceable_dust_exempted_escalation_token_ids: List[str] = []
+        self._held_unpriceable_non_defect_token_ids: List[str] = []
         self._held_unpriceable_meaningful_escalation_token_ids: List[str] = []
         self._held_unpriceable_cause_by_token: Dict[str, str] = {}
         self._held_unpriceable_cause_counts: Dict[str, int] = {}
@@ -344,6 +360,7 @@ class ExecutionRunner:
         self.discovery = MarketDiscovery(self.cfg)
         self._last_discovery_allowlist_rejected_pairs = -1
         self._last_discovery_target_count = len(self.token_ids)
+        self._last_discovery_candidate_pairs_token_ids: List[List[str]] = []
         self.next_target_refresh_monotonic = 0.0
         alerts_cfg = self.cfg.get("alerts", {})
         self.alert_warn_thresholds = dict(alerts_cfg.get("warn_thresholds", {}))
@@ -364,62 +381,21 @@ class ExecutionRunner:
         self._mode_transition_mono: collections.deque[float] = collections.deque()
         self._mode_transition_window_sec = 600.0
         self._first_stale_burst_logged = False
-        self.book_not_found_backoff_sec = max(1.0, float(runtime_cfg.get("book_not_found_backoff_sec", 90.0)))
-        configured_held_book_not_found_backoff = parse_float(runtime_cfg.get("held_book_not_found_backoff_sec"))
-        default_held_book_not_found_backoff_sec = min(10.0, self.book_not_found_backoff_sec)
-        self.held_book_not_found_backoff_sec = (
-            max(1.0, float(configured_held_book_not_found_backoff))
-            if configured_held_book_not_found_backoff is not None
-            else default_held_book_not_found_backoff_sec
+        configured_held_ws_missing_refresh_interval = parse_float(
+            runtime_cfg.get("held_ws_missing_or_unusable_refresh_interval_sec")
         )
-        self.held_book_not_found_backoff_sec = min(self.held_book_not_found_backoff_sec, self.book_not_found_backoff_sec)
-        configured_held_book_not_found_force_refresh_interval = parse_float(
-            runtime_cfg.get("held_book_not_found_force_refresh_interval_sec")
-        )
-        self.held_book_not_found_force_refresh_interval_sec = (
-            max(0.0, float(configured_held_book_not_found_force_refresh_interval))
-            if configured_held_book_not_found_force_refresh_interval is not None
+        self.held_ws_missing_or_unusable_refresh_interval_sec = (
+            max(0.0, float(configured_held_ws_missing_refresh_interval))
+            if configured_held_ws_missing_refresh_interval is not None
             else 120.0
         )
-        configured_held_book_not_found_force_refresh_min_unpriceable_age = parse_float(
-            runtime_cfg.get("held_book_not_found_force_refresh_min_unpriceable_age_sec")
+        configured_held_ws_missing_refresh_min_unpriceable_age = parse_float(
+            runtime_cfg.get("held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec")
         )
-        self.held_book_not_found_force_refresh_min_unpriceable_age_sec = (
-            max(0.0, float(configured_held_book_not_found_force_refresh_min_unpriceable_age))
-            if configured_held_book_not_found_force_refresh_min_unpriceable_age is not None
+        self.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec = (
+            max(0.0, float(configured_held_ws_missing_refresh_min_unpriceable_age))
+            if configured_held_ws_missing_refresh_min_unpriceable_age is not None
             else 30.0
-        )
-        configured_held_expired_reduce_only_grace = parse_float(
-            runtime_cfg.get("held_expired_reduce_only_grace_sec")
-        )
-        self.held_expired_reduce_only_grace_sec = (
-            max(0.0, float(configured_held_expired_reduce_only_grace))
-            if configured_held_expired_reduce_only_grace is not None
-            else 15.0
-        )
-        configured_held_preexpiry_reduce_only_sec = parse_float(
-            runtime_cfg.get("held_preexpiry_reduce_only_sec")
-        )
-        self.held_preexpiry_reduce_only_sec = (
-            max(0.0, float(configured_held_preexpiry_reduce_only_sec))
-            if configured_held_preexpiry_reduce_only_sec is not None
-            else 90.0
-        )
-        configured_preexpiry_emergency_taker_window_sec = parse_float(
-            runtime_cfg.get("preexpiry_emergency_taker_window_sec")
-        )
-        self.preexpiry_emergency_taker_window_sec = (
-            max(0.0, float(configured_preexpiry_emergency_taker_window_sec))
-            if configured_preexpiry_emergency_taker_window_sec is not None
-            else 7.0
-        )
-        configured_terminal_unwind_halt_new_risk_sec = parse_float(
-            runtime_cfg.get("terminal_unwind_halt_new_risk_sec")
-        )
-        self.terminal_unwind_halt_new_risk_sec = (
-            max(0.0, float(configured_terminal_unwind_halt_new_risk_sec))
-            if configured_terminal_unwind_halt_new_risk_sec is not None
-            else 7.0
         )
         configured_expiry_boundary_epsilon_sec = parse_float(
             runtime_cfg.get("expiry_boundary_epsilon_sec")
@@ -431,9 +407,6 @@ class ExecutionRunner:
         )
         self.require_lifecycle_context_for_decisions = bool(
             runtime_cfg.get("require_lifecycle_context_for_decisions", True)
-        )
-        self.dust_classifier_enforce_enabled = bool(
-            runtime_cfg.get("dust_classifier_enforce_enabled", False)
         )
         configured_hard_degraded_clear_hysteresis_cycles = parse_float(
             runtime_cfg.get("valuation_hard_degraded_clear_consecutive_healthy_cycles")
@@ -456,38 +429,19 @@ class ExecutionRunner:
         self._valuation_hard_degraded_pending_healthy_cycles: int = 0
         self._held_unpriceable_started_count: int = 0
         self._held_unpriceable_recovered_count: int = 0
-        self._preexpiry_404_anomaly_count: int = 0
-        self._preexpiry_404_anomaly_last_cycle: bool = False
+        self._preexpiry_ws_missing_or_unusable_anomaly_count: int = 0
+        self._preexpiry_ws_missing_or_unusable_anomaly_last_cycle: bool = False
         self._lifecycle_context_mismatch_count: int = 0
         self._lifecycle_context_missing_sec_to_expiry_count: int = 0
-        self._preexpiry_emergency_taker_attempt_count: int = 0
-        self._preexpiry_emergency_taker_fill_count: int = 0
-        self._preexpiry_emergency_taker_block_count: int = 0
-        self._preexpiry_emergency_taker_block_reasons: Dict[str, int] = {}
-        self._preexpiry_emergency_taker_repeat_signature: Optional[Tuple[str, ...]] = None
-        self._preexpiry_emergency_taker_repeat_payload: Optional[Dict[str, Any]] = None
-        self._preexpiry_emergency_taker_repeat_total: int = 0
-        self._preexpiry_emergency_taker_repeat_pending: int = 0
-        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc: str = ""
-        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc: str = ""
-        self._preexpiry_emergency_taker_repeat_token_ids_seen: set[str] = set()
-        self._preexpiry_emergency_taker_repeat_token_ids_sample: List[str] = []
         self._held_exposure_class_by_token: Dict[str, str] = {}
         self._held_exposure_detail_by_token: Dict[str, Dict[str, Any]] = {}
         self._held_dust_token_ids: List[str] = []
         self._held_dust_quarantined_token_ids: List[str] = []
         self._held_dust_total_notional_upper_bound_usd: float = 0.0
-        self._held_dust_shadow_candidate_active: bool = False
-        self._held_dust_shadow_active: bool = False
-        self._held_dust_shadow_enter_pending_cycles: int = 0
-        self._held_dust_shadow_clear_pending_cycles: int = 0
-        self._held_dust_enforced_this_cycle: bool = False
         self._held_dust_effective_hard_degraded_exempt_count: int = 0
         self._held_dust_raw_hard_degraded_token_count: int = 0
         self._held_unpriceable_operator_action_last_emit_mono: float = 0.0
-        self._book_not_found_backoff_mono_by_token: Dict[str, float] = {}
-        self._held_book_not_found_last_mono_by_token: Dict[str, float] = {}
-        self._held_book_not_found_force_refresh_next_mono_by_token: Dict[str, float] = {}
+        self._held_ws_missing_or_unusable_refresh_next_mono_by_token: Dict[str, float] = {}
         self._held_unpriceable_since_mono_by_token: Dict[str, float] = {}
 
         self.token_expiry_utc_by_token: Dict[str, str] = {}
@@ -514,18 +468,13 @@ class ExecutionRunner:
         self.doctrine_oracle_max_tick_age_sec = float(
             doctrine_cfg.get("oracle_max_tick_age_sec", self.cfg.get("taker", {}).get("max_chainlink_tick_age_sec", 1.5))
         )
-        self.doctrine_maker_allow_bounded_single_side_reference = bool(
-            doctrine_cfg.get("maker_allow_bounded_single_side_reference", True)
-        )
         self._maker_paired_touch_max_delta_sec = float(MAKER_PAIRED_TOUCH_MAX_DELTA_SEC)
         self._maker_last_ws_bid_quote_by_token: Dict[str, Dict[str, Any]] = {}
         self._maker_last_ws_ask_quote_by_token: Dict[str, Dict[str, Any]] = {}
         self._maker_market_reference_policy: Dict[str, Any] = {
             "direct_mode": "direct_midpoint",
             "paired_fallback_mode": "backfilled_paired_touch",
-            "bounded_fallback_mode": (
-                "bounded_single_side_touch" if self.doctrine_maker_allow_bounded_single_side_reference else "disabled"
-            ),
+            "bounded_fallback_mode": "disabled",
             "paired_touch_max_delta_sec": float(self._maker_paired_touch_max_delta_sec),
             "activation_requires": [
                 "doctrine_mode_canonical",
@@ -533,25 +482,24 @@ class ExecutionRunner:
                 "book_source_ws",
                 "midpoint_missing",
                 "recent_complementary_ws_side_within_delta",
-                "single_side_present",
                 "maker_prereq_pass",
             ],
             "paired_fallback_claim_class": "authoritative",
-            "fallback_claim_class": "bounded_approximation",
+            "fallback_claim_class": "disabled",
             "missing_fallback_behavior": "fail_closed_market_probability_missing",
         }
         self._taker_market_reference_policy: Dict[str, Any] = {
             "direct_mode": "direct_midpoint",
             "paired_fallback_mode": "disabled",
-            "bounded_fallback_mode": "bounded_single_side_touch",
+            "bounded_fallback_mode": "disabled",
             "activation_requires": [
                 "doctrine_mode_canonical",
                 "evaluation_scope_taker",
                 "book_source_ws",
-                "midpoint_present_or_single_side_present",
+                "midpoint_present",
             ],
             "direct_claim_class": "authoritative",
-            "fallback_claim_class": "bounded_approximation",
+            "fallback_claim_class": "disabled",
             "missing_claim_class": "not_available",
             "missing_fallback_behavior": "fail_closed_market_probability_missing",
         }
@@ -577,7 +525,7 @@ class ExecutionRunner:
         self._market_entry_cycle_by_token: Dict[str, int] = {}
         self._last_doctrine_signature_by_token: Dict[str, Tuple[str, str, str, bool, bool]] = {}
         self._last_doctrine_prereq_failure_by_token: Dict[str, str] = {}
-        self._last_stage_by_token: Dict[str, str] = {}
+        self._last_lifecycle_phase_by_token: Dict[str, str] = {}
         self._last_degraded_expiry_fallback_active = False
 
         taker_cfg = self.cfg.get("taker", {})
@@ -637,22 +585,65 @@ class ExecutionRunner:
         self._cached_reconcile_mismatch_ratio = 0.0
         self.taker_max_orders_per_cycle = int(taker_cfg.get("max_orders_per_cycle", 2))
         self.taker_per_token_cooldown_sec = float(taker_cfg.get("per_token_cooldown_sec", 0.25))
-        raw_taker_stage_cooldown = taker_cfg.get("per_token_cooldown_sec_by_stage", {})
-        self.taker_per_token_cooldown_sec_by_stage: Dict[str, float] = {}
-        if isinstance(raw_taker_stage_cooldown, dict):
-            for stage_name, value in raw_taker_stage_cooldown.items():
-                normalized_stage = str(stage_name or "").strip().upper()
-                if not normalized_stage or normalized_stage not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-                    continue
-                try:
-                    cooldown_sec = float(value)
-                except (TypeError, ValueError):
-                    continue
-                if cooldown_sec < 0.0:
-                    continue
-                self.taker_per_token_cooldown_sec_by_stage[normalized_stage] = cooldown_sec
+        lifecycle_cfg = self.cfg.get("lifecycle", {})
+        if not isinstance(lifecycle_cfg, dict):
+            lifecycle_cfg = {}
+        lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
+        if not isinstance(lifecycle_phase_cfg, dict):
+            lifecycle_phase_cfg = {}
+        lifecycle_lane_gates_cfg = lifecycle_cfg.get("lane_gates", {})
+        if not isinstance(lifecycle_lane_gates_cfg, dict):
+            lifecycle_lane_gates_cfg = {}
+        lifecycle_maker_lane_cfg = lifecycle_lane_gates_cfg.get("maker", {})
+        if not isinstance(lifecycle_maker_lane_cfg, dict):
+            lifecycle_maker_lane_cfg = {}
+        lifecycle_taker_lane_cfg = lifecycle_lane_gates_cfg.get("taker", {})
+        if not isinstance(lifecycle_taker_lane_cfg, dict):
+            lifecycle_taker_lane_cfg = {}
+        self.lifecycle_maker_window_open_sec = float(
+            lifecycle_phase_cfg.get("maker_window_open_sec", 15.0)
+        )
+        self.lifecycle_taker_window_open_sec = float(
+            lifecycle_phase_cfg.get("taker_window_open_sec", 7.0)
+        )
         taker_competitiveness_cfg = (
-            taker_cfg.get("competitiveness", {}) if isinstance(taker_cfg.get("competitiveness", {}), dict) else {}
+            dict(taker_cfg.get("competitiveness", {}))
+            if isinstance(taker_cfg.get("competitiveness", {}), dict)
+            else {}
+        )
+        taker_competitiveness_cfg["final_window_enabled"] = bool(
+            lifecycle_taker_lane_cfg.get(
+                "final_window_enabled",
+                taker_competitiveness_cfg.get("final_window_enabled", True),
+            )
+        )
+        taker_competitiveness_cfg["final_window_sec"] = float(self.lifecycle_taker_window_open_sec)
+        taker_competitiveness_cfg["aggressive_window_enabled"] = bool(
+            lifecycle_taker_lane_cfg.get(
+                "aggressive_window_enabled",
+                taker_competitiveness_cfg.get("aggressive_window_enabled", False),
+            )
+        )
+        taker_competitiveness_cfg["aggressive_window_sec"] = float(
+            lifecycle_taker_lane_cfg.get(
+                "aggressive_window_sec",
+                taker_competitiveness_cfg.get("aggressive_window_sec", self.lifecycle_taker_window_open_sec),
+            )
+        )
+        taker_competitiveness_cfg["multi_oracle_boost_enabled"] = bool(
+            lifecycle_taker_lane_cfg.get(
+                "multi_oracle_boost_enabled",
+                taker_competitiveness_cfg.get("multi_oracle_boost_enabled", False),
+            )
+        )
+        taker_competitiveness_cfg["multi_oracle_boost_window_sec"] = float(
+            lifecycle_taker_lane_cfg.get(
+                "multi_oracle_boost_window_sec",
+                taker_competitiveness_cfg.get(
+                    "multi_oracle_boost_window_sec",
+                    self.lifecycle_taker_window_open_sec,
+                ),
+            )
         )
         self.taker_competitiveness_cfg = build_taker_competitiveness_policy(taker_competitiveness_cfg)
         self.taker_competitiveness_engine = TakerCompetitivenessEngine(self.taker_competitiveness_cfg)
@@ -683,31 +674,62 @@ class ExecutionRunner:
         maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
         if not isinstance(maker_comp_cfg, dict):
             maker_comp_cfg = {}
-        self.maker_comp_timing_gate_enabled = bool(maker_comp_cfg.get("timing_gate_enabled", False))
-        self.maker_comp_timing_gate_min_sec_to_expiry = float(
-            maker_comp_cfg.get("timing_gate_min_sec_to_expiry", 15.0)
+        self.maker_comp_timing_gate_enabled = bool(
+            lifecycle_maker_lane_cfg.get(
+                "timing_gate_enabled",
+                maker_comp_cfg.get("timing_gate_enabled", False),
+            )
         )
-        self.maker_comp_timing_gate_max_sec_to_expiry = float(
-            maker_comp_cfg.get("timing_gate_max_sec_to_expiry", 20.0)
+        self.maker_comp_timing_gate_min_sec_to_expiry = float(self.lifecycle_taker_window_open_sec)
+        self.maker_comp_timing_gate_max_sec_to_expiry = float(self.lifecycle_maker_window_open_sec)
+        self.maker_comp_edge_scale_enabled = bool(
+            lifecycle_maker_lane_cfg.get(
+                "edge_scale_enabled",
+                maker_comp_cfg.get("edge_scale_enabled", False),
+            )
         )
-        self.maker_comp_edge_scale_enabled = bool(maker_comp_cfg.get("edge_scale_enabled", False))
-        self.maker_comp_edge_scale_start_abs = float(maker_comp_cfg.get("edge_scale_start_abs", 0.05))
-        self.maker_comp_edge_scale_full_abs = float(maker_comp_cfg.get("edge_scale_full_abs", 0.20))
-        self.maker_comp_size_mult_max = float(maker_comp_cfg.get("size_mult_max", 1.35))
-        self.maker_comp_spread_mult_min = float(maker_comp_cfg.get("spread_mult_min", 0.75))
-        self.maker_comp_requote_delta_mult_min = float(maker_comp_cfg.get("requote_delta_mult_min", 0.50))
-        self.maker_comp_one_sided_enabled = bool(maker_comp_cfg.get("one_sided_enabled", False))
+        self.maker_comp_edge_scale_start_abs = float(
+            lifecycle_maker_lane_cfg.get(
+                "edge_scale_start_abs",
+                maker_comp_cfg.get("edge_scale_start_abs", 0.05),
+            )
+        )
+        self.maker_comp_edge_scale_full_abs = float(
+            lifecycle_maker_lane_cfg.get(
+                "edge_scale_full_abs",
+                maker_comp_cfg.get("edge_scale_full_abs", 0.20),
+            )
+        )
+        self.maker_comp_size_mult_max = float(
+            lifecycle_maker_lane_cfg.get(
+                "size_mult_max",
+                maker_comp_cfg.get("size_mult_max", 1.35),
+            )
+        )
+        self.maker_comp_spread_mult_min = float(
+            lifecycle_maker_lane_cfg.get(
+                "spread_mult_min",
+                maker_comp_cfg.get("spread_mult_min", 0.75),
+            )
+        )
+        self.maker_comp_requote_delta_mult_min = float(
+            lifecycle_maker_lane_cfg.get(
+                "requote_delta_mult_min",
+                maker_comp_cfg.get("requote_delta_mult_min", 0.50),
+            )
+        )
+        self.maker_comp_one_sided_enabled = bool(
+            lifecycle_maker_lane_cfg.get(
+                "one_sided_enabled",
+                maker_comp_cfg.get("one_sided_enabled", False),
+            )
+        )
         self.maker_comp_one_sided_edge_threshold_abs = float(
-            maker_comp_cfg.get("one_sided_edge_threshold_abs", 0.18)
+            lifecycle_maker_lane_cfg.get(
+                "one_sided_edge_threshold_abs",
+                maker_comp_cfg.get("one_sided_edge_threshold_abs", 0.18),
+            )
         )
-        raw_one_sided_allowed_stages = maker_comp_cfg.get("one_sided_allowed_stages", [])
-        if not isinstance(raw_one_sided_allowed_stages, list):
-            raw_one_sided_allowed_stages = []
-        self.maker_comp_one_sided_allowed_stages = {
-            str(stage or "").strip().upper()
-            for stage in raw_one_sided_allowed_stages
-            if str(stage or "").strip()
-        }
         self.maker_comp_base_requote_delta = max(
             1e-9,
             float(self.cfg.get("runtime", {}).get("replace_threshold", 0.005)),
@@ -737,6 +759,7 @@ class ExecutionRunner:
             disarmed=True,
         )
         self._last_taker_submit_mono_by_token: Dict[str, float] = {}
+        self._taker_window_submit_lock_keys: set[str] = set()
         operating_mode_cfg = self.cfg.get("operating_mode", {})
         self.operating_mode = OperatingModeController(operating_mode_cfg)
         self.operating_mode_ws_slo_enforce = bool(operating_mode_cfg.get("ws_slo_enforce_health", True))
@@ -758,6 +781,7 @@ class ExecutionRunner:
         )
         self._ws_slo_bootstrap_started_mono = time.monotonic()
         self._ws_slo_bootstrap_active = bool(self.token_ids) and self.operating_mode_ws_slo_bootstrap_grace_sec > 0.0
+        self._ws_slo_bootstrap_reason = "startup_targets_present" if self._ws_slo_bootstrap_active else ""
         self._last_ws_slo_bootstrap_active = self._ws_slo_bootstrap_active
         self._last_ws_slo_degraded = False
         self._last_ws_slo_reason = ""
@@ -831,20 +855,8 @@ class ExecutionRunner:
         self.wallet.register_pending_tx_provider(self.tx_manager.pending_tx_snapshot)
         self._refresh_taker_multi_oracle_cap_from_wallet()
 
-        md = self.cfg["market_data"]
-        self.book_client = RestBookClient(
-            clob_url=str(md["clob_url"]),
-            book_path=str(md["book_path"]),
-            timeout_sec=float(md["timeout_sec"]),
-            max_retries=int(md["max_retries"]),
-        )
-        self.rest_fetch_max_workers = max(1, int(self.cfg.get("runtime", {}).get("rest_fetch_max_workers", 4)))
-        self._rest_fetch_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
-        if self.rest_fetch_max_workers > 1:
-            self._rest_fetch_pool = concurrent.futures.ThreadPoolExecutor(
-                max_workers=self.rest_fetch_max_workers,
-                thread_name_prefix="rest-book",
-            )
+        runtime_cfg_for_manager = dict(self.cfg["runtime"])
+        runtime_cfg_for_manager["lifecycle"] = dict(self.cfg.get("lifecycle", {}))
 
         self.manager = OrderManager(
             gateway=self.gateway,
@@ -852,7 +864,7 @@ class ExecutionRunner:
             risk=self.risk,
             events=self.events,
             telemetry=self.telemetry,
-            runtime_cfg=self.cfg["runtime"],
+            runtime_cfg=runtime_cfg_for_manager,
             strategy_cfg=self.cfg["strategy"],
             sizing_cfg=self.cfg.get("sizing", {}),
             mode=mode,
@@ -928,14 +940,6 @@ class ExecutionRunner:
     @taker_per_token_cooldown_sec.setter
     def taker_per_token_cooldown_sec(self, value: Any) -> None:
         self._taker_per_token_cooldown_sec = float(value)
-
-    @property
-    def taker_per_token_cooldown_sec_by_stage(self) -> Dict[str, float]:
-        return getattr(self, "_taker_per_token_cooldown_sec_by_stage", {})
-
-    @taker_per_token_cooldown_sec_by_stage.setter
-    def taker_per_token_cooldown_sec_by_stage(self, value: Any) -> None:
-        self._taker_per_token_cooldown_sec_by_stage = dict(value or {})
 
     @property
     def taker_competitiveness_cfg(self) -> TakerCompetitivenessConfig:
@@ -1089,39 +1093,222 @@ class ExecutionRunner:
             out.append(item)
         return out
 
+    def _discovery_primary_pair_token_ids(self, discovered_token_ids: List[str]) -> List[str]:
+        pair_rows = list(getattr(self, "_last_discovery_candidate_pairs_token_ids", []) or [])
+        if pair_rows:
+            for pair_ids in pair_rows:
+                normalized = self._unique_ordered(
+                    [str(token_id).strip() for token_id in list(pair_ids or []) if str(token_id).strip()]
+                )
+                if len(normalized) >= 2:
+                    return normalized[:2]
+        normalized_discovered = self._unique_ordered(
+            [str(token_id).strip() for token_id in list(discovered_token_ids or []) if str(token_id).strip()]
+        )
+        if len(normalized_discovered) < 2:
+            return []
+        return normalized_discovered[:2]
+
+    def _lifecycle_watch_token_ids(self) -> List[str]:
+        watched = set(self._non_flat_position_token_ids())
+        watched.update(self._open_order_token_ids())
+        return self._unique_ordered(sorted(watched))
+
+    def _transport_watch_token_ids(self) -> List[str]:
+        watched = set(str(token_id) for token_id in self.token_ids)
+        watched.update(str(token_id) for token_id in self._challenger_token_ids)
+        watched.update(self._lifecycle_watch_token_ids())
+        return self._unique_ordered(sorted(token_id for token_id in watched if str(token_id).strip()))
+
+    def _manager_tracked_token_ids(self) -> set[str]:
+        tracked = set(str(token_id) for token_id in self.token_ids)
+        tracked.update(self._lifecycle_watch_token_ids())
+        return {token_id for token_id in tracked if str(token_id).strip()}
+
+    def _retained_token_metadata_ids(self) -> set[str]:
+        retained = set(str(token_id) for token_id in self.token_ids)
+        retained.update(str(token_id) for token_id in self._challenger_token_ids)
+        retained.update(self._lifecycle_watch_token_ids())
+        return {token_id for token_id in retained if str(token_id).strip()}
+
+    def _pair_tokens_market_valid(self, token_ids: Collection[str]) -> bool:
+        normalized = self._unique_ordered([str(token_id).strip() for token_id in list(token_ids or []) if str(token_id).strip()])
+        if len(normalized) < 2:
+            return False
+        boundary_eps = max(float(self.expiry_boundary_epsilon_sec), 1e-9)
+        now = utc_now()
+        for token_id in normalized:
+            market_key = str(self.token_market_key_by_token.get(token_id, "")).strip()
+            expiry_dt = self.token_expiry_dt_by_token.get(token_id)
+            if not market_key or not isinstance(expiry_dt, dt.datetime):
+                return False
+            if (expiry_dt - now).total_seconds() <= -boundary_eps:
+                return False
+        return True
+
+    def _set_challenger_token_ids(
+        self,
+        new_token_ids: Collection[str],
+        *,
+        reason: str,
+        event_extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        normalized = self._unique_ordered([str(token_id).strip() for token_id in list(new_token_ids or []) if str(token_id).strip()])
+        old = list(self._challenger_token_ids)
+        if normalized == old:
+            return
+        self._challenger_token_ids = list(normalized)
+        payload: Dict[str, Any] = {
+            "ts_utc": utc_iso(),
+            "run_id": self.run_id,
+            "reason": str(reason or "").strip(),
+            "old_token_count": len(old),
+            "old_token_ids": list(old),
+            "new_token_count": len(normalized),
+            "new_token_ids": list(normalized),
+        }
+        if isinstance(event_extra, dict):
+            payload.update(event_extra)
+        self.events.log_event("challenger_targets_updated", payload)
+
+    def _set_authoritative_active_token_ids(
+        self,
+        new_token_ids: Collection[str],
+        *,
+        reason: str,
+        apply_ws_slo_grace: bool,
+        event_type: str = "targets_updated",
+        event_extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        normalized = self._unique_ordered([str(token_id).strip() for token_id in list(new_token_ids or []) if str(token_id).strip()])
+        old = list(self.token_ids)
+        if normalized == old:
+            return
+        self.token_ids = list(normalized)
+        self._reset_ws_slo_bootstrap(
+            reason=str(reason or "").strip() or "targets_updated",
+            activate_grace=bool(apply_ws_slo_grace),
+        )
+        payload: Dict[str, Any] = {
+            "ts_utc": utc_iso(),
+            "run_id": self.run_id,
+            "reason": str(reason or "").strip(),
+            "old_token_count": len(old),
+            "old_token_ids": list(old),
+            "new_token_count": len(self.token_ids),
+            "new_token_ids": list(self.token_ids),
+            "challenger_token_count": len(self._challenger_token_ids),
+            "challenger_token_ids": list(self._challenger_token_ids),
+            "ws_slo_grace_applied": bool(apply_ws_slo_grace),
+        }
+        if isinstance(event_extra, dict):
+            payload.update(event_extra)
+        self.events.log_event(event_type, payload)
+
+    def _reconcile_pair_authority(self) -> None:
+        if self.token_ids and not self._pair_tokens_market_valid(self.token_ids):
+            self._set_authoritative_active_token_ids(
+                [],
+                reason="owned_market_invalidated",
+                apply_ws_slo_grace=False,
+                event_type="owned_market_invalidated",
+            )
+            self._refresh_targets(force=True)
+            return
+        if self._challenger_token_ids and not self._pair_tokens_market_valid(self._challenger_token_ids):
+            self._set_challenger_token_ids(
+                [],
+                reason="challenger_pair_invalidated",
+            )
+            self._refresh_targets(force=True)
+            return
+        if (not self.token_ids) and self._challenger_token_ids and self._pair_tokens_market_valid(
+            self._challenger_token_ids
+        ):
+            promoted = list(self._challenger_token_ids)
+            self._set_challenger_token_ids([], reason="challenger_promoted_to_owned_market")
+            self._set_authoritative_active_token_ids(
+                promoted,
+                reason="owned_market_promoted_from_challenger",
+                apply_ws_slo_grace=False,
+                event_type="owned_market_promoted",
+            )
+
     def _update_runtime_semantics(self, *, has_targets: bool) -> None:
-        semantics = cycle_semantics(has_targets=has_targets, kill_switch=bool(self.risk.kill_switch))
+        info_by_token = {
+            token_id: self._token_lifecycle_info(token_id)
+            for token_id in self.token_ids
+            if str(token_id).strip()
+        }
+        if bool(self.risk.kill_switch) and info_by_token:
+            lifecycle_phase = "resolve"
+        elif not info_by_token:
+            lifecycle_phase = "scan"
+        elif any(str(info.get(EDGE_LIFECYCLE_PHASE_FIELD) or "") == "resolve" for info in info_by_token.values()):
+            lifecycle_phase = "resolve"
+        elif any(str(info.get(EDGE_LIFECYCLE_PHASE_FIELD) or "") == "taker_window" for info in info_by_token.values()):
+            lifecycle_phase = "taker_window"
+        elif any(str(info.get(EDGE_LIFECYCLE_PHASE_FIELD) or "") == "maker_window" for info in info_by_token.values()):
+            lifecycle_phase = "maker_window"
+        else:
+            lifecycle_phase = "prepare"
+        owned_market_ref = self._market_ref_for_token_ids(self.token_ids)
+        challenger_market_ref = self._market_ref_for_token_ids(self._challenger_token_ids)
+        market_truth_required = bool(info_by_token)
+        maker_phase_allowed = any(bool(info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, False)) for info in info_by_token.values())
+        taker_phase_allowed = any(bool(info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, False)) for info in info_by_token.values())
+        maker_gate_open = any(bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False)) for info in info_by_token.values())
+        taker_gate_open = any(bool(info.get(EDGE_TAKER_GATE_OPEN_FIELD, False)) for info in info_by_token.values())
         prev_state = self._runtime_state
-        prev_book_required = self._runtime_book_feed_required
-        self._runtime_state = semantics.runtime_state
-        self._runtime_active_targets_present = bool(semantics.active_targets_present)
-        self._runtime_no_target_standdown = bool(semantics.no_target_standdown)
-        self._runtime_book_feed_required = bool(semantics.book_feed_required)
-        self._runtime_promotion_eligibility_hint = bool(semantics.promotion_eligibility_hint)
+        prev_market_truth_required = self._runtime_market_truth_required
+        self._runtime_state = lifecycle_phase
+        self._runtime_lifecycle_phase = lifecycle_phase
+        self._runtime_active_targets_present = bool(info_by_token)
+        self._runtime_promotion_eligibility_hint = bool(
+            info_by_token and not bool(self.risk.kill_switch) and lifecycle_phase != "resolve"
+        )
+        self._runtime_owned_market_ref = owned_market_ref
+        self._runtime_challenger_market_ref = challenger_market_ref
+        self._runtime_market_truth_required = bool(market_truth_required)
+        self._runtime_maker_phase_allowed = bool(maker_phase_allowed)
+        self._runtime_taker_phase_allowed = bool(taker_phase_allowed)
+        self._runtime_maker_gate_open = bool(maker_gate_open)
+        self._runtime_taker_gate_open = bool(taker_gate_open)
+        self._runtime_ownership_drop_reason = None
+        self._runtime_ownership_replacement_reason = None
 
         self.telemetry.set_gauge("runtime_state_code", runtime_state_to_gauge(self._runtime_state))
         self.telemetry.set_gauge("active_targets_present", 1.0 if self._runtime_active_targets_present else 0.0)
-        self.telemetry.set_gauge("no_target_standdown", 1.0 if self._runtime_no_target_standdown else 0.0)
-        self.telemetry.set_gauge("book_feed_required", 1.0 if self._runtime_book_feed_required else 0.0)
+        self.telemetry.set_gauge("market_truth_required", 1.0 if self._runtime_market_truth_required else 0.0)
+        self.telemetry.set_gauge("maker_phase_allowed", 1.0 if self._runtime_maker_phase_allowed else 0.0)
+        self.telemetry.set_gauge("taker_phase_allowed", 1.0 if self._runtime_taker_phase_allowed else 0.0)
+        self.telemetry.set_gauge("maker_gate_open", 1.0 if self._runtime_maker_gate_open else 0.0)
+        self.telemetry.set_gauge("taker_gate_open", 1.0 if self._runtime_taker_gate_open else 0.0)
         self.telemetry.set_gauge(
             "promotion_eligibility_hint",
             1.0 if self._runtime_promotion_eligibility_hint else 0.0,
         )
 
-        if self._runtime_state != prev_state or self._runtime_book_feed_required != prev_book_required:
+        if self._runtime_state != prev_state or self._runtime_market_truth_required != prev_market_truth_required:
             transition_reason_code = "runtime_state_changed"
-            if self._runtime_state == prev_state and self._runtime_book_feed_required != prev_book_required:
-                transition_reason_code = "book_requirement_changed"
+            if self._runtime_state == prev_state and self._runtime_market_truth_required != prev_market_truth_required:
+                transition_reason_code = "market_truth_requirement_changed"
             elif bool(self.risk.kill_switch):
                 transition_reason_code = "kill_switch_engaged"
-            elif self._runtime_state == "active":
-                transition_reason_code = "targets_activated"
-            elif self._runtime_state == "no_target_standdown":
-                transition_reason_code = "targets_absent"
+            elif self._runtime_state == "scan":
+                transition_reason_code = "owned_market_absent"
+            elif self._runtime_state == "prepare":
+                transition_reason_code = "owned_market_prepare"
+            elif self._runtime_state == "maker_window":
+                transition_reason_code = "maker_window_open"
+            elif self._runtime_state == "taker_window":
+                transition_reason_code = "taker_window_open"
+            elif self._runtime_state == "resolve":
+                transition_reason_code = "resolve_required"
             transition_reason_detail = (
                 f"prev_state={prev_state};new_state={self._runtime_state};"
-                f"prev_book_feed_required={int(bool(prev_book_required))};"
-                f"book_feed_required={int(bool(self._runtime_book_feed_required))};"
+                f"previous_market_truth_required={int(bool(prev_market_truth_required))};"
+                f"market_truth_required={int(bool(self._runtime_market_truth_required))};"
                 f"kill_switch={int(bool(self.risk.kill_switch))};"
                 f"has_targets={int(bool(has_targets))}"
             )
@@ -1132,10 +1319,17 @@ class ExecutionRunner:
                     "run_id": self.run_id,
                     "previous_runtime_state": prev_state,
                     "runtime_state": self._runtime_state,
+                    "lifecycle_phase": self._runtime_lifecycle_phase,
                     "active_targets_present": self._runtime_active_targets_present,
-                    "no_target_standdown": self._runtime_no_target_standdown,
-                    "previous_book_feed_required": bool(prev_book_required),
-                    "book_feed_required": self._runtime_book_feed_required,
+                    "scan_phase": self._runtime_lifecycle_phase == "scan",
+                    "previous_market_truth_required": bool(prev_market_truth_required),
+                    "market_truth_required": self._runtime_market_truth_required,
+                    "owned_market_ref": self._runtime_owned_market_ref,
+                    "challenger_market_ref": self._runtime_challenger_market_ref,
+                    "maker_phase_allowed": self._runtime_maker_phase_allowed,
+                    "taker_phase_allowed": self._runtime_taker_phase_allowed,
+                    "maker_gate_open": self._runtime_maker_gate_open,
+                    "taker_gate_open": self._runtime_taker_gate_open,
                     "kill_switch": bool(self.risk.kill_switch),
                     "transition_reason_code": transition_reason_code,
                     "transition_reason_detail": transition_reason_detail,
@@ -1327,27 +1521,6 @@ class ExecutionRunner:
                 "reason": str(reason or ""),
             },
         )
-
-    @staticmethod
-    def _is_missing_book_not_found_error(error_text: str) -> bool:
-        text = str(error_text)
-        return "404" in text and "Not Found" in text and "/book" in text
-
-    @staticmethod
-    def _rest_fetch_result_for_token(
-        *,
-        token_id: str,
-        requested_rest_token_ids: set[str],
-        rest_books: Dict[str, tuple[Any, Any, float]],
-        rest_errors: Dict[str, str],
-    ) -> Tuple[Optional[tuple[Any, Any, float]], Optional[str], bool]:
-        if token_id not in requested_rest_token_ids:
-            return None, None, False
-        fetched = rest_books.get(token_id)
-        if fetched is not None:
-            return fetched, None, True
-        err_text = str(rest_errors.get(token_id, "") or "").strip()
-        return None, (err_text or None), True
 
     def _recent_mode_transitions(self) -> int:
         now = time.monotonic()
@@ -1586,26 +1759,152 @@ class ExecutionRunner:
         required_side_mid = quote_bid if required_side == "bid" else quote_ask
         return bool(quote_mid is None and required_side_mid is None)
 
-    def _rest_fetch_candidate_tokens_for_cycle(
+    def _resolve_ws_truth_for_token(
         self,
         *,
-        valuation_token_ids: List[str],
-        ws_books: Dict[str, Any],
-        now_mono: float,
-    ) -> Tuple[List[str], set[str]]:
-        candidates: List[str] = []
-        held_ws_unusable_token_ids: set[str] = set()
-        for token_id in valuation_token_ids:
-            if self._book_not_found_backoff_mono_by_token.get(token_id, 0.0) > now_mono:
+        token_id: str,
+        top: Any,
+    ) -> Dict[str, Any]:
+        normalized_token_id = str(token_id or "").strip()
+        if not normalized_token_id or top is None or not self._book_source_is_ws(top):
+            return {
+                "truth_class": "missing",
+                "truth_basis": "missing",
+                "resolved_top": top,
+            }
+        if isinstance(getattr(top, "midpoint", None), (int, float)):
+            return {
+                "truth_class": "authoritative",
+                "truth_basis": "direct_midpoint",
+                "resolved_top": top,
+            }
+        paired = self._resolve_maker_paired_touch_reference(
+            token_id=normalized_token_id,
+            top=top,
+            maker_prereq_failure_reason="",
+        )
+        if paired is not None:
+            resolved_top, _ = paired
+            return {
+                "truth_class": "authoritative",
+                "truth_basis": "backfilled_paired_touch",
+                "resolved_top": resolved_top,
+            }
+        has_bid = isinstance(getattr(top, "best_bid_price", None), (int, float))
+        has_ask = isinstance(getattr(top, "best_ask_price", None), (int, float))
+        if has_bid ^ has_ask:
+            return {
+                "truth_class": "missing",
+                "truth_basis": "one_sided_ws_missing_midpoint",
+                "resolved_top": top,
+            }
+        return {
+            "truth_class": "missing",
+            "truth_basis": "missing",
+            "resolved_top": top,
+        }
+
+    def _build_pair_truth_map(
+        self,
+        *,
+        books: Dict[str, Any],
+        token_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        pair_truth_by_base_key: Dict[str, Dict[str, Any]] = {}
+        for raw_token_id in token_ids:
+            token_id = str(raw_token_id or "").strip()
+            if not token_id:
                 continue
-            ws_top = ws_books.get(token_id)
-            if ws_top is None:
-                candidates.append(token_id)
+            market_key = str(self.token_market_key_by_token.get(token_id, "")).strip()
+            base_key = self._market_base_key_from_market_key(market_key) or token_id
+            side = str(self.token_side_by_token.get(token_id, "")).strip().upper() or "UNKNOWN"
+            truth = self._resolve_ws_truth_for_token(token_id=token_id, top=books.get(token_id))
+            pair_entry = pair_truth_by_base_key.setdefault(
+                base_key,
+                {
+                    "market_base_key": base_key,
+                    "pair_truth_class": "missing",
+                    "pair_truth_basis": "pair_missing_all_sides",
+                    "pair_truth_owner_scope": "market_base_pair",
+                    "pair_missing_token_count": 0,
+                    "pair_one_sided_token_count": 0,
+                    "pair_authoritative_token_count": 0,
+                    "token_truth_by_token": {},
+                    "token_truth_by_side": {},
+                },
+            )
+            token_truth = {
+                "token_id": token_id,
+                "token_side": side,
+                "pair_truth_class": str(truth.get("truth_class") or "missing"),
+                "pair_truth_basis": str(truth.get("truth_basis") or "missing"),
+            }
+            pair_entry["token_truth_by_token"][token_id] = token_truth
+            pair_entry["token_truth_by_side"][side] = token_truth
+        for pair_entry in pair_truth_by_base_key.values():
+            token_truths = list(dict(pair_entry.get("token_truth_by_token") or {}).values())
+            missing_count = sum(
+                1 for truth in token_truths if str(truth.get("pair_truth_class") or "").strip().lower() == "missing"
+            )
+            one_sided_count = sum(
+                1
+                for truth in token_truths
+                if str(truth.get("pair_truth_basis") or "").strip().lower() == "one_sided_ws_missing_midpoint"
+            )
+            authoritative_count = sum(
+                1
+                for truth in token_truths
+                if str(truth.get("pair_truth_class") or "").strip().lower() == "authoritative"
+            )
+            pair_entry["pair_missing_token_count"] = int(missing_count)
+            pair_entry["pair_one_sided_token_count"] = int(one_sided_count)
+            pair_entry["pair_authoritative_token_count"] = int(authoritative_count)
+            if authoritative_count > 0:
+                pair_entry["pair_truth_class"] = "authoritative"
+                pair_entry["pair_truth_basis"] = "pair_has_authoritative_side"
+            elif one_sided_count > 0:
+                pair_entry["pair_truth_class"] = "missing"
+                pair_entry["pair_truth_basis"] = "pair_missing_one_sided_only"
+            else:
+                pair_entry["pair_truth_class"] = "missing"
+                pair_entry["pair_truth_basis"] = "pair_missing_all_sides"
+        return pair_truth_by_base_key
+
+    @staticmethod
+    def _pair_truth_for_token(
+        *,
+        pair_truth_by_base_key: Dict[str, Dict[str, Any]],
+        market_base_key: str,
+        token_id: str,
+    ) -> Dict[str, Any]:
+        pair_entry = dict(pair_truth_by_base_key.get(str(market_base_key or "").strip()) or {})
+        token_truth = dict(pair_entry.get("token_truth_by_token", {}).get(str(token_id or "").strip()) or {})
+        return {
+            "pair_truth_class": str(token_truth.get("pair_truth_class") or "missing"),
+            "pair_truth_basis": str(token_truth.get("pair_truth_basis") or "missing"),
+            "pair_truth_owner_scope": str(pair_entry.get("pair_truth_owner_scope") or "market_base_pair"),
+            "pair_missing_token_count": int(pair_entry.get("pair_missing_token_count") or 0),
+            "pair_one_sided_token_count": int(pair_entry.get("pair_one_sided_token_count") or 0),
+            "pair_authoritative_token_count": int(pair_entry.get("pair_authoritative_token_count") or 0),
+        }
+
+    @staticmethod
+    def _pair_truth_base_keys_by_class(
+        pair_truth_by_base_key: Dict[str, Dict[str, Any]],
+    ) -> Tuple[List[str], List[str]]:
+        missing_base_keys: List[str] = []
+        one_sided_base_keys: List[str] = []
+        for base_key, pair_truth in pair_truth_by_base_key.items():
+            truth_class = str(pair_truth.get("pair_truth_class") or "").strip().lower()
+            truth_basis = str(pair_truth.get("pair_truth_basis") or "").strip().lower()
+            normalized_base_key = str(base_key or "").strip()
+            if not normalized_base_key:
                 continue
-            if self._ws_quote_unusable_for_held_valuation(token_id=token_id, top=ws_top):
-                candidates.append(token_id)
-                held_ws_unusable_token_ids.add(token_id)
-        return self._unique_ordered(candidates), held_ws_unusable_token_ids
+            if truth_class == "missing":
+                missing_base_keys.append(normalized_base_key)
+            if truth_basis == "pair_missing_one_sided_only":
+                one_sided_base_keys.append(normalized_base_key)
+        return sorted(missing_base_keys), sorted(one_sided_base_keys)
 
     def _build_valuation_state(self, *, books: Dict[str, Any]) -> Dict[str, Any]:
         now_mono = time.monotonic()
@@ -1731,10 +2030,9 @@ class ExecutionRunner:
         for token_id in list(self._held_unpriceable_since_mono_by_token.keys()):
             if token_id not in non_flat_token_set:
                 self._held_unpriceable_since_mono_by_token.pop(token_id, None)
-        for token_id in list(self._held_book_not_found_last_mono_by_token.keys()):
+        for token_id in list(self._held_ws_missing_or_unusable_refresh_next_mono_by_token.keys()):
             if token_id not in non_flat_token_set:
-                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
-                self._held_book_not_found_force_refresh_next_mono_by_token.pop(token_id, None)
+                self._held_ws_missing_or_unusable_refresh_next_mono_by_token.pop(token_id, None)
         held_unpriceable_token_ids = sorted(held_unpriceable_age_by_token.keys())
         held_unpriceable_max_age_sec = (
             max(held_unpriceable_age_by_token.values()) if held_unpriceable_age_by_token else 0.0
@@ -1759,9 +2057,20 @@ class ExecutionRunner:
             if held_unpriceable_escalation_token_ids
             else 0.0
         )
+        held_unpriceable_non_defect_token_ids = sorted(
+            token_id
+            for token_id in held_unpriceable_escalation_token_ids
+            if str(held_unpriceable_cause_by_token.get(token_id) or "") == HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
+        )
+        held_unpriceable_meaningful_escalation_token_ids = sorted(
+            token_id
+            for token_id in held_unpriceable_escalation_token_ids
+            if token_id not in set(held_unpriceable_non_defect_token_ids)
+        )
+        held_unpriceable_defect_candidate = bool(held_unpriceable_meaningful_escalation_token_ids)
         held_unpriceable_operator_action = (
             "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable"
-            if held_unpriceable_escalation_active
+            if held_unpriceable_defect_candidate
             else "none"
         )
         held_unpriceable_cause_counts_counter = collections.Counter(
@@ -1769,8 +2078,11 @@ class ExecutionRunner:
             for token_id in held_unpriceable_token_ids
         )
         held_unpriceable_cause_counts = {
-            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE: int(
-                held_unpriceable_cause_counts_counter.get(HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE, 0)
+            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE: int(
+                held_unpriceable_cause_counts_counter.get(
+                    HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE,
+                    0,
+                )
             ),
             HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED: int(
                 held_unpriceable_cause_counts_counter.get(HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED, 0)
@@ -1806,27 +2118,26 @@ class ExecutionRunner:
             cause_for_token = str(
                 held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
             )
-            postexpiry_retired_recent_404 = bool(
-                lifecycle_flags.get("recent_book_not_found", False)
+            postexpiry_retired_recent_ws_missing_or_unusable = bool(
+                lifecycle_flags.get("held_ws_missing_or_unusable_tracking_active", False)
                 and cause_for_token == HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
                 and isinstance(sec_to_expiry, (int, float))
                 and float(sec_to_expiry) <= (-max(float(self.expiry_boundary_epsilon_sec), 1e-9))
-                and (not bool(lifecycle_flags.get("expired_reduce_only_grace_active", False)))
             )
             unresolved_for_dust = bool(
                 (
-                    bool(lifecycle_flags.get("recent_book_not_found", False))
-                    and (not bool(postexpiry_retired_recent_404))
+                    bool(lifecycle_flags.get("held_ws_missing_or_unusable_tracking_active", False))
+                    and (not bool(postexpiry_retired_recent_ws_missing_or_unusable))
                 )
                 or (
-                    bool(lifecycle_flags.get("forced_refresh_pending", False))
-                    and (not bool(postexpiry_retired_recent_404))
+                    bool(lifecycle_flags.get("held_ws_missing_or_unusable_refresh_pending", False))
+                    and (not bool(postexpiry_retired_recent_ws_missing_or_unusable))
                 )
-                or lifecycle_flags.get("expired_reduce_only_grace_active", False)
-                or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
             dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
-            dust_age_sec_for_classification = 0.0 if postexpiry_retired_recent_404 else float(dust_age_sec)
+            dust_age_sec_for_classification = (
+                0.0 if postexpiry_retired_recent_ws_missing_or_unusable else float(dust_age_sec)
+            )
             _base_classification_by_token[token_id] = classify_exposure_fail_closed(
                 net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
                 cfg=self._dust_classifier_cfg,
@@ -1867,27 +2178,26 @@ class ExecutionRunner:
             cause_for_token = str(
                 held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
             )
-            postexpiry_retired_recent_404 = bool(
-                lifecycle_flags.get("recent_book_not_found", False)
+            postexpiry_retired_recent_ws_missing_or_unusable = bool(
+                lifecycle_flags.get("held_ws_missing_or_unusable_tracking_active", False)
                 and cause_for_token == HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
                 and isinstance(sec_to_expiry, (int, float))
                 and float(sec_to_expiry) <= (-max(float(self.expiry_boundary_epsilon_sec), 1e-9))
-                and (not bool(lifecycle_flags.get("expired_reduce_only_grace_active", False)))
             )
             unresolved_for_dust = bool(
                 (
-                    bool(lifecycle_flags.get("recent_book_not_found", False))
-                    and (not bool(postexpiry_retired_recent_404))
+                    bool(lifecycle_flags.get("held_ws_missing_or_unusable_tracking_active", False))
+                    and (not bool(postexpiry_retired_recent_ws_missing_or_unusable))
                 )
                 or (
-                    bool(lifecycle_flags.get("forced_refresh_pending", False))
-                    and (not bool(postexpiry_retired_recent_404))
+                    bool(lifecycle_flags.get("held_ws_missing_or_unusable_refresh_pending", False))
+                    and (not bool(postexpiry_retired_recent_ws_missing_or_unusable))
                 )
-                or lifecycle_flags.get("expired_reduce_only_grace_active", False)
-                or lifecycle_flags.get("preexpiry_reduce_only_active", False)
             )
             dust_age_sec = float(held_unpriceable_age_by_token.get(token_id, 0.0) or 0.0)
-            dust_age_sec_for_classification = 0.0 if postexpiry_retired_recent_404 else float(dust_age_sec)
+            dust_age_sec_for_classification = (
+                0.0 if postexpiry_retired_recent_ws_missing_or_unusable else float(dust_age_sec)
+            )
             classification = classify_exposure_fail_closed(
                 net_shares=float(getattr(position, "net_shares", 0.0) or 0.0),
                 cfg=self._dust_classifier_cfg,
@@ -1911,15 +2221,19 @@ class ExecutionRunner:
                     "unresolved_lifecycle_obligation_watch_state": bool(
                         lifecycle_flags.get("unresolved_lifecycle_obligation", False)
                     ),
-                    "postexpiry_retired_recent_404_dust_exempted": bool(postexpiry_retired_recent_404),
+                    "postexpiry_retired_recent_ws_missing_or_unusable_dust_exempted": bool(
+                        postexpiry_retired_recent_ws_missing_or_unusable
+                    ),
                     "held_unpriceable_tracking_active": bool(
                         lifecycle_flags.get("held_unpriceable_tracking_active", False)
                     ),
                     "dust_age_sec": float(dust_age_sec),
                     "dust_age_sec_for_classification": float(dust_age_sec_for_classification),
-                    "dust_age_gate_bypassed": bool(postexpiry_retired_recent_404),
+                    "dust_age_gate_bypassed": bool(postexpiry_retired_recent_ws_missing_or_unusable),
                     "dust_age_gate_bypass_reason": (
-                        "postexpiry_retired_recent_404" if postexpiry_retired_recent_404 else "none"
+                        "postexpiry_retired_recent_ws_missing_or_unusable"
+                        if postexpiry_retired_recent_ws_missing_or_unusable
+                        else "none"
                     ),
                     "sec_to_expiry": (
                         float(sec_to_expiry)
@@ -1990,8 +2304,12 @@ class ExecutionRunner:
             "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
             "held_unpriceable_escalation_max_age_sec": float(held_unpriceable_escalation_max_age_sec),
             "held_unpriceable_escalation_threshold_sec": float(escalation_threshold_sec),
-            "held_unpriceable_defect_candidate": bool(held_unpriceable_escalation_active),
+            "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
             "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
+            "held_unpriceable_non_defect_token_ids": list(held_unpriceable_non_defect_token_ids),
+            "held_unpriceable_meaningful_escalation_token_ids": list(
+                held_unpriceable_meaningful_escalation_token_ids
+            ),
             "held_unpriceable_cause_by_token": {
                 token_id: str(held_unpriceable_cause_by_token.get(token_id) or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP)
                 for token_id in held_unpriceable_token_ids
@@ -2061,80 +2379,7 @@ class ExecutionRunner:
             for token_id in list(valuation_state.get("hard_degraded_meaningful_token_ids", []))
             if str(token_id).strip()
         ]
-        raw_dust_shadow_candidate_active = bool(
-            raw_hard_degraded
-            and hard_degraded_token_ids
-            and (not hard_degraded_meaningful_token_ids)
-            and len(hard_degraded_dust_eligible_token_ids) == len(hard_degraded_token_ids)
-        )
-        prev_shadow_hysteresis_active = bool(self._held_dust_shadow_active)
-        if raw_dust_shadow_candidate_active:
-            self._held_dust_shadow_enter_pending_cycles += 1
-            self._held_dust_shadow_clear_pending_cycles = 0
-            if self._held_dust_shadow_enter_pending_cycles >= int(self.position_dust_enter_consecutive_cycles):
-                self._held_dust_shadow_active = True
-        else:
-            self._held_dust_shadow_enter_pending_cycles = 0
-            if self._held_dust_shadow_active:
-                self._held_dust_shadow_clear_pending_cycles += 1
-                if self._held_dust_shadow_clear_pending_cycles >= int(self.position_dust_clear_consecutive_cycles):
-                    self._held_dust_shadow_active = False
-                    self._held_dust_shadow_clear_pending_cycles = 0
-            else:
-                self._held_dust_shadow_clear_pending_cycles = 0
-        prev_shadow_candidate_active = bool(self._held_dust_shadow_candidate_active)
-        self._held_dust_shadow_candidate_active = bool(raw_dust_shadow_candidate_active)
-        shadow_active = bool(self._held_dust_shadow_active)
-        if prev_shadow_candidate_active != self._held_dust_shadow_candidate_active:
-            self.events.log_event(
-                "held_dust_shadow_candidate_transition",
-                {
-                    "ts_utc": utc_iso(),
-                    "run_id": self.run_id,
-                    "phase": str(phase or "unknown"),
-                    "transition": (
-                        "enter"
-                        if self._held_dust_shadow_candidate_active
-                        else "clear"
-                    ),
-                    "candidate_active": bool(self._held_dust_shadow_candidate_active),
-                    "shadow_active": bool(shadow_active),
-                    "position_dust_enter_consecutive_cycles": int(self.position_dust_enter_consecutive_cycles),
-                    "position_dust_clear_consecutive_cycles": int(self.position_dust_clear_consecutive_cycles),
-                    "enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
-                    "clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
-                    "hard_degraded_token_ids": list(hard_degraded_token_ids),
-                    "hard_degraded_dust_eligible_token_ids": list(hard_degraded_dust_eligible_token_ids),
-                    "hard_degraded_meaningful_token_ids": list(hard_degraded_meaningful_token_ids),
-                },
-            )
-        if prev_shadow_hysteresis_active != shadow_active:
-            self.events.log_event(
-                "held_dust_shadow_transition",
-                {
-                    "ts_utc": utc_iso(),
-                    "run_id": self.run_id,
-                    "phase": str(phase or "unknown"),
-                    "transition": ("enter" if shadow_active else "clear"),
-                    "shadow_active": bool(shadow_active),
-                    "candidate_active": bool(self._held_dust_shadow_candidate_active),
-                    "position_dust_enter_consecutive_cycles": int(self.position_dust_enter_consecutive_cycles),
-                    "position_dust_clear_consecutive_cycles": int(self.position_dust_clear_consecutive_cycles),
-                    "enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
-                    "clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
-                },
-            )
         effective_hard_degraded_exempt_count = 0
-        if bool(self.dust_classifier_enforce_enabled) and bool(shadow_active) and bool(raw_hard_degraded):
-            if not hard_degraded_meaningful_token_ids and hard_degraded_dust_eligible_token_ids:
-                effective_hard_degraded_exempt_count = int(len(hard_degraded_dust_eligible_token_ids))
-                raw_hard_degraded = False
-                raw_degraded = True
-                degraded_reasons.append(
-                    "hard_degraded_exempted_dust_only:"
-                    + f"token_count={effective_hard_degraded_exempt_count}"
-                    + f":shadow_active={int(shadow_active)}"
-                )
         held_unpriceable_token_ids = [
             str(token_id) for token_id in list(valuation_state.get("held_unpriceable_token_ids", [])) if str(token_id)
         ]
@@ -2163,15 +2408,20 @@ class ExecutionRunner:
         )
         held_unpriceable_defect_candidate = bool(valuation_state.get("held_unpriceable_defect_candidate", False))
         held_unpriceable_operator_action = str(valuation_state.get("held_unpriceable_operator_action") or "none")
+        held_unpriceable_non_defect_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("held_unpriceable_non_defect_token_ids", []))
+            if str(token_id).strip()
+        ]
         held_unpriceable_cause_by_token = {
             str(token_id): str(cause).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
             for token_id, cause in dict(valuation_state.get("held_unpriceable_cause_by_token", {})).items()
             if str(token_id).strip()
         }
         held_unpriceable_cause_counts = {
-            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE: int(
+            HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE: int(
                 dict(valuation_state.get("held_unpriceable_cause_counts", {})).get(
-                    HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE,
+                    HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE,
                     0,
                 )
             ),
@@ -2191,27 +2441,11 @@ class ExecutionRunner:
         held_unpriceable_dominant_cause = str(
             valuation_state.get("held_unpriceable_dominant_cause") or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
         ).strip() or HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
-        dust_exempted_held_unpriceable_escalation_token_ids: List[str] = []
-        meaningful_held_unpriceable_escalation_token_ids = list(held_unpriceable_escalation_token_ids)
-        if bool(self.dust_classifier_enforce_enabled) and int(effective_hard_degraded_exempt_count) > 0:
-            dust_eligible_set = set(hard_degraded_dust_eligible_token_ids)
-            dust_exempted_held_unpriceable_escalation_token_ids = sorted(
-                token_id
-                for token_id in held_unpriceable_escalation_token_ids
-                if token_id in dust_eligible_set
-            )
-            meaningful_held_unpriceable_escalation_token_ids = sorted(
-                token_id
-                for token_id in held_unpriceable_escalation_token_ids
-                if token_id not in dust_eligible_set
-            )
-            if held_unpriceable_escalation_active and not meaningful_held_unpriceable_escalation_token_ids:
-                held_unpriceable_defect_candidate = False
-                held_unpriceable_operator_action = "none"
-        self._held_dust_shadow_active = bool(shadow_active)
-        self._held_dust_enforced_this_cycle = bool(
-            self.dust_classifier_enforce_enabled and effective_hard_degraded_exempt_count > 0
-        )
+        meaningful_held_unpriceable_escalation_token_ids = [
+            str(token_id)
+            for token_id in list(valuation_state.get("held_unpriceable_meaningful_escalation_token_ids", []))
+            if str(token_id).strip()
+        ]
         self._held_dust_effective_hard_degraded_exempt_count = int(effective_hard_degraded_exempt_count)
         self._held_dust_raw_hard_degraded_token_count = int(len(hard_degraded_token_ids))
         prev_hard_degraded = bool(self._valuation_hard_degraded)
@@ -2254,9 +2488,6 @@ class ExecutionRunner:
                     "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
                     "valuation_degraded_reasons": list(degraded_reasons),
                     "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
-                    "dust_shadow_active": bool(self._held_dust_shadow_active),
-                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
-                    "dust_hard_degraded_exempt_count": int(self._held_dust_effective_hard_degraded_exempt_count),
                 },
             )
         elif prev_hard_degraded and (not hard_degraded):
@@ -2274,9 +2505,6 @@ class ExecutionRunner:
                     "held_unpriceable_token_ids": list(held_unpriceable_token_ids),
                     "valuation_degraded_reasons": list(degraded_reasons),
                     "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
-                    "dust_shadow_active": bool(self._held_dust_shadow_active),
-                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
-                    "dust_hard_degraded_exempt_count": int(self._held_dust_effective_hard_degraded_exempt_count),
                 },
             )
         if started_unpriceable_tokens or recovered_unpriceable_tokens:
@@ -2318,9 +2546,7 @@ class ExecutionRunner:
         self._held_unpriceable_escalation_max_age_sec = float(held_unpriceable_escalation_max_age_sec)
         self._held_unpriceable_defect_candidate = bool(held_unpriceable_defect_candidate)
         self._held_unpriceable_operator_action = str(held_unpriceable_operator_action)
-        self._held_unpriceable_dust_exempted_escalation_token_ids = list(
-            dust_exempted_held_unpriceable_escalation_token_ids
-        )
+        self._held_unpriceable_non_defect_token_ids = list(held_unpriceable_non_defect_token_ids)
         self._held_unpriceable_meaningful_escalation_token_ids = list(
             meaningful_held_unpriceable_escalation_token_ids
         )
@@ -2340,7 +2566,6 @@ class ExecutionRunner:
         )
         self.risk.set_exposure_classification_state(
             exposure_class_by_token=held_exposure_class_by_token,
-            dust_capacity_enforce_enabled=bool(self.dust_classifier_enforce_enabled),
         )
 
         self.telemetry.set_gauge("valuation_degraded", 1.0 if degraded else 0.0)
@@ -2378,8 +2603,8 @@ class ExecutionRunner:
             float(self._held_unpriceable_recovered_count),
         )
         self.telemetry.set_gauge(
-            "preexpiry_404_anomaly_count",
-            float(self._preexpiry_404_anomaly_count),
+            "preexpiry_ws_missing_or_unusable_anomaly_count",
+            float(self._preexpiry_ws_missing_or_unusable_anomaly_count),
         )
         self.telemetry.set_gauge(
             "financial_posture_class",
@@ -2397,23 +2622,6 @@ class ExecutionRunner:
             "held_dust_total_notional_upper_bound_usd",
             float(self._held_dust_total_notional_upper_bound_usd),
         )
-        self.telemetry.set_gauge(
-            "held_dust_shadow_candidate_active",
-            1.0 if self._held_dust_shadow_candidate_active else 0.0,
-        )
-        self.telemetry.set_gauge(
-            "held_dust_shadow_active",
-            1.0 if self._held_dust_shadow_active else 0.0,
-        )
-        self.telemetry.set_gauge(
-            "held_dust_enforced_this_cycle",
-            1.0 if self._held_dust_enforced_this_cycle else 0.0,
-        )
-        self.telemetry.set_gauge(
-            "held_dust_hard_degraded_exempt_count",
-            float(self._held_dust_effective_hard_degraded_exempt_count),
-        )
-
         signature = (
             bool(degraded),
             bool(hard_degraded),
@@ -2427,10 +2635,6 @@ class ExecutionRunner:
             tuple(sorted(self._held_exposure_class_by_token.items(), key=lambda item: item[0])),
             tuple(self._held_dust_token_ids),
             tuple(self._held_dust_quarantined_token_ids),
-            bool(self._held_dust_shadow_candidate_active),
-            bool(self._held_dust_shadow_active),
-            bool(self._held_dust_enforced_this_cycle),
-            int(self._held_dust_effective_hard_degraded_exempt_count),
         )
         valuation_event_reason = ""
         valuation_event_reason_source = "degraded_reasons_first"
@@ -2508,9 +2712,7 @@ class ExecutionRunner:
                     "held_unpriceable_escalation_reasons": list(held_unpriceable_escalation_reasons),
                     "held_unpriceable_defect_candidate": bool(held_unpriceable_defect_candidate),
                     "held_unpriceable_operator_action": str(held_unpriceable_operator_action),
-                    "held_unpriceable_dust_exempted_escalation_token_ids": list(
-                        dust_exempted_held_unpriceable_escalation_token_ids
-                    ),
+                    "held_unpriceable_non_defect_token_ids": list(held_unpriceable_non_defect_token_ids),
                     "held_unpriceable_meaningful_escalation_token_ids": list(
                         meaningful_held_unpriceable_escalation_token_ids
                     ),
@@ -2527,15 +2729,15 @@ class ExecutionRunner:
                     ),
                     "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
                     "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
-                    "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
+                    "preexpiry_ws_missing_or_unusable_anomaly_count": int(
+                        self._preexpiry_ws_missing_or_unusable_anomaly_count
+                    ),
                     "financial_posture_class": str(self._financial_posture_class),
                     "live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                     "one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                     "last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
-                    "held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
                     "raw_valuation_degraded": bool(valuation_state.get("raw_valuation_degraded", False)),
                     "raw_valuation_hard_degraded": bool(valuation_state.get("raw_valuation_hard_degraded", False)),
-                    "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
                     "held_exposure_class_by_token": dict(self._held_exposure_class_by_token),
                     "held_exposure_detail_by_token": dict(self._held_exposure_detail_by_token),
                     "held_dust_token_ids": list(self._held_dust_token_ids),
@@ -2545,17 +2747,7 @@ class ExecutionRunner:
                     "held_dust_total_notional_upper_bound_usd": float(
                         self._held_dust_total_notional_upper_bound_usd
                     ),
-                    "held_dust_shadow_candidate_active": bool(self._held_dust_shadow_candidate_active),
-                    "held_dust_shadow_active": bool(self._held_dust_shadow_active),
-                    "held_dust_shadow_enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
-                    "held_dust_shadow_clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
-                    "held_dust_enforced_this_cycle": bool(self._held_dust_enforced_this_cycle),
-                    "held_dust_hard_degraded_exempt_count": int(
-                        self._held_dust_effective_hard_degraded_exempt_count
-                    ),
-                    "held_dust_raw_hard_degraded_token_count": int(
-                        self._held_dust_raw_hard_degraded_token_count
-                    ),
+                    "held_dust_raw_hard_degraded_token_count": int(self._held_dust_raw_hard_degraded_token_count),
                 },
             )
         escalation_signature = (
@@ -2636,23 +2828,12 @@ class ExecutionRunner:
         valuation_state["held_dust_total_notional_upper_bound_usd"] = float(
             self._held_dust_total_notional_upper_bound_usd
         )
-        valuation_state["dust_classifier_enforce_enabled"] = bool(self.dust_classifier_enforce_enabled)
-        valuation_state["held_dust_shadow_candidate_active"] = bool(self._held_dust_shadow_candidate_active)
-        valuation_state["held_dust_shadow_active"] = bool(self._held_dust_shadow_active)
-        valuation_state["held_dust_shadow_enter_pending_cycles"] = int(self._held_dust_shadow_enter_pending_cycles)
-        valuation_state["held_dust_shadow_clear_pending_cycles"] = int(self._held_dust_shadow_clear_pending_cycles)
-        valuation_state["held_dust_enforced_this_cycle"] = bool(self._held_dust_enforced_this_cycle)
-        valuation_state["held_dust_hard_degraded_exempt_count"] = int(
-            self._held_dust_effective_hard_degraded_exempt_count
-        )
         valuation_state["held_dust_raw_hard_degraded_token_count"] = int(
             self._held_dust_raw_hard_degraded_token_count
         )
         valuation_state["held_unpriceable_defect_candidate"] = bool(held_unpriceable_defect_candidate)
         valuation_state["held_unpriceable_operator_action"] = str(held_unpriceable_operator_action)
-        valuation_state["held_unpriceable_dust_exempted_escalation_token_ids"] = list(
-            dust_exempted_held_unpriceable_escalation_token_ids
-        )
+        valuation_state["held_unpriceable_non_defect_token_ids"] = list(held_unpriceable_non_defect_token_ids)
         valuation_state["held_unpriceable_meaningful_escalation_token_ids"] = list(
             meaningful_held_unpriceable_escalation_token_ids
         )
@@ -2804,25 +2985,44 @@ class ExecutionRunner:
             return False
         started_mono = float(getattr(self, "_ws_slo_bootstrap_started_mono", 0.0))
         now_mono = time.monotonic()
-        if (not math.isfinite(started_mono)) or (started_mono <= 0.0) or (started_mono > now_mono):
+        bootstrap_reason = str(getattr(self, "_ws_slo_bootstrap_reason", "") or "")
+        bootstrap_active = bool(getattr(self, "_ws_slo_bootstrap_active", False))
+        if (not math.isfinite(started_mono)) or (started_mono > now_mono):
+            if not (bootstrap_active or bootstrap_reason):
+                self._ws_slo_bootstrap_started_mono = 0.0
+                self._ws_slo_bootstrap_active = False
+                return False
             started_mono = now_mono
             self._ws_slo_bootstrap_started_mono = started_mono
+        if started_mono <= 0.0:
+            self._ws_slo_bootstrap_active = False
+            return False
         elapsed = max(0.0, now_mono - started_mono)
         active = elapsed < grace_sec
         self._ws_slo_bootstrap_active = bool(active)
         return bool(active)
 
-    def _reset_ws_slo_bootstrap(self, *, reason: str) -> None:
-        self._ws_slo_bootstrap_started_mono = time.monotonic()
-        self._ws_slo_bootstrap_active = bool(self.token_ids) and self.operating_mode_ws_slo_bootstrap_grace_sec > 0.0
+    def _reset_ws_slo_bootstrap(self, *, reason: str, activate_grace: bool = True) -> None:
+        if activate_grace:
+            self._ws_slo_bootstrap_started_mono = time.monotonic()
+            self._ws_slo_bootstrap_active = bool(self.token_ids) and self.operating_mode_ws_slo_bootstrap_grace_sec > 0.0
+            self._ws_slo_bootstrap_reason = str(reason)
+        else:
+            self._ws_slo_bootstrap_started_mono = 0.0
+            self._ws_slo_bootstrap_active = False
+            self._ws_slo_bootstrap_reason = ""
         self.events.log_event(
             "ws_slo_bootstrap_reset",
             {
                 "ts_utc": utc_iso(),
                 "run_id": self.run_id,
                 "reason": str(reason),
+                "reason_class": "steady_state_self_heal"
+                if str(reason) in {"book_feed_ws_pair_truth_missing", "book_feed_ws_pair_truth_missing_all_pairs"}
+                else "startup_or_target_refresh",
                 "token_count": len(self.token_ids),
                 "grace_sec": float(self.operating_mode_ws_slo_bootstrap_grace_sec),
+                "grace_applied": bool(self._ws_slo_bootstrap_active),
                 "active": bool(self._ws_slo_bootstrap_active),
             },
         )
@@ -2833,8 +3033,8 @@ class ExecutionRunner:
         has_targets: bool,
         book_feed_status: Dict[str, Any],
         chainlink_status: Dict[str, Any],
-        all_targets_missing_ws_books: bool = False,
-        rest_fallback_used_cycle: bool = False,
+        pair_missing_base_keys: Optional[List[str]] = None,
+        all_target_pairs_missing_ws: bool = False,
     ) -> Tuple[bool, list[str]]:
         reasons: list[str] = []
         if not self.operating_mode_ws_slo_enforce:
@@ -2849,8 +3049,10 @@ class ExecutionRunner:
             book_connected = bool(book_feed_status.get("connected", False))
             if self.operating_mode_ws_slo_require_book_connected and not book_connected:
                 reasons.append("book_feed_disconnected")
-            if bool(all_targets_missing_ws_books) and bool(rest_fallback_used_cycle):
-                reasons.append("book_feed_ws_books_missing_all_targets")
+            if pair_missing_base_keys:
+                reasons.append("book_feed_ws_pair_truth_missing")
+            if bool(all_target_pairs_missing_ws):
+                reasons.append("book_feed_ws_pair_truth_missing_all_pairs")
             book_age = parse_float(book_feed_status.get("last_msg_age_sec"))
             if (
                 book_age is not None
@@ -2871,6 +3073,36 @@ class ExecutionRunner:
                 reasons.append("chainlink_last_tick_age_high")
 
         return bool(reasons), reasons
+
+    def _maybe_request_book_feed_resubscribe_for_target_ws_gap(
+        self,
+        *,
+        ws_slo_reasons: list[str],
+        book_feed_status: Dict[str, Any],
+        ws_slo_bootstrap_active: bool,
+    ) -> bool:
+        if not any(
+            reason in {"book_feed_ws_pair_truth_missing", "book_feed_ws_pair_truth_missing_all_pairs"}
+            for reason in ws_slo_reasons
+        ):
+            return False
+        if ws_slo_bootstrap_active:
+            return False
+        if not bool(book_feed_status.get("connected", False)):
+            return False
+        if bool(getattr(self, "_last_ws_slo_degraded", False)) and str(
+            getattr(self, "_last_ws_slo_reason", "") or ""
+        ) == ",".join(ws_slo_reasons):
+            return False
+        request = getattr(self.book_feed, "request_resubscribe", None)
+        if not callable(request):
+            return False
+        request()
+        self._reset_ws_slo_bootstrap(
+            reason="book_feed_ws_pair_truth_missing",
+            activate_grace=False,
+        )
+        return True
 
     def _build_fair_probability_map(
         self,
@@ -3037,11 +3269,11 @@ class ExecutionRunner:
             "degraded_expiry_fallback_active": degraded_expiry_fallback_active,
         }
 
-    def _taker_stage_window_token_ids(
+    def _taker_window_token_ids(
         self,
         *,
         taker_ctx: Mapping[str, Any],
-        taker_stage_tokens: Collection[str],
+        taker_phase_tokens: Collection[str],
     ) -> list[str]:
         """Canonical taker reachability set for runtime evaluation.
 
@@ -3056,86 +3288,42 @@ class ExecutionRunner:
             window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("token_ids", [])) if str(token_id).strip()]
         if not window_token_ids:
             return []
-        taker_stage_token_set = {str(token_id).strip() for token_id in taker_stage_tokens if str(token_id).strip()}
-        if not taker_stage_token_set:
+        taker_phase_token_set = {str(token_id).strip() for token_id in taker_phase_tokens if str(token_id).strip()}
+        if not taker_phase_token_set:
             return []
         return [
             token_id
             for token_id in self._unique_ordered(window_token_ids)
-            if token_id in taker_stage_token_set
+            if token_id in taker_phase_token_set
         ]
 
-    def _late_window_authority_fields(
+    def _lifecycle_phase_for_runtime(
         self,
         *,
-        raw_stage: str,
         sec_to_expiry: Optional[float],
-        reduce_only_recovery_active: bool,
+        resolve_required: bool,
         hold_active: bool,
         stage_known: bool,
-    ) -> Dict[str, Any]:
-        default_maker_allowed, default_taker_allowed = edge_stage_policy(raw_stage)
-        maker_new_risk_allowed = bool(default_maker_allowed)
-        normal_taker_allowed = bool(default_taker_allowed)
-        authority_class = "pre_late_window_existing_stage"
-        sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
-
-        if sec is None or not stage_known:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = False
-            authority_class = "timing_unknown"
-        elif sec < 0.0:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = False
-            authority_class = "expired_recovery_only"
-        elif sec <= 7.0 + 1e-9:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = True
-            authority_class = "normal_taker_only"
-        elif sec <= 15.0 + 1e-9:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = False
-            authority_class = "reduce_only_recovery_only"
-        elif sec <= 20.0 + 1e-9:
-            maker_new_risk_allowed = True
-            normal_taker_allowed = False
-            authority_class = "maker_new_risk_only"
-
-        preexpiry_emergency_taker_allowed = bool(
-            reduce_only_recovery_active
-            and isinstance(sec, float)
-            and sec >= 0.0
-            and float(self.preexpiry_emergency_taker_window_sec) > 0.0
-            and sec <= (float(self.preexpiry_emergency_taker_window_sec) + 1e-9)
-        )
-
-        if reduce_only_recovery_active:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = False
-            authority_class = (
-                "preexpiry_emergency_recovery_only"
-                if preexpiry_emergency_taker_allowed
-                else "reduce_only_recovery_only"
-            )
-            if isinstance(sec, float) and sec < 0.0:
-                authority_class = "expired_recovery_only"
-
+    ) -> str:
+        if resolve_required:
+            return "resolve"
+        if sec_to_expiry is None or not stage_known:
+            return "prepare"
+        sec = float(sec_to_expiry)
+        if sec < 0.0:
+            return "resolve"
         if hold_active:
-            maker_new_risk_allowed = False
-            normal_taker_allowed = False
-            preexpiry_emergency_taker_allowed = False
-            authority_class = "observe_hold"
-
-        return authority_surface_fields(
-            maker_new_risk_allowed=maker_new_risk_allowed,
-            normal_taker_allowed=normal_taker_allowed,
-            reduce_only_recovery_allowed=reduce_only_recovery_active,
-            preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
-            late_window_authority_class=authority_class,
-        )
+            return "prepare"
+        taker_window_open_sec = float(getattr(self, "lifecycle_taker_window_open_sec", 7.0))
+        maker_window_open_sec = float(getattr(self, "lifecycle_maker_window_open_sec", 15.0))
+        if sec <= taker_window_open_sec + 1e-9:
+            return "taker_window"
+        if sec <= maker_window_open_sec + 1e-9:
+            return "maker_window"
+        return "prepare"
 
     @staticmethod
-    def _stage_name_for_sec_to_expiry(sec_to_expiry: Optional[float]) -> str:
+    def _lineage_stage_for_sec_to_expiry(sec_to_expiry: Optional[float]) -> str:
         if sec_to_expiry is None:
             return STAGE_UNKNOWN
         if sec_to_expiry < 0:
@@ -3152,18 +3340,70 @@ class ExecutionRunner:
             return STAGE_SNIPER_PRIMARY
         return STAGE_EXTREME_ONLY
 
-    @staticmethod
-    def _stage_policy(stage: str) -> Tuple[bool, bool]:
-        return edge_stage_policy(stage)
+    def _compat_stage_for_runtime(
+        self,
+        lineage_stage: str,
+        sec_to_expiry: Optional[float],
+    ) -> str:
+        lineage_bucket = str(lineage_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
+        if lineage_bucket != STAGE_EXTREME_ONLY:
+            return lineage_bucket
+        if not isinstance(sec_to_expiry, (int, float)):
+            return lineage_bucket
+        sec = float(sec_to_expiry)
+        if sec < 0.0:
+            return lineage_bucket
+        taker_window_open_sec = float(getattr(self, "lifecycle_taker_window_open_sec", 7.0))
+        maker_window_open_sec = float(getattr(self, "lifecycle_maker_window_open_sec", 15.0))
+        if sec <= taker_window_open_sec + 1e-9:
+            return STAGE_TAKER_COMMITMENT
+        if sec <= maker_window_open_sec + 1e-9:
+            return STAGE_MAKER_LATE_WINDOW
+        return STAGE_LATE_DIAGNOSTIC
+
+    def _compat_stage_from_lifecycle_info(
+        self,
+        info: Mapping[str, Any],
+        *,
+        fallback_stage: Optional[str] = None,
+    ) -> str:
+        effective = str(
+            info.get(EDGE_STAGE_EFFECTIVE_FIELD)
+            or info.get("stage")
+            or fallback_stage
+            or STAGE_UNKNOWN
+        ).strip().upper() or STAGE_UNKNOWN
+        sec_to_expiry = info.get("sec_to_expiry")
+        if effective != STAGE_UNKNOWN:
+            if effective == STAGE_EXTREME_ONLY:
+                sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+                return self._compat_stage_for_runtime(STAGE_EXTREME_ONLY, sec)
+            return effective
+
+        lifecycle_phase = str(
+            info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+            or lifecycle_phase_from_payload(info)
+            or ""
+        ).strip().lower()
+        lineage_stage = lineage_stage_from_payload(info)
+        if lifecycle_phase == "resolve":
+            return STAGE_EXPIRED
+        if lifecycle_phase == "taker_window":
+            return STAGE_TAKER_COMMITMENT
+        if lifecycle_phase == "maker_window":
+            return STAGE_MAKER_LATE_WINDOW
+        if lineage_stage == STAGE_EXTREME_ONLY:
+            sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+            return self._compat_stage_for_runtime(STAGE_EXTREME_ONLY, sec)
+        if lineage_stage != STAGE_UNKNOWN:
+            return lineage_stage
+        return effective
 
     def _resolve_taker_required_min_edge(
         self,
         stage: str,
-        *,
-        normal_taker_allowed: Optional[bool] = None,
     ) -> float:
         del stage
-        del normal_taker_allowed
         # Current live taker threshold authority is top-level taker.min_edge
         # only. Stage-local threshold leaves and extreme-only fallback
         # multipliers are retired authority residue and no longer arm taker.
@@ -3173,45 +3413,47 @@ class ExecutionRunner:
         del stage
         return max(0.0, float(self.taker_per_token_cooldown_sec))
 
-    def _emit_taker_stage_window_semantic_check(self) -> None:
+    def _emit_taker_window_semantic_check(self) -> None:
         if not bool(self.taker_competitiveness_cfg.enabled):
             return
 
-        canonical_window_sec = max(
-            0.0,
-            min(7.0, float(self.taker_competitiveness_cfg.final_window_sec)),
-        )
-        # Stage bands remain lineage/diagnostic buckets from
-        # _stage_name_for_sec_to_expiry(); only the EXTREME_ONLY row may carry
-        # current normal taker authority and only for the <=7s commitment lane.
-        stage_bands: Dict[str, Tuple[float, float]] = {
-            STAGE_MAKER_TAKER_SELECTIVE: (30.0, 60.0),
-            STAGE_SNIPER_PRIMARY: (20.0, 30.0),
-            STAGE_EXTREME_ONLY: (0.0, 20.0),
-        }
-        rows: Dict[str, Dict[str, Any]] = {}
+        canonical_window_sec = max(0.0, float(self.lifecycle_taker_window_open_sec))
+        maker_window_open_sec = max(canonical_window_sec, float(self.lifecycle_maker_window_open_sec))
+        phase_rows: Dict[str, Dict[str, Any]] = {}
         dead_count = 0
-        for stage_name, (lower_exclusive, upper_inclusive) in stage_bands.items():
-            stage_allows_taker = bool(
-                stage_name == STAGE_EXTREME_ONLY
-                and canonical_window_sec > 0.0
-            )
-            effective_window_sec = canonical_window_sec if stage_allows_taker else 0.0
+        phase_bands: Dict[str, Tuple[Optional[float], Optional[float], bool]] = {
+            "scan": (maker_window_open_sec, None, False),
+            "prepare": (maker_window_open_sec, None, False),
+            "maker_window": (canonical_window_sec, maker_window_open_sec, False),
+            "taker_window": (0.0, canonical_window_sec, canonical_window_sec > 0.0),
+            "resolve": (None, 0.0, False),
+        }
+        for phase_name, (lower_exclusive, upper_inclusive, phase_allows_taker) in phase_bands.items():
+            effective_window_sec = canonical_window_sec if phase_allows_taker else 0.0
             semantically_live = bool(
-                stage_allows_taker
-                and effective_window_sec > lower_exclusive
+                phase_allows_taker
+                and isinstance(lower_exclusive, (int, float))
+                and effective_window_sec > float(lower_exclusive)
             )
             semantic_dead_reason = None
-            if not stage_allows_taker:
-                semantic_dead_reason = "stage_disallow_taker"
+            if not phase_allows_taker:
+                semantic_dead_reason = "phase_disallow_taker"
             elif not semantically_live:
                 dead_count += 1
-                semantic_dead_reason = "stage_window_non_overlapping_with_stage_interval"
-            overlap_high = min(upper_inclusive, effective_window_sec)
-            rows[stage_name] = {
-                "interval_lower_exclusive_sec": float(lower_exclusive),
-                "interval_upper_inclusive_sec": float(upper_inclusive),
-                "stage_allows_taker": bool(stage_allows_taker),
+                semantic_dead_reason = "window_non_overlapping_with_phase_interval"
+            overlap_high = (
+                min(float(upper_inclusive), effective_window_sec)
+                if semantically_live and isinstance(upper_inclusive, (int, float))
+                else None
+            )
+            phase_rows[phase_name] = {
+                "interval_lower_exclusive_sec": (
+                    float(lower_exclusive) if isinstance(lower_exclusive, (int, float)) else None
+                ),
+                "interval_upper_inclusive_sec": (
+                    float(upper_inclusive) if isinstance(upper_inclusive, (int, float)) else None
+                ),
+                "phase_allows_taker": bool(phase_allows_taker),
                 "effective_final_window_sec": float(effective_window_sec),
                 "semantically_live": semantically_live,
                 "overlap_high_sec": (float(overlap_high) if semantically_live else None),
@@ -3219,14 +3461,14 @@ class ExecutionRunner:
             }
 
         self.events.log_event(
-            EVENT_TAKER_STAGE_WINDOW_SEMANTIC_CHECK,
+            EVENT_TAKER_WINDOW_SEMANTIC_CHECK,
             {
                 "ts_utc": utc_iso(),
                 "run_id": self.run_id,
                 "final_window_enabled": bool(self.taker_competitiveness_cfg.final_window_enabled),
                 "default_final_window_sec": float(self.taker_competitiveness_cfg.final_window_sec),
                 "canonical_live_final_window_sec": float(canonical_window_sec),
-                "stage_rows": rows,
+                "phase_rows": phase_rows,
                 "semantic_dead_by_construction_count": int(dead_count),
                 "semantic_status": ("ok" if dead_count == 0 else "warn"),
             },
@@ -3487,10 +3729,13 @@ class ExecutionRunner:
         chainlink_spot_price: Optional[float],
         secondary_oracle_spot_price: Optional[float],
         stage: str,
+        lifecycle_phase: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
         sec_to_expiry: Optional[float],
         base_size_multiplier: float,
         base_spread_multiplier: float,
         timing_gate_open: bool,
+        maker_phase_allowed: bool = False,
     ) -> Dict[str, Any]:
         market_reference = dict(market_reference or {})
         market_probability = (
@@ -3553,12 +3798,16 @@ class ExecutionRunner:
         requote_delta_applied = max(1e-9, float(self.maker_comp_base_requote_delta) * requote_mult_comp)
 
         normalized_stage = str(stage or "").strip().upper()
-        one_sided_stage_allowed = normalized_stage in self.maker_comp_one_sided_allowed_stages
+        normalized_lifecycle_phase = str(
+            lifecycle_phase or legacy_stage_to_lifecycle_phase(normalized_stage) or ""
+        ).strip().lower() or "scan"
+        normalized_lineage_stage = str(lineage_stage or normalized_stage).strip().upper() or STAGE_UNKNOWN
+        one_sided_authority_allowed = bool(maker_phase_allowed)
         side_policy = "TWO_SIDED"
         one_sided_active = False
         if (
             self.maker_comp_one_sided_enabled
-            and one_sided_stage_allowed
+            and one_sided_authority_allowed
             and edge_signed is not None
             and abs(edge_signed) >= float(self.maker_comp_one_sided_edge_threshold_abs)
         ):
@@ -3569,6 +3818,8 @@ class ExecutionRunner:
         competitiveness_context = {
             "token_id": str(token_id),
             "stage": normalized_stage,
+            **lifecycle_phase_surface_fields(lifecycle_phase=normalized_lifecycle_phase),
+            **lineage_stage_surface_fields(lineage_stage=normalized_lineage_stage),
             "sec_to_expiry": (float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None),
             "timing_gate_enabled": bool(self.maker_comp_timing_gate_enabled),
             "timing_gate_open": bool(timing_gate_open),
@@ -3634,7 +3885,8 @@ class ExecutionRunner:
             "requote_delta_multiplier_competitiveness": float(requote_mult_comp),
             "requote_delta_applied": float(requote_delta_applied),
             "one_sided_enabled": bool(self.maker_comp_one_sided_enabled),
-            "one_sided_allowed_stage": bool(one_sided_stage_allowed),
+            "one_sided_allowed_phase": bool(one_sided_authority_allowed),
+            "one_sided_allowed_authority": bool(one_sided_authority_allowed),
             "one_sided_edge_threshold_abs": float(self.maker_comp_one_sided_edge_threshold_abs),
             "side_policy": side_policy,
             "one_sided_active": bool(one_sided_active),
@@ -3647,13 +3899,13 @@ class ExecutionRunner:
             "context": competitiveness_context,
         }
 
-    def _token_stage_info(self, token_id: str) -> Dict[str, Any]:
+    def _token_lifecycle_info(self, token_id: str) -> Dict[str, Any]:
         now = utc_now()
         expiry = self.token_expiry_dt_by_token.get(token_id)
         market_key = str(self.token_market_key_by_token.get(token_id, "")).strip()
         reason = ""
         sec_to_expiry: Optional[float] = None
-        raw_stage = STAGE_UNKNOWN
+        lineage_stage = STAGE_UNKNOWN
         hold_active = False
         hold_cycles_remaining = 0
         hold_seconds_remaining = 0.0
@@ -3665,32 +3917,15 @@ class ExecutionRunner:
                 reason = "expired_market"
         if not market_key:
             reason = (reason or "missing_market_key")
-        stage = self._stage_name_for_sec_to_expiry(sec_to_expiry)
-        raw_stage = stage
+        lineage_stage = self._lineage_stage_for_sec_to_expiry(sec_to_expiry)
         maker_timing_gate_open = bool(self._maker_timing_gate_open(sec_to_expiry))
         maker_timing_stage_override_active = False
-        if not market_key:
-            stage = STAGE_UNKNOWN
-        expired_reduce_only_grace_active = (
-            stage == STAGE_EXPIRED
-            and self._held_expired_reduce_only_grace_active(token_id=token_id, sec_to_expiry=sec_to_expiry)
-        )
-        if expired_reduce_only_grace_active:
-            stage = STAGE_MAKER_TAKER_SELECTIVE
-            reason = "expired_reduce_only_grace_active"
-        reduce_only_recovery = self._reduce_only_recovery_payload(
+        lifecycle_info = self._lifecycle_management_payload(
             token_id=token_id,
             sec_to_expiry=sec_to_expiry,
-            expired_reduce_only_grace_active=bool(expired_reduce_only_grace_active),
         )
-        authority_fields = self._late_window_authority_fields(
-            raw_stage=raw_stage,
-            sec_to_expiry=sec_to_expiry,
-            reduce_only_recovery_active=bool(reduce_only_recovery.get("active", False)),
-            hold_active=False,
-            stage_known=bool(market_key) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED},
-        )
-        if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
+        stage_known = bool(market_key) and lineage_stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}
+        if stage_known:
             entry_mono = self._market_entry_mono_by_token.get(token_id)
             entry_cycle = self._market_entry_cycle_by_token.get(token_id)
             if entry_mono is not None and entry_cycle is not None:
@@ -3700,47 +3935,45 @@ class ExecutionRunner:
                 hold_seconds_remaining = max(0.0, self.doctrine_min_observe_seconds_on_entry - elapsed_sec)
                 hold_active = (hold_cycles_remaining > 0) or (hold_seconds_remaining > 0.0)
                 if hold_active:
-                    stage = STAGE_OBSERVE
-                    reason = f"observe_hold_active:{raw_stage}"
-        if hold_active:
-            authority_fields = authority_surface_fields(
-                maker_new_risk_allowed=False,
-                normal_taker_allowed=False,
-                reduce_only_recovery_allowed=bool(reduce_only_recovery.get("active", False)),
-                preexpiry_emergency_taker_allowed=False,
-                late_window_authority_class="observe_hold",
-            )
-        elif not market_key or stage in {STAGE_UNKNOWN, STAGE_EXPIRED}:
-            authority_fields = authority_surface_fields(
-                maker_new_risk_allowed=False,
-                normal_taker_allowed=False,
-                reduce_only_recovery_allowed=bool(reduce_only_recovery.get("active", False)),
-                preexpiry_emergency_taker_allowed=False,
-                late_window_authority_class=(
-                    "expired_recovery_only" if stage == STAGE_EXPIRED else "timing_unknown"
-                ),
-            )
+                    reason = f"observe_hold_active:{lineage_stage}"
 
-        allow_maker = bool(authority_fields.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)) or bool(
-            authority_fields.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
+        resolve_required = bool(
+            lineage_stage == STAGE_EXPIRED
+            or lifecycle_info.get("open_order_cleanup_required", False)
+            or lifecycle_info.get("settlement_hold_required", False)
+            or lifecycle_info.get("unresolved_lifecycle_obligation", False)
+            or lifecycle_info.get("cancel_fail_closed", False)
         )
-        allow_taker = bool(authority_fields.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
-        if bool(reduce_only_recovery.get("active", False)) and stage not in {STAGE_UNKNOWN, STAGE_EXPIRED}:
-            # Recovery lifecycle tracking stays live, but taker authority does not.
-            # Cleanup must not silently route back through taker scope.
-            recovery_reason = str(reduce_only_recovery.get("reason") or "").strip()
-            if recovery_reason:
-                if reason:
-                    reason_parts = [str(part).strip() for part in str(reason).split("|") if str(part).strip()]
-                    if recovery_reason not in reason_parts:
-                        reason = f"{reason}|{recovery_reason}"
-                else:
-                    reason = recovery_reason
-        verdict = "pass" if stage not in {STAGE_UNKNOWN, STAGE_EXPIRED} else "fail"
+        lifecycle_phase = self._lifecycle_phase_for_runtime(
+            sec_to_expiry=sec_to_expiry,
+            resolve_required=resolve_required,
+            hold_active=hold_active,
+            stage_known=stage_known,
+        )
+        maker_phase_allowed = lifecycle_phase == "maker_window"
+        taker_phase_allowed = lifecycle_phase == "taker_window"
+        maker_gate_open = bool(maker_phase_allowed)
+        taker_gate_open = bool(taker_phase_allowed)
+        verdict = "pass" if stage_known else "fail"
         if verdict == "fail" and not reason:
-            reason = "stage_not_tradeable"
+            reason = "market_not_tradeable"
+        market_ref = self._market_ref_for_market_key(market_key)
         return {
-            **stage_surface_fields(effective_stage=stage, stage_bucket=raw_stage),
+            **lifecycle_phase_surface_fields(lifecycle_phase=lifecycle_phase),
+            **lineage_stage_surface_fields(lineage_stage=lineage_stage),
+            **ownership_surface_fields(
+                owned_market_ref=market_ref,
+                challenger_market_ref=None,
+                ownership_drop_reason=None,
+                ownership_replacement_reason=None,
+            ),
+            **market_truth_surface_fields(market_truth_required=bool(market_key)),
+            **lane_permission_surface_fields(
+                maker_phase_allowed=maker_phase_allowed,
+                taker_phase_allowed=taker_phase_allowed,
+                maker_gate_open=maker_gate_open,
+                taker_gate_open=taker_gate_open,
+            ),
             "sec_to_expiry": sec_to_expiry,
             "maker_timing_gate_open": bool(maker_timing_gate_open),
             "maker_timing_stage_override_active": bool(maker_timing_stage_override_active),
@@ -3748,25 +3981,14 @@ class ExecutionRunner:
             "observe_hold_active": hold_active,
             "observe_hold_cycles_remaining": hold_cycles_remaining,
             "observe_hold_seconds_remaining": hold_seconds_remaining,
-            "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
-            "preexpiry_reduce_only_active": bool(reduce_only_recovery.get("preexpiry_active", False)),
-            "reduce_only_recovery_active": bool(reduce_only_recovery.get("active", False)),
-            "reduce_only_recovery_reason": str(reduce_only_recovery.get("reason") or ""),
-            "reduce_only_side": str(reduce_only_recovery.get("side") or "NONE"),
-            "reduce_only_side_policy": str(reduce_only_recovery.get("side_policy") or "NONE"),
-            "reduce_only_size_cap_shares": float(reduce_only_recovery.get("size_cap_shares", 0.0) or 0.0),
-            "reduce_only_size_cap_below_min_order_size": bool(
-                reduce_only_recovery.get("size_cap_below_min_order_size", False)
+            **lifecycle_surface_fields(
+                open_order_cleanup_required=bool(lifecycle_info.get("open_order_cleanup_required", False)),
+                settlement_hold_required=bool(lifecycle_info.get("settlement_hold_required", False)),
+                unresolved_lifecycle_obligation=bool(lifecycle_info.get("unresolved_lifecycle_obligation", False)),
+                cancel_fail_closed=bool(lifecycle_info.get("cancel_fail_closed", False)),
             ),
-            "reduce_only_min_order_size_shares": float(
-                reduce_only_recovery.get("min_order_size_shares", self.risk_min_order_size_shares) or 0.0
-            ),
-            "reduce_only_net_shares": float(reduce_only_recovery.get("net_shares", 0.0) or 0.0),
-            "reduce_only_open_order_present": bool(reduce_only_recovery.get("open_order_present", False)),
-            "held_preexpiry_reduce_only_sec": float(reduce_only_recovery.get("preexpiry_window_sec", 0.0) or 0.0),
-            **authority_fields,
-            "allow_maker": allow_maker,
-            "allow_taker": allow_taker,
+            "held_net_shares": float(lifecycle_info.get("net_shares", 0.0) or 0.0),
+            "held_open_order_present": bool(lifecycle_info.get("open_order_present", False)),
             "doctrine_gate_verdict": verdict,
             "reason": reason,
         }
@@ -3779,58 +4001,103 @@ class ExecutionRunner:
     ) -> None:
         maker_prereq_failure_by_token = maker_prereq_failure_by_token or {}
         for token_id, info in stage_info_by_token.items():
-            stage = str(info.get("stage", STAGE_UNKNOWN))
+            lineage_stage = lineage_stage_from_payload(info)
+            if lineage_stage == STAGE_UNKNOWN:
+                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+            doctrine_lifecycle_phase = str(
+                info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or lifecycle_phase_from_payload(info)
+                or ""
+            ).strip().lower() or "scan"
             base_verdict = str(info.get("doctrine_gate_verdict", "fail"))
             base_reason = str(info.get("reason", ""))
-            allow_maker = bool(info.get("allow_maker", False))
-            allow_taker = bool(info.get("allow_taker", False))
-            maker_new_risk_allowed = bool(info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False))
-            normal_taker_allowed = bool(info.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
-            reduce_only_recovery_allowed = bool(info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False))
-            preexpiry_emergency_taker_allowed = bool(
-                info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
+            maker_gate_open = bool(
+                info.get(
+                    EDGE_MAKER_GATE_OPEN_FIELD,
+                    info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, False),
+                )
             )
-            late_window_authority_class = str(
-                info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
-            ).strip().lower() or "unknown"
+            taker_gate_open = bool(
+                info.get(
+                    EDGE_TAKER_GATE_OPEN_FIELD,
+                    info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, False),
+                )
+            )
+            maker_phase_allowed = bool(
+                info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, doctrine_lifecycle_phase == "maker_window")
+            )
+            taker_phase_allowed = bool(
+                info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, doctrine_lifecycle_phase == "taker_window")
+            )
+            open_order_cleanup_required = bool(info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False))
+            settlement_hold_required = bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False))
+            unresolved_lifecycle_obligation = bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
+            cancel_fail_closed = bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
+            market_truth_required = bool(
+                info.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, bool(info.get("market_key")))
+            )
             prereq_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
             maker_prereq_ok = not bool(prereq_reason)
             verdict = base_verdict
             reason = base_reason
-            if self.doctrine_mode == "canonical" and allow_maker and prereq_reason:
+            if self.doctrine_mode == "canonical" and maker_gate_open and prereq_reason:
                 verdict = "fail"
                 reason = prereq_reason
             signature = (
-                stage,
+                doctrine_lifecycle_phase,
                 verdict,
                 reason,
-                allow_maker,
-                allow_taker,
-                maker_new_risk_allowed,
-                normal_taker_allowed,
-                reduce_only_recovery_allowed,
-                preexpiry_emergency_taker_allowed,
-                late_window_authority_class,
+                maker_gate_open,
+                taker_gate_open,
+                maker_phase_allowed,
+                taker_phase_allowed,
+                open_order_cleanup_required,
+                settlement_hold_required,
+                unresolved_lifecycle_obligation,
+                cancel_fail_closed,
+                market_truth_required,
+                lineage_stage,
             )
             if self._last_doctrine_signature_by_token.get(token_id) == signature:
                 continue
-            prev_stage = self._last_stage_by_token.get(token_id)
-            if prev_stage != stage:
+            previous_lifecycle_phase = self._last_lifecycle_phase_by_token.get(token_id)
+            if previous_lifecycle_phase != doctrine_lifecycle_phase:
                 self.events.log_event(
-                    "stage_transition",
+                    "lifecycle_phase_transition",
                     {
                         "ts_utc": utc_iso(),
                         "run_id": self.run_id,
                         "token_id": token_id,
                         "market_key": str(info.get("market_key", "")),
-                        "from_stage": prev_stage or "",
-                        "to_stage": stage,
+                        "from_lifecycle_phase": str(previous_lifecycle_phase or "").strip().lower() or "scan",
+                        "to_lifecycle_phase": str(doctrine_lifecycle_phase or "").strip().lower() or "scan",
+                        **lifecycle_phase_surface_fields(
+                            lifecycle_phase=str(doctrine_lifecycle_phase or "").strip().lower() or "scan"
+                        ),
+                        **ownership_surface_fields(
+                            owned_market_ref=info.get(EDGE_OWNED_MARKET_REF_FIELD),
+                            challenger_market_ref=info.get(EDGE_CHALLENGER_MARKET_REF_FIELD),
+                            ownership_drop_reason=info.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                            ownership_replacement_reason=info.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
+                        ),
+                        **market_truth_surface_fields(market_truth_required=market_truth_required),
+                        **lane_permission_surface_fields(
+                            maker_phase_allowed=maker_phase_allowed,
+                            taker_phase_allowed=taker_phase_allowed,
+                            maker_gate_open=maker_gate_open,
+                            taker_gate_open=taker_gate_open,
+                        ),
+                        **lineage_stage_surface_fields(lineage_stage=lineage_stage),
                         "sec_to_expiry": info.get("sec_to_expiry"),
                         "doctrine_mode": self.doctrine_mode,
                     },
                 )
-                self._last_stage_by_token[token_id] = stage
+                self._last_lifecycle_phase_by_token[token_id] = doctrine_lifecycle_phase
             self._last_doctrine_signature_by_token[token_id] = signature
+            market_ref = (
+                info.get(EDGE_OWNED_MARKET_REF_FIELD)
+                or self._market_ref_for_market_key(info.get("market_key"))
+            )
             self.events.log_event(
                 "doctrine_decision",
                 {
@@ -3839,29 +4106,37 @@ class ExecutionRunner:
                     "token_id": token_id,
                     "market_key": str(info.get("market_key", "")),
                     "doctrine_mode": self.doctrine_mode,
-                    **stage_surface_fields(
-                        effective_stage=stage,
-                        stage_bucket=info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")),
+                    **lifecycle_phase_surface_fields(lifecycle_phase=doctrine_lifecycle_phase),
+                    **ownership_surface_fields(
+                        owned_market_ref=market_ref,
+                        challenger_market_ref=info.get(EDGE_CHALLENGER_MARKET_REF_FIELD),
+                        ownership_drop_reason=info.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                        ownership_replacement_reason=info.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
                     ),
+                    **market_truth_surface_fields(market_truth_required=market_truth_required),
+                    **lane_permission_surface_fields(
+                        maker_phase_allowed=maker_phase_allowed,
+                        taker_phase_allowed=taker_phase_allowed,
+                        maker_gate_open=maker_gate_open,
+                        taker_gate_open=taker_gate_open,
+                    ),
+                    **lineage_stage_surface_fields(lineage_stage=lineage_stage),
                     "sec_to_expiry": info.get("sec_to_expiry"),
                     "observe_hold_active": bool(info.get("observe_hold_active", False)),
                     "observe_hold_cycles_remaining": int(info.get("observe_hold_cycles_remaining", 0)),
                     "observe_hold_seconds_remaining": float(info.get("observe_hold_seconds_remaining", 0.0)),
-                    **authority_surface_fields(
-                        maker_new_risk_allowed=maker_new_risk_allowed,
-                        normal_taker_allowed=normal_taker_allowed,
-                        reduce_only_recovery_allowed=reduce_only_recovery_allowed,
-                        preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
-                        late_window_authority_class=late_window_authority_class,
+                    **lifecycle_surface_fields(
+                        open_order_cleanup_required=open_order_cleanup_required,
+                        settlement_hold_required=settlement_hold_required,
+                        unresolved_lifecycle_obligation=unresolved_lifecycle_obligation,
+                        cancel_fail_closed=cancel_fail_closed,
                     ),
-                    "maker_allowed": allow_maker,
                     "maker_prereq_ok": maker_prereq_ok,
-                    "taker_allowed": allow_taker,
                     "doctrine_gate_verdict": verdict,
                     "reason": reason,
                 },
             )
-            if stage == STAGE_UNKNOWN and verdict == "fail":
+            if lineage_stage == STAGE_UNKNOWN and verdict == "fail":
                 last_failure = self._last_doctrine_prereq_failure_by_token.get(token_id)
                 if last_failure != reason:
                     self._last_doctrine_prereq_failure_by_token[token_id] = reason
@@ -3873,7 +4148,8 @@ class ExecutionRunner:
                             "token_id": token_id,
                             "market_key": str(info.get("market_key", "")),
                             "doctrine_mode": self.doctrine_mode,
-                            "stage": stage,
+                            **lifecycle_phase_surface_fields(lifecycle_phase=doctrine_lifecycle_phase),
+                            **lineage_stage_surface_fields(lineage_stage=lineage_stage),
                             "doctrine_gate_verdict": verdict,
                             "reason": reason,
                         },
@@ -3898,7 +4174,6 @@ class ExecutionRunner:
         fair_probability_by_token: Dict[str, float],
         latency_snapshot: LatencySnapshot,
         oracle_fresh: bool,
-        reduce_only_recovery_active: bool = False,
     ) -> str:
         if self.token_expiry_dt_by_token.get(token_id) is None:
             return "missing_expiry_metadata"
@@ -3908,22 +4183,14 @@ class ExecutionRunner:
             return "missing_side_metadata"
         if not oracle_fresh:
             return "oracle_unavailable_or_stale"
-        if (
-            self.latency_verifier.require_armed_for_maker
-            and (not bool(reduce_only_recovery_active))
-            and (not latency_snapshot.armed)
-        ):
+        if self.latency_verifier.require_armed_for_maker and (not latency_snapshot.armed):
             return "latency_not_armed_for_maker"
-        if (
-            self.latency_verifier.require_armed_for_maker
-            and (not bool(reduce_only_recovery_active))
-            and (not self._lag_verified(token_id))
-        ):
+        if self.latency_verifier.require_armed_for_maker and (not self._lag_verified(token_id)):
             return "token_lag_not_verified_for_maker"
-        if self.latency_verifier.score_enabled and (not bool(reduce_only_recovery_active)):
+        if self.latency_verifier.score_enabled:
             if self.latency_verifier.token_score(token_id) < self.latency_verifier.score_min_for_maker:
                 return "token_score_below_maker_min"
-        if (token_id not in fair_probability_by_token) and (not bool(reduce_only_recovery_active)):
+        if token_id not in fair_probability_by_token:
             return "fair_probability_unavailable"
         return ""
 
@@ -3958,42 +4225,6 @@ class ExecutionRunner:
                 "decision_input_data_class_override": None,
             }
 
-        has_bid = bid_price is not None
-        has_ask = ask_price is not None
-        prereq_pass = not bool(str(maker_prereq_failure_reason or "").strip())
-        fallback_allowed = bool(
-            self.doctrine_mode == "canonical"
-            and self.doctrine_maker_allow_bounded_single_side_reference
-            and prereq_pass
-            and self._book_source_is_ws(top)
-            and (has_bid ^ has_ask)
-        )
-        if fallback_allowed:
-            if has_bid and not has_ask:
-                return {
-                    "market_probability": float(bid_price),
-                    "market_reference_mode": "bounded_single_side_touch",
-                    "market_reference_basis": "ws_single_side_touch",
-                    "market_reference_confidence": "bounded_low",
-                    "market_reference_fallback_used": True,
-                    "market_reference_source_side": "bid",
-                    "market_reference_class": "bounded_approximation",
-                    "decision_input_type_override": "bounded_derived",
-                    "decision_input_data_class_override": "observed_other",
-                }
-            if has_ask and not has_bid:
-                return {
-                    "market_probability": float(ask_price),
-                    "market_reference_mode": "bounded_single_side_touch",
-                    "market_reference_basis": "ws_single_side_touch",
-                    "market_reference_confidence": "bounded_low",
-                    "market_reference_fallback_used": True,
-                    "market_reference_source_side": "ask",
-                    "market_reference_class": "bounded_approximation",
-                    "decision_input_type_override": "bounded_derived",
-                    "decision_input_data_class_override": "observed_other",
-                }
-
         return {
             "market_probability": None,
             "market_reference_mode": "missing",
@@ -4026,48 +4257,6 @@ class ExecutionRunner:
                 "decision_input_type_override": None,
                 "decision_input_data_class_override": None,
             }
-        bid_price = (
-            float(getattr(top, "best_bid_price"))
-            if top is not None and isinstance(getattr(top, "best_bid_price", None), (int, float))
-            else None
-        )
-        ask_price = (
-            float(getattr(top, "best_ask_price"))
-            if top is not None and isinstance(getattr(top, "best_ask_price", None), (int, float))
-            else None
-        )
-        has_bid = bid_price is not None
-        has_ask = ask_price is not None
-        fallback_allowed = bool(
-            self.doctrine_mode == "canonical"
-            and self._book_source_is_ws(top)
-            and (has_bid ^ has_ask)
-        )
-        if fallback_allowed:
-            if has_bid and not has_ask:
-                return {
-                    "market_probability": float(bid_price),
-                    "market_reference_mode": "bounded_single_side_touch",
-                    "market_reference_basis": "ws_single_side_touch",
-                    "market_reference_confidence": "bounded_low",
-                    "market_reference_fallback_used": True,
-                    "market_reference_source_side": "bid",
-                    "market_reference_class": "bounded_approximation",
-                    "decision_input_type_override": "bounded_derived",
-                    "decision_input_data_class_override": "observed_other",
-                }
-            if has_ask and not has_bid:
-                return {
-                    "market_probability": float(ask_price),
-                    "market_reference_mode": "bounded_single_side_touch",
-                    "market_reference_basis": "ws_single_side_touch",
-                    "market_reference_confidence": "bounded_low",
-                    "market_reference_fallback_used": True,
-                    "market_reference_source_side": "ask",
-                    "market_reference_class": "bounded_approximation",
-                    "decision_input_type_override": "bounded_derived",
-                    "decision_input_data_class_override": "observed_other",
-                }
         return {
             "market_probability": None,
             "market_reference_mode": "missing",
@@ -4082,19 +4271,7 @@ class ExecutionRunner:
 
     @staticmethod
     def _decision_input_type_from_source(source: str) -> str:
-        normalized = str(source or "").strip().lower()
-        if normalized in {"paper", "simulated", "synthetic", "emulated"}:
-            return "emulated"
-        if normalized in {"replay", "replayed"}:
-            return "replayed"
-        if normalized == "rest":
-            return "bounded_derived"
-        if normalized in {"ws", "chainlink"}:
-            return "observed_live"
-        if normalized:
-            # Keep non-empty unknown sources explicit; do not silently upcast.
-            return "unknown"
-        return "unknown"
+        return decision_input_type_from_book_source(source)
 
     @staticmethod
     def _execution_realism_class_for_scope(scope: str) -> str:
@@ -4102,14 +4279,11 @@ class ExecutionRunner:
         if normalized == EDGE_EVAL_SCOPE_MAKER:
             # Queue position / time-priority is not explicitly modeled in paper.
             return "not_modeled"
-        if normalized == EDGE_EVAL_SCOPE_TAKER:
-            # Immediate paper fills are bounded by observed top-of-book liquidity.
-            return "bounded_approximation"
         return "not_modeled"
 
     @classmethod
     def _book_source_is_ws(cls, top: Any) -> bool:
-        return cls._book_source(top) == "ws"
+        return book_source_is_ws(cls._book_source(top))
 
     @staticmethod
     def _book_ts_utc(top: Any) -> Optional[dt.datetime]:
@@ -4306,21 +4480,14 @@ class ExecutionRunner:
         books: Dict[str, Any],
         maker_eligible_tokens: set[str],
         maker_prereq_failure_by_token: Dict[str, str],
-        maker_reduce_only_recovery_tokens: Optional[set[str]] = None,
     ) -> set[str]:
         gated_tokens: set[str] = set()
-        recovery_tokens = set(str(token_id) for token_id in (maker_reduce_only_recovery_tokens or set()))
         for token_id in maker_eligible_tokens:
             top = books.get(token_id)
             if top is None:
                 gated_tokens.add(token_id)
                 continue
             if not cls._book_source_is_ws(top):
-                if token_id in recovery_tokens:
-                    # Recovery-only lane may rely on REST fallback when WS quote shape
-                    # is unusable for held-token unwind. Keep normal-mode WS doctrine intact.
-                    gated_tokens.add(token_id)
-                    continue
                 maker_prereq_failure_by_token.setdefault(token_id, "maker_requires_ws_book_source")
                 continue
             gated_tokens.add(token_id)
@@ -4337,6 +4504,27 @@ class ExecutionRunner:
         if str(last_part or "").strip().upper() in {"YES", "NO"} and str(base_key or "").strip():
             return str(base_key).strip()
         return normalized
+
+    def _market_ref_for_market_key(self, market_key: Any) -> Optional[str]:
+        base_key = self._market_base_key_from_market_key(market_key)
+        return base_key or None
+
+    def _market_ref_for_token_ids(self, token_ids: Collection[str]) -> Optional[str]:
+        refs = {
+            self._market_ref_for_market_key(self.token_market_key_by_token.get(str(token_id).strip(), ""))
+            for token_id in token_ids
+            if str(token_id).strip()
+        }
+        refs = {ref for ref in refs if ref}
+        if len(refs) != 1:
+            return None
+        return next(iter(refs))
+
+    def _taker_window_submit_lock_key_for_token(self, token_id: Any) -> str:
+        normalized_token_id = str(token_id or "").strip()
+        market_key = str(self.token_market_key_by_token.get(normalized_token_id, "")).strip()
+        base_key = self._market_base_key_from_market_key(market_key)
+        return base_key or normalized_token_id
 
     @staticmethod
     def _build_maker_handoff_no_submission_reason_by_token(
@@ -4365,25 +4553,33 @@ class ExecutionRunner:
         source_token_id: Optional[str] = None,
         source_target_ref: Optional[str] = None,
         evaluation_scope: str,
-        stage: str,
-        raw_stage: Optional[str] = None,
+        lifecycle_phase: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
+        owned_market_ref: Optional[str] = None,
+        challenger_market_ref: Optional[str] = None,
+        ownership_drop_reason: Optional[str] = None,
+        ownership_replacement_reason: Optional[str] = None,
+        market_truth_required: Optional[bool] = None,
+        maker_phase_allowed: Optional[bool] = None,
+        taker_phase_allowed: Optional[bool] = None,
+        maker_gate_open: Optional[bool] = None,
+        taker_gate_open: Optional[bool] = None,
         time_remaining_sec: Optional[float],
         fair_probability: Optional[float],
         market_probability: Optional[float],
         edge_value: Optional[float],
         oracle_tick_age_sec: Optional[float],
         latency_state: str,
-        maker_allowed: bool,
-        taker_allowed: bool,
+        maker_gate_state: bool,
+        taker_gate_state: bool,
         action_taken: str,
         block_reason: Optional[str],
         submitted: bool,
         filled: bool,
-        maker_new_risk_allowed: Optional[bool] = None,
-        normal_taker_allowed: Optional[bool] = None,
-        reduce_only_recovery_allowed: Optional[bool] = None,
-        preexpiry_emergency_taker_allowed: Optional[bool] = None,
-        late_window_authority_class: Optional[str] = None,
+        open_order_cleanup_required: Optional[bool] = None,
+        settlement_hold_required: Optional[bool] = None,
+        unresolved_lifecycle_obligation: Optional[bool] = None,
+        cancel_fail_closed: Optional[bool] = None,
         result: Optional[Any] = None,
         cycle_index: Optional[int] = None,
         order_id: Optional[str] = None,
@@ -4397,12 +4593,18 @@ class ExecutionRunner:
         market_reference_fallback_used: Optional[bool] = None,
         market_reference_source_side: Optional[str] = None,
         market_reference_class: Optional[str] = None,
+        pair_truth_class: Optional[str] = None,
+        pair_truth_basis: Optional[str] = None,
+        pair_truth_owner_scope: Optional[str] = None,
+        pair_missing_token_count: Optional[int] = None,
+        pair_one_sided_token_count: Optional[int] = None,
+        pair_authoritative_token_count: Optional[int] = None,
         decision_input_type_override: Optional[str] = None,
         decision_input_data_class_override: Optional[str] = None,
         required_min_edge: Optional[float] = None,
         taker_submit_reject_reason: Optional[str] = None,
-        reduce_only_recovery_active: Optional[bool] = None,
-        reduce_only_recovery_reason: Optional[str] = None,
+        held_net_shares: Optional[float] = None,
+        held_open_order_present: Optional[bool] = None,
         financial_posture_class: Optional[str] = None,
         secondary_fair_probability: Optional[float] = None,
         secondary_oracle_status: Optional[str] = None,
@@ -4445,6 +4647,15 @@ class ExecutionRunner:
             normalized_target_ref = hashlib.sha256(normalized_token_id.encode("utf-8")).hexdigest()[:16]
         if normalized_source_target_ref is None and normalized_source_token_id:
             normalized_source_target_ref = hashlib.sha256(normalized_source_token_id.encode("utf-8")).hexdigest()[:16]
+        normalized_lifecycle_phase = str(lifecycle_phase or "").strip().lower() or "scan"
+        if maker_phase_allowed is None:
+            maker_phase_allowed = normalized_lifecycle_phase == "maker_window"
+        if taker_phase_allowed is None:
+            taker_phase_allowed = normalized_lifecycle_phase == "taker_window"
+        if maker_gate_open is None:
+            maker_gate_open = maker_gate_state
+        if taker_gate_open is None:
+            taker_gate_open = taker_gate_state
         normalized_submitted_order_ids = sorted(
             {
                 str(value).strip()
@@ -4462,9 +4673,24 @@ class ExecutionRunner:
             "source_target_ref": normalized_source_target_ref,
             "evaluation_scope": normalized_scope,
             "cycle_index": (int(cycle_index) if cycle_index is not None else int(self._doctrine_cycle_index)),
-            **stage_surface_fields(
-                effective_stage=stage,
-                stage_bucket=raw_stage,
+            **lifecycle_phase_surface_fields(lifecycle_phase=normalized_lifecycle_phase),
+            **lineage_stage_surface_fields(lineage_stage=lineage_stage),
+            **ownership_surface_fields(
+                owned_market_ref=owned_market_ref,
+                challenger_market_ref=challenger_market_ref,
+                ownership_drop_reason=ownership_drop_reason,
+                ownership_replacement_reason=ownership_replacement_reason,
+            ),
+            **market_truth_surface_fields(
+                market_truth_required=(
+                    bool(market_truth_required) if market_truth_required is not None else bool(owned_market_ref)
+                )
+            ),
+            **lane_permission_surface_fields(
+                maker_phase_allowed=bool(maker_phase_allowed),
+                taker_phase_allowed=bool(taker_phase_allowed),
+                maker_gate_open=bool(maker_gate_open),
+                taker_gate_open=bool(taker_gate_open),
             ),
             "time_remaining_sec": (
                 float(time_remaining_sec) if isinstance(time_remaining_sec, (int, float)) else None
@@ -4481,19 +4707,12 @@ class ExecutionRunner:
                 float(oracle_tick_age_sec) if isinstance(oracle_tick_age_sec, (int, float)) else None
             ),
             "latency_state": str(latency_state or "").strip().lower() or None,
-            **authority_surface_fields(
-                maker_new_risk_allowed=(
-                    maker_allowed if maker_new_risk_allowed is None else maker_new_risk_allowed
-                ),
-                normal_taker_allowed=(
-                    taker_allowed if normal_taker_allowed is None else normal_taker_allowed
-                ),
-                reduce_only_recovery_allowed=bool(reduce_only_recovery_allowed),
-                preexpiry_emergency_taker_allowed=bool(preexpiry_emergency_taker_allowed),
-                late_window_authority_class=late_window_authority_class,
+            **lifecycle_surface_fields(
+                open_order_cleanup_required=bool(open_order_cleanup_required),
+                settlement_hold_required=bool(settlement_hold_required),
+                unresolved_lifecycle_obligation=bool(unresolved_lifecycle_obligation),
+                cancel_fail_closed=bool(cancel_fail_closed),
             ),
-            "maker_allowed": bool(maker_allowed),
-            "taker_allowed": bool(taker_allowed),
             "action_taken": normalized_action,
             "block_reason": normalized_block_reason,
             "submitted": bool(submitted),
@@ -4511,10 +4730,10 @@ class ExecutionRunner:
             "taker_submit_reject_reason": (
                 str(taker_submit_reject_reason or "").strip().lower() or None
             ),
-            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-            "reduce_only_recovery_reason": (
-                str(reduce_only_recovery_reason or "").strip().lower() or None
+            "held_net_shares": (
+                float(held_net_shares) if isinstance(held_net_shares, (int, float)) else None
             ),
+            "held_open_order_present": bool(held_open_order_present),
             "financial_posture_class": (
                 str(financial_posture_class or "").strip().upper() or None
             ),
@@ -4579,8 +4798,6 @@ class ExecutionRunner:
                 normalized_market_reference_basis = "direct_book_midpoint"
             elif normalized_market_reference_mode == "backfilled_paired_touch":
                 normalized_market_reference_basis = "ws_recent_paired_touch"
-            elif normalized_market_reference_mode == "bounded_single_side_touch":
-                normalized_market_reference_basis = "ws_single_side_touch"
             else:
                 normalized_market_reference_basis = "missing"
         normalized_market_reference_confidence = str(market_reference_confidence or "").strip().lower()
@@ -4589,8 +4806,6 @@ class ExecutionRunner:
                 normalized_market_reference_confidence = "authoritative"
             elif normalized_market_reference_mode == "backfilled_paired_touch":
                 normalized_market_reference_confidence = "authoritative"
-            elif normalized_market_reference_mode == "bounded_single_side_touch":
-                normalized_market_reference_confidence = "bounded_low"
             else:
                 normalized_market_reference_confidence = "none"
         normalized_market_reference_source_side = str(market_reference_source_side or "").strip().lower()
@@ -4599,13 +4814,11 @@ class ExecutionRunner:
         fallback_used = (
             bool(market_reference_fallback_used)
             if market_reference_fallback_used is not None
-            else (normalized_market_reference_mode in {"bounded_single_side_touch", "backfilled_paired_touch"})
+            else (normalized_market_reference_mode == "backfilled_paired_touch")
         )
         normalized_market_reference_class = str(market_reference_class or "").strip().lower()
         if not normalized_market_reference_class:
-            if normalized_market_reference_mode == "bounded_single_side_touch":
-                normalized_market_reference_class = "bounded_approximation"
-            elif normalized_market_reference_mode == "backfilled_paired_touch":
+            if normalized_market_reference_mode == "backfilled_paired_touch":
                 normalized_market_reference_class = "authoritative"
             elif normalized_market_reference_mode == "direct_midpoint":
                 normalized_market_reference_class = "authoritative"
@@ -4617,12 +4830,24 @@ class ExecutionRunner:
         payload["market_reference_fallback_used"] = bool(fallback_used)
         payload["market_reference_source_side"] = normalized_market_reference_source_side
         payload["market_reference_class"] = normalized_market_reference_class
+        payload["pair_truth_class"] = str(pair_truth_class or "").strip().lower() or None
+        payload["pair_truth_basis"] = str(pair_truth_basis or "").strip().lower() or None
+        payload["pair_truth_owner_scope"] = str(pair_truth_owner_scope or "").strip().lower() or None
+        payload["pair_missing_token_count"] = (
+            int(pair_missing_token_count) if isinstance(pair_missing_token_count, (int, float)) else None
+        )
+        payload["pair_one_sided_token_count"] = (
+            int(pair_one_sided_token_count) if isinstance(pair_one_sided_token_count, (int, float)) else None
+        )
+        payload["pair_authoritative_token_count"] = (
+            int(pair_authoritative_token_count) if isinstance(pair_authoritative_token_count, (int, float)) else None
+        )
         decision_input_source = str(payload.get("book_source") or "").strip().lower()
         if decision_input_type_override is not None:
             decision_input_type = str(decision_input_type_override or "").strip().lower()
         else:
             decision_input_type = self._decision_input_type_from_source(decision_input_source)
-        if decision_input_type not in {"observed_live", "replayed", "bounded_derived", "emulated", "unknown"}:
+        if decision_input_type not in {"observed_live", "observed_other", "replayed", "emulated", "unknown"}:
             raise ValueError(f"edge_eval_decision_input_type_invalid:{decision_input_type or 'missing'}")
         decision_input_emulated = decision_input_type == "emulated"
         if decision_input_data_class_override is not None:
@@ -4636,7 +4861,7 @@ class ExecutionRunner:
                 decision_input_data_class = "emulated"
             elif decision_input_type == "observed_live":
                 decision_input_data_class = "observed_live"
-            elif decision_input_type in {"replayed", "bounded_derived"}:
+            elif decision_input_type in {"replayed", "observed_other"}:
                 decision_input_data_class = "observed_other"
             else:
                 decision_input_data_class = "unknown"
@@ -4658,6 +4883,7 @@ class ExecutionRunner:
         self,
         *,
         books: Dict[str, Any],
+        pair_truth_by_base_key: Optional[Dict[str, Dict[str, Any]]] = None,
         stage_info_by_token: Dict[str, Dict[str, Any]],
         maker_eval_token_ids: set[str],
         maker_submitted_token_ids: set[str],
@@ -4672,6 +4898,7 @@ class ExecutionRunner:
         cycle_index: int,
         maker_market_reference_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
+        pair_truth_by_base_key = pair_truth_by_base_key or {}
         maker_no_submission_reason_by_token = maker_no_submission_reason_by_token or {}
         maker_no_submission_category_by_token = maker_no_submission_category_by_token or {}
         maker_competitiveness_profiles_by_token = maker_competitiveness_profiles_by_token or {}
@@ -4683,13 +4910,23 @@ class ExecutionRunner:
             open_maker_orders_total = None
         for token_id in sorted(str(x) for x in maker_eval_token_ids):
             info = stage_info_by_token.get(token_id, {})
-            stage = str(info.get("stage", STAGE_UNKNOWN))
-            default_maker_allowed, default_taker_allowed = edge_stage_policy(stage)
-            maker_allowed = bool(info.get("allow_maker", default_maker_allowed))
-            taker_allowed = bool(info.get("allow_taker", default_taker_allowed))
+            lineage_stage = lineage_stage_from_payload(info)
+            if lineage_stage == STAGE_UNKNOWN:
+                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+            lifecycle_phase = str(
+                info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or lifecycle_phase_from_payload(info)
+                or ""
+            ).strip().lower() or "scan"
+            default_maker_gate_open = lifecycle_phase == "maker_window"
+            default_taker_gate_open = lifecycle_phase == "taker_window"
+            maker_gate_state = bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, default_maker_gate_open))
+            taker_gate_state = bool(info.get(EDGE_TAKER_GATE_OPEN_FIELD, default_taker_gate_open))
             time_remaining_sec = info.get("sec_to_expiry")
-            reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
-            reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
+            open_order_cleanup_required = bool(info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False))
+            settlement_hold_required = bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False))
+            unresolved_lifecycle_obligation = bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
+            cancel_fail_closed = bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
             top = books.get(token_id)
             profile_context = dict(
                 (maker_competitiveness_profiles_by_token.get(token_id) or {}).get("context") or {}
@@ -4714,7 +4951,8 @@ class ExecutionRunner:
                     time_remaining_sec=time_remaining_sec,
                     oracle_tick_age_sec=oracle_tick_age_sec,
                     latency_state=latency_state,
-                    stage=stage,
+                    lifecycle_phase=lifecycle_phase,
+                    lineage_stage=lineage_stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
@@ -4734,8 +4972,12 @@ class ExecutionRunner:
             maker_no_submission_cause: Optional[str] = None
             maker_no_submission_category: Optional[str] = None
             if not submitted:
-                if not maker_allowed:
-                    block_reason = "stage_disallow_maker"
+                if open_order_cleanup_required:
+                    block_reason = "open_order_cleanup_required"
+                elif settlement_hold_required:
+                    block_reason = "settlement_hold_required"
+                elif not maker_gate_state:
+                    block_reason = "phase_disallow_maker"
                 elif maker_prereq_failure_reason:
                     block_reason = maker_prereq_failure_reason
                 elif not validation.valid:
@@ -4762,26 +5004,57 @@ class ExecutionRunner:
                 probe_visible_depth_shares = float(getattr(top, "best_bid_size"))
             elif probe_favored_side == "SELL" and isinstance(getattr(top, "best_ask_size", None), (int, float)):
                 probe_visible_depth_shares = float(getattr(top, "best_ask_size"))
+            market_base_key = self._market_base_key_from_market_key(info.get("market_key"))
+            pair_truth = self._pair_truth_for_token(
+                pair_truth_by_base_key=pair_truth_by_base_key,
+                market_base_key=market_base_key,
+                token_id=token_id,
+            )
+            edge_lifecycle_phase = str(
+                info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or lifecycle_phase_from_payload(info)
+                or ""
+            ).strip().lower() or "scan"
 
             self._emit_edge_evaluation(
                 token_id=token_id,
                 target_ref=self._target_ref_for_token(token_id),
                 evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
-                stage=stage,
-                raw_stage=info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")),
+                lifecycle_phase=edge_lifecycle_phase,
+                lineage_stage=lineage_stage,
+                owned_market_ref=(
+                    info.get(EDGE_OWNED_MARKET_REF_FIELD)
+                    or self._market_ref_for_token_ids(self.token_ids)
+                ),
+                challenger_market_ref=(
+                    info.get(EDGE_CHALLENGER_MARKET_REF_FIELD)
+                    or self._market_ref_for_token_ids(self._challenger_token_ids)
+                ),
+                ownership_drop_reason=info.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                ownership_replacement_reason=info.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
+                market_truth_required=bool(
+                    info.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, bool(self.token_ids))
+                ),
+                maker_phase_allowed=bool(
+                    info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, edge_lifecycle_phase == "maker_window")
+                ),
+                taker_phase_allowed=bool(
+                    info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, edge_lifecycle_phase == "taker_window")
+                ),
+                maker_gate_open=bool(maker_gate_state),
+                taker_gate_open=bool(taker_gate_state),
                 time_remaining_sec=time_remaining_sec if isinstance(time_remaining_sec, (int, float)) else None,
                 fair_probability=fair_probability if isinstance(fair_probability, (int, float)) else None,
                 market_probability=market_probability if isinstance(market_probability, (int, float)) else None,
                 edge_value=edge_value if isinstance(edge_value, (int, float)) else None,
                 oracle_tick_age_sec=oracle_tick_age_sec,
                 latency_state=latency_state,
-                maker_allowed=maker_allowed,
-                taker_allowed=taker_allowed,
-                maker_new_risk_allowed=info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD),
-                normal_taker_allowed=info.get(EDGE_AUTH_NORMAL_TAKER_FIELD),
-                reduce_only_recovery_allowed=info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD),
-                preexpiry_emergency_taker_allowed=info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD),
-                late_window_authority_class=info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD),
+                maker_gate_state=maker_gate_state,
+                taker_gate_state=taker_gate_state,
+                open_order_cleanup_required=open_order_cleanup_required,
+                settlement_hold_required=settlement_hold_required,
+                unresolved_lifecycle_obligation=unresolved_lifecycle_obligation,
+                cancel_fail_closed=cancel_fail_closed,
                 action_taken=action_taken,
                 block_reason=block_reason,
                 submitted=submitted,
@@ -4799,6 +5072,12 @@ class ExecutionRunner:
                 market_reference_fallback_used=bool(market_reference.get("market_reference_fallback_used", False)),
                 market_reference_source_side=str(market_reference.get("market_reference_source_side") or "none"),
                 market_reference_class=str(market_reference.get("market_reference_class") or ""),
+                pair_truth_class=str(pair_truth.get("pair_truth_class") or ""),
+                pair_truth_basis=str(pair_truth.get("pair_truth_basis") or ""),
+                pair_truth_owner_scope=str(pair_truth.get("pair_truth_owner_scope") or ""),
+                pair_missing_token_count=pair_truth.get("pair_missing_token_count"),
+                pair_one_sided_token_count=pair_truth.get("pair_one_sided_token_count"),
+                pair_authoritative_token_count=pair_truth.get("pair_authoritative_token_count"),
                 decision_input_type_override=(
                     str(market_reference.get("decision_input_type_override"))
                     if market_reference.get("decision_input_type_override") is not None
@@ -4809,8 +5088,8 @@ class ExecutionRunner:
                     if market_reference.get("decision_input_data_class_override") is not None
                     else None
                 ),
-                reduce_only_recovery_active=reduce_only_recovery_active,
-                reduce_only_recovery_reason=reduce_only_recovery_reason,
+                held_net_shares=info.get("held_net_shares"),
+                held_open_order_present=info.get("held_open_order_present"),
                 financial_posture_class=financial_posture_class,
                 secondary_fair_probability=profile_context.get("secondary_fair_probability"),
                 secondary_oracle_status=profile_context.get("secondary_oracle_status"),
@@ -4836,41 +5115,25 @@ class ExecutionRunner:
             return "extreme_only_on_arrival"
         return "normal_on_arrival"
 
-    @staticmethod
-    def _maker_reduce_only_exit_blocked(reason: Optional[str]) -> bool:
-        normalized = str(reason or "").strip().lower()
-        if not normalized:
-            return False
-        if normalized.startswith("submit_rejected"):
-            return True
-        blocked_reasons = {
-            "replace_cancel_unavailable",
-            "maker_timing_gate_closed",
-            "reduce_only_recovery_size_cap_below_min_order_size",
-            "action_budget_exhausted",
-            "no_desired_quote",
-            "order_soft_throttle",
-            "risk_reject",
-            "sizing_reject",
-            "pre_submit_cross_guarded",
-            "post_only_reject",
-            "quote_quality_skip_fill_probability",
-            "quote_quality_skip_queue_depth",
-        }
-        return normalized in blocked_reasons
-
     def _on_market_key_transition(self, token_id: str, old_key: str, new_key: str) -> None:
         now = utc_now()
         now_mono = time.monotonic()
+        old_lock_key = self._market_base_key_from_market_key(old_key) or str(token_id or "").strip()
         self._market_entry_mono_by_token[token_id] = now_mono
         self._market_entry_cycle_by_token[token_id] = int(self._doctrine_cycle_index)
         self.last_midpoint_by_token.pop(token_id, None)
         self.last_midpoint_ts_mono_by_token.pop(token_id, None)
         self.last_volatility_by_token.pop(token_id, None)
         self._last_taker_submit_mono_by_token.pop(token_id, None)
+        if old_lock_key and not any(
+            self._market_base_key_from_market_key(current_key) == old_lock_key
+            for current_token_id, current_key in self.token_market_key_by_token.items()
+            if str(current_token_id or "").strip() and str(current_token_id or "").strip() != str(token_id or "").strip()
+        ):
+            self._taker_window_submit_lock_keys.discard(old_lock_key)
         self._last_doctrine_signature_by_token.pop(token_id, None)
         self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
-        self._last_stage_by_token.pop(token_id, None)
+        self._last_lifecycle_phase_by_token.pop(token_id, None)
         self._clear_maker_ws_touch_cache(token_id)
         expiry_dt = self.token_expiry_dt_by_token.get(token_id)
         sec_to_expiry = (expiry_dt - now).total_seconds() if expiry_dt is not None else None
@@ -4889,136 +5152,11 @@ class ExecutionRunner:
             },
         )
 
-    def _fetch_missing_books(
-        self,
-        token_ids: list[str],
-    ) -> tuple[Dict[str, tuple[Any, Any, float]], Dict[str, str]]:
-        if not token_ids:
-            return {}, {}
-
-        def _fetch_one(token_id: str) -> tuple[Any, Any, float]:
-            started = time.monotonic()
-            top, raw = self.book_client.fetch_book(token_id)
-            latency_ms = (time.monotonic() - started) * 1000.0
-            return top, raw, latency_ms
-
-        books_by_token: Dict[str, tuple[Any, Any, float]] = {}
-        errors_by_token: Dict[str, str] = {}
-        pool = self._rest_fetch_pool
-        if pool is None or len(token_ids) <= 1:
-            for token_id in token_ids:
-                try:
-                    books_by_token[token_id] = _fetch_one(token_id)
-                except EXECUTION_RUNTIME_EXCEPTIONS as exc:
-                    errors_by_token[token_id] = str(exc)
-            return books_by_token, errors_by_token
-
-        future_by_token: Dict[concurrent.futures.Future[tuple[Any, Any, float]], str] = {}
-        for token_id in token_ids:
-            future_by_token[pool.submit(_fetch_one, token_id)] = token_id
-        for future in concurrent.futures.as_completed(future_by_token):
-            token_id = future_by_token[future]
-            try:
-                books_by_token[token_id] = future.result()
-            except EXECUTION_RUNTIME_EXCEPTIONS as exc:
-                errors_by_token[token_id] = str(exc)
-        return books_by_token, errors_by_token
-
-    def _reset_preexpiry_emergency_taker_repeat_state(self) -> None:
-        self._preexpiry_emergency_taker_repeat_signature = None
-        self._preexpiry_emergency_taker_repeat_payload = None
-        self._preexpiry_emergency_taker_repeat_total = 0
-        self._preexpiry_emergency_taker_repeat_pending = 0
-        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ""
-        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ""
-        self._preexpiry_emergency_taker_repeat_token_ids_seen = set()
-        self._preexpiry_emergency_taker_repeat_token_ids_sample = []
-
-    @staticmethod
-    def _preexpiry_emergency_taker_signature(payload: Dict[str, Any]) -> Tuple[str, ...]:
-        return (
-            str(payload.get("stage") or "").strip().upper(),
-            str(payload.get("financial_posture_class") or "").strip().upper(),
-            str(payload.get("outcome") or "").strip().lower(),
-            str(payload.get("reason") or "").strip().lower(),
-            str(payload.get("blocked_reason") or "").strip().lower(),
-            str(payload.get("maker_no_submission_reason") or "").strip().lower(),
-            "1" if bool(payload.get("maker_submitted_for_token")) else "0",
-            "1" if bool(payload.get("maker_reduce_only_exit_blocked")) else "0",
-            "1" if bool(payload.get("timing_gate_handoff_override_active")) else "0",
-            str(payload.get("taker_submit_reject_reason") or "").strip().lower(),
-        )
-
-    def _flush_preexpiry_emergency_taker_repeat_summary(self) -> None:
-        if (
-            self._preexpiry_emergency_taker_repeat_pending <= 0
-            or not isinstance(self._preexpiry_emergency_taker_repeat_payload, dict)
-        ):
-            return
-        payload = dict(self._preexpiry_emergency_taker_repeat_payload)
-        payload["ts_utc"] = utc_iso()
-        payload["compression_mode"] = "repeat_summary"
-        payload["repeat_count_delta"] = int(self._preexpiry_emergency_taker_repeat_pending)
-        payload["repeat_count_total"] = int(self._preexpiry_emergency_taker_repeat_total)
-        payload["repeat_first_ts_utc"] = str(self._preexpiry_emergency_taker_repeat_pending_first_ts_utc or "")
-        payload["repeat_last_ts_utc"] = str(self._preexpiry_emergency_taker_repeat_pending_last_ts_utc or "")
-        payload["repeat_distinct_token_count"] = int(len(self._preexpiry_emergency_taker_repeat_token_ids_seen))
-        payload["repeat_token_ids_sample"] = list(self._preexpiry_emergency_taker_repeat_token_ids_sample)
-        self.events.log_event("preexpiry_emergency_taker_unwind", payload)
-        self._preexpiry_emergency_taker_repeat_pending = 0
-        self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ""
-        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ""
-
-    def _log_preexpiry_emergency_taker_event(self, payload: Dict[str, Any]) -> None:
-        outcome = str(payload.get("outcome") or "").strip().lower()
-        if outcome != "blocked":
-            self._flush_preexpiry_emergency_taker_repeat_summary()
-            self._reset_preexpiry_emergency_taker_repeat_state()
-            direct_payload = dict(payload)
-            direct_payload["compression_mode"] = "direct"
-            direct_payload["repeat_count_delta"] = 1
-            direct_payload["repeat_count_total"] = 1
-            self.events.log_event("preexpiry_emergency_taker_unwind", direct_payload)
-            return
-
-        signature = self._preexpiry_emergency_taker_signature(payload)
-        ts_utc = str(payload.get("ts_utc") or utc_iso())
-        if self._preexpiry_emergency_taker_repeat_signature != signature:
-            self._flush_preexpiry_emergency_taker_repeat_summary()
-            self._reset_preexpiry_emergency_taker_repeat_state()
-            direct_payload = dict(payload)
-            direct_payload["compression_mode"] = "initial"
-            direct_payload["repeat_count_delta"] = 1
-            direct_payload["repeat_count_total"] = 1
-            token_id = str(payload.get("token_id") or "").strip()
-            direct_payload["repeat_distinct_token_count"] = 1 if token_id else 0
-            direct_payload["repeat_token_ids_sample"] = [token_id] if token_id else []
-            self.events.log_event("preexpiry_emergency_taker_unwind", direct_payload)
-            self._preexpiry_emergency_taker_repeat_signature = signature
-            self._preexpiry_emergency_taker_repeat_payload = dict(payload)
-            self._preexpiry_emergency_taker_repeat_total = 1
-            if token_id:
-                self._preexpiry_emergency_taker_repeat_token_ids_seen = {token_id}
-                self._preexpiry_emergency_taker_repeat_token_ids_sample = [token_id]
-            return
-
-        self._preexpiry_emergency_taker_repeat_total += 1
-        self._preexpiry_emergency_taker_repeat_pending += 1
-        token_id = str(payload.get("token_id") or "").strip()
-        if token_id and token_id not in self._preexpiry_emergency_taker_repeat_token_ids_seen:
-            self._preexpiry_emergency_taker_repeat_token_ids_seen.add(token_id)
-            if len(self._preexpiry_emergency_taker_repeat_token_ids_sample) < 4:
-                self._preexpiry_emergency_taker_repeat_token_ids_sample.append(token_id)
-        if not self._preexpiry_emergency_taker_repeat_pending_first_ts_utc:
-            self._preexpiry_emergency_taker_repeat_pending_first_ts_utc = ts_utc
-        self._preexpiry_emergency_taker_repeat_pending_last_ts_utc = ts_utc
-        if self._preexpiry_emergency_taker_repeat_pending >= 25:
-            self._flush_preexpiry_emergency_taker_repeat_summary()
-
     def _run_taker(
         self,
         *,
         books: Dict[str, Any],
+        pair_truth_by_base_key: Optional[Dict[str, Dict[str, Any]]] = None,
         fair_probability_by_token: Dict[str, float],
         realized_volatility_by_token: Optional[Dict[str, float]] = None,
         secondary_fair_probability_by_token: Optional[Dict[str, float]] = None,
@@ -5066,6 +5204,7 @@ class ExecutionRunner:
         competitiveness_enabled = bool(self.taker_competitiveness_cfg.enabled)
         stable_cycle_index = int(self._doctrine_cycle_index if cycle_index is None else cycle_index)
         secondary_fair_probability_by_token = dict(secondary_fair_probability_by_token or {})
+        pair_truth_by_base_key = pair_truth_by_base_key or {}
         secondary_oracle_base_status = str(secondary_oracle_base_status or "unknown").strip().lower() or "unknown"
 
         # Use limited taker budget on strongest edge opportunities first.
@@ -5162,10 +5301,15 @@ class ExecutionRunner:
             submit_token_score_value: Optional[float],
             cooldown_sec_value: float,
             complement_token_id: Optional[str],
-            stage_bucket_value: Optional[str],
+            decision_info_row: Dict[str, Any],
             decision_row: TakerDecision,
         ) -> None:
             decision_ts_utc = utc_iso()
+            decision_lifecycle_phase = str(
+                decision_info_row.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or legacy_stage_to_lifecycle_phase(decision_row.stage)
+                or ""
+            ).strip().lower() or "scan"
             self.events.log_event(
                 EVENT_TAKER_DECISION,
                 {
@@ -5202,9 +5346,31 @@ class ExecutionRunner:
                         else None
                     ),
                     "cooldown_sec_applied": float(cooldown_sec_value),
-                    **stage_surface_fields(
-                        effective_stage=decision_row.stage,
-                        stage_bucket=stage_bucket_value,
+                    **lifecycle_phase_surface_fields(lifecycle_phase=decision_lifecycle_phase),
+                    **ownership_surface_fields(
+                        owned_market_ref=decision_info_row.get(EDGE_OWNED_MARKET_REF_FIELD),
+                        challenger_market_ref=decision_info_row.get(EDGE_CHALLENGER_MARKET_REF_FIELD),
+                        ownership_drop_reason=decision_info_row.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                        ownership_replacement_reason=decision_info_row.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
+                    ),
+                    **market_truth_surface_fields(
+                        market_truth_required=bool(
+                            decision_info_row.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, bool(submit_token_id))
+                        )
+                    ),
+                    **lane_permission_surface_fields(
+                        maker_phase_allowed=bool(
+                            decision_info_row.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, decision_lifecycle_phase == "maker_window")
+                        ),
+                        taker_phase_allowed=bool(
+                            decision_info_row.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, decision_lifecycle_phase == "taker_window")
+                        ),
+                        maker_gate_open=bool(
+                            decision_info_row.get(EDGE_MAKER_GATE_OPEN_FIELD, decision_lifecycle_phase == "maker_window")
+                        ),
+                        taker_gate_open=bool(
+                            decision_info_row.get(EDGE_TAKER_GATE_OPEN_FIELD, decision_lifecycle_phase == "taker_window")
+                        ),
                     ),
                     **decision_row.as_event_payload(),
                 },
@@ -5212,111 +5378,31 @@ class ExecutionRunner:
 
         for token_id in token_order:
             info = stage_info_by_token.get(token_id, {})
-            stage = str(info.get("stage", STAGE_UNKNOWN))
+            stage = self._compat_stage_from_lifecycle_info(info)
+            lifecycle_phase = str(
+                info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or lifecycle_phase_from_payload(info)
+                or ""
+            ).strip().lower() or "scan"
+            lineage_stage = lineage_stage_from_payload(info)
+            if lineage_stage == STAGE_UNKNOWN:
+                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
             time_remaining_sec = info.get("sec_to_expiry")
             sec_to_expiry = (
                 float(time_remaining_sec)
                 if isinstance(time_remaining_sec, (int, float))
                 else None
             )
-            reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
-            stage_bucket = str(
-                info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage", stage)) or stage or STAGE_UNKNOWN
-            ).strip().upper() or STAGE_UNKNOWN
-            authority_field_defaults = self._late_window_authority_fields(
-                raw_stage=stage_bucket,
-                sec_to_expiry=sec_to_expiry,
-                reduce_only_recovery_active=reduce_only_recovery_active,
-                hold_active=False,
-                stage_known=stage not in {STAGE_UNKNOWN, STAGE_EXPIRED},
+            open_order_cleanup_required = bool(info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False))
+            settlement_hold_required = bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False))
+            unresolved_lifecycle_obligation = bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
+            cancel_fail_closed = bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
+            maker_gate_state = bool(
+                info.get(EDGE_MAKER_GATE_OPEN_FIELD, lifecycle_phase == "maker_window")
             )
-            maker_new_risk_allowed = bool(
-                info.get(
-                    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-                    authority_field_defaults.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False),
-                )
+            taker_gate_state = bool(
+                info.get(EDGE_TAKER_GATE_OPEN_FIELD, lifecycle_phase == "taker_window")
             )
-            normal_taker_allowed = bool(
-                info.get(
-                    EDGE_AUTH_NORMAL_TAKER_FIELD,
-                    authority_field_defaults.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False),
-                )
-            )
-            reduce_only_recovery_allowed = bool(
-                info.get(
-                    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
-                    authority_field_defaults.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False),
-                )
-            )
-            preexpiry_emergency_taker_allowed = bool(
-                info.get(
-                    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
-                    authority_field_defaults.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False),
-                )
-            )
-            late_window_authority_class = str(
-                info.get(
-                    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
-                    authority_field_defaults.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD, "unknown"),
-                )
-                or "unknown"
-            ).strip().lower() or "unknown"
-            maker_allowed = bool(
-                info.get("allow_maker", maker_new_risk_allowed or reduce_only_recovery_allowed)
-            )
-            taker_allowed = bool(info.get("allow_taker", normal_taker_allowed))
-            reduce_only_recovery_reason = str(info.get("reduce_only_recovery_reason") or "").strip()
-            reduce_only_side = str(info.get("reduce_only_side") or "NONE").strip().upper() or "NONE"
-            reduce_only_size_cap_shares = float(info.get("reduce_only_size_cap_shares", 0.0) or 0.0)
-            reduce_only_size_cap_below_min_order_size = bool(
-                info.get("reduce_only_size_cap_below_min_order_size", False)
-            )
-            expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
-            maker_submitted_for_token = token_id in maker_submitted_token_ids
-            maker_no_submission_reason = str(maker_no_submission_reason_by_token.get(token_id) or "")
-            maker_reduce_only_exit_blocked = bool(
-                reduce_only_recovery_active
-                and (not maker_submitted_for_token)
-                and self._maker_reduce_only_exit_blocked(maker_no_submission_reason)
-            )
-            preexpiry_emergency_window_open = bool(
-                reduce_only_recovery_active
-                and isinstance(sec_to_expiry, float)
-                and sec_to_expiry >= 0.0
-                and float(self.preexpiry_emergency_taker_window_sec) > 0.0
-                and sec_to_expiry <= (float(self.preexpiry_emergency_taker_window_sec) + 1e-9)
-            )
-            timing_gate_handoff_override_active = bool(
-                reduce_only_recovery_active
-                and maker_reduce_only_exit_blocked
-                and (not preexpiry_emergency_window_open)
-                and str(maker_no_submission_reason or "").strip().lower() == "maker_timing_gate_closed"
-            )
-            preexpiry_emergency_taker_active = bool(
-                maker_reduce_only_exit_blocked
-                and (preexpiry_emergency_window_open or timing_gate_handoff_override_active)
-            )
-            taker_recovery_override_active = bool(
-                reduce_only_recovery_active
-                and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active)
-            )
-            taker_recovery_dead_power_active = bool(
-                reduce_only_recovery_active
-                and (expired_reduce_only_grace_active or preexpiry_emergency_taker_active or maker_reduce_only_exit_blocked)
-            )
-            recovery_financial_posture_class = (
-                str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper()
-                or FINANCIAL_POSTURE_NORMAL
-            )
-            if reduce_only_recovery_active and recovery_financial_posture_class not in {
-                FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY,
-                FINANCIAL_POSTURE_HALT_NEW_RISK,
-            }:
-                recovery_financial_posture_class = (
-                    FINANCIAL_POSTURE_HALT_NEW_RISK
-                    if self._token_terminal_unwind_halt_new_risk_active(info)
-                    else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
-                )
             top = books.get(token_id)
             market_reference = self._resolve_taker_market_reference(top=top)
             midpoint = market_reference.get("market_probability")
@@ -5347,12 +5433,12 @@ class ExecutionRunner:
             )
             validation = validate_edge_inputs(
                 EdgeInputSnapshot(
-                fair_probability=fair,
-                market_probability=midpoint,
-                time_remaining_sec=time_remaining_sec,
-                oracle_tick_age_sec=oracle_tick_age_sec,
+                    fair_probability=fair,
+                    market_probability=midpoint,
+                    time_remaining_sec=time_remaining_sec,
+                    oracle_tick_age_sec=oracle_tick_age_sec,
                     latency_state=latency_state,
-                    stage=stage,
+                    lineage_stage=stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
@@ -5366,39 +5452,30 @@ class ExecutionRunner:
             emitted_order_id: Optional[str] = None
             taker_submit_reject_reason: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
-            required_min_edge = self._resolve_taker_required_min_edge(
-                stage,
-                normal_taker_allowed=normal_taker_allowed,
-            )
+            required_min_edge = self._resolve_taker_required_min_edge(stage)
             decision: Optional[TakerDecision] = None
 
             if not self.taker_enabled:
                 block_reason = "taker_disabled"
             elif max_orders <= 0:
                 block_reason = "taker_budget_disabled"
-            elif mode_state == MODE_MAKER_ONLY and (not taker_recovery_override_active):
+            elif open_order_cleanup_required:
+                block_reason = "open_order_cleanup_required"
+            elif settlement_hold_required:
+                block_reason = "settlement_hold_required"
+            elif mode_state == MODE_MAKER_ONLY:
                 block_reason = "operating_mode_maker_only"
-            elif mode_state == MODE_SAFE_STOP and (not taker_recovery_override_active):
+            elif mode_state == MODE_SAFE_STOP:
                 block_reason = "operating_mode_safe_stop"
-            elif mode_state != MODE_NORMAL and (not taker_recovery_override_active):
+            elif mode_state != MODE_NORMAL:
                 block_reason = "operating_mode_non_normal"
             elif not lag_ready_for_taker:
                 block_reason = "latency_not_armed"
             elif not taker_ramp_allowed:
                 block_reason = "ramp_taker_disabled"
-            elif (
-                self.taker_require_lag_verification
-                and token_id not in lag_verified_set
-                and (not taker_recovery_override_active)
-            ):
+            elif self.taker_require_lag_verification and token_id not in lag_verified_set:
                 block_reason = "token_lag_not_verified"
-            elif reduce_only_recovery_active:
-                block_reason = (
-                    "maker_to_taker_recovery_handoff_disabled"
-                    if taker_recovery_dead_power_active
-                    else "taker_recovery_disabled_in_taker_scope"
-                )
-            elif not taker_allowed:
+            elif not taker_gate_state:
                 block_reason = "normal_taker_authority_closed"
             elif not oracle_fresh:
                 block_reason = "oracle_unavailable_or_stale"
@@ -5406,22 +5483,17 @@ class ExecutionRunner:
                 self.doctrine_mode == "canonical"
                 and top is not None
                 and (not self._book_source_is_ws(top))
-                and (not taker_recovery_override_active)
             ):
                 block_reason = "taker_requires_ws_book_source"
-            elif (not validation.valid) and not (
-                taker_recovery_override_active
-                and str(validation.reason_code or "") in {"market_probability_missing", "fair_probability_missing"}
-            ):
+            elif not validation.valid:
                 block_reason = str(validation.reason_code or "")
-            elif edge is None and (not taker_recovery_override_active):
+            elif edge is None:
                 block_reason = "edge_value_invalid"
-            elif (not taker_recovery_override_active) and abs(float(edge)) < float(required_min_edge):
+            elif abs(float(edge)) < float(required_min_edge):
                 block_reason = "edge_below_min"
             else:
                 if (
                     block_reason is None
-                    and (not taker_recovery_override_active)
                     and isinstance(edge, (int, float))
                     and float(edge) < 0.0
                     and normal_side_policy == "buy_expected_winner_only"
@@ -5441,7 +5513,10 @@ class ExecutionRunner:
                             complement_token_id = str(resolved_complement_token_id)
                             decision_token_id = str(resolved_complement_token_id)
                             decision_info = stage_info_by_token.get(decision_token_id, info) or info
-                            decision_stage = str(decision_info.get("stage", stage) or stage or STAGE_UNKNOWN)
+                            decision_stage = self._compat_stage_from_lifecycle_info(
+                                decision_info,
+                                fallback_stage=stage,
+                            )
                             required_min_edge = self._resolve_taker_required_min_edge(decision_stage)
                             decision_time_remaining_sec = decision_info.get("sec_to_expiry", time_remaining_sec)
                             decision_sec_to_expiry = (
@@ -5476,7 +5551,7 @@ class ExecutionRunner:
                                         time_remaining_sec=decision_time_remaining_sec,
                                         oracle_tick_age_sec=oracle_tick_age_sec,
                                         latency_state=latency_state,
-                                        stage=decision_stage,
+                                        lineage_stage=decision_stage,
                                         evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                                     ),
                                     oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
@@ -5491,44 +5566,37 @@ class ExecutionRunner:
                                     normal_taker_side_class = "complement_edge_not_positive"
                                 elif float(decision_edge) < float(required_min_edge):
                                     block_reason = "edge_below_min"
-                if taker_recovery_override_active:
-                    if reduce_only_size_cap_below_min_order_size:
-                        block_reason = "reduce_only_recovery_size_cap_below_min_order_size"
-                    elif reduce_only_side not in {"BUY", "SELL"}:
-                        block_reason = "reduce_only_recovery_no_reducing_side"
-                    elif reduce_only_size_cap_shares <= 1e-9:
-                        block_reason = "reduce_only_recovery_size_cap_unavailable"
                 now_mono = time.monotonic()
-                cooldown_token_id = decision_token_id if not taker_recovery_override_active else token_id
+                cooldown_token_id = decision_token_id
+                taker_window_lock_token_id = decision_source_token_id
+                taker_window_lock_key = self._taker_window_submit_lock_key_for_token(taker_window_lock_token_id)
                 last_submit = self._last_taker_submit_mono_by_token.get(cooldown_token_id)
-                cooldown_sec = self._resolve_taker_cooldown_sec(
-                    decision_stage if not taker_recovery_override_active else stage
-                )
-                if (
+                cooldown_sec = self._resolve_taker_cooldown_sec(decision_stage)
+                if taker_window_lock_key and taker_window_lock_key in self._taker_window_submit_lock_keys:
+                    block_reason = "taker_window_already_submitted"
+                elif (
                     last_submit is not None
                     and (now_mono - last_submit) < cooldown_sec
                 ):
                     block_reason = "taker_token_cooldown"
                 else:
-                    score_token_id = decision_token_id if not taker_recovery_override_active else token_id
+                    score_token_id = decision_token_id
                     submit_confidence_score = float(self.latency_verifier.token_score(score_token_id))
                     source_confidence_score = float(submit_confidence_score)
                     confidence_score = float(submit_confidence_score)
                     if (
-                        (not taker_recovery_override_active)
-                        and str(normal_taker_side_class or "").strip().lower() == "complement_buy"
+                        str(normal_taker_side_class or "").strip().lower() == "complement_buy"
                     ):
                         source_confidence_score = float(
                             self.latency_verifier.token_score(decision_source_token_id)
                         )
                         confidence_score = max(float(submit_confidence_score), float(source_confidence_score))
-                    if self.latency_verifier.score_enabled and (not taker_recovery_override_active):
+                    if self.latency_verifier.score_enabled:
                         score = float(confidence_score)
                         if score < self.latency_verifier.score_min_for_taker:
                             block_reason = "token_score_below_taker_min"
                     if (
                         competitiveness_enabled
-                        and (not taker_recovery_override_active)
                         and decision is None
                         and str(normal_taker_side_class or "").strip().lower().startswith("complement_")
                         and block_reason is not None
@@ -5579,36 +5647,23 @@ class ExecutionRunner:
                             confidence_score_value=float(confidence_score),
                             source_token_score_value=float(source_confidence_score),
                             submit_token_score_value=float(submit_confidence_score),
-                                    cooldown_sec_value=float(cooldown_sec),
-                                    complement_token_id=complement_token_id,
-                                    stage_bucket_value=decision_info.get(
-                                        EDGE_STAGE_BUCKET_FIELD,
-                                        decision_info.get("raw_stage"),
-                                    ),
+                            cooldown_sec_value=float(cooldown_sec),
+                            complement_token_id=complement_token_id,
+                            decision_info_row=decision_info,
                             decision_row=decision,
                         )
                     if block_reason is None and submitted >= max_orders:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
-                        side = (
-                            reduce_only_side
-                            if taker_recovery_override_active
-                            else ("BUY" if float(decision_edge) > 0.0 else "SELL")
-                        )
-                        decision_top_for_submit = decision_top if not taker_recovery_override_active else top
+                        side = "BUY" if float(decision_edge) > 0.0 else "SELL"
+                        decision_top_for_submit = decision_top
                         touch_price = (
                             decision_top_for_submit.best_ask_price if side == "BUY" else decision_top_for_submit.best_bid_price
                         )
                         if touch_price is None:
-                            block_reason = (
-                                "reduce_only_recovery_touch_price_unavailable"
-                                if taker_recovery_override_active
-                                else "taker_price_unavailable"
-                            )
+                            block_reason = "taker_price_unavailable"
                         else:
-                            token_stats = self.latency_verifier.token_stats(
-                                decision_token_id if not taker_recovery_override_active else token_id
-                            )
+                            token_stats = self.latency_verifier.token_stats(decision_token_id)
                             token_median_lag_ms = (
                                 float(token_stats.median_lag_ms)
                                 if token_stats is not None
@@ -5617,7 +5672,7 @@ class ExecutionRunner:
                             )
                             multi_oracle_status = secondary_oracle_base_status
                             multi_oracle_confirmation = False
-                            if (not taker_recovery_override_active) and competitiveness_enabled and bool(
+                            if competitiveness_enabled and bool(
                                 self.taker_competitiveness_cfg.multi_oracle_boost_enabled
                             ):
                                 secondary_fair = secondary_fair_probability_by_token.get(decision_token_id)
@@ -5645,7 +5700,7 @@ class ExecutionRunner:
                                         same_direction = (float(secondary_edge) > 0.0) == (float(decision_edge) > 0.0)
                                         multi_oracle_confirmation = bool(same_direction)
                                         multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
-                            if competitiveness_enabled and (not taker_recovery_override_active):
+                            if competitiveness_enabled:
                                 self._refresh_taker_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
                                     price=float(touch_price)
@@ -5816,10 +5871,7 @@ class ExecutionRunner:
                                     submit_token_score_value=float(submit_confidence_score),
                                     cooldown_sec_value=float(cooldown_sec),
                                     complement_token_id=complement_token_id,
-                                    stage_bucket_value=decision_info.get(
-                                        EDGE_STAGE_BUCKET_FIELD,
-                                        decision_info.get("raw_stage"),
-                                    ),
+                                    decision_info_row=decision_info,
                                     decision_row=decision,
                                 )
                                 if decision.dynamic_size_capped_by_risk:
@@ -5853,18 +5905,11 @@ class ExecutionRunner:
                                     if competitiveness_enabled and decision is not None and isinstance(decision.price, (int, float))
                                     else float(touch_price)
                                 )
-                                if taker_recovery_override_active:
-                                    submit_side = reduce_only_side
-                                    submit_price = float(touch_price)
                                 submit_target_usd = (
                                     float(decision.target_usd_resolved)
                                     if competitiveness_enabled and decision is not None
                                     else float(self.taker_target_usd)
                                 )
-                                if taker_recovery_override_active:
-                                    recovery_target_usd = float(reduce_only_size_cap_shares) * float(submit_price)
-                                    if math.isfinite(recovery_target_usd) and recovery_target_usd > 0.0:
-                                        submit_target_usd = max(float(submit_target_usd), float(recovery_target_usd))
                                 competitiveness_context = (
                                     decision.as_competitiveness_payload()
                                     if competitiveness_enabled and decision is not None
@@ -5874,10 +5919,10 @@ class ExecutionRunner:
                                     competitiveness_context = {}
                                 competitiveness_context.update(
                                     self._build_submission_lifecycle_context(
-                                        token_id=(decision_token_id if not taker_recovery_override_active else token_id),
-                                        info=(decision_info if not taker_recovery_override_active else info),
+                                        token_id=decision_token_id,
+                                        info=decision_info,
                                         submission_lane="taker",
-                                        stage=(decision_stage if not taker_recovery_override_active else stage),
+                                        stage=decision_stage,
                                         edge_abs=(
                                             abs(float(decision_edge))
                                             if isinstance(decision_edge, (int, float))
@@ -5885,82 +5930,78 @@ class ExecutionRunner:
                                         ),
                                     )
                                 )
-                                if taker_recovery_override_active:
-                                    competitiveness_context.setdefault("normal_side_policy", "recovery_override")
-                                    competitiveness_context.setdefault("normal_taker_side_class", "recovery_reduce_only")
-                                else:
-                                    competitiveness_context.setdefault(
-                                        "normal_side_policy",
-                                        normal_side_policy,
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_side_class",
-                                        normal_taker_side_class
-                                        if str(normal_taker_side_class or "").strip()
-                                        else ("buy_expected_winner" if str(submit_side).strip().upper() == "BUY" else "unknown"),
-                                    )
-                                    competitiveness_context.setdefault("normal_taker_source_token_id", decision_source_token_id)
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_submit_token_id",
-                                        decision_token_id,
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_complement_token_id",
-                                        (
-                                            str(complement_token_id).strip()
-                                            if str(complement_token_id or "").strip()
-                                            else None
-                                        ),
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_complement_route_applied",
-                                        bool(
-                                            str(complement_token_id or "").strip()
-                                            and str(decision_token_id).strip() != str(decision_source_token_id).strip()
-                                        ),
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_source_edge",
-                                        (
-                                            float(decision_source_edge)
-                                            if isinstance(decision_source_edge, (int, float))
-                                            else None
-                                        ),
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_submit_edge",
-                                        (
-                                            float(decision_edge)
-                                            if isinstance(decision_edge, (int, float))
-                                            else None
-                                        ),
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_source_token_score",
-                                        (
-                                            float(source_confidence_score)
-                                            if isinstance(source_confidence_score, (int, float))
-                                            else None
-                                        ),
-                                    )
-                                    competitiveness_context.setdefault(
-                                        "normal_taker_submit_token_score",
-                                        (
-                                            float(submit_confidence_score)
-                                            if isinstance(submit_confidence_score, (int, float))
-                                            else None
-                                        ),
-                                    )
+                                competitiveness_context.setdefault(
+                                    "normal_side_policy",
+                                    normal_side_policy,
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_side_class",
+                                    normal_taker_side_class
+                                    if str(normal_taker_side_class or "").strip()
+                                    else ("buy_expected_winner" if str(submit_side).strip().upper() == "BUY" else "unknown"),
+                                )
+                                competitiveness_context.setdefault("normal_taker_source_token_id", decision_source_token_id)
+                                competitiveness_context.setdefault(
+                                    "normal_taker_submit_token_id",
+                                    decision_token_id,
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_complement_token_id",
+                                    (
+                                        str(complement_token_id).strip()
+                                        if str(complement_token_id or "").strip()
+                                        else None
+                                    ),
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_complement_route_applied",
+                                    bool(
+                                        str(complement_token_id or "").strip()
+                                        and str(decision_token_id).strip() != str(decision_source_token_id).strip()
+                                    ),
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_source_edge",
+                                    (
+                                        float(decision_source_edge)
+                                        if isinstance(decision_source_edge, (int, float))
+                                        else None
+                                    ),
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_submit_edge",
+                                    (
+                                        float(decision_edge)
+                                        if isinstance(decision_edge, (int, float))
+                                        else None
+                                    ),
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_source_token_score",
+                                    (
+                                        float(source_confidence_score)
+                                        if isinstance(source_confidence_score, (int, float))
+                                        else None
+                                    ),
+                                )
+                                competitiveness_context.setdefault(
+                                    "normal_taker_submit_token_score",
+                                    (
+                                        float(submit_confidence_score)
+                                        if isinstance(submit_confidence_score, (int, float))
+                                        else None
+                                    ),
+                                )
                                 attempts += 1
                                 outcome = self.manager.place_taker_order_with_outcome(
-                                    token_id=(decision_token_id if not taker_recovery_override_active else token_id),
+                                    token_id=decision_token_id,
                                     side=submit_side,
                                     price=submit_price,
                                     size=(float(self.taker_order_size) if self.sizing_mode == "shares" else None),
                                     target_usd=submit_target_usd,
                                     top=decision_top_for_submit,
                                     reason=TAKER_CHAINLINK_REASON,
-                                    stage=str((decision_stage if not taker_recovery_override_active else stage) or STAGE_UNKNOWN),
+                                    stage=str(decision_stage or STAGE_UNKNOWN),
                                     target_ref=decision_target_ref,
                                     decision_reference_midpoint=(
                                         float(decision_midpoint) if isinstance(decision_midpoint, (int, float)) else None
@@ -5986,11 +6027,11 @@ class ExecutionRunner:
                                 )
                                 if bool(outcome.get("submitted", False)):
                                     submitted += 1
-                                    actual_submit_token_id = (
-                                        decision_token_id if not taker_recovery_override_active else token_id
-                                    )
+                                    actual_submit_token_id = decision_token_id
                                     submitted_token_ids.add(actual_submit_token_id)
                                     self._last_taker_submit_mono_by_token[actual_submit_token_id] = now_mono
+                                    if taker_window_lock_key:
+                                        self._taker_window_submit_lock_keys.add(taker_window_lock_key)
                                     action_taken = EDGE_ACTION_TAKER
                                     was_submitted = True
                                     fills_accepted = int(outcome.get("fills_accepted", 0) or 0)
@@ -6026,27 +6067,29 @@ class ExecutionRunner:
                                         "edge_unknown_reason": (
                                             None if isinstance(decision_edge, (int, float)) else "missing_edge_value"
                                         ),
+                                        **lifecycle_phase_surface_fields(
+                                            lifecycle_phase=(
+                                                decision_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                                                or lifecycle_phase_from_payload(decision_info)
+                                                or ""
+                                            )
+                                        ),
+                                        **lineage_stage_surface_fields(
+                                            lineage_stage=(
+                                                lineage_stage_from_payload(decision_info)
+                                                if lineage_stage_from_payload(decision_info) != STAGE_UNKNOWN
+                                                else (
+                                                    str(decision_info.get("stage") or "").strip().upper()
+                                                    or decision_stage
+                                                )
+                                            )
+                                        ),
                                         "required_min_edge": float(required_min_edge),
-                                        "stage": (
-                                            str((decision_stage if not taker_recovery_override_active else stage) or "").strip().upper()
-                                            or "UNKNOWN"
-                                        ),
-                                        "stage_unknown_reason": (
-                                            None
-                                            if str((decision_stage if not taker_recovery_override_active else stage) or "").strip()
-                                            else "missing_stage_info"
-                                        ),
                                         "confidence_score": float(confidence_score),
-                                        "reduce_only_recovery_active": bool(taker_recovery_override_active),
-                                        "reduce_only_recovery_reason": (
-                                            str(reduce_only_recovery_reason) if taker_recovery_override_active else ""
-                                        ),
-                                        "reduce_only_side": (
-                                            str(reduce_only_side) if taker_recovery_override_active else "NONE"
-                                        ),
-                                        "reduce_only_size_cap_shares": (
-                                            float(reduce_only_size_cap_shares) if taker_recovery_override_active else 0.0
-                                        ),
+                                        "open_order_cleanup_required": bool(open_order_cleanup_required),
+                                        "settlement_hold_required": bool(settlement_hold_required),
+                                        "unresolved_lifecycle_obligation": bool(unresolved_lifecycle_obligation),
+                                        "cancel_fail_closed": bool(cancel_fail_closed),
                                     }
                                     if competitiveness_enabled and decision is not None:
                                         submit_payload.update(
@@ -6085,73 +6128,58 @@ class ExecutionRunner:
                                         str(outcome.get("submit_reject_reason") or "").strip().lower() or None
                                     )
 
-            if preexpiry_emergency_taker_active:
-                self._preexpiry_emergency_taker_attempt_count += 1
-                emergency_outcome = "submitted"
-                emergency_outcome_reason = "submitted"
-                if was_submitted:
-                    if was_filled:
-                        self._preexpiry_emergency_taker_fill_count += 1
-                        emergency_outcome = "filled"
-                        emergency_outcome_reason = "filled"
-                    else:
-                        emergency_outcome = "submitted_no_fill"
-                        emergency_outcome_reason = "submitted_no_fill"
-                else:
-                    self._preexpiry_emergency_taker_block_count += 1
-                    emergency_block_reason = (
-                        str(taker_submit_reject_reason or block_reason or "unknown").strip().lower()
-                    )
-                    if not emergency_block_reason:
-                        emergency_block_reason = "unknown"
-                    emergency_outcome = "blocked"
-                    emergency_outcome_reason = f"blocked_{emergency_block_reason}"
-                    self._preexpiry_emergency_taker_block_reasons[emergency_block_reason] = (
-                        int(self._preexpiry_emergency_taker_block_reasons.get(emergency_block_reason, 0)) + 1
-                    )
-                self._log_preexpiry_emergency_taker_event(
-                    {
-                        "ts_utc": utc_iso(),
-                        "run_id": self.run_id,
-                        "token_id": token_id,
-                        "stage": (str(stage or "").strip().upper() or "UNKNOWN"),
-                        "sec_to_expiry": sec_to_expiry,
-                        "financial_posture_class": str(recovery_financial_posture_class),
-                        "preexpiry_emergency_taker_window_sec": float(self.preexpiry_emergency_taker_window_sec),
-                        "maker_submitted_for_token": bool(maker_submitted_for_token),
-                        "maker_no_submission_reason": str(maker_no_submission_reason or ""),
-                        "maker_reduce_only_exit_blocked": bool(maker_reduce_only_exit_blocked),
-                        "timing_gate_handoff_override_active": bool(timing_gate_handoff_override_active),
-                        "outcome": emergency_outcome,
-                        "reason": emergency_outcome_reason,
-                        "outcome_reason": emergency_outcome_reason,
-                        "blocked_reason": (emergency_block_reason if emergency_outcome == "blocked" else None),
-                        "submitted": bool(was_submitted),
-                        "filled": bool(was_filled),
-                        "taker_submit_reject_reason": (
-                            str(taker_submit_reject_reason).strip().lower()
-                            if str(taker_submit_reject_reason or "").strip()
-                            else None
-                        ),
-                    }
-                )
-
-            event_market_reference = (
-                decision_market_reference if not taker_recovery_override_active else market_reference
+            event_market_reference = decision_market_reference
+            event_pair_truth = self._pair_truth_for_token(
+                pair_truth_by_base_key=pair_truth_by_base_key,
+                market_base_key=self._market_base_key_from_market_key(
+                    decision_info.get("market_key")
+                ),
+                token_id=decision_token_id,
             )
+            decision_lifecycle_phase = str(
+                decision_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                or lifecycle_phase_from_payload(decision_info)
+                or ""
+            ).strip().lower() or "scan"
+            decision_lineage_stage = lineage_stage_from_payload(decision_info)
+            if decision_lineage_stage == STAGE_UNKNOWN:
+                decision_lineage_stage = str(decision_stage or "").strip().upper() or STAGE_UNKNOWN
 
             self._emit_edge_evaluation(
-                token_id=(decision_token_id if not taker_recovery_override_active else token_id),
+                token_id=decision_token_id,
                 target_ref=decision_target_ref,
                 source_token_id=decision_source_token_id,
                 source_target_ref=self._target_ref_for_token(decision_source_token_id),
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
-                stage=(decision_stage if not taker_recovery_override_active else stage),
-                raw_stage=(
-                    decision_info.get(EDGE_STAGE_BUCKET_FIELD, decision_info.get("raw_stage"))
-                    if not taker_recovery_override_active
-                    else info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage"))
+                lifecycle_phase=decision_lifecycle_phase,
+                lineage_stage=decision_lineage_stage,
+                owned_market_ref=(
+                    decision_info.get(EDGE_OWNED_MARKET_REF_FIELD)
+                    or self._market_ref_for_token_ids(self.token_ids)
                 ),
+                challenger_market_ref=(
+                    decision_info.get(EDGE_CHALLENGER_MARKET_REF_FIELD)
+                    or self._market_ref_for_token_ids(self._challenger_token_ids)
+                ),
+                ownership_drop_reason=decision_info.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                ownership_replacement_reason=decision_info.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
+                market_truth_required=bool(
+                    decision_info.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, bool(self.token_ids))
+                ),
+                maker_phase_allowed=bool(
+                    decision_info.get(
+                        EDGE_MAKER_PHASE_ALLOWED_FIELD,
+                        decision_lifecycle_phase == "maker_window",
+                    )
+                ),
+                taker_phase_allowed=bool(
+                    decision_info.get(
+                        EDGE_TAKER_PHASE_ALLOWED_FIELD,
+                        decision_lifecycle_phase == "taker_window",
+                    )
+                ),
+                maker_gate_open=bool(maker_gate_state),
+                taker_gate_open=bool(taker_gate_state),
                 time_remaining_sec=(
                     decision_time_remaining_sec
                     if isinstance(decision_time_remaining_sec, (int, float))
@@ -6170,13 +6198,12 @@ class ExecutionRunner:
                 edge_value=decision_edge if isinstance(decision_edge, (int, float)) else None,
                 oracle_tick_age_sec=oracle_tick_age_sec,
                 latency_state=latency_state,
-                maker_allowed=maker_allowed,
-                taker_allowed=taker_allowed,
-                maker_new_risk_allowed=maker_new_risk_allowed,
-                normal_taker_allowed=normal_taker_allowed,
-                reduce_only_recovery_allowed=reduce_only_recovery_allowed,
-                preexpiry_emergency_taker_allowed=preexpiry_emergency_taker_allowed,
-                late_window_authority_class=late_window_authority_class,
+                maker_gate_state=maker_gate_state,
+                taker_gate_state=taker_gate_state,
+                open_order_cleanup_required=open_order_cleanup_required,
+                settlement_hold_required=settlement_hold_required,
+                unresolved_lifecycle_obligation=unresolved_lifecycle_obligation,
+                cancel_fail_closed=cancel_fail_closed,
                 action_taken=action_taken,
                 block_reason=block_reason,
                 submitted=was_submitted,
@@ -6184,17 +6211,23 @@ class ExecutionRunner:
                 result=None,
                 cycle_index=stable_cycle_index,
                 order_id=emitted_order_id,
-                book_source=(self._book_source(decision_top if not taker_recovery_override_active else top) or None),
+                book_source=(self._book_source(decision_top) or None),
                 market_reference_mode=str(event_market_reference.get("market_reference_mode") or ""),
                 market_reference_basis=str(event_market_reference.get("market_reference_basis") or ""),
                 market_reference_confidence=str(event_market_reference.get("market_reference_confidence") or ""),
                 market_reference_fallback_used=bool(event_market_reference.get("market_reference_fallback_used", False)),
                 market_reference_source_side=str(event_market_reference.get("market_reference_source_side") or "none"),
                 market_reference_class=str(event_market_reference.get("market_reference_class") or ""),
+                pair_truth_class=str(event_pair_truth.get("pair_truth_class") or ""),
+                pair_truth_basis=str(event_pair_truth.get("pair_truth_basis") or ""),
+                pair_truth_owner_scope=str(event_pair_truth.get("pair_truth_owner_scope") or ""),
+                pair_missing_token_count=event_pair_truth.get("pair_missing_token_count"),
+                pair_one_sided_token_count=event_pair_truth.get("pair_one_sided_token_count"),
+                pair_authoritative_token_count=event_pair_truth.get("pair_authoritative_token_count"),
                 required_min_edge=float(required_min_edge),
                 taker_submit_reject_reason=taker_submit_reject_reason,
-                reduce_only_recovery_active=reduce_only_recovery_active,
-                reduce_only_recovery_reason=reduce_only_recovery_reason,
+                held_net_shares=info.get("held_net_shares"),
+                held_open_order_present=info.get("held_open_order_present"),
             )
 
         return {
@@ -6223,8 +6256,7 @@ class ExecutionRunner:
 
     def _valuation_watch_token_ids(self) -> List[str]:
         watched = set(str(token_id) for token_id in self.token_ids)
-        watched.update(self._non_flat_position_token_ids())
-        watched.update(self._open_order_token_ids())
+        watched.update(self._lifecycle_watch_token_ids())
         return self._unique_ordered(sorted(watched))
 
     def _held_exposure_token_ids(self) -> set[str]:
@@ -6248,50 +6280,13 @@ class ExecutionRunner:
             return FINANCIAL_POSTURE_HALT_NEW_RISK
         if bool(self._valuation_hard_degraded):
             return FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY
-        stage_map = stage_info_by_token if isinstance(stage_info_by_token, dict) else {}
-        if self._terminal_unwind_halt_new_risk_active(stage_map):
-            return FINANCIAL_POSTURE_HALT_NEW_RISK
-        if any(bool((info or {}).get("reduce_only_recovery_active", False)) for info in stage_map.values()):
-            return FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
         return FINANCIAL_POSTURE_NORMAL
 
     def _terminal_unwind_halt_new_risk_active(self, stage_info_by_token: Dict[str, Dict[str, Any]]) -> bool:
-        threshold_sec = float(self.terminal_unwind_halt_new_risk_sec)
-        if threshold_sec <= 0.0:
-            return False
-        meaningful_shares_floor = max(1e-9, float(self.risk_min_order_size_shares))
-        for _, raw_info in stage_info_by_token.items():
-            info = raw_info or {}
-            if not bool(info.get("reduce_only_recovery_active", False)):
-                continue
-            sec_raw = info.get("sec_to_expiry")
-            if not isinstance(sec_raw, (int, float)):
-                continue
-            sec = float(sec_raw)
-            if sec < 0.0 or sec > (threshold_sec + 1e-9):
-                continue
-            net_shares_abs = abs(float(info.get("reduce_only_net_shares", 0.0) or 0.0))
-            open_order_present = bool(info.get("reduce_only_open_order_present", False))
-            if open_order_present or (net_shares_abs + 1e-9 >= meaningful_shares_floor):
-                return True
         return False
 
     def _token_terminal_unwind_halt_new_risk_active(self, info: Dict[str, Any]) -> bool:
-        threshold_sec = float(self.terminal_unwind_halt_new_risk_sec)
-        if threshold_sec <= 0.0:
-            return False
-        if not bool((info or {}).get("reduce_only_recovery_active", False)):
-            return False
-        sec_raw = (info or {}).get("sec_to_expiry")
-        if not isinstance(sec_raw, (int, float)):
-            return False
-        sec = float(sec_raw)
-        if sec < 0.0 or sec > (threshold_sec + 1e-9):
-            return False
-        meaningful_shares_floor = max(1e-9, float(self.risk_min_order_size_shares))
-        net_shares_abs = abs(float((info or {}).get("reduce_only_net_shares", 0.0) or 0.0))
-        open_order_present = bool((info or {}).get("reduce_only_open_order_present", False))
-        return bool(open_order_present or (net_shares_abs + 1e-9 >= meaningful_shares_floor))
+        return False
 
     def _emit_lifecycle_context_event(
         self,
@@ -6299,10 +6294,9 @@ class ExecutionRunner:
         event_type: str,
         token_id: str,
         submission_lane: str,
-        stage: str,
+        lifecycle_phase: str,
         sec_to_expiry: Optional[float],
         financial_posture_class: str,
-        reduce_only_recovery_active: bool,
         detail: str,
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -6311,10 +6305,11 @@ class ExecutionRunner:
             "run_id": self.run_id,
             "token_id": str(token_id or ""),
             "submission_lane": str(submission_lane or "unknown"),
-            "stage": str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+            **lifecycle_phase_surface_fields(
+                lifecycle_phase=str(lifecycle_phase or "").strip().lower() or "scan"
+            ),
             "sec_to_expiry": (float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None),
             "financial_posture_class": str(financial_posture_class or "UNKNOWN").strip().upper() or "UNKNOWN",
-            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
             "detail": str(detail or "").strip(),
         }
         if isinstance(extra, dict):
@@ -6332,79 +6327,37 @@ class ExecutionRunner:
     ) -> Dict[str, Any]:
         token = str(token_id or "").strip()
         lifecycle_info = dict(info or {})
-        stage_value = str(stage or lifecycle_info.get("stage") or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
+        stage_value = (
+            str(stage).strip().upper()
+            if str(stage or "").strip()
+            else self._compat_stage_from_lifecycle_info(lifecycle_info)
+        ) or STAGE_UNKNOWN
         sec_to_expiry = (
             float(lifecycle_info.get("sec_to_expiry"))
             if isinstance(lifecycle_info.get("sec_to_expiry"), (int, float))
             else None
         )
-        reduce_only_recovery_active = bool(lifecycle_info.get("reduce_only_recovery_active", False))
         base_posture = str(self._financial_posture_class or FINANCIAL_POSTURE_NORMAL).strip().upper() or FINANCIAL_POSTURE_NORMAL
         resolved_posture = base_posture
-        if reduce_only_recovery_active and base_posture not in {
-            FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY,
-            FINANCIAL_POSTURE_HALT_NEW_RISK,
-        }:
-            resolved_posture = (
-                FINANCIAL_POSTURE_HALT_NEW_RISK
-                if self._token_terminal_unwind_halt_new_risk_active(lifecycle_info)
-                else FINANCIAL_POSTURE_PREEXPIRY_REDUCE_ONLY
-            )
-        lifecycle_context_promoted = bool(
-            reduce_only_recovery_active
-            and base_posture == FINANCIAL_POSTURE_NORMAL
-            and resolved_posture != FINANCIAL_POSTURE_NORMAL
-        )
-        if lifecycle_context_promoted:
-            self.telemetry.incr("lifecycle_context_promoted")
-            self._emit_lifecycle_context_event(
-                event_type="lifecycle_context_promoted",
-                token_id=token,
-                submission_lane=submission_lane,
-                stage=stage_value,
-                sec_to_expiry=sec_to_expiry,
-                financial_posture_class=resolved_posture,
-                reduce_only_recovery_active=reduce_only_recovery_active,
-                detail="reduce_only_recovery_promoted_financial_posture",
-                extra={
-                    "base_financial_posture_class": str(base_posture),
-                    "resolved_financial_posture_class": str(resolved_posture),
-                },
-            )
-        lifecycle_context_mismatch = bool(
-            reduce_only_recovery_active and resolved_posture == FINANCIAL_POSTURE_NORMAL
-        )
-        if lifecycle_context_mismatch:
-            self._lifecycle_context_mismatch_count += 1
-            self.telemetry.incr("lifecycle_context_mismatch")
-            self._emit_lifecycle_context_event(
-                event_type="lifecycle_context_mismatch",
-                token_id=token,
-                submission_lane=submission_lane,
-                stage=stage_value,
-                sec_to_expiry=sec_to_expiry,
-                financial_posture_class=resolved_posture,
-                reduce_only_recovery_active=reduce_only_recovery_active,
-                detail="reduce_only_recovery_without_recovery_posture",
-                extra={
-                    "base_financial_posture_class": str(base_posture),
-                    "resolved_financial_posture_class": str(resolved_posture),
-                },
-            )
+        lifecycle_context_mismatch = False
         lifecycle_context_present = bool(isinstance(sec_to_expiry, float))
         lifecycle_context_missing_reason = ""
-        if reduce_only_recovery_active and not lifecycle_context_present:
-            lifecycle_context_missing_reason = "reduce_only_recovery_missing_sec_to_expiry"
+        lifecycle_phase_value = str(
+            lifecycle_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+            or legacy_stage_to_lifecycle_phase(stage_value)
+            or ""
+        ).strip().lower() or "scan"
+        if not lifecycle_context_present:
+            lifecycle_context_missing_reason = "missing_sec_to_expiry"
             self._lifecycle_context_missing_sec_to_expiry_count += 1
             self.telemetry.incr("lifecycle_context_missing_sec_to_expiry")
             self._emit_lifecycle_context_event(
                 event_type="lifecycle_context_missing",
                 token_id=token,
                 submission_lane=submission_lane,
-                stage=stage_value,
+                lifecycle_phase=lifecycle_phase_value,
                 sec_to_expiry=None,
                 financial_posture_class=resolved_posture,
-                reduce_only_recovery_active=reduce_only_recovery_active,
                 detail=lifecycle_context_missing_reason,
                 extra={
                     "require_lifecycle_context_for_decisions": bool(self.require_lifecycle_context_for_decisions),
@@ -6412,22 +6365,46 @@ class ExecutionRunner:
             )
         context: Dict[str, Any] = {
             "submission_lane": str(submission_lane or "unknown"),
-            **stage_surface_fields(
-                effective_stage=stage_value,
-                stage_bucket=lifecycle_info.get(EDGE_STAGE_BUCKET_FIELD, lifecycle_info.get("raw_stage")),
+            **lifecycle_phase_surface_fields(lifecycle_phase=lifecycle_phase_value),
+            **lineage_stage_surface_fields(
+                lineage_stage=lineage_stage_from_payload(lifecycle_info) or stage_value
             ),
-            **authority_surface_fields(
-                maker_new_risk_allowed=bool(lifecycle_info.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)),
-                normal_taker_allowed=bool(lifecycle_info.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False)),
-                reduce_only_recovery_allowed=bool(
-                    lifecycle_info.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
+            **ownership_surface_fields(
+                owned_market_ref=lifecycle_info.get(EDGE_OWNED_MARKET_REF_FIELD),
+                challenger_market_ref=lifecycle_info.get(EDGE_CHALLENGER_MARKET_REF_FIELD),
+                ownership_drop_reason=lifecycle_info.get(EDGE_OWNERSHIP_DROP_REASON_FIELD),
+                ownership_replacement_reason=lifecycle_info.get(EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD),
+            ),
+            **market_truth_surface_fields(
+                market_truth_required=bool(
+                    lifecycle_info.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, bool(token))
+                )
+            ),
+            **lane_permission_surface_fields(
+                maker_phase_allowed=bool(
+                    lifecycle_info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, lifecycle_phase_value == "maker_window")
                 ),
-                preexpiry_emergency_taker_allowed=bool(
-                    lifecycle_info.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
+                taker_phase_allowed=bool(
+                    lifecycle_info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, lifecycle_phase_value == "taker_window")
                 ),
-                late_window_authority_class=str(
-                    lifecycle_info.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
+                maker_gate_open=bool(
+                    lifecycle_info.get(EDGE_MAKER_GATE_OPEN_FIELD, lifecycle_phase_value == "maker_window")
                 ),
+                taker_gate_open=bool(
+                    lifecycle_info.get(EDGE_TAKER_GATE_OPEN_FIELD, lifecycle_phase_value == "taker_window")
+                ),
+            ),
+            **lifecycle_surface_fields(
+                open_order_cleanup_required=bool(
+                    lifecycle_info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False)
+                ),
+                settlement_hold_required=bool(
+                    lifecycle_info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False)
+                ),
+                unresolved_lifecycle_obligation=bool(
+                    lifecycle_info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False)
+                ),
+                cancel_fail_closed=bool(lifecycle_info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False)),
             ),
             "financial_posture_class": str(resolved_posture),
             "sec_to_expiry": sec_to_expiry,
@@ -6435,25 +6412,12 @@ class ExecutionRunner:
             "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
             "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
             "require_lifecycle_context_for_decisions": bool(self.require_lifecycle_context_for_decisions),
-            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
             "maker_timing_gate_open": bool(lifecycle_info.get("maker_timing_gate_open", False)),
             "maker_timing_stage_override_active": bool(
                 lifecycle_info.get("maker_timing_stage_override_active", False)
             ),
-            "reduce_only_recovery_reason": str(lifecycle_info.get("reduce_only_recovery_reason") or ""),
-            "reduce_only_side": str(lifecycle_info.get("reduce_only_side") or "NONE"),
-            "reduce_only_side_policy": str(lifecycle_info.get("reduce_only_side_policy") or "NONE"),
-            "reduce_only_size_cap_shares": float(lifecycle_info.get("reduce_only_size_cap_shares", 0.0) or 0.0),
-            "reduce_only_size_cap_below_min_order_size": bool(
-                lifecycle_info.get("reduce_only_size_cap_below_min_order_size", False)
-            ),
-            "reduce_only_min_order_size_shares": float(
-                lifecycle_info.get("reduce_only_min_order_size_shares", self.risk_min_order_size_shares) or 0.0
-            ),
-            "reduce_only_net_shares": float(lifecycle_info.get("reduce_only_net_shares", 0.0) or 0.0),
-            "reduce_only_open_order_present": bool(lifecycle_info.get("reduce_only_open_order_present", False)),
-            "preexpiry_reduce_only_active": bool(lifecycle_info.get("preexpiry_reduce_only_active", False)),
-            "held_preexpiry_reduce_only_sec": float(lifecycle_info.get("held_preexpiry_reduce_only_sec", 0.0) or 0.0),
+            "held_net_shares": float(lifecycle_info.get("held_net_shares", 0.0) or 0.0),
+            "held_open_order_present": bool(lifecycle_info.get("held_open_order_present", False)),
         }
         if isinstance(edge_abs, (int, float)):
             context["edge_abs"] = float(edge_abs)
@@ -6467,15 +6431,10 @@ class ExecutionRunner:
         now_mono: float,
         hard_reason_parts: List[str],
     ) -> str:
-        has_held_404_signal = False
-        if quote is None:
-            last_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token_id)
-            if isinstance(last_not_found_mono, (int, float)):
-                has_held_404_signal = True
-                age_since_not_found_sec = max(0.0, float(now_mono - float(last_not_found_mono)))
-                hard_reason_parts.append(f"held_book_not_found_404_age_sec={age_since_not_found_sec:.3f}")
-        if not has_held_404_signal:
-            return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
+        unpriceable_since = self._held_unpriceable_since_mono_by_token.get(token_id)
+        if isinstance(unpriceable_since, (int, float)):
+            age_since_unpriceable_sec = max(0.0, float(now_mono - float(unpriceable_since)))
+            hard_reason_parts.append(f"held_ws_missing_or_unusable_age_sec={age_since_unpriceable_sec:.3f}")
         expiry_dt = self.token_expiry_dt_by_token.get(token_id)
         sec_to_expiry = (
             (expiry_dt - utc_now()).total_seconds()
@@ -6485,7 +6444,7 @@ class ExecutionRunner:
         if isinstance(sec_to_expiry, (int, float)):
             boundary_eps = max(0.0, float(self.expiry_boundary_epsilon_sec))
             if float(sec_to_expiry) > (boundary_eps + 1e-9):
-                return HELD_UNPRICEABLE_CAUSE_PREEXPIRY_FETCH_FAILURE
+                return HELD_UNPRICEABLE_CAUSE_PREEXPIRY_WS_MISSING_OR_UNUSABLE
             if float(sec_to_expiry) < -(boundary_eps + 1e-9):
                 return HELD_UNPRICEABLE_CAUSE_POSTEXPIRY_MARKET_RETIRED
             return HELD_UNPRICEABLE_CAUSE_UNKNOWN_DATA_GAP
@@ -6495,25 +6454,6 @@ class ExecutionRunner:
         discovered = set(str(token_id) for token_id in discovered_token_ids if str(token_id or "").strip())
         carry = sorted(token_id for token_id in self._held_exposure_token_ids() if token_id not in discovered)
         return self._unique_ordered(carry)
-
-    def _held_expired_reduce_only_grace_active(
-        self,
-        *,
-        token_id: str,
-        sec_to_expiry: Optional[float],
-    ) -> bool:
-        if not isinstance(sec_to_expiry, (int, float)):
-            return False
-        if float(sec_to_expiry) >= 0.0:
-            return False
-        if float(self.held_expired_reduce_only_grace_sec) <= 0.0:
-            return False
-        if abs(float(sec_to_expiry)) > float(self.held_expired_reduce_only_grace_sec):
-            return False
-        if token_id in self._open_order_token_ids():
-            return True
-        pos = self.risk.positions.get(token_id)
-        return bool(pos is not None and abs(float(getattr(pos, "net_shares", 0.0) or 0.0)) > 1e-9)
 
     def _token_lifecycle_obligation_flags(
         self,
@@ -6528,10 +6468,11 @@ class ExecutionRunner:
             return {
                 "unresolved_lifecycle_obligation": False,
                 "open_order_present": False,
-                "recent_book_not_found": False,
-                "forced_refresh_pending": False,
-                "expired_reduce_only_grace_active": False,
-                "preexpiry_reduce_only_active": False,
+                "held_ws_missing_or_unusable_tracking_active": False,
+                "held_ws_missing_or_unusable_refresh_pending": False,
+                "open_order_cleanup_required": False,
+                "settlement_hold_required": False,
+                "cancel_fail_closed": False,
                 "held_unpriceable_tracking_active": False,
                 "sec_to_expiry": None,
             }
@@ -6539,22 +6480,9 @@ class ExecutionRunner:
         open_orders_flag = bool(open_order_present) if isinstance(open_order_present, bool) else bool(
             token in self._open_order_token_ids()
         )
-        recent_book_not_found_mono = self._held_book_not_found_last_mono_by_token.get(token)
-        recent_book_not_found = bool(
-            isinstance(recent_book_not_found_mono, (int, float))
-            and (
-                now_mono_value - float(recent_book_not_found_mono)
-            )
-            <= (
-                max(
-                    float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
-                    float(self.held_book_not_found_backoff_sec),
-                )
-                + 1e-9
-            )
-        )
-        forced_refresh_pending_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token)
-        forced_refresh_pending = bool(
+        held_unpriceable_tracking_active = bool(token in self._held_unpriceable_since_mono_by_token)
+        forced_refresh_pending_mono = self._held_ws_missing_or_unusable_refresh_next_mono_by_token.get(token)
+        held_ws_missing_or_unusable_refresh_pending = bool(
             isinstance(forced_refresh_pending_mono, (int, float))
             and float(forced_refresh_pending_mono) > now_mono_value
         )
@@ -6566,141 +6494,58 @@ class ExecutionRunner:
                 if isinstance(expiry_dt, dt.datetime)
                 else None
             )
-        expired_reduce_only_grace_active = self._held_expired_reduce_only_grace_active(
-            token_id=token,
-            sec_to_expiry=sec,
-        )
         pos = self.risk.positions.get(token)
         net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
-        preexpiry_reduce_only_active = bool(
-            isinstance(sec, (int, float))
-            and float(sec) >= 0.0
-            and float(self.held_preexpiry_reduce_only_sec) > 0.0
-            and float(sec) <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
-        )
-        held_unpriceable_tracking_active = bool(token in self._held_unpriceable_since_mono_by_token)
+        open_order_cleanup_required = bool(open_orders_flag)
+        settlement_hold_required = bool(abs(net_shares) > 1e-9)
+        cancel_fail_closed = bool(open_order_cleanup_required)
         unresolved_lifecycle_obligation = bool(
-            held_unpriceable_tracking_active
-            or recent_book_not_found
-            or forced_refresh_pending
-            or expired_reduce_only_grace_active
-            or preexpiry_reduce_only_active
+            open_order_cleanup_required
+            or settlement_hold_required
+            or held_unpriceable_tracking_active
+            or held_ws_missing_or_unusable_refresh_pending
         )
         return {
             "unresolved_lifecycle_obligation": bool(unresolved_lifecycle_obligation),
             "open_order_present": bool(open_orders_flag),
-            "recent_book_not_found": bool(recent_book_not_found),
-            "forced_refresh_pending": bool(forced_refresh_pending),
-            "expired_reduce_only_grace_active": bool(expired_reduce_only_grace_active),
-            "preexpiry_reduce_only_active": bool(preexpiry_reduce_only_active),
+            "held_ws_missing_or_unusable_tracking_active": bool(held_unpriceable_tracking_active),
+            "held_ws_missing_or_unusable_refresh_pending": bool(held_ws_missing_or_unusable_refresh_pending),
+            "open_order_cleanup_required": bool(open_order_cleanup_required),
+            "settlement_hold_required": bool(settlement_hold_required),
+            "cancel_fail_closed": bool(cancel_fail_closed),
             "held_unpriceable_tracking_active": bool(held_unpriceable_tracking_active),
             "sec_to_expiry": (float(sec) if isinstance(sec, (int, float)) else None),
         }
 
-    def _reduce_only_recovery_payload(
+    def _lifecycle_management_payload(
         self,
         *,
         token_id: str,
         sec_to_expiry: Optional[float],
-        expired_reduce_only_grace_active: bool,
     ) -> Dict[str, Any]:
         token = str(token_id or "").strip()
-        min_order_size_shares = float(self.risk_min_order_size_shares)
         if not token:
             return {
-                "active": False,
-                "reason": "",
-                "side": "NONE",
-                "side_policy": "NONE",
-                "size_cap_shares": 0.0,
-                "size_cap_below_min_order_size": False,
-                "min_order_size_shares": float(min_order_size_shares),
                 "net_shares": 0.0,
                 "open_order_present": False,
-                "preexpiry_active": False,
-                "expired_grace_active": bool(expired_reduce_only_grace_active),
+                "open_order_cleanup_required": False,
+                "settlement_hold_required": False,
+                "unresolved_lifecycle_obligation": False,
+                "cancel_fail_closed": False,
                 "sec_to_expiry": sec_to_expiry,
-                "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
             }
         pos = self.risk.positions.get(token)
         net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
         open_order_present = token in self._open_order_token_ids()
-        held_present = open_order_present or (abs(net_shares) > 1e-9)
-        sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
-        preexpiry_active = bool(
-            held_present
-            and isinstance(sec, float)
-            and sec >= 0.0
-            and float(self.held_preexpiry_reduce_only_sec) > 0.0
-            and sec <= (float(self.held_preexpiry_reduce_only_sec) + 1e-9)
-        )
-        active = bool(expired_reduce_only_grace_active or preexpiry_active)
-        side = "NONE"
-        side_policy = "NONE"
-        size_cap_shares = 0.0
-        if net_shares > 1e-9:
-            side = "SELL"
-            side_policy = "SELL_ONLY"
-            size_cap_shares = abs(float(net_shares))
-        elif net_shares < -1e-9:
-            side = "BUY"
-            side_policy = "BUY_ONLY"
-            size_cap_shares = abs(float(net_shares))
-        size_cap_below_min_order_size = bool(
-            active
-            and float(size_cap_shares) > 1e-9
-            and float(size_cap_shares) + 1e-9 < float(min_order_size_shares)
-        )
-        if not active:
-            return {
-                "active": False,
-                "reason": "",
-                "side": side,
-                "side_policy": side_policy,
-                "size_cap_shares": float(size_cap_shares),
-                "size_cap_below_min_order_size": False,
-                "min_order_size_shares": float(min_order_size_shares),
-                "net_shares": float(net_shares),
-                "open_order_present": bool(open_order_present),
-                "preexpiry_active": False,
-                "expired_grace_active": bool(expired_reduce_only_grace_active),
-                "sec_to_expiry": sec_to_expiry,
-                "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
-            }
-        reason = (
-            "expired_reduce_only_grace_active"
-            if bool(expired_reduce_only_grace_active)
-            else "preexpiry_reduce_only_window_active"
-        )
         return {
-            "active": True,
-            "reason": str(reason),
-            "side": side,
-            "side_policy": side_policy,
-            "size_cap_shares": float(size_cap_shares),
-            "size_cap_below_min_order_size": bool(size_cap_below_min_order_size),
-            "min_order_size_shares": float(min_order_size_shares),
             "net_shares": float(net_shares),
             "open_order_present": bool(open_order_present),
-            "preexpiry_active": bool(preexpiry_active),
-            "expired_grace_active": bool(expired_reduce_only_grace_active),
+            "open_order_cleanup_required": bool(open_order_present),
+            "settlement_hold_required": bool(abs(net_shares) > 1e-9),
+            "unresolved_lifecycle_obligation": bool(open_order_present),
+            "cancel_fail_closed": bool(open_order_present),
             "sec_to_expiry": sec_to_expiry,
-            "preexpiry_window_sec": float(self.held_preexpiry_reduce_only_sec),
         }
-
-    def _book_not_found_backoff_sec_for_token(
-        self,
-        *,
-        token_id: str,
-        held_exposure_tokens: Optional[set[str]] = None,
-    ) -> float:
-        token = str(token_id or "").strip()
-        if not token:
-            return float(self.book_not_found_backoff_sec)
-        held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
-        if token in held_tokens:
-            return float(self.held_book_not_found_backoff_sec)
-        return float(self.book_not_found_backoff_sec)
 
     def _watch_removal_conditions_met(self, token_id: str) -> bool:
         token = str(token_id or "").strip()
@@ -6713,43 +6558,43 @@ class ExecutionRunner:
         unresolved_lifecycle_obligation = bool(lifecycle_flags.get("unresolved_lifecycle_obligation", False))
         return bool(position_flat and (not has_open_order) and (not unresolved_lifecycle_obligation))
 
-    def _handle_missing_book_not_found_tokens(
+    def _handle_ws_missing_or_unusable_tokens(
         self,
         *,
-        missing_book_not_found_tokens: List[str],
+        missing_or_unusable_tokens: List[str],
         held_exposure_tokens: Optional[set[str]] = None,
     ) -> Dict[str, List[str]]:
-        if not missing_book_not_found_tokens or not self.discovery.enabled:
+        if not missing_or_unusable_tokens or not self.discovery.enabled:
             return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
-        unique_not_found = sorted(
-            set(str(token_id) for token_id in missing_book_not_found_tokens if str(token_id or "").strip())
+        unique_tokens = sorted(
+            set(str(token_id) for token_id in missing_or_unusable_tokens if str(token_id or "").strip())
         )
-        if not unique_not_found:
+        if not unique_tokens:
             return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
         held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
-        forced_refresh_tokens = [token_id for token_id in unique_not_found if token_id not in held_tokens]
-        held_not_found_tokens = [token_id for token_id in unique_not_found if token_id in held_tokens]
+        forced_refresh_tokens = [token_id for token_id in unique_tokens if token_id not in held_tokens]
+        held_missing_tokens = [token_id for token_id in unique_tokens if token_id in held_tokens]
         forced_held_recovery_tokens: List[str] = []
         suppressed_held_tokens: List[str] = []
         now_mono = time.monotonic()
-        for token_id in held_not_found_tokens:
+        for token_id in held_missing_tokens:
             should_force_recovery = False
-            if self.held_book_not_found_force_refresh_interval_sec > 0.0:
+            if self.held_ws_missing_or_unusable_refresh_interval_sec > 0.0:
                 unpriceable_since = self._held_unpriceable_since_mono_by_token.get(token_id)
                 unpriceable_age_sec = (
                     max(0.0, float(now_mono - float(unpriceable_since)))
                     if isinstance(unpriceable_since, (int, float))
                     else 0.0
                 )
-                next_allowed_mono = self._held_book_not_found_force_refresh_next_mono_by_token.get(token_id, 0.0)
+                next_allowed_mono = self._held_ws_missing_or_unusable_refresh_next_mono_by_token.get(token_id, 0.0)
                 if (
                     unpriceable_age_sec + 1e-9
-                    >= float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec)
+                    >= float(self.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec)
                     and now_mono >= float(next_allowed_mono)
                 ):
                     should_force_recovery = True
-                    self._held_book_not_found_force_refresh_next_mono_by_token[token_id] = (
-                        now_mono + float(self.held_book_not_found_force_refresh_interval_sec)
+                    self._held_ws_missing_or_unusable_refresh_next_mono_by_token[token_id] = (
+                        now_mono + float(self.held_ws_missing_or_unusable_refresh_interval_sec)
                     )
             if should_force_recovery:
                 forced_held_recovery_tokens.append(token_id)
@@ -6758,23 +6603,23 @@ class ExecutionRunner:
         if forced_held_recovery_tokens:
             forced_refresh_tokens.extend(forced_held_recovery_tokens)
             forced_refresh_tokens = sorted(set(str(token_id) for token_id in forced_refresh_tokens if str(token_id)))
-            self.telemetry.incr("target_refresh_forced_held_book_not_found_recovery")
+            self.telemetry.incr("target_refresh_forced_held_ws_missing_or_unusable_recovery")
             self.events.log_event(
-                "target_refresh_forced_held_book_not_found_recovery",
+                "target_refresh_forced_held_ws_missing_or_unusable_recovery",
                 {
                     "ts_utc": utc_iso(),
                     "run_id": self.run_id,
                     "token_count": len(forced_held_recovery_tokens),
                     "token_ids": list(forced_held_recovery_tokens),
-                    "reason": "persistent_held_exposure_book_not_found_recovery_refresh",
-                    "min_unpriceable_age_sec": float(self.held_book_not_found_force_refresh_min_unpriceable_age_sec),
-                    "refresh_interval_sec": float(self.held_book_not_found_force_refresh_interval_sec),
+                    "reason": "persistent_held_ws_missing_or_unusable_recovery_refresh",
+                    "min_unpriceable_age_sec": float(self.held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec),
+                    "refresh_interval_sec": float(self.held_ws_missing_or_unusable_refresh_interval_sec),
                 },
             )
         if forced_refresh_tokens:
-            self.telemetry.incr("target_refresh_forced_book_not_found")
+            self.telemetry.incr("target_refresh_forced_ws_missing_or_unusable")
             self.events.log_event(
-                "target_refresh_forced_book_not_found",
+                "target_refresh_forced_ws_missing_or_unusable",
                 {
                     "ts_utc": utc_iso(),
                     "run_id": self.run_id,
@@ -6788,15 +6633,15 @@ class ExecutionRunner:
             )
             self._refresh_targets(force=True)
         elif suppressed_held_tokens:
-            self.telemetry.incr("target_refresh_suppressed_held_book_not_found")
+            self.telemetry.incr("target_refresh_suppressed_held_ws_missing_or_unusable")
             self.events.log_event(
-                "target_refresh_suppressed_held_book_not_found",
+                "target_refresh_suppressed_held_ws_missing_or_unusable",
                 {
                     "ts_utc": utc_iso(),
                     "run_id": self.run_id,
                     "token_count": len(suppressed_held_tokens),
                     "token_ids": list(suppressed_held_tokens),
-                    "reason": "held_exposure_book_not_found_no_discovery_refresh",
+                    "reason": "held_ws_missing_or_unusable_no_discovery_refresh",
                 },
             )
         return {
@@ -6805,14 +6650,21 @@ class ExecutionRunner:
         }
 
     def _sync_book_feed_watch_tokens(self) -> None:
-        watch_token_ids = self._valuation_watch_token_ids()
+        watch_token_ids = self._transport_watch_token_ids()
         previous_watch_token_ids = list(getattr(self, "_last_book_feed_watch_token_ids", []))
         changed = watch_token_ids != previous_watch_token_ids
         self.book_feed.update_token_ids(watch_token_ids)
         if not changed:
             return
         self._last_book_feed_watch_token_ids = list(watch_token_ids)
-        self._reset_ws_slo_bootstrap(reason="book_feed_watch_tokens_updated")
+        active_watch_additions = [
+            token_id for token_id in self.token_ids if token_id and token_id not in set(previous_watch_token_ids)
+        ]
+        apply_active_grace = bool(active_watch_additions)
+        self._reset_ws_slo_bootstrap(
+            reason="book_feed_watch_tokens_updated",
+            activate_grace=apply_active_grace,
+        )
         self.events.log_event(
             "book_feed_watch_tokens_updated",
             {
@@ -6822,6 +6674,13 @@ class ExecutionRunner:
                 "new_token_count": int(len(watch_token_ids)),
                 "old_token_ids": list(previous_watch_token_ids),
                 "new_token_ids": list(watch_token_ids),
+                "authoritative_active_token_count": int(len(self.token_ids)),
+                "authoritative_active_token_ids": list(self.token_ids),
+                "challenger_token_count": int(len(self._challenger_token_ids)),
+                "challenger_token_ids": list(self._challenger_token_ids),
+                "active_watch_addition_count": int(len(active_watch_additions)),
+                "active_watch_addition_token_ids": list(active_watch_additions),
+                "ws_slo_grace_applied": bool(apply_active_grace),
             },
         )
 
@@ -6847,8 +6706,14 @@ class ExecutionRunner:
             return
 
         discovered_ids = self._unique_ordered([str(x) for x in result.token_ids])
-        carry_forward_ids = self._discovery_carry_forward_token_ids(discovered_ids)
-        effective_discovered_ids = self._unique_ordered(discovered_ids + carry_forward_ids)
+        self._last_discovery_candidate_pairs_token_ids = [
+            self._unique_ordered(
+                [str(token_id).strip() for token_id in list(pair_ids or []) if str(token_id).strip()]
+            )
+            for pair_ids in list(getattr(result, "candidate_pairs_token_ids", []) or [])
+        ]
+        primary_pair_ids = self._discovery_primary_pair_token_ids(discovered_ids)
+        carry_forward_ids = self._discovery_carry_forward_token_ids(primary_pair_ids)
         self.telemetry.set_gauge("target_discovery_allowlist_enabled", 1.0 if result.allowlist_enabled else 0.0)
         self.telemetry.set_gauge("target_discovery_allowlist_rejected_pairs", float(result.allowlist_rejected_pairs))
         self.telemetry.set_gauge("target_discovery_contract_rejected_pairs", float(result.contract_rejected_pairs))
@@ -6893,30 +6758,93 @@ class ExecutionRunner:
             for token_id, market_key in result.token_market_key_by_token.items()
             if str(token_id) and str(market_key)
         }
-        self.telemetry.set_gauge("target_discovery_active_targets", float(len(discovered_ids)))
-        self.telemetry.set_gauge("target_discovery_standdown", 1.0 if not effective_discovered_ids else 0.0)
-        if not effective_discovered_ids:
+        lifecycle_watch_ids = self._lifecycle_watch_token_ids()
+        old_authoritative_ids = list(self.token_ids)
+        old_pending_ids = list(self._challenger_token_ids)
+        old_retained_set = set(old_authoritative_ids) | set(old_pending_ids) | set(lifecycle_watch_ids)
+        old_market_key_map = dict(self.token_market_key_by_token)
+
+        if discovered_expiry_map:
+            self._apply_token_expiry_map(discovered_expiry_map, source="discovery")
+        if discovered_side_map:
+            self._apply_token_side_map(discovered_side_map, source="discovery")
+        if discovered_open_anchor_map:
+            self._apply_token_open_anchor_map(discovered_open_anchor_map, source="discovery")
+        if discovered_strike_map:
+            self._apply_token_strike_map(discovered_strike_map, source="discovery")
+        if discovered_market_key_map:
+            self.token_market_key_by_token.update(discovered_market_key_map)
+
+        active_pair_valid = bool(old_authoritative_ids) and self._pair_tokens_market_valid(old_authoritative_ids)
+        primary_pair_valid = bool(primary_pair_ids) and self._pair_tokens_market_valid(primary_pair_ids)
+        normalized_primary_pair_ids = self._unique_ordered(primary_pair_ids)
+        same_as_active = bool(active_pair_valid and normalized_primary_pair_ids == old_authoritative_ids)
+
+        if active_pair_valid:
+            next_active_ids = list(old_authoritative_ids if (not primary_pair_valid or not same_as_active) else normalized_primary_pair_ids)
+            next_pending_ids = [] if (not primary_pair_valid or same_as_active) else list(normalized_primary_pair_ids)
+        else:
+            next_active_ids = list(normalized_primary_pair_ids if primary_pair_valid else [])
+            next_pending_ids = []
+        retained_set = set(next_active_ids) | set(next_pending_ids) | set(lifecycle_watch_ids)
+
+        self.telemetry.set_gauge("target_discovery_active_targets", float(len(next_active_ids)))
+        self.telemetry.set_gauge("target_discovery_standdown", 1.0 if (not next_active_ids and not next_pending_ids) else 0.0)
+        self.telemetry.set_gauge("target_discovery_challenger_token_count", float(len(next_pending_ids)))
+        if not primary_pair_ids and not active_pair_valid:
             self.telemetry.incr("target_discovery_empty")
-            old = list(self.token_ids)
-            if old:
-                old_set = set(old)
-                self.token_ids = []
-                self._sync_book_feed_watch_tokens()
-                self.token_market_key_by_token = {}
-                self.token_expiry_utc_by_token = {}
-                self.token_expiry_dt_by_token = {}
-                self.token_side_by_token = {}
-                self.token_open_anchor_utc_by_token = {}
-                self.token_open_anchor_dt_by_token = {}
-                self.token_strike_by_token = {}
-                self._prune_removed_tokens(old_set=old_set, active_set=set())
+            self._set_challenger_token_ids([], reason="no_valid_targets_discovered")
+            self._set_authoritative_active_token_ids(
+                [],
+                reason="no_valid_targets_discovered",
+                apply_ws_slo_grace=False,
+            )
+            self.token_market_key_by_token = {
+                token_id: old_market_key_map.get(token_id, "")
+                for token_id in lifecycle_watch_ids
+            }
+            self.token_expiry_utc_by_token = {
+                token_id: expiry_utc
+                for token_id, expiry_utc in self.token_expiry_utc_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self.token_expiry_dt_by_token = {
+                token_id: expiry_dt
+                for token_id, expiry_dt in self.token_expiry_dt_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self.token_side_by_token = {
+                token_id: side
+                for token_id, side in self.token_side_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self.token_open_anchor_utc_by_token = {
+                token_id: anchor_utc
+                for token_id, anchor_utc in self.token_open_anchor_utc_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self.token_open_anchor_dt_by_token = {
+                token_id: anchor_dt
+                for token_id, anchor_dt in self.token_open_anchor_dt_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self.token_strike_by_token = {
+                token_id: strike
+                for token_id, strike in self.token_strike_by_token.items()
+                if token_id in lifecycle_watch_ids
+            }
+            self._sync_book_feed_watch_tokens()
+            self._prune_removed_tokens(old_set=old_retained_set, active_set=set(lifecycle_watch_ids))
+            if old_authoritative_ids or old_pending_ids:
                 self.events.log_event(
                     "targets_standdown",
                     {
                         "ts_utc": utc_iso(),
                         "run_id": self.run_id,
-                        "old_token_count": len(old),
-                        "old_token_ids": old,
+                        "old_token_count": len(old_authoritative_ids),
+                        "old_token_ids": list(old_authoritative_ids),
+                        "old_challenger_token_count": len(old_pending_ids),
+                        "old_challenger_token_ids": list(old_pending_ids),
                         "new_token_count": 0,
                         "new_token_ids": [],
                         "reason": "no_valid_targets_discovered",
@@ -6924,6 +6852,8 @@ class ExecutionRunner:
                         "scanned_markets": int(result.scanned_markets),
                         "fee_eligible_markets": int(result.fee_eligible_markets),
                         "contract_rejected_pairs": int(result.contract_rejected_pairs),
+                        "carry_forward_token_count": len(carry_forward_ids),
+                        "carry_forward_token_ids": list(carry_forward_ids),
                     },
                 )
             elif self._last_discovery_target_count != 0:
@@ -6939,126 +6869,101 @@ class ExecutionRunner:
                         "scanned_markets": int(result.scanned_markets),
                         "fee_eligible_markets": int(result.fee_eligible_markets),
                         "contract_rejected_pairs": int(result.contract_rejected_pairs),
+                        "carry_forward_token_count": len(carry_forward_ids),
+                        "carry_forward_token_ids": list(carry_forward_ids),
                     },
                 )
             self._last_discovery_target_count = 0
             return
 
-        if effective_discovered_ids != self.token_ids:
-            old = list(self.token_ids)
-            self.token_ids = effective_discovered_ids
-            self._reset_ws_slo_bootstrap(reason="targets_updated")
-            old_set = set(old)
-            active_set = set(self.token_ids)
-            self._apply_token_expiry_map(discovered_expiry_map, source="discovery")
-            self._apply_token_side_map(discovered_side_map, source="discovery")
-            self._apply_token_open_anchor_map(discovered_open_anchor_map, source="discovery")
-            self._apply_token_strike_map(discovered_strike_map, source="discovery")
-            old_market_key_map = dict(self.token_market_key_by_token)
-            self.token_market_key_by_token = {
-                token_id: discovered_market_key_map.get(token_id, old_market_key_map.get(token_id, ""))
-                for token_id in active_set
-            }
-            self.token_expiry_utc_by_token = {
-                token_id: expiry_utc
-                for token_id, expiry_utc in self.token_expiry_utc_by_token.items()
-                if token_id in active_set
-            }
-            self.token_expiry_dt_by_token = {
-                token_id: expiry_dt
-                for token_id, expiry_dt in self.token_expiry_dt_by_token.items()
-                if token_id in active_set
-            }
-            self.token_side_by_token = {
-                token_id: side
-                for token_id, side in self.token_side_by_token.items()
-                if token_id in active_set
-            }
-            self.token_open_anchor_utc_by_token = {
-                token_id: anchor_utc
-                for token_id, anchor_utc in self.token_open_anchor_utc_by_token.items()
-                if token_id in active_set
-            }
-            self.token_open_anchor_dt_by_token = {
-                token_id: anchor_dt
-                for token_id, anchor_dt in self.token_open_anchor_dt_by_token.items()
-                if token_id in active_set
-            }
-            self.token_strike_by_token = {
-                token_id: strike
-                for token_id, strike in self.token_strike_by_token.items()
-                if token_id in active_set
-            }
-            self.events.log_event(
-                "targets_updated",
-                {
-                    "ts_utc": utc_iso(),
-                    "run_id": self.run_id,
-                    "old_token_count": len(old),
-                    "new_token_count": len(self.token_ids),
-                    "old_token_ids": old,
-                    "new_token_ids": self.token_ids,
-                    "pairs_selected": result.pairs_selected,
-                    "scanned_markets": result.scanned_markets,
-                    "fee_eligible_markets": result.fee_eligible_markets,
-                    "contract_rejected_pairs": int(result.contract_rejected_pairs),
-                    "allowlist_enabled": bool(result.allowlist_enabled),
-                    "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
-                    "expiry_map_count": len(self.token_expiry_utc_by_token),
-                    "side_map_count": len(self.token_side_by_token),
-                    "open_anchor_map_count": len(self.token_open_anchor_utc_by_token),
-                    "strike_map_count": len(self.token_strike_by_token),
-                    "market_key_map_count": len(self.token_market_key_by_token),
-                    "discovered_token_count": len(discovered_ids),
-                    "discovered_token_ids": list(discovered_ids),
-                    "carry_forward_token_count": len(carry_forward_ids),
-                    "carry_forward_token_ids": list(carry_forward_ids),
-                },
-            )
-            self._sync_book_feed_watch_tokens()
-            self._prune_removed_tokens(old_set=old_set, active_set=active_set)
-            for token_id in self.token_ids:
-                self.risk.positions.setdefault(token_id, Position(token_id=token_id))
-                old_key = str(old_market_key_map.get(token_id, ""))
-                new_key = str(self.token_market_key_by_token.get(token_id, ""))
-                if new_key and old_key != new_key:
-                    self._on_market_key_transition(token_id, old_key, new_key)
-        else:
-            if self._last_discovery_target_count != len(self.token_ids):
-                self.events.log_event(
-                    "targets_refreshed",
-                    {
-                        "ts_utc": utc_iso(),
-                        "run_id": self.run_id,
-                        "token_count": len(self.token_ids),
-                        "pairs_selected": result.pairs_selected,
-                        "scanned_markets": result.scanned_markets,
-                        "fee_eligible_markets": result.fee_eligible_markets,
-                        "contract_rejected_pairs": int(result.contract_rejected_pairs),
-                        "allowlist_enabled": bool(result.allowlist_enabled),
-                        "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
-                        "expiry_map_count": len(discovered_expiry_map),
-                        "side_map_count": len(discovered_side_map),
-                        "open_anchor_map_count": len(discovered_open_anchor_map),
-                        "strike_map_count": len(discovered_strike_map),
-                        "market_key_map_count": len(discovered_market_key_map),
-                    },
-                )
-            if discovered_expiry_map:
-                self._apply_token_expiry_map(discovered_expiry_map, source="discovery_refresh")
-            if discovered_side_map:
-                self._apply_token_side_map(discovered_side_map, source="discovery_refresh")
-            if discovered_open_anchor_map:
-                self._apply_token_open_anchor_map(discovered_open_anchor_map, source="discovery_refresh")
-            if discovered_strike_map:
-                self._apply_token_strike_map(discovered_strike_map, source="discovery_refresh")
-            if discovered_market_key_map:
-                for token_id in self.token_ids:
-                    old_key = str(self.token_market_key_by_token.get(token_id, ""))
-                    new_key = str(discovered_market_key_map.get(token_id, old_key))
-                    self.token_market_key_by_token[token_id] = new_key
-                    if new_key and old_key != new_key:
-                        self._on_market_key_transition(token_id, old_key, new_key)
+        self._set_challenger_token_ids(
+            next_pending_ids,
+            reason=(
+                "discovery_candidate_challenger"
+                if next_pending_ids
+                else "discovery_candidate_absent_or_owned"
+            ),
+            event_extra={
+                "pairs_selected": int(result.pairs_selected),
+                "scanned_markets": int(result.scanned_markets),
+                "fee_eligible_markets": int(result.fee_eligible_markets),
+                "contract_rejected_pairs": int(result.contract_rejected_pairs),
+                "allowlist_enabled": bool(result.allowlist_enabled),
+                "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
+                "primary_pair_token_ids": list(primary_pair_ids),
+            },
+        )
+        self._set_authoritative_active_token_ids(
+            next_active_ids,
+            reason=(
+                "owned_market_retained_or_admitted"
+                if next_active_ids
+                else "discovery_candidate_absent"
+            ),
+            apply_ws_slo_grace=bool(
+                next_active_ids
+                and not set(next_active_ids).issubset(set(old_pending_ids))
+                and set(next_active_ids) != set(old_authoritative_ids)
+            ),
+            event_extra={
+                "pairs_selected": int(result.pairs_selected),
+                "scanned_markets": int(result.scanned_markets),
+                "fee_eligible_markets": int(result.fee_eligible_markets),
+                "contract_rejected_pairs": int(result.contract_rejected_pairs),
+                "allowlist_enabled": bool(result.allowlist_enabled),
+                "allowlist_rejected_pairs": int(result.allowlist_rejected_pairs),
+                "discovered_token_count": len(discovered_ids),
+                "discovered_token_ids": list(discovered_ids),
+                "primary_pair_token_ids": list(primary_pair_ids),
+                "challenger_token_count": len(next_pending_ids),
+                "challenger_token_ids": list(next_pending_ids),
+                "carry_forward_token_count": len(carry_forward_ids),
+                "carry_forward_token_ids": list(carry_forward_ids),
+            },
+        )
+
+        self.token_market_key_by_token = {
+            token_id: discovered_market_key_map.get(token_id, old_market_key_map.get(token_id, ""))
+            for token_id in retained_set
+        }
+        self.token_expiry_utc_by_token = {
+            token_id: expiry_utc
+            for token_id, expiry_utc in self.token_expiry_utc_by_token.items()
+            if token_id in retained_set
+        }
+        self.token_expiry_dt_by_token = {
+            token_id: expiry_dt
+            for token_id, expiry_dt in self.token_expiry_dt_by_token.items()
+            if token_id in retained_set
+        }
+        self.token_side_by_token = {
+            token_id: side
+            for token_id, side in self.token_side_by_token.items()
+            if token_id in retained_set
+        }
+        self.token_open_anchor_utc_by_token = {
+            token_id: anchor_utc
+            for token_id, anchor_utc in self.token_open_anchor_utc_by_token.items()
+            if token_id in retained_set
+        }
+        self.token_open_anchor_dt_by_token = {
+            token_id: anchor_dt
+            for token_id, anchor_dt in self.token_open_anchor_dt_by_token.items()
+            if token_id in retained_set
+        }
+        self.token_strike_by_token = {
+            token_id: strike
+            for token_id, strike in self.token_strike_by_token.items()
+            if token_id in retained_set
+        }
+        self._sync_book_feed_watch_tokens()
+        self._prune_removed_tokens(old_set=old_retained_set, active_set=retained_set)
+        for token_id in sorted(set(next_active_ids) | set(next_pending_ids)):
+            self.risk.positions.setdefault(token_id, Position(token_id=token_id))
+            old_key = str(old_market_key_map.get(token_id, ""))
+            new_key = str(self.token_market_key_by_token.get(token_id, ""))
+            if new_key and old_key != new_key:
+                self._on_market_key_transition(token_id, old_key, new_key)
         self._last_discovery_target_count = len(self.token_ids)
 
     @staticmethod
@@ -7103,16 +7008,15 @@ class ExecutionRunner:
                 self.last_midpoint_by_token.pop(token_id, None)
                 self.last_midpoint_ts_mono_by_token.pop(token_id, None)
                 self.last_volatility_by_token.pop(token_id, None)
-                self._book_not_found_backoff_mono_by_token.pop(token_id, None)
-                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
-                self._held_book_not_found_force_refresh_next_mono_by_token.pop(token_id, None)
+                self._held_ws_missing_or_unusable_refresh_next_mono_by_token.pop(token_id, None)
             self.token_market_key_by_token.pop(token_id, None)
             self.token_open_anchor_utc_by_token.pop(token_id, None)
             self.token_open_anchor_dt_by_token.pop(token_id, None)
             self._market_entry_mono_by_token.pop(token_id, None)
             self._market_entry_cycle_by_token.pop(token_id, None)
-            self._last_stage_by_token.pop(token_id, None)
+            self._last_lifecycle_phase_by_token.pop(token_id, None)
             self._last_taker_submit_mono_by_token.pop(token_id, None)
+            self._taker_window_submit_lock_keys.discard(self._taker_window_submit_lock_key_for_token(token_id))
             self._last_doctrine_signature_by_token.pop(token_id, None)
             self._last_doctrine_prereq_failure_by_token.pop(token_id, None)
             self._clear_maker_ws_touch_cache(token_id)
@@ -7393,7 +7297,7 @@ class ExecutionRunner:
                 "run_id": self.run_id,
             },
         )
-        self._emit_taker_stage_window_semantic_check()
+        self._emit_taker_window_semantic_check()
         cfg_meta = self.cfg.get("_meta", {}) if isinstance(self.cfg.get("_meta"), dict) else {}
         LOG.info(
             "Active profile: %s | Config fingerprint: %s | Config sources: %s",
@@ -7421,7 +7325,7 @@ class ExecutionRunner:
             self._refresh_targets(force=True)
             self.chainlink.start()
             self.pyth.start()
-            watch_token_ids = self._valuation_watch_token_ids()
+            watch_token_ids = self._transport_watch_token_ids()
             self._last_book_feed_watch_token_ids = list(watch_token_ids)
             self.book_feed.start(watch_token_ids)
             self.prometheus.start()
@@ -7441,8 +7345,21 @@ class ExecutionRunner:
                 stale_action_budget = 2
                 orphan_action_budget: Optional[int] = None
                 self._refresh_targets(force=False)
+                self._reconcile_pair_authority()
                 self._sync_book_feed_watch_tokens()
                 self.telemetry.set_gauge("target_count", float(len(self.token_ids)))
+                self.telemetry.set_gauge(
+                    "challenger_token_count",
+                    float(len(self._challenger_token_ids)),
+                )
+                self.telemetry.set_gauge(
+                    "lifecycle_watch_token_count",
+                    float(len(self._lifecycle_watch_token_ids())),
+                )
+                self.telemetry.set_gauge(
+                    "transport_watch_token_count",
+                    float(len(self._transport_watch_token_ids())),
+                )
                 has_targets = bool(self.token_ids)
                 self._update_runtime_semantics(has_targets=has_targets)
                 mode_state = self.operating_mode.state
@@ -7533,324 +7450,228 @@ class ExecutionRunner:
                 volatility_by_token: Dict[str, float] = {}
                 lag_samples_accepted_cycle = 0
                 ws_updates_cycle = 0
-                rest_updates_cycle = 0
                 ws_updates_target_cycle = 0
-                rest_updates_target_cycle = 0
-                all_targets_missing_ws_books = False
-                rest_fallback_used_cycle = False
                 target_token_ids = self._unique_ordered([str(token_id) for token_id in self.token_ids if str(token_id).strip()])
                 target_token_set = set(target_token_ids)
                 valuation_token_ids = self._valuation_watch_token_ids()
                 held_exposure_tokens = self._held_exposure_token_ids()
+                pair_truth_by_base_key: Dict[str, Dict[str, Any]] = {}
+                pair_missing_base_keys: List[str] = []
+                all_target_pairs_missing_ws = False
                 if not has_targets:
                     self.telemetry.incr("no_target_cycles")
-                now_mono = time.monotonic()
-                self._preexpiry_404_anomaly_last_cycle = False
-                missing_rest_tokens, held_ws_unusable_token_ids = self._rest_fetch_candidate_tokens_for_cycle(
-                    valuation_token_ids=valuation_token_ids,
-                    ws_books=ws_books,
-                    now_mono=now_mono,
-                )
-                requested_rest_token_ids = set(missing_rest_tokens)
-                rest_books, rest_errors = self._fetch_missing_books(missing_rest_tokens)
-                missing_book_not_found_tokens: list[str] = []
+                self._preexpiry_ws_missing_or_unusable_anomaly_last_cycle = False
+                missing_or_unusable_tokens: list[str] = []
                 for token_id in valuation_token_ids:
-                        raw = None
-                        top = ws_books.get(token_id)
-                        force_rest_for_held_unusable_quote = bool(
-                            top is not None and token_id in held_ws_unusable_token_ids
-                        )
-                        if top is None or force_rest_for_held_unusable_quote:
-                            backoff_until = self._book_not_found_backoff_mono_by_token.get(token_id, 0.0)
-                            if backoff_until > time.monotonic():
-                                if top is not None and force_rest_for_held_unusable_quote:
-                                    force_rest_for_held_unusable_quote = False
-                                else:
-                                    continue
-                            if force_rest_for_held_unusable_quote:
-                                self.telemetry.incr("held_valuation_rest_fallback_attempted")
+                    top = ws_books.get(token_id)
+                    if top is None:
+                        missing_or_unusable_tokens.append(token_id)
+                        if token_id in held_exposure_tokens:
+                            stage_info = self._token_lifecycle_info(token_id)
+                            stage_name = self._compat_stage_from_lifecycle_info(stage_info)
+                            sec_to_expiry_val = stage_info.get("sec_to_expiry")
+                            sec_to_expiry = (
+                                float(sec_to_expiry_val)
+                                if isinstance(sec_to_expiry_val, (int, float))
+                                else None
+                            )
+                            preexpiry_ws_missing_or_unusable = bool(
+                                isinstance(sec_to_expiry, float)
+                                and sec_to_expiry > (float(self.expiry_boundary_epsilon_sec) + 1e-9)
+                            )
+                            if preexpiry_ws_missing_or_unusable:
+                                self._preexpiry_ws_missing_or_unusable_anomaly_count += 1
+                                self._preexpiry_ws_missing_or_unusable_anomaly_last_cycle = True
+                                self.telemetry.incr("preexpiry_ws_missing_or_unusable_anomaly")
                                 self.events.log_event(
-                                    "held_valuation_rest_fallback_attempted",
+                                    "preexpiry_ws_missing_or_unusable_anomaly",
                                     {
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
                                         "token_id": token_id,
-                                        "reason": "ws_quote_missing_mid_and_required_conservative_side",
+                                        "market_key": str(stage_info.get("market_key") or ""),
+                                        **lifecycle_phase_surface_fields(
+                                            lifecycle_phase=stage_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                                            or lifecycle_phase_from_payload(stage_info)
+                                            or "scan"
+                                        ),
+                                        **lineage_stage_surface_fields(
+                                            lineage_stage=lineage_stage_from_payload(stage_info)
+                                            if lineage_stage_from_payload(stage_info) != STAGE_UNKNOWN
+                                            else stage_name
+                                        ),
+                                        "sec_to_expiry": sec_to_expiry,
+                                        "held_exposure_token": True,
+                                        "open_order_cleanup_required": bool(
+                                            stage_info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False)
+                                        ),
+                                        "settlement_hold_required": bool(
+                                            stage_info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False)
+                                        ),
+                                        "unresolved_lifecycle_obligation": bool(
+                                            stage_info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False)
+                                        ),
+                                        "reason": "ws_book_missing",
                                     },
                                 )
-                            fetched, err_text, fetch_attempted = self._rest_fetch_result_for_token(
-                                token_id=token_id,
-                                requested_rest_token_ids=requested_rest_token_ids,
-                                rest_books=rest_books,
-                                rest_errors=rest_errors,
-                            )
-                            if not fetch_attempted:
-                                # Backoff can expire after we snapshot rest-fetch candidates for the cycle.
-                                # Defer this token to the next cycle instead of inventing a synthetic fetch error.
-                                if top is None:
-                                    continue
-                            if fetched is None:
-                                if not err_text:
-                                    if top is None:
-                                        continue
-                                elif self.discovery.enabled and self._is_missing_book_not_found_error(err_text):
-                                    backoff_sec = self._book_not_found_backoff_sec_for_token(
-                                        token_id=token_id,
-                                        held_exposure_tokens=held_exposure_tokens,
-                                    )
-                                    now_mono_error = time.monotonic()
-                                    self._book_not_found_backoff_mono_by_token[token_id] = (
-                                        now_mono_error + float(backoff_sec)
-                                    )
-                                    self._held_book_not_found_last_mono_by_token[token_id] = float(now_mono_error)
-                                    missing_book_not_found_tokens.append(token_id)
-                                    stage_info = self._token_stage_info(token_id)
-                                    stage_name = str(stage_info.get("stage") or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
-                                    sec_to_expiry_val = stage_info.get("sec_to_expiry")
-                                    sec_to_expiry = (
-                                        float(sec_to_expiry_val)
-                                        if isinstance(sec_to_expiry_val, (int, float))
-                                        else None
-                                    )
-                                    preexpiry_404_anomaly = bool(
-                                        token_id in held_exposure_tokens
-                                        and isinstance(sec_to_expiry, float)
-                                        and sec_to_expiry
-                                        > (
-                                            float(self.held_preexpiry_reduce_only_sec)
-                                            + float(self.expiry_boundary_epsilon_sec)
-                                            + 1e-9
-                                        )
-                                    )
-                                    if preexpiry_404_anomaly:
-                                        self._preexpiry_404_anomaly_count += 1
-                                        self._preexpiry_404_anomaly_last_cycle = True
-                                        self.telemetry.incr("preexpiry_404_anomaly")
-                                        self.events.log_event(
-                                            "preexpiry_404_anomaly",
-                                            {
-                                                "ts_utc": utc_iso(),
-                                                "run_id": self.run_id,
-                                                "token_id": token_id,
-                                                "market_key": str(stage_info.get("market_key") or ""),
-                                                "stage": stage_name,
-                                                "sec_to_expiry": sec_to_expiry,
-                                                "preexpiry_reduce_only_window_sec": float(
-                                                    self.held_preexpiry_reduce_only_sec
-                                                ),
-                                                "held_exposure_token": bool(token_id in held_exposure_tokens),
-                                                "expired_reduce_only_grace_active": bool(
-                                                    stage_info.get("expired_reduce_only_grace_active", False)
-                                                ),
-                                                "reduce_only_recovery_active": bool(
-                                                    stage_info.get("reduce_only_recovery_active", False)
-                                                ),
-                                                "reduce_only_recovery_reason": str(
-                                                    stage_info.get("reduce_only_recovery_reason") or ""
-                                                ),
-                                                "error": err_text,
-                                            },
-                                        )
-                                    self.telemetry.incr("book_not_found")
-                                    self.events.log_event(
-                                        "book_not_found",
-                                        {
-                                            "ts_utc": utc_iso(),
-                                            "run_id": self.run_id,
-                                            "token_id": token_id,
-                                            "error": err_text,
-                                            "backoff_sec": float(backoff_sec),
-                                            "held_exposure_token": bool(token_id in held_exposure_tokens),
-                                            "market_key": str(stage_info.get("market_key") or ""),
-                                            "stage": stage_name,
-                                            "sec_to_expiry": sec_to_expiry,
-                                            "expired_reduce_only_grace_active": bool(
-                                                stage_info.get("expired_reduce_only_grace_active", False)
-                                            ),
-                                            "preexpiry_reduce_only_active": bool(
-                                                stage_info.get("preexpiry_reduce_only_active", False)
-                                            ),
-                                            "reduce_only_recovery_active": bool(
-                                                stage_info.get("reduce_only_recovery_active", False)
-                                            ),
-                                            "reduce_only_recovery_reason": str(
-                                                stage_info.get("reduce_only_recovery_reason") or ""
-                                            ),
-                                            "preexpiry_404_anomaly": bool(preexpiry_404_anomaly),
-                                        },
-                                    )
-                                    if top is None:
-                                        continue
-                                else:
-                                    self.telemetry.incr("book_errors")
-                                    cycle_had_error = True
-                                    self.events.log_error(
-                                        {
-                                            "ts_utc": utc_iso(),
-                                            "component": "market_data",
-                                            "token_id": token_id,
-                                            "error": err_text,
-                                        }
-                                    )
-                                    if top is None:
-                                        continue
-                            else:
-                                top, raw, latency_ms = fetched
-                                self._book_not_found_backoff_mono_by_token.pop(token_id, None)
-                                self._held_book_not_found_last_mono_by_token.pop(token_id, None)
-                                self.telemetry.set_gauge(
-                                    f"book_fetch_latency_ms.{token_id}",
-                                    latency_ms,
-                                )
-                                self.telemetry.incr("book_updates_rest")
-                                if force_rest_for_held_unusable_quote:
-                                    self.telemetry.incr("held_valuation_rest_fallback_applied")
-                                    self.events.log_event(
-                                        "held_valuation_rest_fallback_applied",
-                                        {
-                                            "ts_utc": utc_iso(),
-                                            "run_id": self.run_id,
-                                            "token_id": token_id,
-                                            "reason": "rest_book_replaced_ws_unusable_quote",
-                                        },
-                                    )
-                                rest_updates_cycle += 1
-                                if token_id in target_token_set:
-                                    rest_updates_target_cycle += 1
-                        else:
-                            self._book_not_found_backoff_mono_by_token.pop(token_id, None)
-                            self._held_book_not_found_last_mono_by_token.pop(token_id, None)
-                            self.telemetry.incr("book_updates_ws")
-                            ws_updates_cycle += 1
-                            if token_id in target_token_set:
-                                ws_updates_target_cycle += 1
-                        self.telemetry.incr("book_updates")
-                        valuation_books[token_id] = top
-                        if token_id in target_token_set:
-                            books[token_id] = top
-                        self.tx_manager.on_book(top)
-                        if self.log_book_top:
-                            self.events.log_event(
-                                "book_top",
-                                {
-                                    "ts_utc": top.ts_utc,
-                                    "token_id": token_id,
-                                    "best_bid_price": top.best_bid_price,
-                                    "best_bid_size": top.best_bid_size,
-                                    "best_ask_price": top.best_ask_price,
-                                    "best_ask_size": top.best_ask_size,
-                                    "midpoint": top.midpoint,
-                                    "spread": top.spread,
-                                    "source": top.source,
-                                    "raw_book_present": bool(raw),
-                                    "from_ws": top.source == "ws",
-                                },
-                            )
-                        midpoint = top.midpoint
-                        prev_mid = self.last_midpoint_by_token.get(token_id)
-                        if isinstance(midpoint, (int, float)):
-                            self.last_midpoint_by_token[token_id] = float(midpoint)
-                            self.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
-                        realized_vol = self.vol_tracker.update(token_id, midpoint)
-                        if realized_vol is not None:
-                            volatility_by_token[token_id] = realized_vol
-                            self.last_volatility_by_token[token_id] = realized_vol
-                            self.telemetry.set_gauge(f"realized_vol.{token_id}", realized_vol)
-                        mid_move_min = float(self.cfg.get("chainlink", {}).get("mid_move_min_delta", 0.001))
-                        latency_sample_mid_move_min = float(
-                            max(0.0, self.chainlink_latency_sample_mid_move_min_delta)
+                        continue
+                    if token_id in held_exposure_tokens and self._ws_quote_unusable_for_held_valuation(
+                        token_id=token_id,
+                        top=top,
+                    ):
+                        missing_or_unusable_tokens.append(token_id)
+                    self.telemetry.incr("book_updates_ws")
+                    ws_updates_cycle += 1
+                    if token_id in target_token_set:
+                        ws_updates_target_cycle += 1
+                    self.telemetry.incr("book_updates")
+                    valuation_books[token_id] = top
+                    if token_id in target_token_set:
+                        books[token_id] = top
+                    self.tx_manager.on_book(top)
+                    if self.log_book_top:
+                        self.events.log_event(
+                            "book_top",
+                            {
+                                "ts_utc": top.ts_utc,
+                                "token_id": token_id,
+                                "best_bid_price": top.best_bid_price,
+                                "best_bid_size": top.best_bid_size,
+                                "best_ask_price": top.best_ask_price,
+                                "best_ask_size": top.best_ask_size,
+                                "midpoint": top.midpoint,
+                                "spread": top.spread,
+                                "source": top.source,
+                                "raw_book_present": False,
+                                "from_ws": self._book_source_is_ws(top),
+                            },
                         )
-                        mid_delta = None
-                        if midpoint is not None and prev_mid is not None:
-                            mid_delta = midpoint - prev_mid
-                        sample_triggered = (
-                            mid_delta is not None and abs(mid_delta) >= latency_sample_mid_move_min
-                        )
-                        event_triggered = mid_delta is not None and abs(mid_delta) >= mid_move_min
-                        if (
-                            midpoint is not None
-                            and prev_mid is not None
-                            and sample_triggered
-                            and self._book_source_is_ws(top)
-                        ):
-                            symbol_for_targets = self.chainlink_symbol_for_targets
-                            latest_chainlink = self.chainlink.get_latest(symbol_for_targets)
-                            lag_ms = None
-                            chainlink_price = None
-                            chainlink_ts = None
-                            chainlink_source_ts = None
-                            if latest_chainlink is not None:
-                                lag_ms = (time.monotonic() - latest_chainlink.received_monotonic) * 1000.0
-                                chainlink_price = latest_chainlink.price
-                                chainlink_ts = latest_chainlink.received_ts_utc
-                                chainlink_source_ts = latest_chainlink.source_ts_utc
-                                self.telemetry.set_gauge(f"leadlag_last_ms.{token_id}", lag_ms)
-                                ingest_lag_ms = None
-                                source_to_book_ms = None
-                                source_dt = parse_ts(chainlink_source_ts)
-                                recv_dt = parse_ts(chainlink_ts)
-                                now_dt = utc_now()
-                                if source_dt is not None and recv_dt is not None:
-                                    ingest_lag_ms = max(0.0, (recv_dt - source_dt).total_seconds() * 1000.0)
-                                if source_dt is not None:
-                                    source_to_book_ms = max(0.0, (now_dt - source_dt).total_seconds() * 1000.0)
-                                accepted = self._record_lag_sample(
-                                    token_id,
-                                    lag_ms,
-                                    ingest_lag_ms=ingest_lag_ms,
-                                    source_to_book_ms=source_to_book_ms,
-                                )
-                                if accepted:
-                                    lag_samples_accepted_cycle += 1
-                                lag_count, lag_median, lag_hit_rate = self._lag_stats(token_id)
-                                self.telemetry.set_gauge(f"leadlag_samples.{token_id}", float(lag_count))
-                                self.telemetry.set_gauge(f"leadlag_median_ms.{token_id}", lag_median)
-                                self.telemetry.set_gauge(f"leadlag_hit_rate.{token_id}", lag_hit_rate)
-                                self.telemetry.set_gauge(
-                                    f"leadlag_verified.{token_id}",
-                                    1.0 if self._lag_verified(token_id) else 0.0,
-                                )
-                                if accepted and self.latency_verifier.log_sample_events:
-                                    self.events.log_event(
-                                        "latency_sample",
-                                        {
-                                            "ts_utc": utc_iso(),
-                                            "run_id": self.run_id,
-                                            "token_id": token_id,
-                                            "reaction_lag_ms": lag_ms,
-                                            "ingest_lag_ms": ingest_lag_ms,
-                                            "source_to_book_ms": source_to_book_ms,
-                                            "book_source": self._book_source(top),
-                                        },
-                                    )
-                            if event_triggered and self.log_leadlag_book_move:
+                    midpoint = top.midpoint
+                    prev_mid = self.last_midpoint_by_token.get(token_id)
+                    if isinstance(midpoint, (int, float)):
+                        self.last_midpoint_by_token[token_id] = float(midpoint)
+                        self.last_midpoint_ts_mono_by_token[token_id] = time.monotonic()
+                    realized_vol = self.vol_tracker.update(token_id, midpoint)
+                    if realized_vol is not None:
+                        volatility_by_token[token_id] = realized_vol
+                        self.last_volatility_by_token[token_id] = realized_vol
+                        self.telemetry.set_gauge(f"realized_vol.{token_id}", realized_vol)
+                    mid_move_min = float(self.cfg.get("chainlink", {}).get("mid_move_min_delta", 0.001))
+                    latency_sample_mid_move_min = float(
+                        max(0.0, self.chainlink_latency_sample_mid_move_min_delta)
+                    )
+                    mid_delta = None
+                    if midpoint is not None and prev_mid is not None:
+                        mid_delta = midpoint - prev_mid
+                    sample_triggered = (
+                        mid_delta is not None and abs(mid_delta) >= latency_sample_mid_move_min
+                    )
+                    event_triggered = mid_delta is not None and abs(mid_delta) >= mid_move_min
+                    if midpoint is not None and prev_mid is not None and sample_triggered:
+                        symbol_for_targets = self.chainlink_symbol_for_targets
+                        latest_chainlink = self.chainlink.get_latest(symbol_for_targets)
+                        lag_ms = None
+                        chainlink_price = None
+                        chainlink_ts = None
+                        chainlink_source_ts = None
+                        if latest_chainlink is not None:
+                            lag_ms = (time.monotonic() - latest_chainlink.received_monotonic) * 1000.0
+                            chainlink_price = latest_chainlink.price
+                            chainlink_ts = latest_chainlink.received_ts_utc
+                            chainlink_source_ts = latest_chainlink.source_ts_utc
+                            self.telemetry.set_gauge(f"leadlag_last_ms.{token_id}", lag_ms)
+                            ingest_lag_ms = None
+                            source_to_book_ms = None
+                            source_dt = parse_ts(chainlink_source_ts)
+                            recv_dt = parse_ts(chainlink_ts)
+                            now_dt = utc_now()
+                            if source_dt is not None and recv_dt is not None:
+                                ingest_lag_ms = max(0.0, (recv_dt - source_dt).total_seconds() * 1000.0)
+                            if source_dt is not None:
+                                source_to_book_ms = max(0.0, (now_dt - source_dt).total_seconds() * 1000.0)
+                            accepted = self._record_lag_sample(
+                                token_id,
+                                lag_ms,
+                                ingest_lag_ms=ingest_lag_ms,
+                                source_to_book_ms=source_to_book_ms,
+                            )
+                            if accepted:
+                                lag_samples_accepted_cycle += 1
+                            lag_count, lag_median, lag_hit_rate = self._lag_stats(token_id)
+                            self.telemetry.set_gauge(f"leadlag_samples.{token_id}", float(lag_count))
+                            self.telemetry.set_gauge(f"leadlag_median_ms.{token_id}", lag_median)
+                            self.telemetry.set_gauge(f"leadlag_hit_rate.{token_id}", lag_hit_rate)
+                            self.telemetry.set_gauge(
+                                f"leadlag_verified.{token_id}",
+                                1.0 if self._lag_verified(token_id) else 0.0,
+                            )
+                            if accepted and self.latency_verifier.log_sample_events:
                                 self.events.log_event(
-                                    "leadlag_book_move",
+                                    "latency_sample",
                                     {
                                         "ts_utc": utc_iso(),
                                         "run_id": self.run_id,
                                         "token_id": token_id,
-                                        "prev_midpoint": prev_mid,
-                                        "midpoint": midpoint,
-                                        "mid_delta": mid_delta,
-                                        "chainlink_symbol": symbol_for_targets,
-                                        "chainlink_price": chainlink_price,
-                                        "chainlink_tick_ts_utc": chainlink_ts,
-                                        "chainlink_source_ts_utc": chainlink_source_ts,
-                                        "lag_ms": lag_ms,
+                                        "reaction_lag_ms": lag_ms,
+                                        "ingest_lag_ms": ingest_lag_ms,
+                                        "source_to_book_ms": source_to_book_ms,
                                         "book_source": self._book_source(top),
                                     },
                                 )
-                        elif midpoint is not None and prev_mid is not None and sample_triggered:
-                            self.telemetry.incr("latency_samples_skipped_non_ws_source")
-                rest_fallback_used_cycle = rest_updates_cycle > 0
-                all_targets_missing_ws_books = (
-                    bool(target_token_ids)
-                    and ws_updates_target_cycle == 0
-                    and rest_updates_target_cycle > 0
+                        if event_triggered and self.log_leadlag_book_move:
+                            self.events.log_event(
+                                "leadlag_book_move",
+                                {
+                                    "ts_utc": utc_iso(),
+                                    "run_id": self.run_id,
+                                    "token_id": token_id,
+                                    "prev_midpoint": prev_mid,
+                                    "midpoint": midpoint,
+                                    "mid_delta": mid_delta,
+                                    "chainlink_symbol": symbol_for_targets,
+                                    "chainlink_price": chainlink_price,
+                                    "chainlink_tick_ts_utc": chainlink_ts,
+                                    "chainlink_source_ts_utc": chainlink_source_ts,
+                                    "lag_ms": lag_ms,
+                                    "book_source": self._book_source(top),
+                                },
+                            )
+                pair_truth_by_base_key = self._build_pair_truth_map(
+                    books=books,
+                    token_ids=target_token_ids,
                 )
-                self._handle_missing_book_not_found_tokens(
-                    missing_book_not_found_tokens=missing_book_not_found_tokens,
+                pair_missing_base_keys, pair_one_sided_base_keys = self._pair_truth_base_keys_by_class(
+                    pair_truth_by_base_key
+                )
+                all_target_pairs_missing_ws = bool(pair_truth_by_base_key) and (
+                    len(pair_missing_base_keys) == len(pair_truth_by_base_key)
+                )
+                pair_truth_class_counts = collections.Counter(
+                    str(pair_truth.get("pair_truth_class") or "missing").strip().lower()
+                    for pair_truth in pair_truth_by_base_key.values()
+                )
+                self.telemetry.set_gauge(
+                    "pair_truth_authoritative_pair_count",
+                    float(pair_truth_class_counts.get("authoritative", 0)),
+                )
+                self.telemetry.set_gauge(
+                    "pair_truth_one_sided_pair_count",
+                    float(
+                        sum(
+                            1
+                            for pair_truth in pair_truth_by_base_key.values()
+                            if str(pair_truth.get("pair_truth_basis") or "").strip().lower()
+                            == "pair_missing_one_sided_only"
+                        )
+                    ),
+                )
+                self.telemetry.set_gauge(
+                    "pair_truth_missing_pair_count",
+                    float(pair_truth_class_counts.get("missing", 0)),
+                )
+                self.telemetry.set_gauge("pair_truth_pair_count", float(len(pair_truth_by_base_key)))
+                self._handle_ws_missing_or_unusable_tokens(
+                    missing_or_unusable_tokens=missing_or_unusable_tokens,
                     held_exposure_tokens=held_exposure_tokens,
                 )
 
@@ -7979,7 +7800,9 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("edge_confidence_score_avg", avg_score)
                 self.telemetry.set_gauge("edge_confidence_token_count", float(len(confidence_scores_by_token)))
 
-                stage_info_by_token = {token_id: self._token_stage_info(token_id) for token_id in self.token_ids}
+                stage_info_by_token = {
+                    token_id: self._token_lifecycle_info(token_id) for token_id in self.token_ids
+                }
                 self._financial_posture_class = self._resolve_financial_posture_class(
                     stage_info_by_token=stage_info_by_token
                 )
@@ -7987,18 +7810,22 @@ class ExecutionRunner:
                     "financial_posture_class",
                     self._financial_posture_class_to_gauge(self._financial_posture_class),
                 )
-                maker_stage_tokens = {
-                    token_id for token_id, info in stage_info_by_token.items() if bool(info.get("allow_maker", False))
+                maker_phase_tokens = {
+                    token_id
+                    for token_id, info in stage_info_by_token.items()
+                    if bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False))
                 }
                 maker_cannon_probe_token_ids = self._maker_cannon_probe_token_ids(
                     stage_info_by_token=stage_info_by_token,
                     books=books,
                 )
-                maker_observational_token_ids = set(maker_stage_tokens) | set(maker_cannon_probe_token_ids)
-                taker_stage_tokens = {
-                    token_id for token_id, info in stage_info_by_token.items() if bool(info.get("allow_taker", False))
+                maker_observational_token_ids = set(maker_phase_tokens) | set(maker_cannon_probe_token_ids)
+                taker_phase_tokens = {
+                    token_id
+                    for token_id, info in stage_info_by_token.items()
+                    if bool(info.get(EDGE_TAKER_GATE_OPEN_FIELD, False))
                 }
-                self.telemetry.set_gauge("doctrine_maker_stage_token_count", float(len(maker_stage_tokens)))
+                self.telemetry.set_gauge("doctrine_maker_phase_token_count", float(len(maker_phase_tokens)))
                 self.telemetry.set_gauge(
                     "doctrine_maker_cannon_probe_token_count",
                     float(len(maker_cannon_probe_token_ids)),
@@ -8007,48 +7834,71 @@ class ExecutionRunner:
                     "doctrine_maker_observational_token_count",
                     float(len(maker_observational_token_ids)),
                 )
-                self.telemetry.set_gauge("doctrine_taker_stage_token_count", float(len(taker_stage_tokens)))
-                stage_counts = {
-                    STAGE_OBSERVE: 0,
-                    STAGE_EVALUATE: 0,
-                    STAGE_MAKER_POSITION: 0,
-                    STAGE_MAKER_TAKER_SELECTIVE: 0,
-                    STAGE_SNIPER_PRIMARY: 0,
-                    STAGE_EXTREME_ONLY: 0,
-                    STAGE_EXPIRED: 0,
-                    STAGE_UNKNOWN: 0,
+                self.telemetry.set_gauge("doctrine_taker_phase_token_count", float(len(taker_phase_tokens)))
+                lifecycle_phase_counts = {
+                    "scan": 0,
+                    "prepare": 0,
+                    "maker_window": 0,
+                    "taker_window": 0,
+                    "resolve": 0,
+                    "unknown": 0,
                 }
-                stage_bucket_counts = {
+                lineage_stage_counts = {
                     STAGE_OBSERVE: 0,
                     STAGE_EVALUATE: 0,
                     STAGE_MAKER_POSITION: 0,
                     STAGE_MAKER_TAKER_SELECTIVE: 0,
                     STAGE_SNIPER_PRIMARY: 0,
+                    STAGE_LATE_DIAGNOSTIC: 0,
+                    STAGE_MAKER_LATE_WINDOW: 0,
+                    STAGE_TAKER_COMMITMENT: 0,
                     STAGE_EXTREME_ONLY: 0,
                     STAGE_EXPIRED: 0,
                     STAGE_UNKNOWN: 0,
                 }
                 doctrine_gate_fail_count = 0
                 for info in stage_info_by_token.values():
-                    stage_name = str(info.get("stage", STAGE_UNKNOWN))
-                    stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
-                    stage_bucket_name = str(
-                        info.get(EDGE_STAGE_BUCKET_FIELD, info.get("raw_stage")) or STAGE_UNKNOWN
+                    lifecycle_phase_name = str(
+                        info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                        or lifecycle_phase_from_payload(info)
+                        or "unknown"
+                    ).strip().lower() or "unknown"
+                    lifecycle_phase_counts[lifecycle_phase_name] = (
+                        lifecycle_phase_counts.get(lifecycle_phase_name, 0) + 1
                     )
-                    stage_bucket_counts[stage_bucket_name] = stage_bucket_counts.get(stage_bucket_name, 0) + 1
+                    lineage_stage_name = lineage_stage_from_payload(info)
+                    if lineage_stage_name == STAGE_UNKNOWN:
+                        lineage_stage_name = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+                    lineage_stage_counts[lineage_stage_name] = (
+                        lineage_stage_counts.get(lineage_stage_name, 0) + 1
+                    )
                     if str(info.get("doctrine_gate_verdict", "fail")) != "pass":
                         doctrine_gate_fail_count += 1
-                for stage_name, count in stage_counts.items():
-                    self.telemetry.set_gauge(f"doctrine_stage_count.{stage_name.lower()}", float(count))
-                for stage_name, count in stage_bucket_counts.items():
+                for lifecycle_phase_name, count in lifecycle_phase_counts.items():
                     self.telemetry.set_gauge(
-                        f"doctrine_stage_bucket_count.{stage_name.lower()}",
+                        f"doctrine_lifecycle_phase_count.{lifecycle_phase_name.lower()}",
+                        float(count),
+                    )
+                for lineage_stage_name, count in lineage_stage_counts.items():
+                    self.telemetry.set_gauge(
+                        f"doctrine_lineage_stage_count.{lineage_stage_name.lower()}",
                         float(count),
                     )
                 self.telemetry.set_gauge("doctrine_gate_fail_count", float(doctrine_gate_fail_count))
                 self.telemetry.set_gauge(
-                    "doctrine_unknown_stage_token_count",
-                    float(sum(1 for info in stage_info_by_token.values() if str(info.get("stage")) == STAGE_UNKNOWN)),
+                    "doctrine_unknown_lifecycle_phase_token_count",
+                    float(
+                        sum(
+                            1
+                            for info in stage_info_by_token.values()
+                            if str(
+                                info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                                or lifecycle_phase_from_payload(info)
+                                or ""
+                            ).strip().lower()
+                            not in {"scan", "prepare", "maker_window", "taker_window", "resolve"}
+                        )
+                    ),
                 )
 
                 taker_ctx = self._taker_context()
@@ -8062,9 +7912,9 @@ class ExecutionRunner:
                     near_tokens = list(taker_ctx.get("token_ids", []))
                 self.telemetry.set_gauge("taker_near_token_count", float(len(near_tokens)))
                 lag_ready_for_taker = (not self.latency_verifier.require_armed_for_taker) or latency_snapshot.armed
-                taker_runtime_token_ids = self._taker_stage_window_token_ids(
+                taker_runtime_token_ids = self._taker_window_token_ids(
                     taker_ctx=taker_ctx,
-                    taker_stage_tokens=taker_stage_tokens,
+                    taker_phase_tokens=taker_phase_tokens,
                 )
                 candidate_taker_tokens = list(taker_runtime_token_ids)
                 if mode_state in {MODE_MAKER_ONLY, MODE_SAFE_STOP}:
@@ -8107,21 +7957,16 @@ class ExecutionRunner:
                     )
                     for token_id in maker_observational_token_ids
                 }
-                maker_eligible_tokens = set(maker_stage_tokens)
+                maker_eligible_tokens = set(maker_phase_tokens)
                 if self.doctrine_mode == "canonical":
                     maker_eligible_tokens = set()
-                    maker_reduce_only_recovery_tokens: set[str] = set()
-                    for token_id in maker_stage_tokens:
-                        info = stage_info_by_token.get(token_id, {})
+                    for token_id in maker_phase_tokens:
                         timing_gate_open = bool(maker_timing_gate_open_by_token.get(token_id, False))
-                        expired_reduce_only_grace_active = bool(info.get("expired_reduce_only_grace_active", False))
-                        reduce_only_recovery_active = bool(info.get("reduce_only_recovery_active", False))
                         failure_reason = self._maker_prereq_failure_reason(
                             token_id,
                             fair_probability_by_token=fair_probability_by_token,
                             latency_snapshot=latency_snapshot,
                             oracle_fresh=oracle_fresh,
-                            reduce_only_recovery_active=reduce_only_recovery_active,
                         )
                         if failure_reason:
                             maker_prereq_failure_by_token[token_id] = failure_reason
@@ -8130,13 +7975,24 @@ class ExecutionRunner:
                             maker_prereq_failure_by_token[token_id] = "maker_timing_gate_closed"
                             continue
                         maker_eligible_tokens.add(token_id)
-                        if reduce_only_recovery_active:
-                            maker_reduce_only_recovery_tokens.add(str(token_id))
+                    for token_id in sorted(maker_observational_token_ids):
+                        info = stage_info_by_token.get(token_id, {})
+                        if not bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False)):
+                            continue
+                        if bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False)):
+                            continue
+                        maker_preclassified_no_submission_reason_by_token.setdefault(
+                            str(token_id),
+                            "settlement_hold_required",
+                        )
+                        maker_preclassified_no_submission_category_by_token.setdefault(
+                            str(token_id),
+                            "settlement_hold_required",
+                        )
                     maker_eligible_tokens = self._apply_canonical_maker_ws_source_gate(
                         books=books,
                         maker_eligible_tokens=maker_eligible_tokens,
                         maker_prereq_failure_by_token=maker_prereq_failure_by_token,
-                        maker_reduce_only_recovery_tokens=maker_reduce_only_recovery_tokens,
                     )
                 self.telemetry.set_gauge(
                     "doctrine_maker_prereq_failure_count",
@@ -8251,7 +8107,7 @@ class ExecutionRunner:
                 for token_id in sorted(maker_observational_token_ids):
                     info = stage_info_by_token.get(token_id, {})
                     sec_to_expiry = info.get("sec_to_expiry")
-                    stage = str(info.get("stage", STAGE_UNKNOWN))
+                    stage = self._compat_stage_from_lifecycle_info(info)
                     top = maker_resolved_books_by_token.get(token_id, books.get(token_id))
                     fair = fair_probability_by_token.get(token_id)
                     base_size_mult = float(size_multiplier_by_token.get(token_id, 1.0))
@@ -8274,10 +8130,22 @@ class ExecutionRunner:
                             else None
                         ),
                         stage=stage,
+                        lifecycle_phase=str(
+                            info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                            or lifecycle_phase_from_payload(info)
+                            or "scan"
+                        ).strip().lower()
+                        or "scan",
+                        lineage_stage=(
+                            lineage_stage_from_payload(info)
+                            if lineage_stage_from_payload(info) != STAGE_UNKNOWN
+                            else str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
+                        ),
                         sec_to_expiry=sec_to_expiry,
                         base_size_multiplier=base_size_mult,
                         base_spread_multiplier=base_spread_mult,
                         timing_gate_open=bool(maker_timing_gate_open_by_token.get(token_id, True)),
+                        maker_phase_allowed=bool(info.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, False)),
                     )
                     maker_competitiveness_profiles_by_token[token_id] = profile
                     if token_id in maker_eligible_tokens:
@@ -8294,11 +8162,6 @@ class ExecutionRunner:
                                 stage=stage,
                             )
                         )
-                        reduce_only_recovery_active = bool(context_payload.get("reduce_only_recovery_active", False))
-                        reduce_only_side_policy = str(context_payload.get("reduce_only_side_policy") or "NONE").upper()
-                        if reduce_only_recovery_active:
-                            if reduce_only_side_policy in {"SELL_ONLY", "BUY_ONLY", "NONE"}:
-                                side_policy = reduce_only_side_policy
                         maker_side_policy_by_token[token_id] = side_policy
                         maker_competitiveness_context_by_token[token_id] = context_payload
                     side_policy = str(profile.get("side_policy") or "TWO_SIDED").upper()
@@ -8312,7 +8175,7 @@ class ExecutionRunner:
                     or self.maker_comp_edge_scale_enabled
                     or self.maker_comp_one_sided_enabled
                 ):
-                    for token_id in sorted(maker_stage_tokens):
+                    for token_id in sorted(maker_phase_tokens):
                         profile = maker_competitiveness_profiles_by_token.get(token_id, {})
                         context_payload = dict(profile.get("context") or {})
                         block_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
@@ -8322,7 +8185,7 @@ class ExecutionRunner:
                                 "ts_utc": utc_iso(),
                                 "run_id": self.run_id,
                                 "token_id": token_id,
-                                "maker_stage_allowed": True,
+                                "maker_phase_allowed": bool(context_payload.get("maker_phase_allowed", True)),
                                 "maker_eligible": bool(token_id in maker_eligible_tokens),
                                 "block_reason": block_reason or None,
                                 "timing_gate_blocked": block_reason == "maker_timing_gate_closed",
@@ -8331,7 +8194,7 @@ class ExecutionRunner:
                         )
                 maker_timing_gate_blocked_count = sum(
                     1
-                    for token_id in maker_stage_tokens
+                    for token_id in maker_phase_tokens
                     if str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower() == "maker_timing_gate_closed"
                 )
                 self.telemetry.set_gauge("maker_timing_gate_blocked_count_last_cycle", float(maker_timing_gate_blocked_count))
@@ -8371,7 +8234,7 @@ class ExecutionRunner:
                     self.telemetry.set_gauge("quote_active", 0.0)
                     if has_targets:
                         orphan_canceled = self.manager.cancel_non_target_orders(
-                            set(self.token_ids),
+                            self._manager_tracked_token_ids(),
                             action_budget=orphan_action_budget,
                         )
                         if orphan_canceled:
@@ -8475,7 +8338,7 @@ class ExecutionRunner:
                             for token_id, value in maker_competitiveness_context_by_token.items()
                             if token_id in maker_eligible_tokens
                         }
-                        tracked_tokens_for_manager = set(self.token_ids)
+                        tracked_tokens_for_manager = self._manager_tracked_token_ids()
                         tracked_token_cancel_reason_by_token: Dict[str, str] = {}
                         if self.doctrine_mode == "canonical":
                             for token_id in sorted(tracked_tokens_for_manager):
@@ -8485,7 +8348,7 @@ class ExecutionRunner:
                                 if not reason:
                                     reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
                                 if not reason:
-                                    reason = "stage_disallow_maker"
+                                    reason = "phase_disallow_maker"
                                 tracked_token_cancel_reason_by_token[str(token_id)] = reason
                         summary = self.manager.step(
                             books_for_manager,
@@ -8546,6 +8409,7 @@ class ExecutionRunner:
                         if maker_eval_token_ids:
                             self._emit_maker_edge_evaluations(
                                 books=maker_books_for_evaluation,
+                                pair_truth_by_base_key=pair_truth_by_base_key,
                                 maker_market_reference_by_token=maker_market_reference_by_token,
                                 stage_info_by_token=stage_info_by_token,
                                 maker_eval_token_ids=maker_eval_token_ids,
@@ -8563,6 +8427,7 @@ class ExecutionRunner:
                         if taker_runtime_token_ids:
                             taker_summary = self._run_taker(
                                 books=books,
+                                pair_truth_by_base_key=pair_truth_by_base_key,
                                 fair_probability_by_token=taker_fair_probability_by_token,
                                 realized_volatility_by_token=volatility_by_token,
                                 secondary_fair_probability_by_token=secondary_fair_probability_by_token,
@@ -8707,8 +8572,14 @@ class ExecutionRunner:
                     has_targets=bool(has_targets),
                     book_feed_status=book_feed_status_live,
                     chainlink_status=chainlink_status_live,
-                    all_targets_missing_ws_books=all_targets_missing_ws_books,
-                    rest_fallback_used_cycle=rest_fallback_used_cycle,
+                    pair_missing_base_keys=pair_missing_base_keys,
+                    all_target_pairs_missing_ws=all_target_pairs_missing_ws,
+                )
+                ws_slo_bootstrap_active = bool(self._ws_slo_bootstrap_active)
+                self._maybe_request_book_feed_resubscribe_for_target_ws_gap(
+                    ws_slo_reasons=ws_slo_reasons,
+                    book_feed_status=book_feed_status_live,
+                    ws_slo_bootstrap_active=ws_slo_bootstrap_active,
                 )
                 ws_slo_bootstrap_active = bool(self._ws_slo_bootstrap_active)
                 self.telemetry.set_gauge("ws_slo_bootstrap_active", 1.0 if ws_slo_bootstrap_active else 0.0)
@@ -8719,6 +8590,7 @@ class ExecutionRunner:
                             "ts_utc": utc_iso(),
                             "run_id": self.run_id,
                             "active": bool(ws_slo_bootstrap_active),
+                            "reason": str(getattr(self, "_ws_slo_bootstrap_reason", "") or ""),
                             "token_count": len(self.token_ids),
                             "grace_sec": float(self.operating_mode_ws_slo_bootstrap_grace_sec),
                         },
@@ -8741,9 +8613,10 @@ class ExecutionRunner:
                             "book_connected": bool(book_feed_status_live.get("connected", False)),
                             "book_last_msg_age_sec": book_feed_status_live.get("last_msg_age_sec"),
                             "ws_updates_cycle": int(ws_updates_cycle),
-                            "rest_updates_cycle": int(rest_updates_cycle),
-                            "rest_fallback_used_cycle": bool(rest_fallback_used_cycle),
-                            "all_targets_missing_ws_books": bool(all_targets_missing_ws_books),
+                            "pair_truth_pair_count": int(len(pair_truth_by_base_key)),
+                            "pair_missing_base_keys": list(pair_missing_base_keys),
+                            "pair_one_sided_base_keys": list(pair_one_sided_base_keys),
+                            "all_target_pairs_missing_ws": bool(all_target_pairs_missing_ws),
                             "chainlink_connected": bool(chainlink_status_live.get("connected", False)),
                             "chainlink_last_tick_age_sec": chainlink_status_live.get("last_tick_age_sec"),
                         },
@@ -8767,7 +8640,7 @@ class ExecutionRunner:
                 )
                 self.telemetry.set_gauge("ramp_enabled", 1.0 if ramp_snapshot.enabled else 0.0)
                 self.telemetry.set_gauge("ramp_target_usd", float(ramp_snapshot.target_usd))
-                self.telemetry.set_gauge("ramp_taker_allowed", 1.0 if ramp_snapshot.taker_allowed else 0.0)
+                self.telemetry.set_gauge("ramp_taker_enabled", 1.0 if ramp_snapshot.taker_allowed else 0.0)
                 self.telemetry.set_gauge("ramp_reconcile_mismatch_ratio", float(reconcile_mismatch_ratio))
                 if ramp_snapshot.enabled:
                     self._active_target_usd = float(ramp_snapshot.target_usd)
@@ -8782,7 +8655,7 @@ class ExecutionRunner:
                             "ts_utc": utc_iso(),
                             "run_id": self.run_id,
                             "target_usd": float(ramp_snapshot.target_usd),
-                            "taker_allowed": bool(ramp_snapshot.taker_allowed),
+                            "ramp_taker_enabled": bool(ramp_snapshot.taker_allowed),
                             "reason": ramp_snapshot.reason,
                             "reconcile_mismatch_ratio": float(reconcile_mismatch_ratio),
                         },
@@ -8921,6 +8794,7 @@ class ExecutionRunner:
                     positions = {token: pos.net_shares for token, pos in self.risk.positions.items()}
                     chainlink_status = self.chainlink.status()
                     book_feed_status = self.book_feed.status()
+                    gateway_status = self.gateway.status()
                     wallet_contract = self.wallet.status_contract()
                     host_time_sync = self._refresh_host_time_sync_snapshot()
                     guard_active, guard_reason = self._read_external_guard_stop()
@@ -8939,11 +8813,23 @@ class ExecutionRunner:
                         "maker_market_reference_policy": dict(self._maker_market_reference_policy),
                         "taker_market_reference_policy": dict(self._taker_market_reference_policy),
                         "run_id": self.run_id,
+                        "lifecycle_phase": self._runtime_lifecycle_phase,
+                        "owned_market_ref": self._runtime_owned_market_ref,
+                        "challenger_market_ref": self._runtime_challenger_market_ref,
+                        "ownership_drop_reason": self._runtime_ownership_drop_reason,
+                        "ownership_replacement_reason": self._runtime_ownership_replacement_reason,
+                        "market_truth_required": self._runtime_market_truth_required,
+                        "maker_phase_allowed": self._runtime_maker_phase_allowed,
+                        "taker_phase_allowed": self._runtime_taker_phase_allowed,
+                        "maker_gate_open": self._runtime_maker_gate_open,
+                        "taker_gate_open": self._runtime_taker_gate_open,
                         "runtime_state": self._runtime_state,
                         "active_targets_present": self._runtime_active_targets_present,
-                        "no_target_standdown": self._runtime_no_target_standdown,
-                        "book_feed_required": self._runtime_book_feed_required,
                         "promotion_eligibility_hint": self._runtime_promotion_eligibility_hint,
+                        "challenger_token_count": int(len(self._challenger_token_ids)),
+                        "challenger_token_ids": list(self._challenger_token_ids),
+                        "lifecycle_watch_token_count": int(len(self._lifecycle_watch_token_ids())),
+                        "transport_watch_token_count": int(len(self._transport_watch_token_ids())),
                         "order_submission_attempts_last_cycle": int(self._order_submission_attempts_last_cycle),
                         "kill_switch": self.risk.kill_switch,
                         "kill_reason": self.risk.kill_reason or None,
@@ -8965,6 +8851,7 @@ class ExecutionRunner:
                         "chainlink": chainlink_status,
                         "secondary_oracle": {"pyth": pyth_status_live},
                         "book_feed": book_feed_status,
+                        "gateway": gateway_status,
                         "host_time_sync": dict(host_time_sync),
                         "host_time_sync_snapshot_age_sec": max(
                             0.0, float(time.monotonic() - self._host_time_sync_last_refresh_mono)
@@ -9013,8 +8900,8 @@ class ExecutionRunner:
                         "held_unpriceable_escalation_threshold_sec": float(self.held_unpriceable_escalation_sec),
                         "held_unpriceable_operator_action": str(self._held_unpriceable_operator_action),
                         "held_unpriceable_defect_candidate": bool(self._held_unpriceable_defect_candidate),
-                        "held_unpriceable_dust_exempted_escalation_token_ids": list(
-                            self._held_unpriceable_dust_exempted_escalation_token_ids
+                        "held_unpriceable_non_defect_token_ids": list(
+                            self._held_unpriceable_non_defect_token_ids
                         ),
                         "held_unpriceable_meaningful_escalation_token_ids": list(
                             self._held_unpriceable_meaningful_escalation_token_ids
@@ -9031,14 +8918,6 @@ class ExecutionRunner:
                         "held_dust_total_notional_upper_bound_usd": float(
                             self._held_dust_total_notional_upper_bound_usd
                         ),
-                        "held_dust_shadow_candidate_active": bool(self._held_dust_shadow_candidate_active),
-                        "held_dust_shadow_active": bool(self._held_dust_shadow_active),
-                        "held_dust_shadow_enter_pending_cycles": int(self._held_dust_shadow_enter_pending_cycles),
-                        "held_dust_shadow_clear_pending_cycles": int(self._held_dust_shadow_clear_pending_cycles),
-                        "held_dust_enforced_this_cycle": bool(self._held_dust_enforced_this_cycle),
-                        "held_dust_hard_degraded_exempt_count": int(
-                            self._held_dust_effective_hard_degraded_exempt_count
-                        ),
                         "held_dust_raw_hard_degraded_token_count": int(
                             self._held_dust_raw_hard_degraded_token_count
                         ),
@@ -9048,7 +8927,6 @@ class ExecutionRunner:
                         "valuation_raw_degraded": bool(
                             self._valuation_degraded or (self._held_dust_raw_hard_degraded_token_count > 0)
                         ),
-                        "dust_classifier_enforce_enabled": bool(self.dust_classifier_enforce_enabled),
                         "runtime_expiry_boundary_epsilon_sec": float(self.expiry_boundary_epsilon_sec),
                         "valuation_hard_degraded_enter_count": int(self._valuation_hard_degraded_enter_count),
                         "valuation_hard_degraded_clear_count": int(self._valuation_hard_degraded_clear_count),
@@ -9060,36 +8938,78 @@ class ExecutionRunner:
                         ),
                         "held_unpriceable_started_count": int(self._held_unpriceable_started_count),
                         "held_unpriceable_recovered_count": int(self._held_unpriceable_recovered_count),
-                        "preexpiry_404_anomaly_count": int(self._preexpiry_404_anomaly_count),
-                        "preexpiry_404_anomaly_active": bool(self._preexpiry_404_anomaly_last_cycle),
+                        "preexpiry_ws_missing_or_unusable_anomaly_count": int(
+                            self._preexpiry_ws_missing_or_unusable_anomaly_count
+                        ),
+                        "preexpiry_ws_missing_or_unusable_anomaly_active": bool(
+                            self._preexpiry_ws_missing_or_unusable_anomaly_last_cycle
+                        ),
+                        "pair_truth_pair_count": int(len(pair_truth_by_base_key)),
+                        "pair_truth_missing_pair_count": int(
+                            sum(
+                                1
+                                for pair_truth in pair_truth_by_base_key.values()
+                                if str(pair_truth.get("pair_truth_class") or "").strip().lower() == "missing"
+                            )
+                        ),
+                        "pair_truth_one_sided_pair_count": int(
+                            sum(
+                                1
+                                for pair_truth in pair_truth_by_base_key.values()
+                                if str(pair_truth.get("pair_truth_basis") or "").strip().lower()
+                                == "pair_missing_one_sided_only"
+                            )
+                        ),
+                        "pair_truth_authoritative_pair_count": int(
+                            sum(
+                                1
+                                for pair_truth in pair_truth_by_base_key.values()
+                                if str(pair_truth.get("pair_truth_class") or "").strip().lower() == "authoritative"
+                            )
+                        ),
+                        "pair_truth_missing_base_keys": list(pair_missing_base_keys),
+                        "pair_truth_one_sided_base_keys": list(pair_one_sided_base_keys),
+                        "pair_truth_owner_scope": "market_base_pair",
                         "lifecycle_context_mismatch_count": int(self._lifecycle_context_mismatch_count),
                         "lifecycle_context_missing_sec_to_expiry_count": int(
                             self._lifecycle_context_missing_sec_to_expiry_count
                         ),
-                        "preexpiry_emergency_taker_attempt_count": int(
-                            self._preexpiry_emergency_taker_attempt_count
+                        "settlement_hold_required_count": int(
+                            sum(
+                                1
+                                for info in stage_info_by_token.values()
+                                if bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False))
+                            )
                         ),
-                        "preexpiry_emergency_taker_fill_count": int(
-                            self._preexpiry_emergency_taker_fill_count
+                        "open_order_cleanup_required_count": int(
+                            sum(
+                                1
+                                for info in stage_info_by_token.values()
+                                if bool(info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False))
+                            )
                         ),
-                        "preexpiry_emergency_taker_block_count": int(
-                            self._preexpiry_emergency_taker_block_count
+                        "unresolved_lifecycle_obligation_count": int(
+                            sum(
+                                1
+                                for info in stage_info_by_token.values()
+                                if bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
+                            )
                         ),
-                        "preexpiry_emergency_taker_block_reasons": dict(
-                            self._preexpiry_emergency_taker_block_reasons
+                        "cancel_fail_closed_count": int(
+                            sum(
+                                1
+                                for info in stage_info_by_token.values()
+                                if bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
+                            )
                         ),
                         "financial_posture_class": str(self._financial_posture_class),
                         "runtime_require_lifecycle_context_for_decisions": bool(
                             self.require_lifecycle_context_for_decisions
                         ),
-                        "runtime_preexpiry_emergency_taker_window_sec": float(
-                            self.preexpiry_emergency_taker_window_sec
-                        ),
                         "valuation_live_mid_max_age_sec": float(self.live_mid_max_age_sec),
                         "valuation_one_sided_quote_max_age_sec": float(self.one_sided_quote_max_age_sec),
                         "valuation_last_known_mid_max_age_sec": float(self.last_known_mid_max_age_sec),
                         "valuation_held_unpriceable_escalation_sec": float(self.held_unpriceable_escalation_sec),
-                        "valuation_held_preexpiry_reduce_only_sec": float(self.held_preexpiry_reduce_only_sec),
                         "taker_multi_oracle_cap_usd": (
                             float(self.taker_multi_oracle_cap_usd)
                             if isinstance(self.taker_multi_oracle_cap_usd, (int, float))
@@ -9109,7 +9029,6 @@ class ExecutionRunner:
                         "runtime_resource": dict(runtime_resource),
                         **telemetry,
                     }
-                    self._flush_preexpiry_emergency_taker_repeat_summary()
                     self.events.log_status(status_row)
                     self.prometheus.update(
                         telemetry,
@@ -9119,17 +9038,20 @@ class ExecutionRunner:
                             "book_feed_connected": 1.0 if bool(book_feed_status.get("connected", False)) else 0.0,
                             "target_count": float(len(self.token_ids)),
                             "runtime_state_code": runtime_state_to_gauge(self._runtime_state),
+                            "market_truth_required": 1.0 if self._runtime_market_truth_required else 0.0,
+                            "maker_phase_allowed": 1.0 if self._runtime_maker_phase_allowed else 0.0,
+                            "taker_phase_allowed": 1.0 if self._runtime_taker_phase_allowed else 0.0,
+                            "maker_gate_open": 1.0 if self._runtime_maker_gate_open else 0.0,
+                            "taker_gate_open": 1.0 if self._runtime_taker_gate_open else 0.0,
                             "active_targets_present": 1.0 if self._runtime_active_targets_present else 0.0,
-                            "no_target_standdown": 1.0 if self._runtime_no_target_standdown else 0.0,
-                            "book_feed_required": 1.0 if self._runtime_book_feed_required else 0.0,
                             "promotion_eligibility_hint": 1.0 if self._runtime_promotion_eligibility_hint else 0.0,
                         },
                     )
                     LOG.info(
-                        "status bot=%s mode=%s runtime_state=%s kill=%s guard=%s cycles=%s book_updates=%s fills=%s open_orders=%s total_pnl=%.4f cl_connected=%s ws_book_connected=%s cl_reconnects=%s ws_book_reconnects=%s positions=%s",
+                        "status bot=%s mode=%s lifecycle_phase=%s kill=%s guard=%s cycles=%s book_updates=%s fills=%s open_orders=%s total_pnl=%.4f cl_connected=%s ws_book_connected=%s cl_reconnects=%s ws_book_reconnects=%s positions=%s",
                         self.bot_name,
                         self.cfg["mode"],
-                        self._runtime_state,
+                        self._runtime_lifecycle_phase,
                         self.risk.kill_switch,
                         guard_active,
                         int(telemetry.get("counter.cycles", 0)),
@@ -9192,21 +9114,14 @@ class ExecutionRunner:
                 self._dump_state()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._write_run_manifest_end()
-            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
-                self._flush_preexpiry_emergency_taker_repeat_summary()
             # Emit the semantic self-audit again on shutdown so bounded tail
             # replays still retain the canonical stage-window owner truth.
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
-                self._emit_taker_stage_window_semantic_check()
+                self._emit_taker_window_semantic_check()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.log_event("runner_stop", {"ts_utc": utc_iso(), "run_id": self.run_id})
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.events.close()
-            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
-                self.book_client.close()
-            if self._rest_fetch_pool is not None:
-                with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
-                    self._rest_fetch_pool.shutdown(wait=False, cancel_futures=True)
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self.tx_manager.close()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):

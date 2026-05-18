@@ -1,5 +1,10 @@
 # BRO Pilot-Live Runtime Backcheck + Relock Audit (2026-05-08)
 
+## Classification
+- `historical-only`
+- this is a relock/backcheck artifact, not a current lifecycle owner
+- legacy stage-family terms remain as period-correct evidence only
+
 ## Purpose
 - `VERIFIED`: this is the deep relock artifact for the current crash-recovery window.
 - `VERIFIED`: it executes the five-item relock ladder:

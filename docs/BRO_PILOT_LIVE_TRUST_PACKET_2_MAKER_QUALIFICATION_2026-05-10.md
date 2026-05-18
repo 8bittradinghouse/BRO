@@ -1,5 +1,12 @@
 # BRO Pilot-Live Packet 2: Maker Live Trust Qualification
 
+## Classification
+- `active packet owner`
+- `pickup bridge`
+- this packet now carries the current post-surgery Packet 2 maker pickup
+- pre-lifecycle-surgery and old stage-family language inside this file is
+  ancestry only and must not be read as current owner-law
+
 ## Authority Lock
 Current pickup point:
 - active phase:
@@ -14,15 +21,21 @@ Current pickup point:
     contaminate the lane?
 
 Authority chain:
-1. `docs/PROJECT_TRUTH_STATE.md`
-2. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
-3. `docs/NEXT_PACKET_PLAN.md`
-4. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+1. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+2. `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
+3. `docs/JIN_RELOCK_PACK_2026-05-12.md` as the BRO-wide anti-drift relock
+   controller
+4. active lane-local pickup owners:
+   - `docs/OPEN_LIMITATIONS.md`
+   - `docs/NEXT_PACKET_PLAN.md`
+   - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+   - current `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_*` owner boards
 5. doctrine and design intent roots:
+   - `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
    - `docs/DOCTRINE_RUNBOOK.md`
    - `BRO_EDGE_DOCTRINE.txt`
    - `BRO_OUTCOME_TRUTH_DOCTRINE.txt`
-   - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+   - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
 6. runtime owners:
    - `executor.py`
    - `prodesk/order_manager.py`
@@ -67,14 +80,36 @@ Severity rules:
 
 ## Current Packet Status
 - packet status:
-  - `sequenced / next to open`
+  - `active / post-surgery maker-live trust qualification`
+- surgery packet-entry hardening artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SURGERY_SELF_HARDENING_PACK_2026-05-11.md`
 - packet disease statement:
-  - maker still lacks a closure-grade authority census, gate legitimacy board,
-    blueprint delta map, and economic-wound anatomy sharp enough to support live
-    trust claims without drift
+  - official Polymarket WS/CLOB substrate transplant and canonical lifecycle
+    surgery are now materially landed, which demotes the old broad
+    "maker might still be broken at the body level" story
+  - the current maker patient is narrower: the watched pre-fix specimen proved
+    authoritative `maker_window` rows were being rejected by a timing-owner
+    collision, and current code now carries that splice cut
+  - watched rerun `ae3bdf9e-6eee-4c99-8e3b-6e021136125c` has now reproved the
+    timing-owner fix on live runtime:
+    - `runtime_classification=VALID_ACTIVE`
+    - maker submitted and filled under the canonical lifecycle window
+    - the old timing collision did not recur
+  - the active Packet 2 patient is now the surviving maker blocker family
+    exposed by that rerun, not the timing collision itself
+  - Packet 2 still lacks closure-grade final authoritative-only dollar-owner
+    proof, final scar-tissue provenance verdicts, and final falsifier closure
+    strong enough to support live trust claims without drift
 - packet entry objective:
-  - build the full current maker owner map before any runtime mutation is
-    authorized
+  - finish the current post-surgery order:
+    1. record the major body surgeries and their effect on Packet 2
+    2. confirm the timing-owner fix remains the live code path
+    3. remeasure the surviving real maker blockers after the successful rerun
+    4. keep support-schoolhouse artifacts honest so they do not keep teaching
+       the old zero-submit / timing-band story
+    5. only then reopen the smaller downstream maker families
+  - no broader competitiveness or live-trust economics mutation is authorized
+    until the surviving blockers are remeasured on current live truth
 
 ## Packet-Local Lock Card
 Mission lock:
@@ -195,78 +230,270 @@ Failure rule:
 - no runtime surgery or packet closeout is legal from half-merged truth
 
 ## Current Known Truths
+- `VERIFIED`: the official Polymarket WS/CLOB substrate transplant is now a
+  landed Packet 2 dependency, not the active maker patient.
+  - watched 20-minute paper run `98d7f6c5-bec9-4768-bb06-941079c2ac72`
+    stayed transport-clean:
+    - `websocket_hardening_audit.ok=true`
+    - `time_discipline_audit.ok=true`
+    - `edge_truth_audit.ok=true`
+  - the same run remained `VALID_ACTIVE` at the runtime layer and did not show
+    a live websocket/CLOB/oracle break
+- `VERIFIED`: the canonical market-lifecycle surgery is now a landed Packet 2
+  dependency, not the active maker patient.
+  - current runtime now carries one lifecycle-first authority chain:
+    - `scan`
+    - `prepare`
+    - `maker_window`
+    - `taker_window`
+    - `resolve`
+  - the watched 20-minute run showed clean lifecycle progression through that
+    chain under active paper runtime
 - `VERIFIED`: current Packet 2 truth boundary is no longer “old lag choke gone”
   in the abstract:
   - `maker_requires_ws_book_source` and
     `market_reference_not_authoritative` are the live truth-thin owners on some
     current rows
   - this is preserved in `docs/OPEN_LIMITATIONS.md`
-- `VERIFIED`: current paper maker timing doctrine is the intended
-  `15-20s` window
+- `VERIFIED`: current paper maker timing doctrine is now:
+  - maker gate opens at `15s`
+  - taker handoff opens at `7s`
+- `VERIFIED`: current maker timing authority is layered, not singular:
+  - `executor.py` owns late-window maker eligibility at `7-15s`
+  - `risk.py` owns maker new-exposure legality at the explicit maker `7.0s` floor while the shared global floor remains `15.0s`
+  - `order_manager.py` still applies a maker selection-gate timing window on
+    top of that lifecycle chain
+- `VERIFIED`: the effective current paper maker risk-increasing submit window is `(7.0, 15.0]`, with taker taking over at `<=7.0s`.
+- `VERIFIED`: latest watched run `98d7f6c5-bec9-4768-bb06-941079c2ac72`
+  sharpened the pre-fix maker patient:
+  - `maker_submits=0`
+  - `maker_selection_authority.current_decision_distribution={"selection_rejected":62}`
+  - all `62` counterfactual rows would have been `admitted`
+  - those rows were already:
+    - `lifecycle_phase=maker_window`
+    - `maker_phase_allowed=true`
+    - `timing_gate_open=true`
+    - `market_reference_class=authoritative`
+    - `one_sided_active=true`
+  - the runtime block reason on those rows was
+    `launch_safe_selection_timing_window_out_of_band`
+- `VERIFIED`: the watched timing collision is explicit in the pre-fix run and
+  in the old packet-era code/config splice:
+  - `configs/profiles/paper_universal.yaml` sets
+    `lifecycle.selection.min_sec_to_expiry=90.0`
+  - the same profile sets
+    `lifecycle.phase.maker_window_open_sec=15.0`
+  - the pre-fix `prodesk/order_manager.py` reused those as the maker selection
+    gate min/max timing window
+  - that creates an impossible selection window requiring `sec_to_expiry >= 90`
+    and `sec_to_expiry <= 15` at the same time
+- `VERIFIED`: current code no longer carries that impossible maker selection
+  band as the live path.
+  - current `prodesk/order_manager.py` derives the maker selection timing band
+    from canonical lifecycle phase windows:
+    - min = `lifecycle.phase.taker_window_open_sec`
+    - max = `lifecycle.phase.maker_window_open_sec`
+  - effective current maker selection submit band is therefore `(7.0, 15.0]`,
+    which matches the broader lifecycle/risk ownership chain instead of the
+    old `>=90 and <=15` contradiction
+- `VERIFIED`: this means the current dominant Packet 2 maker question is no
+  longer broad residual WS weakness or the timing splice by itself.
+  - the sharper active patient is the surviving blocker population after the
+    timing-owner fix is runtime-reproven
+- `VERIFIED`: watched current-tree specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+  now belongs to the pre-correction `15-20 / 15` lineage:
+  - active `15-20s` band:
+    - `20` rows
+    - `1` submit
+    - `19` within-band `maker_no_submission`
+  - normal `10-15s` rows:
+    - `15`
+    - emitted `block_reason=stage_disallow_maker`
+    - packet-era raw runtime showed
+      `late_window_authority_class=reduce_only_recovery_only`
+    - packet-era lineage also carried `reduce_only_recovery_active=false`
+  - recovery-active `10-15s` rows:
+    - `5`
+    - emitted `block_reason=maker_timing_gate_closed`
+    - packet-era raw runtime still showed
+      `late_window_authority_class=reduce_only_recovery_only`
+    - packet-era lineage also carried `reduce_only_recovery_active=true`
+- `VERIFIED`: no watched maker row currently emits
+  `new_exposure_expiry_gate_blocked`, so the exact `15.0s` split is still a
+  real code/doctrine seam but not yet a separately observed runtime blocker
+  family on this specimen
+- `VERIFIED`: the current timing support surfaces carry a semantic gap:
+  - raw `edge_evaluation` rows preserve `late_window_authority_class`
+  - `maker_cannon_late_window_probe.jsonl` does not
+  - that omission can make some later-timing authority closures look like a
+    generic `stage_disallow_maker` story
+- `VERIFIED`: current watched evidence does not yet prove a clean economic
+  normal-maker choke inside `10-15s`.
+  - no normal `10-15s` rows were simultaneously authoritative,
+    geometry-viable, and non-recovery
+  - the only authoritative + geometry-viable `10-15s` rows were recovery-only
+- `VERIFIED`: this means the current timing patient is larger than the tiny
+  left-edge split alone:
+  - current paper keeps maker new-risk authority inside `(7.0, 15.0]`
+  - current blueprint sweet-spot language still points at `10-15s`
+  - Packet 2 must keep doctrine/provenance tension explicit until stronger
+    runtime proof says otherwise
 - `VERIFIED`: current paper selection gate still carries active maker steel:
   - secondary-oracle confirmation
-  - `$350` cannon target notional
+  - `$100` cannon target notional
   - same-target calm caps
+- `VERIFIED`: current small-loss owner hierarchy is sharper:
+  - strongest current owner candidate:
+    - `complete-outcome truth`
+  - strongest foundation trace:
+    - `market-truth substrate`
+  - strongest supporting-only economic surface:
+    - `fill-event truth`
+- `VERIFIED`: current sampled maker complete-outcome populations can be bad even
+  when execution remains favorable, so fill-event economics alone do not own
+  the recurring small negative maker dollars
+- `VERIFIED`: accessible packet-era small-loss specimens stayed bad under:
+  - `decision_reference_basis=direct_book_midpoint`
+  - `eval_reference_basis=edge_market_midpoint_series`
+  so historical one-sided fallback / missing-reference substrate is not the
+  proximate owner of that wound family even though `market-truth substrate`
+  remains the current Packet 2 foundation trace
+- `VERIFIED`: same-target repeat geometry is an active part of the wound
+  anatomy, not a cosmetic curiosity
+- `VERIFIED`: multi-fill persistence is a major wound multiplier:
+  - `8bfb...` complete rows with `fill_count >= 3` were `14/14 incorrect`
+  - `e675...` complete rows were `8/8 incorrect`
+  - `ed184...` only single-fill complete rows stayed healthy
+- `VERIFIED`: current packet posture is that this recurring small-loss family is
+  not trusted steel.
+- `INFERRED`: until stronger falsifier proof says otherwise, treat the family as
+  slag / surgery-pile material rather than healthy live-maker friction that can
+  be quietly carried forward.
+- `VERIFIED`: low-price / sizing conflict is contributory in some packet-era
+  specimens but not universal, so the recurring small-loss wound is not
+  reducible to low-price stock alone
+- `VERIFIED`: `bro_metric_harvest`, `nightly_soak_report`, `FMA`, and related
+  archive compression layers remain useful support surfaces, but canonical
+  small-loss ownership still chains through emitted runtime truth, raw outcome
+  records, and canonical outcome populations first
 - `VERIFIED`: default/config scaffolding still preserves some stronger maker
   posture than current paper actively uses:
   - `selection_gate.min_depth_multiple=1.5` in defaults
-  - current paper detunes that to `0.0`
+  - current paper now also carries `selection_gate.min_depth_multiple=1.5`
+- `VERIFIED`: observational `insufficient_depth_multiple` shadow hits are now
+  directly relevant to live paper runtime rejection again, not just
+  blueprint-delta evidence
 - `VERIFIED`: `postOnly` enforcement and open-order caps are live current owner
   surfaces
 - `VERIFIED`: `FMA`, admission shadow, mid-window probes, and comparative
   forensics are support surfaces, not doctrine/runtime roots
 - `VERIFIED`: drift-era `45-60s` / `50-60s` maker timing packets are historical
   runtime posture only
+- `VERIFIED`: accessible packet-era maker specimens that read `50-60s` timing
+  posture are historical dirty-tree run-manifest truth from commit `519f6ed...`,
+  not current Packet 2 doctrine
+- `VERIFIED`: current Packet 2 specimens read:
+  - timing-authority collision as the dominant pre-fix runtime choke
+  - quote-quality / queue-depth / replace-guard friction as downstream
+    follow-on populations after that choke is cut
+  - maker-local recovery privilege drift as materially demoted, but shared
+    recovery / unwind authority still remains live contradictory owner mass
+    pending root-death surgery
+  - cancel-only cleanup for open unfilled orders is the intended fail-closed
+    replacement, not a new recovery trading lane
+  - queue-pressure family as cut from current/live authority, with only
+    ignored legacy-config compatibility and archive replay lineage remaining
 
 ## Open Investigation Lanes
+1. maker timing-authority collision
+   - `VERIFIED`: current code now treats this as landed, but the fix still
+     needs watched runtime reproval on the current tree
+   - preserve current lifecycle doctrine:
+     - maker opens at `15s`
+     - taker handoff at `7s`
+2. watched rerun and surviving-blocker remeasurement
+   - after the timing-owner fix, remeasure what really remains:
+     - `secondary_oracle_not_confirmed`
+     - `insufficient_depth_multiple`
+     - residual one-sided / non-authoritative truth
+3. diagnostic-surface hardening
+   - keep raw `maker_competitiveness_decision` truth above empty downstream
+     audit comfort
+   - make the existing selection audit rows carry the decisive context fields
+4. support-shadow / probe family de-fat
+   - `maker_fight_admission_shadow*`
+   - late/mid-window probes
+   - zero-submit root-cause
+   - quote-starvation / quote-integrity / selection-authority counterfactual
+5. small-loss wound family remeasurement
+   - reopen only after the timing collision and surviving blocker populations
+     are remeasured
+6. recovery / unwind root-death closeout verification
+   - keep cancel-only fail-close for open unfilled orders
+   - keep hold-to-settlement for real accepted exposure
+
+## Current Surgery Patients
+1. `maker selection timing-authority collision`
+   - `VERIFIED`: current code path says this is landed but still awaiting fresh
+     watched runtime reproval
+   - current surgery order = `treat as fixed in code, then reproven in runtime`
+2. `surviving live maker blockers after timing cut`
+   - `VERIFIED`: this is now the active Packet 2 runtime patient
+   - current surgery order = `remeasure before touching support or economics`
+3. `support-shadow / probe family`
+   - `VERIFIED`: this is report-side de-fat work, not the current owner packet
+   - current surgery order = `after the rerun and surviving-blocker reread`
+4. `small-loss wound family`
+  - `VERIFIED`: strongest current owner candidate remains
+     `complete-outcome truth`
+  - `VERIFIED`: current disposition remains `not trusted steel /
+     surgery-pile candidate`
+  - current surgery order = `remeasure after earlier family cuts`
+5. `recovery / unwind root-death verification`
+   - `VERIFIED`: stronger doctrine says accepted exposure rides to settlement
+     and open unfilled orders are cancel / cleanup patients, not unwind
+     authority
+   - `VERIFIED`: this is no longer the current Packet 2 front patient
+   - current surgery order = `verify closeout only after the maker timing lane`
+
+## Materialized Packet 2 Companion Stack
+These packet-local working surfaces now exist:
+
 1. maker authority census
-   - map every current maker gate/tool/surface to owner class and behavior
-     effect
-2. blueprint delta map
-   - align current owner truth against:
-     - `postOnly`
-     - `15-20s`
-     - `10-15s`
-     - dual-oracle directional agreement
-     - `0.20` delta semantics
-     - `$350` shot
-     - stacked-open-order cap
-     - skip-reason logging
-3. support-tool vs runtime-owner split
-   - especially:
-     - `FMA`
-     - admission shadow
-     - timing-ladder / mid-window probes
-4. history-only demotion map
-   - remove drift-era maker timing and stale owner stories from current power
-5. scar-tissue / bug-chasing family trace
-   - candidate families already in view:
-     - `dust`
-     - maker recovery family
-     - queue-pressure and similar compensator machinery
-6. small-loss anatomy trace
-   - identify where the recurring small negative maker dollars are born and
-     which truth population owns them
-7. family-grouped cut candidates
-   - `KEEP`
-   - `KEEP BUT FENCE`
-   - `REHOME THEN CUT`
-   - `CUT`
-8. blank spaces to fill in the knowledge base
-   - economic trust board
-   - gate legitimacy layer
-   - timing/clock owner layer
-   - support-only fence
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_AUTHORITY_CENSUS_2026-05-10.md`
+2. maker gate legitimacy board
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_GATE_LEGITIMACY_BOARD_2026-05-10.md`
+3. maker doctrine proposal delta board
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_DOCTRINE_PROPOSAL_DELTA_BOARD_2026-05-10.md`
+4. maker support-tool fence board
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SUPPORT_TOOL_FENCE_BOARD_2026-05-10.md`
+5. maker history-only demotion board
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_HISTORY_ONLY_DEMOTION_BOARD_2026-05-10.md`
+6. maker small-loss + scar-tissue board
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SMALL_LOSS_SCAR_TISSUE_BOARD_2026-05-10.md`
+7. maker path forensic semantic audit
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_PATH_FORENSIC_SEMANTIC_AUDIT_2026-05-10.md`
+8. maker timing owner layer
+   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_TIMING_OWNER_LAYER_2026-05-10.md`
+
+Board law:
+- these are working packet-local classification boards and bounded hardening
+  audits, not closure verdicts by themselves
+- they exist to keep Packet 2 from collapsing back into one giant narrative blob
+- runtime owners, validator surfaces, and watched proof still outrank the boards
+- `docs/JIN_RELOCK_PACK_2026-05-12.md` is the anti-drift front door before
+  this packet-local stack is allowed to speak as active pickup guidance
 
 Recommended investigation cadence:
-1. maker authority census + blueprint delta map
-2. trigger recurring self-hardening pass
-3. support-tool/runtime-owner split + history-only demotion map
-4. trigger recurring self-hardening pass
-5. small-loss anatomy trace + scar-tissue family trace
-6. trigger recurring self-hardening pass
-7. family-grouped cut candidates + packet-entry surgery law
-8. final contradiction compression and negative-proof pass
+1. truth-owner demotion + Packet 2 pickup-route check
+2. starvation proof / steady-state WS grading check
+3. selector-owned one-sided extinction check
+4. diagnostic-surface hardening check
+5. trigger recurring self-hardening pass
+6. bounded-only active-band truth / residual WS-source / reference weakness
+7. support-shadow / probe family de-fat only after the truth family is cleaner
+8. small-loss wound remeasurement after the earlier family cuts
+9. final contradiction compression and negative-proof pass
 
 ## Anti-Drift Reinforcement Layer
 Recurring self-hardening triggers:
@@ -290,11 +517,76 @@ Failure rule:
 - if a self-hardening pass is thin, contradictory, or cannot identify the
   strongest owner for the active question, Packet 2 is `NO-GO` for
   implementation
+- if the BRO-wide relock controller has not established a legal owner map,
+  internalization proof, and `GO / NO-GO` scorecard first, Packet 2 is also
+  `NO-GO`
+- before any runtime surgery family packet opens, load the dedicated maker
+  surgery self-hardening pack and treat its preload / witness / abort outputs
+  as mandatory, not optional packet flavor
+
+## Latest Recurring Self-Hardening Pass (2026-05-11)
+- mission lock:
+  - prove whether maker is economically safe enough to arm in principle, not
+    whether the story can be made smoother
+- no-change list restated:
+  - no generic weapon tuning
+  - no threshold loosening by frustration
+  - no maker timing/gating mutation by momentum
+  - no live arming
+  - no convenience mixing of runtime owner truth with shop-tool truth
+- strongest current owner map:
+  - recurring small-loss dollars:
+    - strongest current owner candidate = `complete-outcome truth`
+    - strongest foundation trace = `market-truth substrate`
+    - strongest historical wound multipliers =
+      completion bias + multi-fill persistence + repeat-target /
+      complement-pair clustering
+    - current disposition = `not trusted steel / surgery-pile candidate`
+  - timing:
+    - stage seed -> maker timing gate -> lifecycle propagation -> risk
+      new-exposure gate -> emitted timing readout
+  - scar tissue:
+    - queue pressure = cut from current/live authority; historical-only lineage
+      remains readable
+    - shared recovery / unwind spine = contradictory live owner family
+      pending root-death surgery
+    - dust = false-authority candidate and companion cleanup residue, not
+      trusted steel
+- strongest falsifier list:
+  1. authoritative-market-reference-only rows still lose the same way
+  2. exact `15.0s` rows almost never matter economically in live cadence
+  3. current-code authoritative-only rows stop showing the same completion-bias
+     and multi-fill wound geometry
+  4. recovery-tagged maker rows stay economically isolated from normal-maker
+     rows
+- support-tool vs runtime-owner boundary:
+  - emitted runtime truth, raw outcome records, and canonical validators
+    outrank `bro_metric_harvest`, `nightly_soak_report`, `FMA`, schematic, and
+    atlas surfaces
+- historical-only quarantine:
+  - drift-era `45-60s` / `50-60s` maker timing language and old lag-owner
+    stories stay ancestry only unless current code re-proves them
+- residual risk register:
+  - final strongest dollar-owner verdict still open
+  - queue-pressure historical lineage must stay quarantined so no future
+    relock mistakes archive-only ancestry for live maker authority
+  - recovery / unwind root-death packet is still unlanded in current code
+  - quiet dust residue could still reopen on later live specimens
 
 ## Structural Atlas and Tool Boundary
 Primary structural atlas:
 - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
 - `docs/SOLAR_SLUG_MAKER_TRUTH_SEMANTICS_MAP.json`
+
+Materialized companion boards:
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_AUTHORITY_CENSUS_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_GATE_LEGITIMACY_BOARD_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_DOCTRINE_PROPOSAL_DELTA_BOARD_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SUPPORT_TOOL_FENCE_BOARD_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_HISTORY_ONLY_DEMOTION_BOARD_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SMALL_LOSS_SCAR_TISSUE_BOARD_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_PATH_FORENSIC_SEMANTIC_AUDIT_2026-05-10.md`
+- `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_TIMING_OWNER_LAYER_2026-05-10.md`
 
 Tool boundary:
 - the schematic is a truth/pathway map, not runtime authority
@@ -317,24 +609,38 @@ Explicitly forbidden to answer:
 ## Packet Entry Ladder
 1. reload current whole-fighter and lane-local owners
 2. restate mission lock and no-change list
-3. perform maker authority census
-4. perform blueprint delta map
-5. perform support-tool/runtime-owner split
-6. perform history-only demotion map
-7. perform small-loss anatomy trace
+3. perform truth-owner demotion + pickup-route check
+4. perform starvation proof / WS grading check
+5. perform selector-owned one-sided extinction check
+6. perform support-tool/runtime-owner split and historical-only quarantine check
+7. perform final falsifier attack
 8. only then decide what future runtime surgery, if any, is legal
 
-## Immediate Recovery Pickup
+## Immediate Packet 2 Pickup
 If a new thread must open now, re-anchor in this order:
-1. `docs/PROJECT_TRUTH_STATE.md`
-2. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-3. `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
-4. `docs/NEXT_PACKET_PLAN.md`
-5. this file
-6. `docs/OPEN_LIMITATIONS.md`
+1. `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
+2. `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
+3. `docs/JIN_RELOCK_PACK_2026-05-12.md`
+4. `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+5. `docs/OPEN_LIMITATIONS.md`
+6. `docs/NEXT_PACKET_PLAN.md`
+7. `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+8. this file
+9. `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
+10. the maker-local companion boards:
+   - authority census
+   - gate legitimacy board
+   - doctrine proposal delta board
+   - support-tool fence board
+   - history-only demotion board
+   - small-loss + scar-tissue board
 
 Then restate:
 - current packet = `Packet 2 Maker-Live / Economic Trust Qualification`
-- current mode = `read-only mapping and truth sharpening first`
+- current mode = `active post-audit truth-owner / proof-semantics closeout`
 - current no-change list = the list above
-- current first work = maker authority census, not tuning
+- current first work = truth-owner demotion + Packet 2 pickup reroute
+- current second work = starvation proof correction + steady-state WS grading repair
+- current third work = selector-owned one-sided extinction + rerun
+- current recovery/unwind replacement truth = cancel-only fail-close for open
+  unfilled orders; hold real accepted exposure to settlement

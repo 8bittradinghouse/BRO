@@ -51,9 +51,15 @@ RUNTIME_TRANSITION_REASON_CODES = frozenset(
     {
         "runtime_state_changed",
         "book_requirement_changed",
+        "market_truth_requirement_changed",
         "kill_switch_engaged",
         "targets_activated",
         "targets_absent",
+        "owned_market_absent",
+        "owned_market_prepare",
+        "maker_window_open",
+        "taker_window_open",
+        "resolve_required",
     }
 )
 
@@ -69,7 +75,7 @@ REQUIRED_FIELDS: Dict[str, Tuple[str, ...]] = {
         "execution_preference",
         "market_id",
         "window_id",
-        "stage",
+        "lifecycle_phase",
     ),
     ORDER_CANCEL: ("ts_utc", "order_id", "reason"),
     ORDER_CANCEL_SUPPRESSED: (
@@ -86,10 +92,11 @@ REQUIRED_FIELDS: Dict[str, Tuple[str, ...]] = {
         "ts_utc",
         "previous_runtime_state",
         "runtime_state",
+        "lifecycle_phase",
         "active_targets_present",
-        "no_target_standdown",
-        "previous_book_feed_required",
-        "book_feed_required",
+        "scan_phase",
+        "previous_market_truth_required",
+        "market_truth_required",
         "kill_switch",
         "transition_reason_code",
         "transition_reason_detail",
@@ -110,9 +117,9 @@ SIDES = frozenset({"BUY", "SELL"})
 BOOLEAN_FIELDS = frozenset(
     {
         "active_targets_present",
-        "no_target_standdown",
-        "previous_book_feed_required",
-        "book_feed_required",
+        "scan_phase",
+        "previous_market_truth_required",
+        "market_truth_required",
         "kill_switch",
         "degraded",
     }

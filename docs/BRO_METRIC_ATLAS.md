@@ -54,8 +54,8 @@ Its outputs are:
   - `opening_wallet_authority_status_class` and
     `ending_wallet_authority_status_class` are report readouts, not live wallet
     contract fields
-  - `maker_new_risk_allowed_distribution` is a canonical report-side summary of
-    live `maker_new_risk_allowed` row truth, not a second authority layer
+  - `maker_phase_allowed_distribution` is a canonical report-side summary of
+    live `maker_phase_allowed` row truth, not a second authority layer
   - report-side `market_reference_basis=report_book_top_pair_backfill` is a
     downstream reconstructed basis label, not a live emitted runtime basis
   - `not_available_reference_count` counts emitted
@@ -125,9 +125,16 @@ Category:
 - gating
 
 What it tells you:
-- the current validated stage boundary
+- derived postrun gating summary
+- the validated stage boundary as of the latest canonical validation write
 - whether the run is promotion-eligible
 - whether the report set was complete
+
+Authority note:
+- `canonical_paper_validation.json` is a convenience summary, not the root owner of every field it mirrors
+- runtime classification root remains `nightly_soak_report.json`
+- stage-boundary root remains `readiness_gate.json`
+- manual or replayed `canonical_paper_validation.sh` reruns must rewrite this file so it stays synchronized with `validation_summary.json`, `nightly_soak_report.json`, and `readiness_gate.json`
 
 High-value fields:
 - `validation_policy_failed`
@@ -161,7 +168,7 @@ High-value fields:
   - `runtime_classification_name`
   - `runtime_primary_suppression_cause`
   - `runtime_decision_events`
-  - `runtime_required_book_feed_disconnected_rows`
+  - `runtime_required_market_truth_disconnected_rows`
 - maker:
   - `maker_submits`
   - `maker_fills`
@@ -174,7 +181,7 @@ High-value fields:
   - `maker_no_submission_cause_distribution`
   - `maker_block_reason_distribution`
   - `maker_reference_direct_midpoint_activity`
-  - `maker_reference_bounded_fallback_activity`
+  - `maker_reference_missing_activity`
 - taker:
   - `taker_decision_count`
   - `taker_submits`
@@ -185,10 +192,6 @@ High-value fields:
   - `taker_decision_timing_window_distribution`
   - `taker_decision_predicted_reject_reason_distribution`
   - `taker_stage_final_risk_reject_reason_distribution`
-- recovery:
-  - `recovery_waiting_for_maker_exit_rows`
-  - `recovery_nonflat_or_unknown_rows`
-  - `recovery_local_size_cap_unavailable_rows`
 - money / authority:
   - `wallet_authority_status_class`
   - `wallet_deployable_capital`
@@ -206,13 +209,16 @@ High-value fields:
   - `valuation_degraded_ratio`
   - `valuation_hard_degraded_ratio`
   - `held_unpriceable_unrecovered_meaningful_count`
-  - `preexpiry_emergency_taker_attempt_count`
-  - `preexpiry_emergency_taker_block_count`
-  - `preexpiry_emergency_taker_fill_count`
+  - `settlement_hold_required_count`
+  - `open_order_cleanup_required_count`
+  - `unresolved_lifecycle_obligation_count`
+  - `cancel_fail_closed_count`
 - feed/data:
-  - `market_data_rest_ratio`
   - `market_data_ws_delta`
   - `market_data_total_delta`
+  - `pair_truth_missing_pair_row_ratio`
+  - `pair_truth_missing_pair_count_max`
+  - `pair_truth_one_sided_row_ratio`
 - exercised realism:
   - `exercised_harness_realism.grade`
   - `exercised_harness_realism.breakdown`
@@ -376,7 +382,7 @@ Read these first for maker design work:
 - `maker_no_submission_cause_distribution`
 - `maker_block_reason_distribution`
 - `maker_reference_direct_midpoint_activity`
-- `maker_reference_bounded_fallback_activity`
+- `maker_reference_missing_activity`
 
 Why:
 - they tell you whether maker is not seeing windows, seeing them but getting blocked, or firing into bad queue/fill-prob geometry
@@ -448,7 +454,7 @@ High-value fields:
 - `stack_pressure_class_distribution`
 - `secondary_oracle_status_distribution`
 - `secondary_oracle_confirmation_distribution`
-- `maker_new_risk_allowed_distribution`
+- `maker_phase_allowed_distribution`
 - `probe_visible_depth_fail_closed_zero_distribution`
 - `market_reference_class_distribution`
 - `market_reference_mode_distribution`
@@ -498,7 +504,7 @@ Practical read:
 - use it to identify driver families and redesign selectivity doctrine
 - use the cannon-specific distributions to answer:
   - are we even observing the late-window doctrine yet?
-  - is depth actually thin relative to the `$350` cannon shot?
+  - is depth actually thin relative to the `$100` cannon shot?
   - are stack pressure or secondary-oracle disagreement even present?
 - use `clean_but_bad_examples` to learn what the current rubric still misses
 - if `trash` rows never mature into submitted outcomes, that is evidence about
@@ -531,7 +537,7 @@ Practical rule:
 
 Additional rule:
 - read `decision_reference_basis_distribution` and `eval_reference_basis_distribution` before trusting maker outcome-truth summaries as though they were direct book-to-book measurements
-- if eval basis is dominated by `edge_market_midpoint_series`, treat the result as a bounded reconstructed midpoint lens, not a direct raw-book replay lens
+- if eval basis is dominated by `edge_market_midpoint_series`, treat the result as a reconstructed midpoint lens, not a direct raw-book replay lens
 
 ### Maker Truth Population Map
 Use these as separate populations:
@@ -587,8 +593,10 @@ Read these first when capital truth or execution eligibility matters:
 - `valuation_dominant_held_unpriceable_cause_run`
 - `valuation_degraded_ratio`
 - `valuation_hard_degraded_ratio`
-- `preexpiry_emergency_taker_attempt_count`
-- `preexpiry_emergency_taker_block_count`
+- `settlement_hold_required_count`
+- `open_order_cleanup_required_count`
+- `unresolved_lifecycle_obligation_count`
+- `cancel_fail_closed_count`
 
 Why:
 - they show whether the money plane itself is constraining the weapon
@@ -604,12 +612,12 @@ Do not overreact to these in isolation:
   - this can mean multi-fill churn or repeated exposure within one order, not automatically better maker quality
 - `runtime_classification = VALID_ACTIVE`
   - this means the run was alive and meaningful, not that the edge is proven
-- high `preexpiry_emergency_taker_*` counts
-  - this often reflects valuation/exit pressure, not normal offensive taker behavior
+- elevated lifecycle residue counts
+  - this reflects settlement-hold, cancel-only cleanup, or unresolved lifecycle residue; it is not normal offensive taker behavior by itself
 - `valuation_bruise_state = recovered_clean`
   - this means a bruise fully cleared, not that the economics or data plane were good
-- elevated `market_data_rest_ratio`
-  - not automatically bad without websocket health and fill behavior context
+- elevated `pair_truth_missing_pair_row_ratio`
+  - not automatically fatal without the accompanying pair-bounded ratio, websocket deltas, and actual fireability impact
 
 ## Claim-Boundary Reminders
 - Validation pass does not prove live-venue equivalence.

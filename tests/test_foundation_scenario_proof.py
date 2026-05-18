@@ -99,7 +99,7 @@ class FoundationScenarioProofTests(unittest.TestCase):
             self.assertTrue(clean_audits["paper_harness_audit"]["ok"])
             self.assertTrue(clean_audits["order_lifecycle_audit"]["ok"])
             clean_meta = summary["scenarios"]["clean_canonical"]
-            self.assertEqual(clean_meta["scenario_fixture_type"], "bounded_approximation_fixture")
+            self.assertEqual(clean_meta["scenario_fixture_type"], "not_modeled_fixture")
             self.assertIn("not_venue_queue_realism", clean_meta["scenario_realism_interpretation"])
 
             poor_truth_audits = summary["scenarios"]["poor_truth_no_action_standdown"]["audits"]

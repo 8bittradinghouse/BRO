@@ -66,7 +66,7 @@
 ## Remaining Signals
 - Archived report signal: `soak_maker_submits_too_low:16.000000<min:29.000000`
 - Current-code packet-1 replay closes this signal: maker submits `16`, required submits `16`, `soak_hardening_gate.ok=true`, `finding_count=0`.
-- `required_book_feed_disconnected_rows=1`
+- `required_market_truth_disconnected_rows=1`
 - `reduce_only_recovery_waiting_for_maker_exit=115`
 - `taker_submit_rejected=95`
 - `maker_no_submission=190`

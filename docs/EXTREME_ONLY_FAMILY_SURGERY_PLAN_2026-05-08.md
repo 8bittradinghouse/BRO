@@ -1,5 +1,10 @@
 # EXTREME_ONLY Family Surgery Plan (2026-05-08)
 
+## Classification
+- `historical-only`
+- this plan belongs to the pre-lifecycle-surgery stage-family packet
+- old stage-family language here is ancestry only
+
 ## Purpose
 - `VERIFIED`: this is the surgery map for the remaining `EXTREME_ONLY` family.
 - `VERIFIED`: it is a planning and classification aid for the next bounded taker cleanup packet.

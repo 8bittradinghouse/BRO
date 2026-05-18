@@ -22,7 +22,8 @@ DEFAULT_PROFILES = [
     "configs/profiles/live_canary.yaml",
     "configs/profiles/live_pilot.yaml",
 ]
-CANONICAL_PAPER_PROFILE = pathlib.Path("configs/profiles/paper_universal.yaml").resolve()
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+CANONICAL_PAPER_PROFILE = (REPO_ROOT / "configs/profiles/paper_universal.yaml").resolve()
 
 
 def _resolve_path(cfg_path: pathlib.Path, raw: str) -> pathlib.Path:

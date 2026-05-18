@@ -78,7 +78,7 @@ Semantic precedence and consumption rules:
 - outcome surfaces may group granular emitted `block_reason` values into
   canonical blocker lanes
 - they may not use that grouping to rename the owner of the failure
-- report-side promotion from bounded/non-authoritative truth to authoritative
+- report-side promotion from non-authoritative or incomplete truth to authoritative
   truth is forbidden unless runtime already emitted that authority class
 
 Separation rule:
@@ -101,7 +101,6 @@ Outcome-layer value vocabulary:
   - `unknown_missing_eval_reference`
   - `unknown_missing_linkage`
 - `claim_boundary_class` current values:
-  - `bounded_approximation`
   - `not_provable_missing_inputs`
   - `not_modeled_incomplete_lifecycle`
 - `record_claim_boundary_class` current values:
@@ -278,7 +277,7 @@ Canonical Definitions
 
 - mid_price_eval
 - midpoint derived from best_bid_price and best_ask_price at evaluation reference selection time
-- when recovered from canonical edge streams rather than direct book replay, basis must be explicitly emitted as bounded reconstructed reference
+- when recovered from canonical edge streams rather than direct book replay, basis must be explicitly emitted as reconstructed midpoint reference
 
 7. Slippage (direction-aware):
 
@@ -360,7 +359,6 @@ Outcome truth status enum:
 
 Claim boundary class enum:
 
-- bounded_approximation
 - not_modeled_incomplete_lifecycle
 - not_provable_missing_inputs
 

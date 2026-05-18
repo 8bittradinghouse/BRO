@@ -29,6 +29,7 @@ class MakerTruthSemanticsMapTests(unittest.TestCase):
                 "filled_order_truth",
                 "fill_event_truth",
                 "complete_outcome_truth",
+                "campaign_ledger_truth",
             }.issubset(truth_populations)
         )
 

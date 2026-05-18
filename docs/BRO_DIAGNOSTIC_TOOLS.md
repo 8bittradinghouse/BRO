@@ -16,15 +16,23 @@ future packets.
 - those observations are specimen/support truth only; they do not define maker
   doctrine.
 - intended maker timing doctrine anchor is:
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
-  - doctrine window: `15-20s`
-  - sweet spot: `10-15s`
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+  - maker gate opens at `15s`
+  - taker handoff opens at `7s`
+- canonical paper proving front door for that doctrine is:
+  - `broctl paper -- --active-minutes <minutes> --wait-sec 25`
 
 ## Current Tools
 ### `Forge Masters Archiver`
 Identity:
 - `FMA`
 - `scripts/bro_metric_harvest.py`
+
+## Classification
+- `support-only`
+- this is a diagnostic and forensic tooling surface
+- any legacy stage-family language here is diagnostic ancestry only, not live
+  runtime owner-law
 
 What it does:
 - harvests run/report truth across the archive,
@@ -34,9 +42,9 @@ What it does:
 - now also harvests maker fireability window pressure, per-target active-window
   cadence, low-price viability geometry, target-level viability classes, and
   raw quote-quality severity bins for shadow-pressure analysis.
-- now also racks queue-pressure packet counters and first-class complete-maker
-  decision-quality rates so queue-fight experiments can be judged without
-  hand math.
+- now preserves first-class complete-maker decision-quality rates, while
+  queue-pressure packet counters remain archive-only lineage from the retired
+  queue-fight experiment family.
 - now also preserves maker fight-admission shadow truth through report-bridge
   artifacts, calibration audits, and normalized row-level archive export so
   selectivity work can be recut without reopening raw report dirs.
@@ -47,7 +55,7 @@ What it does:
   - `session_regime_class`
   - `stack_pressure_class`
   - `secondary_oracle_status` / confirmation
-  - `depth_multiple_vs_cannon_target` against the current `$350` doctrine shot
+  - `depth_multiple_vs_cannon_target` against the current `$100` doctrine shot
     size
 - `FMA` now also preserves the bounded `20-45s` sibling observation lane as
   first-class shop artifacts:
@@ -104,7 +112,7 @@ What it does:
       - narrower `non_viable_geometry`
       - `non_viable_geometry`
     - topology signature:
-      - mostly `bounded_single_side_touch`
+      - mostly one-sided WS with no midpoint-backed market reference
       - mostly `0.01 / 0.99` extreme-band rows
       - favored-side depth currently resolves to `zero_imputed` on all candidate rows
   - fresh native transition specimen:
@@ -217,17 +225,17 @@ Current bedrock truths from the specimen pair:
 - `$350 Packet B`:
   - `10` active-band quote-starvation rows
   - `0` shadow rows
-  - truth readiness is `bounded_only`
+  - truth readiness is one-sided WS missing midpoint context
   - dominant deprivation reason:
-    `bounded_single_side_touch_zero_favored_depth`
+    one-sided WS with zero favored depth
 - `$250` caliber:
   - `20` active-band quote-starvation rows
   - `12` authoritative-complete active-band rows
   - `12` matched shadow selection rejects
   - `16` total shadow selection rejects
   - `4` off-band full-cannon opportunities
-  - dominant bounded-only deprivation reason:
-    `bounded_single_side_touch_zero_favored_depth`
+  - dominant one-sided deprivation reason:
+    one-sided WS with zero favored depth
 
 Repaired substrate follow-on truth:
 - repaired `Packet B` specimen:
@@ -292,12 +300,13 @@ Current canonical selector law in `paper_universal`:
 - reuse the existing
   `strategy.maker_competitiveness.selection_gate`
 - `enabled = true`
-- `allowed_stages = ["MAKER_POSITION", "MAKER_TAKER_SELECTIVE"]`
+- lifecycle-first admission and maker-lane gating now own timing semantics;
+  the old stage allowlist is retired
 - `require_secondary_oracle_confirmation = true`
-- `require_one_sided_active = false`
+- `cannon_target_notional_usd = 100.0`
 - `max_same_target_submit_count_prior = 1`
 - `max_same_target_side_submit_count_prior = 1`
-- `min_depth_multiple = 0.0`
+- `min_depth_multiple = 1.5`
 
 Current bedrock proof:
 - certified canonical run:
@@ -311,13 +320,12 @@ Current bedrock proof:
     - `paper-order-2`
     - `paper-order-5`
     - `paper-order-6`
-  - block:
-    - `paper-order-3`
-    - `paper-order-4`
     - `paper-order-7`
 - interpretation:
-  - the minimal canonical selector blocks the ugly same-target drift without
-    resurrecting the older strict `1.5x` maker depth cage
+  - the old selector-owned one-sided branch has been retired from canonical
+    maker selection authority
+  - one-sided posture remains observational maker side-policy context, not a
+    selector-owned reject family
 
 Reporting quarantine law on submit runs:
 - these artifacts must not be mistaken for canonical selection authority once
@@ -391,7 +399,7 @@ Current decision output:
   - lifecycle truth hardening:
     - canonical tracked-target cancels now preserve explicit maker
       ineligibility reasons such as `maker_timing_gate_closed` and
-      `stage_disallow_maker`
+      `phase_disallow_maker`
     - this replaces the misleading prior pattern where the same deaths could
       surface as generic `orphan_token_order`
     - doctrine is unchanged; this is audit-truth hardening, not a maker-loosen
@@ -556,10 +564,10 @@ What it does:
   viable-target queue-depth burden can be cut as first-class lathe truth.
 - current follow-on runtime packet uses that lathe truth to justify a bounded
   inside-spread queue-fight experiment rather than a global gate loosening.
-- first runtime proof of that queue-fight packet produced `0` real queue-pressure
-  candidates and `0` gate conversions, so the tool truth currently points away
-  from more queue sanding and toward a market-selection / skip-trash-windows
-  follow-on lane.
+- first runtime proof of that historical queue-fight packet produced `0` real
+  queue-pressure candidates and `0` gate conversions, so the archived tool
+  truth pointed away from more queue sanding and toward a market-selection /
+  skip-trash-windows follow-on lane.
 - the next proposed lathe family, `fight_admission_shadow`, is deliberately not
   promoted yet because the baseline recut did not show meaningful submitted-fight
   class separation. Current selectivity truth is still an `FMA`-level research

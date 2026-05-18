@@ -148,7 +148,7 @@ def _build_run_row(
             "eval_reference_basis_distribution": {"edge_market_midpoint_series": 10},
         },
         "maker_outcome_horizon_ms": 5000,
-        "maker_reference_bounded_fallback_activity": 4.0,
+        "maker_reference_missing_activity": 4.0,
         "valuation_bruise_state": valuation_bruise_state,
         "taker_decision_count": taker_decision_count,
         "taker_submits": 5.0 if taker_decision_count else 0.0,
@@ -211,7 +211,7 @@ def _build_bundle(
                         "submit_rejected_quote_quality_skip_queue_depth": 1,
                         "submit_rejected_sizing_reject": 1,
                     },
-                    "maker_reference_bounded_fallback_activity": 4.0,
+                    "maker_reference_missing_activity": 4.0,
                 },
                 "maker_sizing_competitiveness": {
                     "maker_sizing_reject_rows": 2.0,

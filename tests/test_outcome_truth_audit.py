@@ -74,7 +74,7 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             "evaluation_horizon_ms": 5000,
             "outcome_truth_status": "complete",
             "missing_fields": [],
-            "claim_boundary_class": "bounded_approximation",
+            "claim_boundary_class": "not_provable_missing_inputs",
             "record_claim_boundary_class": "complete",
             "decision_reference_status": "recovered_explicit_decision_reference",
             "decision_reference_source": "order_submit.decision_reference_midpoint",
@@ -106,7 +106,7 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             "decision_quality_basis": "directional_mid_eval_vs_mid_decision",
             "execution_quality_basis": "directional_mid_decision_vs_fill",
             "combined_outcome_basis": "decision_quality_plus_execution_quality",
-            "claim_boundary": {"layer": "outcome_truth_observational", "record_class": "bounded_approximation"},
+            "claim_boundary": {"layer": "outcome_truth_observational", "record_class": "not_provable_missing_inputs"},
         }
 
     def test_validate_records_fails_mixed_horizon_detected(self) -> None:
@@ -220,7 +220,7 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             self.assertTrue(records_path.exists())
             rows = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(len(rows), 1)
-            self.assertEqual(str(rows[0].get("claim_boundary_class") or ""), "bounded_approximation")
+            self.assertEqual(str(rows[0].get("claim_boundary_class") or ""), "not_provable_missing_inputs")
 
     def test_outcome_truth_audit_emits_lane_outcome_truth(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -326,7 +326,12 @@ class OutcomeTruthAuditTests(unittest.TestCase):
                         "execution_preference": "taker_only",
                         "decision_reference_midpoint": 0.50,
                         "decision_reference_ts_utc": "2026-03-30T00:00:10Z",
-                        "taker_competitiveness": {"reduce_only_recovery_active": True},
+                        "settlement_hold_required": True,
+                        "unresolved_lifecycle_obligation": True,
+                        "taker_competitiveness": {
+                            "settlement_hold_required": True,
+                            "unresolved_lifecycle_obligation": True,
+                        },
                         "ts_decision_utc": "2026-03-30T00:00:10Z",
                         "ts_utc": "2026-03-30T00:00:10Z",
                     },
@@ -387,10 +392,10 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             self.assertEqual(int(normal.get("decision_quality_distribution", {}).get("correct", -1)), 1)
             self.assertEqual(int(normal.get("execution_quality_distribution", {}).get("favorable", -1)), 1)
 
-            recovery = lanes.get("reduce_only_recovery_taker", {})
+            recovery = lanes.get("lifecycle_residue_taker", {})
             self.assertEqual(int(recovery.get("total_outcome_records", -1)), 1)
             self.assertEqual(int(recovery.get("filled_complete", -1)), 1)
-            self.assertEqual(int(recovery.get("recovery_override_records", -1)), 1)
+            self.assertEqual(int(recovery.get("lifecycle_residue_records", -1)), 1)
             self.assertAlmostEqual(float(recovery.get("edge_realized_x_size_sum", 0.0)), -1.0)
             self.assertAlmostEqual(float(recovery.get("execution_component_x_size_sum", 0.0)), -0.50)
             self.assertEqual(int(recovery.get("decision_quality_distribution", {}).get("incorrect", -1)), 1)
@@ -401,7 +406,7 @@ class OutcomeTruthAuditTests(unittest.TestCase):
             self.assertEqual(str(by_order["ord-normal"].get("submission_lane_truth") or ""), "normal_taker")
             self.assertEqual(
                 str(by_order["ord-recovery"].get("submission_lane_truth") or ""),
-                "reduce_only_recovery_taker",
+                "lifecycle_residue_taker",
             )
 
     def test_outcome_truth_audit_emits_commitment_lane_outcome_truth_for_normal_taker(self) -> None:

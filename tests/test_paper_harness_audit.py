@@ -165,10 +165,11 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "scan_phase": True,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                             }
                         ),
@@ -176,10 +177,11 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "no_target_standdown",
+                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "active_targets_present": False,
-                                "no_target_standdown": True,
-                                "book_feed_required": False,
+                                "scan_phase": True,
+                                "market_truth_required": False,
                                 "kill_switch": False,
                             }
                         ),
@@ -235,12 +237,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:00:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 10.0,
                                 "counter.book_updates_ws": 1.0,
-                                "counter.book_updates_rest": 9.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                         json.dumps(
@@ -249,12 +254,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:30:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 20.0,
                                 "counter.book_updates_ws": 2.0,
-                                "counter.book_updates_rest": 18.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                     ]
@@ -269,10 +277,10 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 "\n".join(
                     [
                         "websocket:",
-                        "  max_book_updates_rest_ratio: 0.35",
+                        "  max_pair_truth_missing_pair_row_ratio: 0.35",
                         "  min_book_updates_ws_delta: 1",
                         "  min_book_updates_total_delta: 1",
-                        "  min_status_rows_for_rest_ratio_gate: 1",
+                        "  min_status_rows_for_pair_truth_missing_gate: 1",
                     ]
                 )
                 + "\n",
@@ -290,12 +298,12 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
             self.assertTrue(result["ok"], msg=result.get("findings", []))
             self.assertFalse(
-                any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
+                any("paper_harness_pair_truth_missing_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
             )
             self.assertTrue(
                 any(
-                    "paper_harness_book_updates_rest_ratio_watch_high:" in warning
+                    "paper_harness_pair_truth_missing_ratio_watch_high:" in warning
                     for warning in result.get("warnings", [])
                 ),
                 msg=result.get("warnings", []),
@@ -331,12 +339,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:00:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 10.0,
                                 "counter.book_updates_ws": 7.0,
-                                "counter.book_updates_rest": 3.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                         json.dumps(
@@ -345,12 +356,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:30:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 20.0,
                                 "counter.book_updates_ws": 14.0,
-                                "counter.book_updates_rest": 6.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                     ]
@@ -365,10 +379,10 @@ class PaperHarnessAuditTests(unittest.TestCase):
                 "\n".join(
                     [
                         "websocket:",
-                        "  max_book_updates_rest_ratio: 0.20",
+                        "  max_pair_truth_missing_pair_row_ratio: 0.20",
                         "  min_book_updates_ws_delta: 1",
                         "  min_book_updates_total_delta: 1",
-                        "  min_status_rows_for_rest_ratio_gate: 1",
+                        "  min_status_rows_for_pair_truth_missing_gate: 1",
                     ]
                 )
                 + "\n",
@@ -386,18 +400,18 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
             self.assertTrue(result["ok"], msg=result.get("findings", []))
             self.assertFalse(
-                any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
+                any("paper_harness_pair_truth_missing_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
             )
             self.assertTrue(
                 any(
-                    "paper_harness_book_updates_rest_ratio_watch_high:" in warning
+                    "paper_harness_pair_truth_missing_ratio_watch_high:" in warning
                     for warning in result.get("warnings", [])
                 ),
                 msg=result.get("warnings", []),
             )
 
-    def test_paper_harness_audit_downgrades_high_rest_ratio_to_warning_for_short_window(self):
+    def test_paper_harness_audit_downgrades_high_pair_truth_missing_ratio_to_warning_for_short_window(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "audit-short-window-rest-warning"
@@ -427,12 +441,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:00:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 10.0,
                                 "counter.book_updates_ws": 1.0,
-                                "counter.book_updates_rest": 9.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                         json.dumps(
@@ -441,12 +458,15 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "ts_utc": "2099-01-01T00:30:00Z",
                                 "runtime_state": "active",
                                 "active_targets_present": True,
-                                "book_feed_required": True,
+                                "market_truth_required": True,
                                 "kill_switch": False,
                                 "gauge.open_orders": 1,
                                 "counter.book_updates": 20.0,
                                 "counter.book_updates_ws": 2.0,
-                                "counter.book_updates_rest": 18.0,
+                                "pair_truth_pair_count": 1.0,
+                                "pair_truth_missing_pair_count": 1.0,
+                                "pair_truth_one_sided_pair_count": 0.0,
+                                "pair_truth_authoritative_pair_count": 0.0,
                             }
                         ),
                     ]
@@ -467,12 +487,12 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
             self.assertTrue(result["ok"], msg=result.get("findings", []))
             self.assertFalse(
-                any("paper_harness_book_updates_rest_ratio_high:" in finding for finding in result.get("findings", [])),
+                any("paper_harness_pair_truth_missing_ratio_high:" in finding for finding in result.get("findings", [])),
                 msg=result.get("findings", []),
             )
             self.assertTrue(
                 any(
-                    "paper_harness_book_updates_rest_ratio_watch_high_short_window:" in warning
+                    "paper_harness_pair_truth_missing_ratio_watch_high_short_window:" in warning
                     for warning in result.get("warnings", [])
                 ),
                 msg=result.get("warnings", []),
@@ -545,20 +565,20 @@ class PaperHarnessAuditTests(unittest.TestCase):
         taker_policy = checks.get("taker_policy", {})
         claim_boundary = checks.get("paper_claim_boundary", {})
         realism_summary = checks.get("paper_execution_realism_summary", {})
-        self.assertEqual(maker_policy.get("maker_realism_class"), "bounded_approximation")
-        self.assertEqual(maker_policy.get("queue_position_mode"), "bounded_top_depth_proxy")
+        self.assertEqual(maker_policy.get("maker_realism_class"), "not_modeled")
+        self.assertEqual(maker_policy.get("queue_position_mode"), "not_modeled")
         self.assertIs(maker_policy.get("liquidity_tod_scaler_enabled"), True)
         self.assertGreater(float(maker_policy.get("liquidity_tod_depth_multiplier", 0.0)), 0.0)
-        self.assertEqual(taker_policy.get("taker_realism_class"), "bounded_approximation")
+        self.assertEqual(taker_policy.get("taker_realism_class"), "not_modeled")
         self.assertEqual(taker_policy.get("price_basis"), "best_touch")
-        self.assertEqual(taker_policy.get("latency_model"), "bounded_lag_emulation")
+        self.assertEqual(taker_policy.get("latency_model"), "lag_emulation")
         self.assertEqual(taker_policy.get("lag_unknown_handling"), "fail_closed_no_penalty")
         self.assertEqual(claim_boundary.get("control_plane_truth"), "authoritative")
         self.assertIs(claim_boundary.get("live_pnl_equivalence"), False)
-        self.assertIn(claim_boundary.get("decision_source_truth"), {"authoritative", "bounded_approximation"})
-        self.assertIn(claim_boundary.get("action_source_truth"), {"authoritative", "bounded_approximation"})
-        self.assertEqual(realism_summary.get("maker_realism_class"), "bounded_approximation")
-        self.assertEqual(realism_summary.get("taker_realism_class"), "bounded_approximation")
+        self.assertIn(claim_boundary.get("decision_source_truth"), {"authoritative", "not_modeled"})
+        self.assertIn(claim_boundary.get("action_source_truth"), {"authoritative", "not_modeled"})
+        self.assertEqual(realism_summary.get("maker_realism_class"), "not_modeled")
+        self.assertEqual(realism_summary.get("taker_realism_class"), "not_modeled")
         self.assertGreaterEqual(int(result.get("harness_realism_grade", 0)), 80)
         self.assertEqual(result.get("harness_realism_grade_semantics"), HARNESS_REALISM_GRADE_SEMANTICS)
         self.assertEqual(result.get("harness_realism_grade_authority"), HARNESS_REALISM_GRADE_AUTHORITY)
@@ -692,7 +712,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "size": 1.0,
                                 "source": "paper",
                                 "decision_input_type": "observed_live",
-                                "execution_realism_class": "bounded_approximation",
+                                "execution_realism_class": "not_modeled",
                             }
                         ),
                     ]
@@ -733,7 +753,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "decision_input_source": "rest",
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_other",
-                                "decision_input_type": "bounded_derived",
+                                "decision_input_type": "observed_other",
                                 "execution_realism_class": "not_modeled",
                             }
                         ),
@@ -748,7 +768,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_live",
                                 "decision_input_type": "observed_live",
-                                "execution_realism_class": "bounded_approximation",
+                                "execution_realism_class": "not_modeled",
                             }
                         ),
                     ]
@@ -766,7 +786,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
             )
         self.assertTrue(result["ok"], msg=f"unexpected findings: {result['findings']}")
         claim_boundary = result.get("checks", {}).get("paper_claim_boundary", {})
-        self.assertEqual(claim_boundary.get("decision_source_truth"), "bounded_approximation")
+        self.assertEqual(claim_boundary.get("decision_source_truth"), "not_modeled")
         self.assertEqual(claim_boundary.get("action_source_truth"), "authoritative")
 
     def test_paper_harness_audit_rejects_invalid_execution_realism_value(self):
@@ -835,7 +855,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_live",
                                 "decision_input_type": "observed_live",
-                                "execution_realism_class": "bounded_approximation",
+                                "execution_realism_class": "not_modeled",
                             }
                         ),
                         json.dumps(
@@ -849,7 +869,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                                 "decision_input_emulated": False,
                                 "decision_input_data_class": "observed_live",
                                 "decision_input_type": "observed_live",
-                                "execution_realism_class": "bounded_approximation",
+                                "execution_realism_class": "not_modeled",
                             }
                         ),
                     ]
@@ -875,6 +895,62 @@ class PaperHarnessAuditTests(unittest.TestCase):
         self.assertEqual(int(source_state.get("maker_action_rows_non_ws", 0)), 0)
         self.assertEqual(int(source_state.get("taker_action_rows_total", 0)), 1)
         self.assertEqual(int(source_state.get("taker_action_rows_non_ws", 0)), 1)
+
+    def test_paper_harness_audit_accepts_official_ws_action_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "audit-official-ws-source-purity"
+            (root / "events_2099-01-01.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "event_type": "edge_evaluation",
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:00Z",
+                                "action_taken": "maker",
+                                "book_source": "official_ws_price_change",
+                                "decision_input_emulated": False,
+                                "decision_input_data_class": "",
+                                "decision_input_type": "",
+                                "execution_realism_class": "not_modeled",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "event_type": "edge_evaluation",
+                                "run_id": run_id,
+                                "ts_utc": "2099-01-01T00:00:01Z",
+                                "action_taken": "taker",
+                                "book_source": "official_ws_book",
+                                "decision_input_emulated": False,
+                                "decision_input_data_class": "",
+                                "decision_input_type": "",
+                                "execution_realism_class": "not_modeled",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(
+                config_path=Path("configs/profiles/paper_universal.yaml"),
+                log_dir=root,
+                run_id=run_id,
+                skip_run_integrity=True,
+                min_status_rows=1,
+                max_status_age_sec=60.0,
+            )
+        self.assertNotIn(
+            "paper_harness_action_row_non_ws_source:maker=1:taker=1",
+            set(result.get("findings", [])),
+        )
+        source_state = result.get("checks", {}).get("paper_source_degradation_state", {})
+        self.assertEqual(int(source_state.get("maker_action_rows_non_ws", 0)), 0)
+        self.assertEqual(int(source_state.get("taker_action_rows_non_ws", 0)), 0)
+        decision_counts = result.get("checks", {}).get("edge_decision_input_type_counts", {})
+        self.assertEqual(int(decision_counts.get("observed_live", 0)), 2)
 
 
 if __name__ == "__main__":

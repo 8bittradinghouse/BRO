@@ -304,32 +304,32 @@ class ExecutorHardeningTests(unittest.TestCase):
         self.assertEqual(set(ctx["near_token_ids"]), {"t1", "t2"})
         self.assertEqual(set(ctx["token_ids"]), {"t1", "t2"})
 
-    def test_taker_stage_window_token_ids_use_stage_eligible_window_tokens(self):
+    def test_taker_window_token_ids_use_phase_eligible_window_tokens(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner._unique_ordered = ExecutionRunner._unique_ordered
 
-        token_ids = ExecutionRunner._taker_stage_window_token_ids(
+        token_ids = ExecutionRunner._taker_window_token_ids(
             runner,
             taker_ctx={
                 "near_token_ids": ["obs", "live", "live", "unverified"],
                 "token_ids": ["live"],
             },
-            taker_stage_tokens={"live", "unverified"},
+            taker_phase_tokens={"live", "unverified"},
         )
 
         self.assertEqual(token_ids, ["live", "unverified"])
 
-    def test_taker_stage_window_token_ids_falls_back_to_active_tokens_when_near_missing(self):
+    def test_taker_window_token_ids_falls_back_to_active_tokens_when_near_missing(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner._unique_ordered = ExecutionRunner._unique_ordered
 
-        token_ids = ExecutionRunner._taker_stage_window_token_ids(
+        token_ids = ExecutionRunner._taker_window_token_ids(
             runner,
             taker_ctx={
                 "near_token_ids": [],
                 "token_ids": ["t1", "t2", "t1"],
             },
-            taker_stage_tokens={"t2", "t1"},
+            taker_phase_tokens={"t2", "t1"},
         )
 
         self.assertEqual(token_ids, ["t1", "t2"])
@@ -401,6 +401,8 @@ class ExecutorHardeningTests(unittest.TestCase):
         runner.operating_mode_ws_slo_enforce = True
         runner.operating_mode_ws_slo_bootstrap_grace_sec = 45.0
         runner._ws_slo_bootstrap_started_mono = float("nan")
+        runner._ws_slo_bootstrap_active = True
+        runner._ws_slo_bootstrap_reason = "startup_targets_present"
 
         active = ExecutionRunner._ws_slo_bootstrap_guard_active(runner, has_targets=True)
         self.assertTrue(active)
@@ -425,7 +427,7 @@ class ExecutorHardeningTests(unittest.TestCase):
         self.assertFalse(degraded)
         self.assertEqual(reasons, [])
 
-    def test_ws_slo_degraded_cycle_flags_all_target_ws_missing_with_rest_fallback(self):
+    def test_ws_slo_degraded_cycle_flags_all_target_pair_truth_missing(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
         runner.cfg = {"market_data": {"ws": {"enabled": True}}, "chainlink": {"enabled": True}}
         runner.operating_mode_ws_slo_enforce = True
@@ -441,23 +443,84 @@ class ExecutorHardeningTests(unittest.TestCase):
             has_targets=True,
             book_feed_status={"connected": True, "last_msg_age_sec": 1.0},
             chainlink_status={"connected": True, "last_tick_age_sec": 1.0},
-            all_targets_missing_ws_books=True,
-            rest_fallback_used_cycle=True,
+            pair_missing_base_keys=["mkt-1"],
+            all_target_pairs_missing_ws=True,
         )
         self.assertTrue(degraded)
-        self.assertIn("book_feed_ws_books_missing_all_targets", reasons)
+        self.assertIn("book_feed_ws_pair_truth_missing", reasons)
+        self.assertIn("book_feed_ws_pair_truth_missing_all_pairs", reasons)
 
-    def test_missing_book_not_found_error_detection(self):
-        self.assertTrue(
-            ExecutionRunner._is_missing_book_not_found_error(
-                "404 Client Error: Not Found for url: https://clob.polymarket.com/book?token_id=abc"
-            )
+    def test_pair_truth_base_keys_by_class_splits_missing_and_one_sided_pairs(self):
+        pair_truth = {
+            "mkt-a": {"pair_truth_class": "missing"},
+            "mkt-b": {"pair_truth_class": "missing", "pair_truth_basis": "pair_missing_one_sided_only"},
+            "mkt-c": {"pair_truth_class": "authoritative"},
+            "": {"pair_truth_class": "missing", "pair_truth_basis": "pair_missing_one_sided_only"},
+        }
+
+        missing_base_keys, one_sided_base_keys = ExecutionRunner._pair_truth_base_keys_by_class(pair_truth)
+
+        self.assertEqual(missing_base_keys, ["mkt-a", "mkt-b"])
+        self.assertEqual(one_sided_base_keys, ["mkt-b"])
+
+    def test_target_ws_gap_requests_book_feed_resubscribe_once_per_state_transition(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.book_feed = SimpleNamespace(request_resubscribe=mock.Mock())
+        runner._reset_ws_slo_bootstrap = mock.Mock()
+        runner._last_ws_slo_degraded = False
+        runner._last_ws_slo_reason = ""
+
+        requested = ExecutionRunner._maybe_request_book_feed_resubscribe_for_target_ws_gap(
+            runner,
+            ws_slo_reasons=["book_feed_ws_pair_truth_missing_all_pairs"],
+            book_feed_status={"connected": True},
+            ws_slo_bootstrap_active=False,
         )
-        self.assertFalse(
-            ExecutionRunner._is_missing_book_not_found_error(
-                "503 Server Error: Service Unavailable for url: https://clob.polymarket.com/book?token_id=abc"
-            )
+        self.assertTrue(requested)
+        runner.book_feed.request_resubscribe.assert_called_once_with()
+        runner._reset_ws_slo_bootstrap.assert_called_once_with(
+            reason="book_feed_ws_pair_truth_missing",
+            activate_grace=False,
         )
+
+        runner.book_feed.request_resubscribe.reset_mock()
+        runner._reset_ws_slo_bootstrap.reset_mock()
+        runner._last_ws_slo_degraded = True
+        runner._last_ws_slo_reason = "book_feed_ws_pair_truth_missing_all_pairs"
+        requested = ExecutionRunner._maybe_request_book_feed_resubscribe_for_target_ws_gap(
+            runner,
+            ws_slo_reasons=["book_feed_ws_pair_truth_missing_all_pairs"],
+            book_feed_status={"connected": True},
+            ws_slo_bootstrap_active=False,
+        )
+        self.assertFalse(requested)
+        runner.book_feed.request_resubscribe.assert_not_called()
+        runner._reset_ws_slo_bootstrap.assert_not_called()
+
+    def test_ws_slo_bootstrap_reset_can_skip_grace_for_steady_state_self_heal(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.token_ids = ["t1"]
+        runner.run_id = "run-1"
+        runner.cfg = {"market_data": {"ws": {"enabled": True}}, "chainlink": {"enabled": True}}
+        runner.operating_mode_ws_slo_enforce = True
+        runner.operating_mode_ws_slo_bootstrap_grace_sec = 45.0
+        runner.events = SimpleNamespace(log_event=mock.Mock())
+
+        ExecutionRunner._reset_ws_slo_bootstrap(
+            runner,
+            reason="book_feed_ws_pair_truth_missing_all_pairs",
+            activate_grace=False,
+        )
+
+        self.assertEqual(float(runner._ws_slo_bootstrap_started_mono), 0.0)
+        self.assertFalse(bool(runner._ws_slo_bootstrap_active))
+        self.assertEqual(str(runner._ws_slo_bootstrap_reason or ""), "")
+        runner.events.log_event.assert_called_once()
+        payload = dict(runner.events.log_event.call_args.args[1])
+        self.assertEqual(payload.get("reason_class"), "steady_state_self_heal")
+        self.assertEqual(payload.get("grace_applied"), False)
+        self.assertFalse(ExecutionRunner._ws_slo_bootstrap_guard_active(runner, has_targets=True))
+        self.assertFalse(bool(runner._ws_slo_bootstrap_active))
 
     def test_cancel_all_open_orders_releases_locks_only_for_confirmed_cancels(self):
         released: list[str] = []

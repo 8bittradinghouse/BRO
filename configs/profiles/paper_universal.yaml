@@ -21,7 +21,7 @@ runtime:
   paper_liquidity_tod_start_hour_utc: 2
   paper_liquidity_tod_end_hour_utc: 6
   paper_liquidity_tod_depth_multiplier: 0.6
-  paper_queue_position_mode: bounded_top_depth_proxy
+  paper_queue_position_mode: not_modeled
   paper_queue_position_ahead_ratio: 0.35
   paper_chainlink_lag_emulation_enabled: true
   paper_chainlink_lag_window_low_sec: 2.0
@@ -34,18 +34,14 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "e6686d943ca668227f363cf73f5429533a0d9b5d0c9e35dbd434990894d0a16a"
-  held_book_not_found_backoff_sec: 5.0
-  held_book_not_found_force_refresh_min_unpriceable_age_sec: 20.0
-  held_book_not_found_force_refresh_interval_sec: 45.0
+  paper_expected_config_fingerprint_sha256: "87d731e2a8557515629f73eb7af91a51fa5b3be4362f1e0bba4172adb0872819"
+  held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
+  held_ws_missing_or_unusable_refresh_interval_sec: 45.0
   # Doctrine-aligned handoff ladder:
-  # maker new risk lives in the final 15-20s cannon window,
+  # maker gate opens at 15s to expiry,
+  # maker new risk may live only until the taker handoff at 7s,
   # reduce-only recovery starts at 15s,
   # emergency taker / hard halt begin at <=7s.
-  held_preexpiry_reduce_only_sec: 15.0
-  preexpiry_emergency_taker_window_sec: 7.0
-  terminal_unwind_halt_new_risk_sec: 7.0
-  dust_classifier_enforce_enabled: true
 
 # Small, reversible maker-lag relaxation for diagnostic verification.
 # Scope: paper_universal profile only.
@@ -62,23 +58,12 @@ latency_verifier:
   score_min_for_taker: 0.40
   require_armed_for_taker: true
 
-# Targeted maker-gate hardening (surgical):
-# - widen queue depth tolerance modestly
-# - slightly relax expected-fill floor
-# - start reduce-only maker recovery before emergency taker is allowed
-# preserving explicit skip semantics and fail-closed behavior.
 strategy:
   max_order_size: 8000.0
   execution_quality:
     max_queue_ahead_size: 300.0
     min_expected_fill_prob: 0.045
-    reduce_only_recovery_min_expected_fill_prob_floor: 0.0
-    reduce_only_recovery_max_queue_ahead_size_multiplier: 5.0
   maker_competitiveness:
-    timing_gate_enabled: true
-    # Intended late-window maker cannon doctrine.
-    timing_gate_min_sec_to_expiry: 15.0
-    timing_gate_max_sec_to_expiry: 20.0
     edge_scale_enabled: true
     edge_scale_start_abs: 0.05
     edge_scale_full_abs: 0.20
@@ -86,28 +71,52 @@ strategy:
     spread_mult_min: 0.75
     requote_delta_mult_min: 0.50
     one_sided_enabled: true
-    one_sided_edge_threshold_abs: 0.18
-    one_sided_allowed_stages:
-      - MAKER_TAKER_SELECTIVE
-    selection_gate:
-      enabled: true
-      allowed_stages:
-        - MAKER_POSITION
-        - MAKER_TAKER_SELECTIVE
-      require_secondary_oracle_confirmation: true
-      require_one_sided_active: false
-      cannon_target_notional_usd: 350.0
-      min_depth_multiple: 0.0
-      max_same_target_submit_count_prior: 1
-      max_same_target_side_submit_count_prior: 1
+    one_sided_edge_threshold_abs: 0.15
+
+lifecycle:
+  selection:
+    enabled: true
+    min_sec_to_expiry: 90.0
+    min_market_age_sec: 60.0
+    maker_min_depth_multiple: 1.5
+    taker_min_fill_ratio: 0.5
+    require_secondary_oracle_confirmation: true
+    cannon_target_notional_usd: 100.0
+    max_same_target_submit_count_prior: 1
+    max_same_target_side_submit_count_prior: 1
+    replacement_margin: 0.0
+    replacement_dwell_sec: 0.0
+    ownership_fail_dwell_sec: 0.0
+  phase:
+    # Intended late-window doctrine:
+    # maker opens at 15s and yields to taker at 7s.
+    maker_window_open_sec: 15.0
+    taker_window_open_sec: 7.0
+  lane_gates:
+    maker:
+      timing_gate_enabled: true
+      edge_scale_enabled: true
+      edge_scale_start_abs: 0.05
+      edge_scale_full_abs: 0.20
+      size_mult_max: 1.35
+      spread_mult_min: 0.75
+      requote_delta_mult_min: 0.50
+      one_sided_enabled: true
+      one_sided_edge_threshold_abs: 0.15
+    taker:
+      final_window_enabled: true
+      aggressive_window_enabled: false
+      aggressive_window_sec: 7.0
+      multi_oracle_boost_enabled: true
+      multi_oracle_boost_window_sec: 7.0
 
 # Maker competitiveness sizing: enforce desk-viable minimum quote presence and
 # bind to visible depth while preserving deterministic, bounded behavior.
 sizing:
-  max_usd: 351.0
-  target_usd: 350.0
-  maker_competitive_min_notional_usd: 350.0
-  maker_competitive_max_notional_usd: 351.0
+  max_usd: 101.0
+  target_usd: 100.0
+  maker_competitive_min_notional_usd: 100.0
+  maker_competitive_max_notional_usd: 101.0
   maker_competitive_min_shares: 0.0
   maker_competitive_max_shares: 8000.0
   maker_depth_target_min_ratio: 0.15
@@ -123,7 +132,7 @@ wallet:
   max_notional_per_order_usdc: 351.0
   chain: polygon
   gas_asset_symbol: POL
-  stable_asset_symbol: USDC.e
+  stable_asset_symbol: pUSD
   active_wallet_address_source: auth.funder
   approval_spender_targets: []
   gas_reserve_target_pol: 0.2
@@ -135,13 +144,13 @@ risk:
   # interval while letting taker timing be governed by its own stage/final-window doctrine.
   min_sec_to_expiry_for_new_exposure: 15.0
   min_sec_to_expiry_for_new_exposure_by_lane:
+    maker: 7.0
     taker: 0.0
   # Treat untradeable (< min order size) post-expiry residuals as dust candidates
   # once lifecycle obligations are otherwise clear.
   position_dust_shares_epsilon: 1.0
   # Reserve submit-rate headroom for forced pre-expiry reduce-only recovery so
   # normal flow cannot fully consume the order-rate pool.
-  order_rate_recovery_reserved_slots: 12
   max_abs_position_shares: 8000.0
   max_notional_per_token: 1300.0
   max_order_size: 8000.0
@@ -191,6 +200,7 @@ taker:
   require_lag_verification: false
   enabled: true
   target_usd: 20.0
+  max_orders_per_cycle: 1
   min_edge: 0.11
   competitiveness:
     enabled: true
@@ -204,20 +214,12 @@ taker:
     edge_weight: 0.65
     latency_score_weight: 0.35
     dynamic_preview_enabled: true
-    final_window_enabled: true
-    final_window_sec: 7.0
-    stage_final_window_sec_by_stage: {}
-    aggressive_window_enabled: false
-    aggressive_window_sec: 7.0
     price_aggress_bps_max: 8.0
-    multi_oracle_boost_enabled: true
-    multi_oracle_boost_window_sec: 7.0
     multi_oracle_edge_threshold_abs: 0.20
     multi_oracle_target_usd_cap: 20.0
     multi_oracle_capital_pct_cap: 0.18
     allow_complement_buy_route: true
     min_visible_fill_ratio: 0.5
-    stage_priority_enabled: true
 
 storage:
   log_dir: /logs/paper_universal
@@ -236,5 +238,5 @@ ramp:
 
 targets:
   discovery:
-    max_pairs: 2
+    max_pairs: 1
     event_slug_probe_enabled: true

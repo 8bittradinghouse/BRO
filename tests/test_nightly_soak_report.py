@@ -12,16 +12,203 @@ from scripts.paper_harness_realism_contract import (
     normalize_nightly_exercised_harness_realism,
 )
 from scripts.nightly_soak_report import (
+    _maker_probe_rows_with_shadow_truth,
+    _maker_phase_allowed_from_row,
+    _maker_quote_construction_bundle,
     _maker_selection_authority_bundle,
     _maker_survival_counterfactual_summary,
     _maker_truth_readiness,
+    _maker_zero_submit_root_cause_bundle,
     _write_support_artifacts,
     build_report,
     render_human_summary,
 )
 
 
+_HISTORICAL_PREEXPIRY_EMERGENCY_EVENT = "preexpiry_emergency_taker_unwind"
+_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
+_HISTORICAL_RECOVERY_REASON = "preexpiry_reduce_only_window_active"
+_HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD = "preexpiry_emergency_taker_window_sec"
+_HISTORICAL_RECOVERY_WAITING_BLOCK_REASON = "reduce_only_recovery_waiting_for_maker_exit"
+_HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE = (
+    "reduce_only_recovery_size_cap_below_min_order_size"
+)
+_HISTORICAL_RECOVERY_TOUCH_PRICE_UNAVAILABLE = (
+    "reduce_only_recovery_touch_price_unavailable"
+)
+_HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED = "maker_to_taker_recovery_handoff_disabled"
+
+
+def _historical_recovery_lineage(active=True, reason=_HISTORICAL_RECOVERY_REASON, **overrides):
+    payload = {_HISTORICAL_RECOVERY_ACTIVE_FIELD: bool(active)}
+    if active and reason is not None:
+        payload[_HISTORICAL_RECOVERY_REASON_FIELD] = reason
+    payload.update(overrides)
+    return payload
+
+
+def _historical_taker_authority_flags(
+    *,
+    taker_phase_allowed=False,
+    **overrides,
+):
+    payload = {
+        "taker_phase_allowed": taker_phase_allowed,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _historical_recovery_runtime_config(
+    *,
+    held_preexpiry_reduce_only_sec=50.0,
+    preexpiry_emergency_taker_window_sec=45.0,
+    terminal_unwind_halt_new_risk_sec=45.0,
+    **overrides,
+):
+    payload = {
+        "held_preexpiry_reduce_only_sec": held_preexpiry_reduce_only_sec,
+        _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD: preexpiry_emergency_taker_window_sec,
+        "terminal_unwind_halt_new_risk_sec": terminal_unwind_halt_new_risk_sec,
+    }
+    payload.update(overrides)
+    return payload
+
+
 class NightlySoakReportTests(unittest.TestCase):
+    def test_maker_probe_rows_with_shadow_truth_prefers_canonical_lifecycle_window(self):
+        rows = _maker_probe_rows_with_shadow_truth(
+            probe_rows=[
+                {
+                    "token_id": "token-alpha",
+                    "target_side_ref": "target-alpha|SELL",
+                    "ts_decision_utc": "2026-05-18T03:59:45.723Z",
+                    "sec_to_expiry": 14.304199,
+                    "lifecycle_phase": "maker_window",
+                    "selection_gate_min_sec_to_expiry": 90.0,
+                    "selection_gate_max_sec_to_expiry": None,
+                }
+            ],
+            shadow_rows=[
+                {
+                    "token_id": "token-alpha",
+                    "target_side_ref": "target-alpha|SELL",
+                    "ts_decision_utc": "2026-05-18T03:59:45.715Z",
+                    "decision_result": "submitted",
+                    "order_submit_id": "paper-order-2",
+                }
+            ],
+            run_manifest={
+                "config": {
+                    "strategy": {
+                        "maker_competitiveness": {
+                            "selection_gate": {
+                                "min_sec_to_expiry": 90.0,
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row.get("matched_shadow_present"), True)
+        self.assertEqual(row.get("matched_shadow_decision_result"), "submitted")
+        self.assertEqual(row.get("launch_safe_selection_timing_window_met"), True)
+
+    def test_maker_zero_submit_root_cause_bundle_steps_aside_when_maker_participated(self):
+        root_cause = _maker_zero_submit_root_cause_bundle(
+            probe_rows=[],
+            shadow_rows=[
+                {
+                    "decision_result": "selection_rejected",
+                    "selection_gate_primary_reject_reason": "insufficient_depth_multiple",
+                },
+                {
+                    "decision_result": "submitted",
+                    "order_submit_id": "paper-order-2",
+                },
+            ],
+            quote_starvation_rows=[],
+            quote_starvation_summary={},
+            waterfall={"stages": {"selection_rejected_rows": {"count": 0}}},
+            runtime_classification={"runtime_class_name": "VALID_ACTIVE"},
+            truth_rows=[],
+        )
+        self.assertEqual(
+            root_cause.get("zero_submit_classification"),
+            "not_applicable_maker_participated",
+        )
+        self.assertEqual(root_cause.get("decision_readiness"), "not_applicable_submit_run")
+        self.assertEqual(root_cause.get("authoritative_for_canonical_selection"), False)
+        self.assertEqual(root_cause.get("current_owner_artifact"), "maker_selection_authority_audit.json")
+        self.assertEqual(int(root_cause.get("submitted_shadow_row_count", 0)), 1)
+
+    def test_maker_phase_allowed_helper_prefers_canonical_lifecycle_truth(self):
+        self.assertTrue(
+            _maker_phase_allowed_from_row(
+                {
+                    "lifecycle_phase": "maker_window",
+                    "maker_phase_allowed": True,
+                }
+            )
+        )
+        self.assertTrue(_maker_phase_allowed_from_row({"lifecycle_phase": "maker_window"}))
+        self.assertFalse(_maker_phase_allowed_from_row({"lifecycle_phase": "prepare"}))
+
+    def test_maker_quote_construction_bundle_classifies_cleanup_and_shadow_gap_residue(self):
+        bundle = _maker_quote_construction_bundle(
+            truth_rows=[
+                {
+                    "truth_readiness_state": "authoritative_complete",
+                    "desired_quote_present": None,
+                    "maker_no_submission_cause": None,
+                    "maker_no_submission_category": None,
+                    "block_reason": "open_order_cleanup_required",
+                    "open_maker_orders_total": 2,
+                    "open_orders_for_token_count": 1,
+                    "open_orders_same_side_count": 1,
+                    "same_target_submit_count_prior": 1,
+                    "same_target_side_submit_count_prior": 1,
+                    "fair_probability": 0.55,
+                    "market_probability": 0.50,
+                    "geometry_viable": True,
+                    "depth_multiple_vs_cannon_target": 2.0,
+                    "favored_side_depth_truth_state": "nonzero_visible",
+                    "lineage_stage": "EXTREME_ONLY",
+                },
+                {
+                    "truth_readiness_state": "authoritative_complete",
+                    "desired_quote_present": None,
+                    "maker_no_submission_cause": None,
+                    "maker_no_submission_category": None,
+                    "block_reason": None,
+                    "open_maker_orders_total": 0,
+                    "open_orders_for_token_count": 0,
+                    "open_orders_same_side_count": 0,
+                    "same_target_submit_count_prior": 1,
+                    "same_target_side_submit_count_prior": 0,
+                    "fair_probability": 0.55,
+                    "market_probability": 0.50,
+                    "geometry_viable": True,
+                    "depth_multiple_vs_cannon_target": 2.0,
+                    "favored_side_depth_truth_state": "nonzero_visible",
+                    "lineage_stage": "EXTREME_ONLY",
+                },
+            ]
+        )
+        rows = bundle["rows"]
+        self.assertEqual(rows[0]["quote_construction_primary_cause"], "open_order_cleanup_required")
+        self.assertEqual(rows[1]["quote_construction_primary_cause"], "resting_quote_already_live_or_shadow_gap")
+        self.assertEqual(
+            bundle["summary"]["quote_construction_primary_cause_distribution"],
+            {
+                "open_order_cleanup_required": 1,
+                "resting_quote_already_live_or_shadow_gap": 1,
+            },
+        )
+
     def test_maker_selection_authority_counterfactual_replays_certified_keep_block_set(self):
         shadow_rows = [
             {
@@ -32,6 +219,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "c09c10c6949dcaee|BUY",
                 "side": "BUY",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:29:04.215Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -44,6 +232,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "466f27bd7f1d3019|SELL",
                 "side": "SELL",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:30:04.215Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -56,6 +245,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "55847ba47a05dc46|SELL",
                 "side": "SELL",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:34:01.754Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -68,6 +258,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "55847ba47a05dc46|BUY",
                 "side": "BUY",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:34:04.765Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -80,6 +271,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "b446a3128a6a1252|SELL",
                 "side": "SELL",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:35:04.215Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -92,6 +284,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "aa50e402749083c5|SELL",
                 "side": "SELL",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:36:04.215Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
@@ -104,11 +297,32 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_side_ref": "aa50e402749083c5|SELL",
                 "side": "SELL",
                 "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:36:07.215Z",
                 "decision_result": "submitted",
                 "secondary_oracle_confirmation": True,
             },
         ]
+        shadow_meta_by_order_id = {
+            "paper-order-1": {
+                "edge_abs": 0.22,
+                "one_sided_edge_threshold_abs": 0.15,
+                "maker_timing_gate_open": True,
+                "market_reference_class": "authoritative",
+                "one_sided_allowed_phase": True,
+                "one_sided_allowed_authority": True,
+            },
+            "paper-order-3": {
+                "edge_abs": 0.04181324922988065,
+                "one_sided_edge_threshold_abs": 0.15,
+                "maker_timing_gate_open": True,
+                "market_reference_class": "authoritative",
+                "one_sided_allowed_phase": False,
+                "one_sided_allowed_authority": True,
+            },
+        }
+        for row in shadow_rows:
+            row.update(shadow_meta_by_order_id.get(str(row.get("order_submit_id") or ""), {}))
         events = []
         for order_id, one_sided_active, side_policy, side in [
             ("paper-order-1", True, "BUY_ONLY", "BUY"),
@@ -163,13 +377,28 @@ class NightlySoakReportTests(unittest.TestCase):
                 "paper-order-7",
             ],
         )
-        self.assertEqual(
-            counterfactual.get("block_order_submit_ids"),
-            [],
-        )
+        self.assertEqual(counterfactual.get("block_order_submit_ids"), [])
         summary = bundle["audit"]
-        self.assertEqual(summary.get("blocked_count_by_canonical_reject_reason", {}).get("selection_non_one_sided"), None)
+        self.assertEqual(summary.get("blocked_count_by_canonical_reject_reason", {}), {})
         self.assertEqual(summary.get("blocked_count_by_canonical_reject_reason", {}).get("selection_prior_target_submit"), None)
+        summary_row_by_order_id = {
+            str(row.get("order_submit_id") or ""): row for row in bundle["audit"].get("rows", [])
+        }
+        row_by_order_id = {
+            str(row.get("order_submit_id") or ""): row for row in bundle["counterfactual"].get("rows", [])
+        }
+        admitted_row = dict(row_by_order_id["paper-order-3"])
+        self.assertEqual(summary_row_by_order_id["paper-order-3"].get("one_sided_allowed_authority"), True)
+        self.assertEqual(admitted_row.get("edge_abs"), 0.04181324922988065)
+        self.assertEqual(admitted_row.get("one_sided_edge_threshold_abs"), 0.15)
+        self.assertEqual(admitted_row.get("timing_gate_open"), True)
+        self.assertEqual(admitted_row.get("market_reference_class"), "authoritative")
+        self.assertEqual(admitted_row.get("maker_phase_allowed"), True)
+        self.assertEqual(admitted_row.get("one_sided_allowed_phase"), False)
+        self.assertEqual(admitted_row.get("one_sided_allowed_authority"), True)
+        self.assertEqual(admitted_row.get("one_sided_active"), False)
+        self.assertEqual(admitted_row.get("counterfactual_decision"), "admitted")
+        self.assertEqual(admitted_row.get("counterfactual_primary_reject_reason"), None)
 
     def test_maker_survival_counterfactual_treats_commitment_window_end_as_terminal_cleanup(self):
         classification, counterfactuals = _maker_survival_counterfactual_summary(
@@ -188,19 +417,16 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertEqual(classification, "terminal_commitment_window_end_cleanup")
         self.assertIsInstance(counterfactuals, dict)
 
-    def test_maker_truth_readiness_prefers_bounded_single_side_touch_zero_depth(self):
+    def test_maker_truth_readiness_marks_one_sided_missing_midpoint(self):
         readiness, primary = _maker_truth_readiness(
             {
-                "market_reference_class": "bounded_approximation",
-                "market_reference_mode": "bounded_single_side_touch",
-                "market_reference_source_side": "ask",
-                "fair_probability": 0.42,
-                "market_probability": 0.40,
-                "probe_visible_depth_shares": 0.0,
+                "market_reference_class": "not_available",
+                "market_reference_mode": "missing",
+                "pair_truth_basis": "one_sided_ws_missing_midpoint",
             }
         )
-        self.assertEqual(readiness, "bounded_only")
-        self.assertEqual(primary, "bounded_single_side_touch_zero_favored_depth")
+        self.assertEqual(readiness, "missing_truth_input")
+        self.assertEqual(primary, "one_sided_ws_missing_midpoint")
 
     def test_write_support_artifacts_marks_zero_submit_artifacts_non_authoritative_on_submit_runs(self):
         with tempfile.TemporaryDirectory() as td:
@@ -239,6 +465,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "maker_quote_integrity_summary": {},
                 "maker_selection_authority_audit": {},
                 "maker_selection_authority_counterfactual": {},
+                "financial_outcome_reconciliation": {"status": "quantities_distinct_fill_notional_reconciled"},
             }
             _write_support_artifacts(report_dir, support_artifacts)
             for name in (
@@ -250,6 +477,27 @@ class NightlySoakReportTests(unittest.TestCase):
                 payload = json.loads((report_dir / name).read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("authoritative_for_canonical_selection"), False)
                 self.assertEqual(payload.get("applicability"), "descriptive_only")
+                self.assertEqual(payload.get("current_owner_artifact"), "maker_selection_authority_audit.json")
+            zero_submit_payload = json.loads(
+                (report_dir / "maker_zero_submit_root_cause_audit.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(zero_submit_payload.get("authoritative_for_canonical_selection"), False)
+            self.assertEqual(zero_submit_payload.get("applicability"), "not_applicable_submit_run")
+            self.assertEqual(
+                zero_submit_payload.get("current_owner_artifact"),
+                "maker_selection_authority_audit.json",
+            )
+            reconciliation_payload = json.loads(
+                (report_dir / "financial_outcome_reconciliation.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                reconciliation_payload.get("applicability"),
+                "support_only_cross_surface_reconciliation",
+            )
+            self.assertEqual(
+                reconciliation_payload.get("status"),
+                "quantities_distinct_fill_notional_reconciled",
+            )
 
     def test_build_report_basic_metrics(self):
         with tempfile.TemporaryDirectory() as td:
@@ -285,6 +533,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertNotIn("sniper", report)
             self.assertIn("execution_paths", report)
             self.assertIn("financial_performance", report)
+            self.assertIn("financial_outcome_reconciliation", report)
             self.assertIn("edge_truth", report)
             self.assertIn(EXERCISED_HARNESS_REALISM_FIELD, report)
             self.assertNotIn("harness_realism_grade", report)
@@ -309,14 +558,15 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("protected_no_trade_explanation", report)
             self.assertIn("control_authority_clarity", report)
             self.assertIn("protection_path_trigger_chain", report)
-            self.assertIn("reduce_only_recovery", report)
+            self.assertIn("lifecycle_residue", report)
             self.assertIn("execution_quality_lane_attribution", report)
             self.assertIn("execution_quality_decision_reference_lane_attribution", report)
-            self.assertIn("preexpiry_recovery_churn", report)
+            self.assertNotIn("reduce_only_recovery", report)
+            self.assertNotIn("preexpiry_recovery_churn", report)
             self.assertIn("taker_opportunity_suppression", report)
             self.assertIn("taker_doctrine_breaches", report)
             self.assertIn("taker_intent_gate_posture_matrix", report)
-            self.assertIn("recovery_cost_benefit", report)
+            self.assertNotIn("recovery_cost_benefit", report)
             self.assertGreaterEqual(report["execution_paths"].get("maker_submits", 0.0), 0.0)
             self.assertEqual(report["edge_truth"].get("rows_total"), 0.0)
 
@@ -421,9 +671,50 @@ class NightlySoakReportTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            reports_dir = root / "reports" / run_id
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            (reports_dir / "outcome_truth_audit.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "run_claim_boundary": {
+                            "claim_scope": "observational_only_fixed_horizon_outcome_truth",
+                        },
+                        "lane_outcome_truth": {
+                            "maker": {
+                                "claim_boundary": {
+                                    "interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+                                },
+                                "fill_notional_sum": 4.0,
+                                "edge_realized_x_size_sum": 3.0,
+                                "execution_component_x_size_sum": 2.5,
+                                "decision_component_x_size_sum": 0.5,
+                                "complete_outcome_records": 1,
+                                "total_outcome_records": 1,
+                                "unknown_outcome_records": 0,
+                            },
+                            "normal_taker": {
+                                "claim_boundary": {
+                                    "interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+                                },
+                                "fill_notional_sum": 4.5,
+                                "edge_realized_x_size_sum": -0.25,
+                                "execution_component_x_size_sum": -0.25,
+                                "decision_component_x_size_sum": 0.0,
+                                "complete_outcome_records": 1,
+                                "total_outcome_records": 1,
+                                "unknown_outcome_records": 0,
+                            },
+                        },
+                        "complete_outcome_records": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             report = build_report(root, run_id=run_id)
             financial = report.get("financial_performance", {})
+            financial_outcome_reconciliation = report.get("financial_outcome_reconciliation", {})
             capital_progression = financial.get("capital_progression", {})
             overall = financial.get("overall", {})
             by_lane = financial.get("by_lane", {})
@@ -471,6 +762,44 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(taker.get("losing_trade_count") or 0), 1)
             self.assertAlmostEqual(float(taker.get("avg_submitted_order_size_shares") or 0.0), 5.0, places=6)
             self.assertAlmostEqual(float(taker.get("avg_filled_order_size_shares") or 0.0), 5.0, places=6)
+            self.assertEqual(
+                financial_outcome_reconciliation.get("status"),
+                "quantities_distinct_fill_notional_reconciled",
+            )
+            self.assertFalse(
+                bool(
+                    financial_outcome_reconciliation.get("claim_boundary", {}).get(
+                        "numeric_equality_expected"
+                    )
+                )
+            )
+            self.assertTrue(
+                bool(
+                    financial_outcome_reconciliation.get("overall", {}).get(
+                        "fill_notional_reconciles"
+                    )
+                )
+            )
+            self.assertTrue(
+                bool(
+                    financial_outcome_reconciliation.get("by_lane", {})
+                    .get("maker", {})
+                    .get("fill_notional_reconciles")
+                )
+            )
+            self.assertTrue(
+                bool(
+                    financial_outcome_reconciliation.get("by_lane", {})
+                    .get("taker", {})
+                    .get("fill_notional_reconciles")
+                )
+            )
+            self.assertEqual(
+                financial_outcome_reconciliation.get("by_lane", {})
+                .get("taker", {})
+                .get("outcome_lane"),
+                "normal_taker",
+            )
 
             summary = render_human_summary(report)
             self.assertIn("base_capital_start_usd=1000.0000", summary)
@@ -864,7 +1193,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "pnl_degraded": True,
                     "loss_guard_degraded": True,
                     "valuation_degraded_reasons": [
-                        "hard_degraded:t1:book_top_missing|held_book_not_found_404_age_sec=31.250|last_known_mid_missing"
+                        "hard_degraded:t1:book_top_missing|held_ws_missing_or_unusable_age_sec=31.250|last_known_mid_missing"
                     ],
                     "valuation_mid_source_counts": {"hard_degraded": 1, "conservative_bound_hard_degraded": 1},
                     "held_unpriceable_escalation_active": True,
@@ -878,24 +1207,23 @@ class NightlySoakReportTests(unittest.TestCase):
                     "held_unpriceable_operator_action": (
                         "review_market_data_coverage_for_held_tokens_and_keep_reduce_only_until_priceable"
                     ),
+                    "held_unpriceable_non_defect_token_ids": [],
+                    "held_unpriceable_meaningful_escalation_token_ids": ["t1"],
                     "valuation_hard_degraded_enter_count": 2,
                     "valuation_hard_degraded_clear_count": 1,
                     "held_unpriceable_started_count": 3,
                     "held_unpriceable_recovered_count": 1,
-                    "preexpiry_404_anomaly_count": 2,
-                    "preexpiry_404_anomaly_active": True,
+                    "preexpiry_ws_missing_or_unusable_anomaly_count": 2,
+                    "preexpiry_ws_missing_or_unusable_anomaly_active": True,
                     "lifecycle_context_mismatch_count": 4,
                     "lifecycle_context_missing_sec_to_expiry_count": 2,
-                    "preexpiry_emergency_taker_attempt_count": 7,
-                    "preexpiry_emergency_taker_fill_count": 3,
-                    "preexpiry_emergency_taker_block_count": 4,
-                    "preexpiry_emergency_taker_block_reasons": {
-                        "edge_below_min": 1,
-                        "taker_submit_rejected": 3,
-                    },
+                    "settlement_hold_required_count": 7,
+                    "open_order_cleanup_required_count": 3,
+                    "unresolved_lifecycle_obligation_count": 4,
+                    "cancel_fail_closed_count": 3,
                     "held_unpriceable_cause_counts": {
                         "postexpiry_market_retired": 1,
-                        "preexpiry_fetch_failure": 2,
+                        "preexpiry_ws_missing_or_unusable": 2,
                     },
                 },
             ]
@@ -910,61 +1238,40 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_escalation_rows") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_defect_candidate_rows") or 0.0), 1.0)
-            self.assertEqual(float(valuation_truth.get("held_book_not_found_404_rows") or 0.0), 1.0)
-            self.assertGreater(float(valuation_truth.get("held_book_not_found_404_ratio") or 0.0), 0.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_404_anomaly_rows") or 0.0), 1.0)
-            self.assertGreater(float(valuation_truth.get("preexpiry_404_anomaly_ratio") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("held_ws_missing_or_unusable_rows") or 0.0), 1.0)
+            self.assertGreater(float(valuation_truth.get("held_ws_missing_or_unusable_ratio") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_ws_missing_or_unusable_anomaly_rows") or 0.0), 1.0)
+            self.assertGreater(float(valuation_truth.get("preexpiry_ws_missing_or_unusable_anomaly_ratio") or 0.0), 0.0)
             self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_enter_count") or 0.0), 2.0)
             self.assertEqual(float(valuation_truth.get("valuation_hard_degraded_clear_count") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_started_count") or 0.0), 3.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_recovered_count") or 0.0), 1.0)
             self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_raw_count") or 0.0), 2.0)
-            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_dust_exempted_count") or 0.0), 0.0)
-            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_meaningful_count") or 0.0), 2.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_404_anomaly_count") or 0.0), 2.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_non_defect_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_meaningful_count") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("preexpiry_ws_missing_or_unusable_anomaly_count") or 0.0), 2.0)
             self.assertEqual(float(valuation_truth.get("lifecycle_context_mismatch_count") or 0.0), 4.0)
             self.assertEqual(
                 float(valuation_truth.get("lifecycle_context_missing_sec_to_expiry_count") or 0.0),
                 2.0,
             )
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_attempt_count") or 0.0), 7.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_fill_count") or 0.0), 3.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_block_count") or 0.0), 4.0)
+            self.assertEqual(float(valuation_truth.get("settlement_hold_required_count") or 0.0), 7.0)
+            self.assertEqual(float(valuation_truth.get("open_order_cleanup_required_count") or 0.0), 3.0)
+            self.assertEqual(float(valuation_truth.get("unresolved_lifecycle_obligation_count") or 0.0), 4.0)
+            self.assertEqual(float(valuation_truth.get("cancel_fail_closed_count") or 0.0), 3.0)
             self.assertEqual(
                 float(
                     (valuation_truth.get("held_unpriceable_cause_counts_latest") or {}).get(
-                        "preexpiry_fetch_failure"
+                        "preexpiry_ws_missing_or_unusable"
                     )
                     or 0.0
                 ),
                 2.0,
             )
-            self.assertEqual(
-                int(
-                    float(
-                        (valuation_truth.get("preexpiry_emergency_taker_block_reasons_run_max") or {}).get(
-                            "taker_submit_rejected",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-                3,
-            )
-            self.assertEqual(
-                int(
-                    float(
-                        (valuation_truth.get("preexpiry_emergency_taker_block_reason_counts") or {}).get(
-                            "taker_submit_rejected",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-                3,
-            )
+            self.assertEqual(float(valuation_truth.get("latest_settlement_hold_required_count") or 0.0), 7.0)
+            self.assertEqual(float(valuation_truth.get("latest_open_order_cleanup_required_count") or 0.0), 3.0)
             self.assertIn(
-                "held_book_not_found_404_age_sec",
+                "held_ws_missing_or_unusable_age_sec",
                 " ".join(str(x) for x in list(valuation_truth.get("latest_valuation_degraded_reasons") or [])),
             )
             self.assertTrue(bool(valuation_truth.get("latest_held_unpriceable_escalation_active")))
@@ -995,7 +1302,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(str(valuation_truth.get("valuation_dominant_reason_family_run") or ""), "hard_degraded")
             self.assertEqual(
                 str(valuation_truth.get("valuation_dominant_held_unpriceable_cause_run") or ""),
-                "preexpiry_fetch_failure",
+                "preexpiry_ws_missing_or_unusable",
             )
             self.assertEqual(
                 str(valuation_truth.get("valuation_dominant_source_degraded_rows") or ""),
@@ -1016,11 +1323,41 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("pickoff=horizon_sec=", summary)
             self.assertIn("valuation_truth=", summary)
             self.assertIn("bruise_state=open_meaningful_unpriceable", summary)
-            self.assertIn("held_book_not_found_404_ratio=", summary)
-            self.assertIn("preexpiry_404_anomaly_ratio=", summary)
+            self.assertIn("held_ws_missing_or_unusable_ratio=", summary)
+            self.assertIn("preexpiry_ws_missing_or_unusable_anomaly_ratio=", summary)
             self.assertIn("held_unpriceable_escalation_ratio=", summary)
 
-    def test_build_report_valuation_truth_falls_back_to_emergency_events_for_block_reason_counts(self):
+    def test_build_report_does_not_overderive_non_defect_unpriceable_from_pending_unpriceable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            status_path = root / "status_2026-01-01.jsonl"
+            status = [
+                {
+                    "valuation_degraded": True,
+                    "valuation_hard_degraded": True,
+                    "held_unpriceable_started_count": 1,
+                    "held_unpriceable_recovered_count": 0,
+                    "held_unpriceable_token_ids": ["t_pre"],
+                    "held_unpriceable_meaningful_escalation_token_ids": [],
+                    "held_unpriceable_non_defect_token_ids": [],
+                    "held_unpriceable_defect_candidate": False,
+                    "held_unpriceable_operator_action": "none",
+                }
+            ]
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+
+            report = build_report(root)
+            valuation_truth = report.get("valuation_truth", {})
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_raw_count") or 0.0), 1.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_non_defect_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("held_unpriceable_unrecovered_meaningful_count") or 0.0), 0.0)
+            self.assertEqual(list(valuation_truth.get("latest_held_unpriceable_non_defect_token_ids") or []), [])
+            self.assertEqual(
+                str(valuation_truth.get("valuation_bruise_state") or ""),
+                "held_unpriceable_not_fully_recovered",
+            )
+
+    def test_build_report_valuation_truth_ignores_dead_emergency_events_for_lifecycle_counts(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             events_path = root / "events_2026-01-01.jsonl"
@@ -1028,21 +1365,21 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path = root / "errors_2026-01-01.jsonl"
             events = [
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "outcome": "blocked",
-                    "blocked_reason": "reduce_only_recovery_touch_price_unavailable",
-                    "reason": "blocked_reduce_only_recovery_touch_price_unavailable",
+                    "blocked_reason": _HISTORICAL_RECOVERY_TOUCH_PRICE_UNAVAILABLE,
+                    "reason": f"blocked_{_HISTORICAL_RECOVERY_TOUCH_PRICE_UNAVAILABLE}",
                     "ts_utc": "2026-01-01T00:00:01Z",
                 },
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "outcome": "blocked",
-                    "outcome_reason": "blocked_reduce_only_recovery_touch_price_unavailable",
+                    "outcome_reason": f"blocked_{_HISTORICAL_RECOVERY_TOUCH_PRICE_UNAVAILABLE}",
                     "taker_submit_reject_reason": "",
                     "ts_utc": "2026-01-01T00:00:02Z",
                 },
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "outcome": "filled",
                     "reason": "filled",
                     "ts_utc": "2026-01-01T00:00:03Z",
@@ -1052,10 +1389,10 @@ class NightlySoakReportTests(unittest.TestCase):
                 {
                     "valuation_degraded": False,
                     "valuation_hard_degraded": False,
-                    "preexpiry_emergency_taker_attempt_count": 0,
-                    "preexpiry_emergency_taker_fill_count": 0,
-                    "preexpiry_emergency_taker_block_count": 0,
-                    "preexpiry_emergency_taker_block_reasons": {},
+                    "settlement_hold_required_count": 0,
+                    "open_order_cleanup_required_count": 0,
+                    "unresolved_lifecycle_obligation_count": 0,
+                    "cancel_fail_closed_count": 0,
                 }
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -1064,33 +1401,10 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root)
             valuation_truth = report.get("valuation_truth", {})
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_attempt_count") or 0.0), 3.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_fill_count") or 0.0), 1.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_block_count") or 0.0), 2.0)
-            self.assertEqual(
-                int(
-                    float(
-                        (valuation_truth.get("preexpiry_emergency_taker_block_reasons_run_max") or {}).get(
-                            "reduce_only_recovery_touch_price_unavailable",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-                2,
-            )
-            self.assertEqual(
-                int(
-                    float(
-                        (valuation_truth.get("preexpiry_emergency_taker_block_reason_counts") or {}).get(
-                            "reduce_only_recovery_touch_price_unavailable",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-                2,
-            )
+            self.assertEqual(float(valuation_truth.get("settlement_hold_required_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("open_order_cleanup_required_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("unresolved_lifecycle_obligation_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("cancel_fail_closed_count") or 0.0), 0.0)
 
     def test_build_report_valuation_truth_marks_recovered_clean_from_event_only_transient_bruise(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1199,20 +1513,20 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path = root / "errors_2026-01-01.jsonl"
             events = [
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "outcome": "blocked",
-                    "blocked_reason": "maker_to_taker_recovery_handoff_disabled",
-                    "reason": "blocked_maker_to_taker_recovery_handoff_disabled",
+                    "blocked_reason": _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED,
+                    "reason": f"blocked_{_HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED}",
                     "compression_mode": "initial",
                     "repeat_count_delta": 1,
                     "repeat_count_total": 1,
                     "ts_utc": "2026-01-01T00:00:01Z",
                 },
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "outcome": "blocked",
-                    "blocked_reason": "maker_to_taker_recovery_handoff_disabled",
-                    "reason": "blocked_maker_to_taker_recovery_handoff_disabled",
+                    "blocked_reason": _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED,
+                    "reason": f"blocked_{_HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED}",
                     "compression_mode": "repeat_summary",
                     "repeat_count_delta": 4,
                     "repeat_count_total": 5,
@@ -1223,10 +1537,10 @@ class NightlySoakReportTests(unittest.TestCase):
                 {
                     "valuation_degraded": False,
                     "valuation_hard_degraded": False,
-                    "preexpiry_emergency_taker_attempt_count": 0,
-                    "preexpiry_emergency_taker_fill_count": 0,
-                    "preexpiry_emergency_taker_block_count": 0,
-                    "preexpiry_emergency_taker_block_reasons": {},
+                    "settlement_hold_required_count": 0,
+                    "open_order_cleanup_required_count": 0,
+                    "unresolved_lifecycle_obligation_count": 0,
+                    "cancel_fail_closed_count": 0,
                 }
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -1235,21 +1549,10 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root)
             valuation_truth = report.get("valuation_truth", {})
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_attempt_count") or 0.0), 5.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_fill_count") or 0.0), 0.0)
-            self.assertEqual(float(valuation_truth.get("preexpiry_emergency_taker_block_count") or 0.0), 5.0)
-            self.assertEqual(
-                int(
-                    float(
-                        (valuation_truth.get("preexpiry_emergency_taker_block_reasons_run_max") or {}).get(
-                            "maker_to_taker_recovery_handoff_disabled",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-                5,
-            )
+            self.assertEqual(float(valuation_truth.get("settlement_hold_required_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("open_order_cleanup_required_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("unresolved_lifecycle_obligation_count") or 0.0), 0.0)
+            self.assertEqual(float(valuation_truth.get("cancel_fail_closed_count") or 0.0), 0.0)
 
     def test_execution_paths_use_unique_filled_orders_for_fill_rate(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1531,8 +1834,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
                     "maker_no_submission_cause": "submit_rejected_post_only_reject",
-                    "market_reference_mode": "bounded_single_side_touch",
-                    "market_reference_source_side": "ask",
+                    "market_reference_mode": "missing",
+                    "pair_truth_basis": "one_sided_ws_missing_midpoint",
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -1571,13 +1874,10 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(taker_distribution, {})
             maker_cause_distribution = edge_truth.get("maker_no_submission_cause_distribution", {})
             self.assertEqual(maker_cause_distribution.get("submit_rejected_post_only_reject"), 1)
-            self.assertEqual(edge_truth.get("maker_market_reference_fallback_count"), 1.0)
-            self.assertEqual(edge_truth.get("maker_market_reference_fallback_bid_count"), 0.0)
-            self.assertEqual(edge_truth.get("maker_market_reference_fallback_ask_count"), 1.0)
-            self.assertEqual(report.get("maker_market_reference_fallback_bid_count"), 0.0)
-            self.assertEqual(report.get("maker_market_reference_fallback_ask_count"), 1.0)
+            self.assertEqual(edge_truth.get("maker_market_reference_missing_count"), 1.0)
+            self.assertEqual(edge_truth.get("maker_market_reference_one_sided_context_count"), 1.0)
             self.assertEqual(report.get("maker_reference_direct_midpoint_activity"), 0.0)
-            self.assertEqual(report.get("maker_reference_bounded_fallback_activity"), 1.0)
+            self.assertEqual(report.get("maker_reference_missing_activity"), 1.0)
 
     def test_build_report_emits_maker_competitiveness_metrics(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1646,7 +1946,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(aggressiveness.get("spread_tightened", 0)), 1)
             self.assertEqual(int(aggressiveness.get("requote_tightened", 0)), 1)
 
-    def test_build_report_emits_maker_queue_pressure_and_complete_outcome_rates(self):
+    def test_build_report_keeps_legacy_queue_pressure_lineage_out_of_current_metrics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "rid-queue-pressure"
@@ -1708,15 +2008,30 @@ class NightlySoakReportTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            report = build_report(root, run_id=run_id)
+            report = build_report(root, run_id=run_id, include_support_artifacts=True)
             maker_comp = report.get("maker_competitiveness", {})
-            self.assertEqual(float(maker_comp.get("maker_queue_pressure_candidate_count") or 0.0), 2.0)
-            self.assertEqual(float(maker_comp.get("maker_queue_pressure_adopted_count") or 0.0), 1.0)
-            self.assertEqual(float(maker_comp.get("maker_queue_pressure_gate_conversion_count") or 0.0), 1.0)
+            self.assertNotIn("maker_queue_pressure_candidate_count", maker_comp)
+            self.assertNotIn("maker_queue_pressure_adopted_count", maker_comp)
+            self.assertNotIn("maker_queue_pressure_gate_conversion_count", maker_comp)
+            self.assertNotIn("maker_queue_pressure_replace_guard_blocked_count", maker_comp)
+            support_artifacts = report.get("_support_artifacts", {})
+            manifest = support_artifacts.get("maker_quote_integrity_manifest", {})
             self.assertEqual(
-                float(maker_comp.get("maker_queue_pressure_replace_guard_blocked_count") or 0.0),
-                1.0,
+                manifest.get("historical_only_lineage_event_counts", {}).get("maker_queue_pressure_adjustment"),
+                2,
             )
+            lineage_summary = (
+                manifest.get("historical_only_lineage_event_summaries", {}).get(
+                    "maker_queue_pressure_adjustment",
+                    {},
+                )
+            )
+            self.assertEqual(int(lineage_summary.get("count") or 0), 2)
+            self.assertEqual(int(lineage_summary.get("adopted_count") or 0), 1)
+            self.assertEqual(int(lineage_summary.get("gate_conversion_count") or 0), 1)
+            self.assertEqual(int(lineage_summary.get("replace_guard_blocked_count") or 0), 1)
+            self.assertEqual(lineage_summary.get("side_distribution"), {"BUY": 2})
+            self.assertEqual(lineage_summary.get("stage_distribution"), {"unknown": 2})
             self.assertAlmostEqual(float(report.get("maker_complete_count") or 0.0), 3.0, places=9)
             self.assertAlmostEqual(float(report.get("maker_complete_correct_rate") or 0.0), 1.0 / 3.0, places=9)
             self.assertAlmostEqual(float(report.get("maker_complete_incorrect_rate") or 0.0), 1.0 / 3.0, places=9)
@@ -1858,7 +2173,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "skip_reason": "expected_fill_prob_below_min",
                     "expected_fill_prob": 0.040,
                     "min_expected_fill_prob": 0.045,
-                    "reduce_only_recovery_active": True,
+                    **_historical_recovery_lineage(),
                 },
             ]
             run_manifest = {
@@ -1926,6 +2241,19 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(maker_fireability.get("active_window_impossible_row_count") or 0.0), 3.0)
             self.assertEqual(float(maker_fireability.get("active_window_viable_target_count") or 0.0), 1.0)
             self.assertEqual(float(maker_fireability.get("active_window_impossible_target_count") or 0.0), 3.0)
+            self.assertEqual(
+                maker_fireability.get("active_window_lifecycle_phase_distribution"),
+                {"prepare": 6},
+            )
+            self.assertEqual(
+                maker_fireability.get("active_window_lineage_stage_distribution"),
+                {"MAKER_TAKER_SELECTIVE": 6},
+            )
+            self.assertEqual(
+                maker_fireability.get("active_window_maker_phase_allowed_distribution"),
+                {"disallowed": 6},
+            )
+            self.assertNotIn("active_window_stage_distribution", maker_fireability)
             block_distribution = maker_fireability.get("active_window_block_reason_distribution", {})
             self.assertEqual(int(block_distribution.get("submitted", 0)), 2)
             self.assertEqual(int(block_distribution.get("replace_guard_min_rest", 0)), 1)
@@ -1979,7 +2307,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:05Z",
                     "sec_to_expiry": 12.0,
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "viability_class": "viable_only",
                     "sizing_conflict": False,
@@ -1994,6 +2321,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "size_to_visible_depth_ratio": 0.4,
                     "decision_result": "submitted",
                     "order_submit_id": "order-clean",
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "maker_fight_admission_shadow",
@@ -2003,7 +2331,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T03:00:05Z",
                     "sec_to_expiry": 25.0,
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "viability_class": "impossible_only",
                     "sizing_conflict": False,
@@ -2018,6 +2345,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "size_to_visible_depth_ratio": 1.3,
                     "decision_result": "submitted",
                     "order_submit_id": "order-trash",
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "maker_fight_admission_shadow",
@@ -2027,7 +2355,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T09:00:05Z",
                     "sec_to_expiry": 18.0,
                     "financial_posture_class": "HALT_NEW_RISK",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "viability_class": "viable_only",
                     "sizing_conflict": False,
@@ -2042,6 +2369,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "size_to_visible_depth_ratio": 0.3,
                     "decision_result": "quote_unchanged",
                     "order_submit_id": None,
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             outcome_rows = [
@@ -2101,8 +2429,11 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(summary.get("submitted_count_by_timing_band"), {"10_to_15s": 1, "20_to_30s": 1})
             self.assertTrue(bool(rows))
-            self.assertEqual(str(rows[0].get("effective_stage") or ""), str(rows[0].get("stage") or ""))
-            self.assertEqual(str(rows[0].get("stage_bucket") or ""), str(rows[0].get("raw_stage") or ""))
+            self.assertIn(str(rows[0].get("lifecycle_phase") or ""), {"prepare", "maker_window", "taker_window", "resolve", "scan", "unknown"})
+            self.assertNotIn("effective_stage", rows[0])
+            self.assertNotIn("stage_bucket", rows[0])
+            self.assertNotIn("raw_stage", rows[0])
+            self.assertNotIn("stage", rows[0])
             self.assertEqual(
                 summary.get("complete_joined_count_by_timing_band"),
                 {"10_to_15s": 1, "20_to_30s": 1},
@@ -2133,11 +2464,11 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 summary.get("cannon_depth_requirement_counts"),
-                {"met": 1, "not_met": 2},
+                {"met": 2, "not_met": 1},
             )
             self.assertAlmostEqual(
                 float(summary.get("depth_multiple_vs_cannon_target_summary", {}).get("mean") or 0.0),
-                (2.0 + (240.0 / 350.0) + (80.0 / 350.0)) / 3.0,
+                (7.0 + (240.0 / 100.0) + (80.0 / 100.0)) / 3.0,
                 places=9,
             )
             self.assertAlmostEqual(
@@ -2182,12 +2513,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "fair_probability": 0.45,
                     "market_probability": 0.55,
                     "edge_value": -0.10,
-                    "reduce_only_recovery_active": False,
                     "cycle_index": 10,
                     "submitted": True,
                     "order_id": "order-clean",
                     "raw_stage": "EXTREME_ONLY",
                     "ts_decision_utc": "2026-01-01T00:00:10Z",
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "order_submit",
@@ -2208,8 +2539,8 @@ class NightlySoakReportTests(unittest.TestCase):
                         "market_probability": 0.55,
                         "edge_signed": -0.10,
                         "financial_posture_class": "NORMAL",
-                        "reduce_only_recovery_active": False,
                         "stage": "MAKER_TAKER_SELECTIVE",
+                        **_historical_recovery_lineage(active=False),
                     },
                     "size_resolution": {
                         "price_used": 0.55,
@@ -2226,10 +2557,10 @@ class NightlySoakReportTests(unittest.TestCase):
                     "fair_probability": 0.70,
                     "market_probability": 0.60,
                     "edge_value": 0.10,
-                    "reduce_only_recovery_active": False,
                     "cycle_index": 11,
                     "submitted": False,
                     "ts_decision_utc": "2026-01-01T00:00:11Z",
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "quote_quality_skip",
@@ -2241,8 +2572,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "expected_fill_prob": 0.01,
                     "min_expected_fill_prob": 0.045,
                     "skip_reason": "queue_ahead_too_deep",
-                    "reduce_only_recovery_active": False,
                     "ts_decision_utc": "2026-01-01T00:00:11.050000Z",
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             status_rows = [
@@ -2258,7 +2589,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "order_submit_id": "order-clean",
                     "submission_lane_truth": "maker",
                     "outcome_truth_status": "complete",
-                    "claim_boundary_class": "bounded_approximation",
+                    "claim_boundary_class": "not_provable_missing_inputs",
                     "evaluation_horizon_ms": 5000,
                     "decision_quality": "correct",
                     "fill_count": 1,
@@ -2313,26 +2644,13 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(summary.get("maker_timing_band_class_distribution"), {"unknown": 2})
             self.assertTrue(bool(rows))
             rows_by_target = {str(row.get("target_ref") or ""): row for row in rows}
-            self.assertEqual(
-                str(rows_by_target["target-clean"].get("effective_stage") or ""),
-                str(rows_by_target["target-clean"].get("stage") or ""),
-            )
-            self.assertEqual(
-                str(rows_by_target["target-clean"].get("stage_bucket") or ""),
-                "EXTREME_ONLY",
-            )
-            self.assertEqual(
-                str(rows_by_target["target-clean"].get("raw_stage") or ""),
-                "EXTREME_ONLY",
-            )
-            self.assertEqual(
-                str(rows_by_target["target-trash"].get("stage_bucket") or ""),
-                "UNKNOWN",
-            )
-            self.assertEqual(
-                str(rows_by_target["target-trash"].get("raw_stage") or ""),
-                "UNKNOWN",
-            )
+            self.assertEqual(str(rows_by_target["target-clean"].get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertEqual(str(rows_by_target["target-trash"].get("lineage_stage") or ""), "UNKNOWN")
+            self.assertEqual(str(rows_by_target["target-clean"].get("lifecycle_phase") or ""), "prepare")
+            self.assertNotIn("effective_stage", rows_by_target["target-clean"])
+            self.assertNotIn("stage_bucket", rows_by_target["target-clean"])
+            self.assertNotIn("raw_stage", rows_by_target["target-clean"])
+            self.assertNotIn("stage", rows_by_target["target-clean"])
             self.assertEqual(
                 int(calibration.get("complete_joined_count_by_class", {}).get("clean", 0)),
                 1,
@@ -2373,7 +2691,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:05Z",
                     "time_remaining_sec": 12.0,
                     "stage": "EXTREME_ONLY",
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "fair_probability": 0.62,
                     "market_probability": 0.55,
                     "edge_value": 0.07,
@@ -2382,12 +2700,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 2000.0,
                     "open_maker_orders_total": 1,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2398,7 +2716,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:07Z",
                     "time_remaining_sec": 18.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.12,
                     "market_probability": 0.03,
                     "edge_value": 0.09,
@@ -2407,12 +2725,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "direction_mismatch",
                     "secondary_oracle_confirmation": False,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 500.0,
                     "open_maker_orders_total": 4,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2423,7 +2741,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:08Z",
                     "time_remaining_sec": 9.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.58,
                     "market_probability": 0.52,
                     "edge_value": 0.06,
@@ -2432,12 +2750,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "HALT_NEW_RISK",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 1800.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2448,7 +2766,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
                     "time_remaining_sec": 16.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.60,
                     "market_probability": 0.57,
                     "edge_value": 0.03,
@@ -2457,12 +2775,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": None,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "book_top",
@@ -2491,7 +2809,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
                     "time_remaining_sec": 11.0,
                     "stage": "EXTREME_ONLY",
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "fair_probability": 0.70,
                     "market_probability": None,
                     "edge_value": None,
@@ -2500,12 +2818,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "not_available",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": None,
                     "probe_visible_depth_shares": None,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2516,7 +2834,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:10Z",
                     "time_remaining_sec": 35.0,
                     "stage": "MAKER_POSITION",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.54,
                     "market_probability": 0.50,
                     "edge_value": 0.04,
@@ -2525,12 +2843,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 900.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -2564,7 +2882,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 int(summary.get("external_blocked_latent_market_full_cannon_candidate_count", 0)),
                 1,
             )
-            self.assertEqual(int(summary.get("full_candidate_runtime_stage_disallow_count", 0)), 1)
+            self.assertEqual(int(summary.get("full_candidate_runtime_phase_disallow_count", 0)), 0)
             self.assertEqual(
                 summary.get("reject_reason_distribution"),
                 {
@@ -2593,9 +2911,10 @@ class NightlySoakReportTests(unittest.TestCase):
                 {},
             )
             self.assertEqual(
-                summary.get("stage_distribution"),
-                {"EXTREME_ONLY": 2, "MAKER_TAKER_SELECTIVE": 3},
+                summary.get("lifecycle_phase_distribution"),
+                {"maker_window": 3, "prepare": 2},
             )
+            self.assertNotIn("stage_distribution", summary)
             self.assertEqual(
                 summary.get("market_reference_class_distribution"),
                 {"authoritative": 4, "not_available": 1},
@@ -2617,7 +2936,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 {"positive": 4, "zero_imputed": 1},
             )
             self.assertEqual(
-                summary.get("maker_new_risk_allowed_distribution"),
+                summary.get("maker_phase_allowed_distribution"),
                 {"allowed": 3, "disallowed": 2},
             )
             self.assertEqual(
@@ -2629,8 +2948,10 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(summary.get("cannon_depth_requirement_counts"), {"met": 2, "not_met": 2, "unknown": 1})
             self.assertEqual(len(rows), 5)
             clean_row = next(row for row in rows if str(row.get("token_id")) == "t-clean")
-            self.assertEqual(str(clean_row.get("stage") or ""), "EXTREME_ONLY")
-            self.assertEqual(bool(clean_row.get("maker_new_risk_allowed")), False)
+            self.assertEqual(str(clean_row.get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertEqual(bool(clean_row.get("maker_phase_allowed")), True)
+            self.assertNotIn("stage", clean_row)
+            self.assertNotIn("effective_stage", clean_row)
             self.assertEqual(bool(clean_row.get("full_cannon_candidate")), True)
             self.assertNotIn("maker_stage_or_policy_disallow", list(clean_row.get("reject_reasons") or []))
             self.assertEqual(str(clean_row.get("latent_market_truth_class") or ""), "evaluable")
@@ -2723,7 +3044,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:10Z",
                     "time_remaining_sec": 10.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.63,
                     "market_probability": None,
                     "edge_value": None,
@@ -2732,13 +3053,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "not_available",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_fair_probability": 0.61,
                     "secondary_oracle_status": "unknown",
                     "secondary_oracle_confirmation": False,
                     "probe_favored_side": None,
                     "probe_visible_depth_shares": None,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2749,7 +3070,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:30Z",
                     "time_remaining_sec": 30.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "fair_probability": 0.37,
                     "market_probability": None,
                     "edge_value": None,
@@ -2758,13 +3079,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "not_available",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_fair_probability": 0.39,
                     "secondary_oracle_status": "unknown",
                     "secondary_oracle_confirmation": False,
                     "probe_favored_side": None,
                     "probe_visible_depth_shares": None,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -2832,9 +3153,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:01Z",
                     "time_remaining_sec": 35.0,
                     "stage": "MAKER_POSITION",
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "action_taken": "none",
-                    "block_reason": "stage_disallow_maker",
+                    "block_reason": "phase_disallow_maker",
                     "fair_probability": 0.55,
                     "market_probability": 0.50,
                     "edge_value": 0.05,
@@ -2843,12 +3164,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 500.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2859,7 +3180,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
                     "time_remaining_sec": 12.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
                     "maker_no_submission_cause": "no_desired_quote",
@@ -2872,12 +3193,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 100.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2888,7 +3209,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:11.500000Z",
                     "time_remaining_sec": 11.5,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
                     "maker_no_submission_cause": "launch_safe_selection_insufficient_depth_multiple",
@@ -2901,12 +3222,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 100.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -2917,9 +3238,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:18Z",
                     "time_remaining_sec": 18.0,
                     "stage": "EXTREME_ONLY",
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "action_taken": "none",
-                    "block_reason": "stage_disallow_maker",
+                    "block_reason": "phase_disallow_maker",
                     "fair_probability": 0.65,
                     "market_probability": 0.50,
                     "edge_value": 0.15,
@@ -2928,12 +3249,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 2000.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "maker_fight_admission_shadow",
@@ -2947,7 +3268,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:11.450000Z",
                     "sec_to_expiry": 11.5,
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "viability_class": "viable_only",
                     "sizing_conflict": False,
@@ -2968,6 +3288,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "decision_result": "selection_rejected",
                     "decision_block_reason": "launch_safe_selection_insufficient_depth_multiple",
                     "order_submit_id": None,
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -3159,7 +3480,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_event_utc": "2026-04-29T07:04:48.215Z",
                     "sec_to_expiry": 11.811867,
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "market_reference_mode": "direct_midpoint",
                     "market_reference_source_side": "none",
@@ -3191,6 +3511,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "decision_block_reason": None,
                     "order_submit_id": "paper-order-1",
                     "replace_guard_would_block": False,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "pre_submit_cross_guard_adjusted",
@@ -3237,7 +3558,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_event_utc": "2026-04-29T07:04:48.227Z",
                     "time_remaining_sec": 11.811867,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "action_taken": "maker",
                     "block_reason": None,
                     "fair_probability": 0.7625117917167464,
@@ -3246,7 +3567,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "SELL",
@@ -3254,6 +3574,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "open_maker_orders_total": 1,
                     "submitted_order_ids": ["paper-order-1"],
                     "order_id": "paper-order-1",
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "maker_fight_admission_shadow",
@@ -3269,7 +3590,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_event_utc": "2026-04-29T07:04:49.220Z",
                     "sec_to_expiry": 10.802218,
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "market_reference_class": "authoritative",
                     "market_reference_mode": "direct_midpoint",
                     "market_reference_source_side": "none",
@@ -3301,6 +3621,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "decision_block_reason": "launch_safe_selection_insufficient_depth_multiple",
                     "order_submit_id": None,
                     "replace_guard_would_block": True,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -3312,7 +3633,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_event_utc": "2026-04-29T07:04:49.224Z",
                     "time_remaining_sec": 10.802218,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
                     "maker_no_submission_cause": "one_sided_mode_disallow_side",
@@ -3323,12 +3644,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "SELL",
                     "probe_visible_depth_shares": 323.35,
                     "open_maker_orders_total": 1,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "order_cancel",
@@ -3380,10 +3701,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(manifest.get("primary_run_id"), run_id)
             self.assertEqual(manifest.get("used_existing_events_only"), True)
             self.assertEqual(manifest.get("required_minimal_runtime_fields"), False)
-            self.assertEqual(
-                manifest.get("observed_event_type_counts", {}).get("maker_queue_pressure_adjustment"),
-                0,
-            )
+            self.assertNotIn("maker_queue_pressure_adjustment", manifest.get("observed_event_type_counts", {}))
+            self.assertEqual(manifest.get("historical_only_lineage_event_counts", {}), {})
+            self.assertEqual(manifest.get("historical_only_lineage_event_summaries", {}), {})
             self.assertEqual(len(trace_rows), 1)
             trace = trace_rows[0]
             self.assertEqual(trace.get("model_plane", {}).get("desired_quote_price"), 0.874)
@@ -3483,7 +3803,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
                     "time_remaining_sec": 12.0,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
                     "maker_no_submission_cause": "no_desired_quote",
@@ -3496,12 +3816,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_source_side": "none",
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_favored_side": "BUY",
                     "probe_visible_depth_shares": 100.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 }
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -3578,13 +3898,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_mode": "direct_midpoint",
                     "market_reference_source_side": "none",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "secondary_fair_probability": 0.62,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_visible_depth_shares": 1400.0,
                     "open_maker_orders_total": 1,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -3602,13 +3922,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_mode": "direct_midpoint",
                     "market_reference_source_side": "none",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
-                    "maker_allowed": True,
+                    "maker_phase_allowed": True,
                     "secondary_fair_probability": 0.72,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_visible_depth_shares": 100.0,
                     "open_maker_orders_total": 2,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -3626,13 +3946,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_mode": "direct_midpoint",
                     "market_reference_source_side": "none",
                     "financial_posture_class": "HALT_NEW_RISK",
-                    "reduce_only_recovery_active": False,
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "secondary_fair_probability": 0.49,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_visible_depth_shares": 1200.0,
                     "open_maker_orders_total": 7,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -3648,13 +3968,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "edge_value": 0.05,
                     "market_reference_class": "authoritative",
                     "financial_posture_class": "NORMAL",
-                    "reduce_only_recovery_active": False,
-                    "maker_allowed": False,
+                    "maker_phase_allowed": False,
                     "secondary_fair_probability": 0.56,
                     "secondary_oracle_status": "confirmed",
                     "secondary_oracle_confirmation": True,
                     "probe_visible_depth_shares": 1500.0,
                     "open_maker_orders_total": 0,
+                    **_historical_recovery_lineage(active=False),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -3682,6 +4002,11 @@ class NightlySoakReportTests(unittest.TestCase):
                 {"20_to_30s": 1, "30_to_45s": 2},
             )
             self.assertEqual(
+                summary.get("lifecycle_phase_distribution"),
+                {"prepare": 3},
+            )
+            self.assertNotIn("stage_distribution", summary)
+            self.assertEqual(
                 summary.get("reject_reason_distribution"),
                 {
                     "financial_posture_halt_new_risk": 1,
@@ -3689,8 +4014,8 @@ class NightlySoakReportTests(unittest.TestCase):
                 },
             )
             self.assertEqual(
-                summary.get("maker_new_risk_allowed_distribution"),
-                {"allowed": 2, "disallowed": 1},
+                summary.get("maker_phase_allowed_distribution"),
+                {"disallowed": 3},
             )
             self.assertEqual(
                 summary.get("probe_visible_depth_fail_closed_zero_distribution"),
@@ -3699,8 +4024,10 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(len(rows), 3)
             clean_row = next(row for row in rows if str(row.get("token_id")) == "t-mid-clean")
             self.assertEqual(bool(clean_row.get("full_mid_window_candidate")), True)
+            self.assertEqual(bool(clean_row.get("maker_phase_allowed")), False)
             trash_row = next(row for row in rows if str(row.get("token_id")) == "t-mid-trash")
             self.assertEqual(bool(trash_row.get("full_mid_window_candidate")), False)
+            self.assertEqual(bool(trash_row.get("maker_phase_allowed")), False)
             self.assertEqual(list(trash_row.get("reject_reasons") or []), ["insufficient_depth_multiple"])
 
             _write_support_artifacts(reports_dir, support_artifacts)
@@ -3828,7 +4155,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 places=6,
             )
 
-    def test_build_report_emits_reduce_only_recovery_diagnostics(self):
+    def test_build_report_emits_lifecycle_residue_diagnostics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             events_path = root / "events_2026-01-01.jsonl"
@@ -3838,10 +4165,9 @@ class NightlySoakReportTests(unittest.TestCase):
                 {
                     "event_type": "edge_evaluation",
                     "run_id": "rid-recovery",
-                    "block_reason": "reduce_only_recovery_waiting_for_maker_exit",
-                    "reduce_only_recovery_active": True,
-                    "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                    "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                     "stage": "MAKER_TAKER_SELECTIVE",
+                    **_historical_recovery_lineage(),
                 },
                 {
                     "event_type": "order_submission_rejected_local",
@@ -3849,50 +4175,48 @@ class NightlySoakReportTests(unittest.TestCase):
                     "submission_lane": "maker",
                     "reason": "reduce_only_recovery_size_cap_unavailable",
                     "financial_posture_class": "HALT_NEW_RISK",
-                    "reduce_only_recovery_active": True,
                     "reduce_only_size_cap_shares": 0.0,
                     "reduce_only_net_shares_live": 0.0,
                     "reduce_only_dynamic_size_cap_source": "live_position_flat_or_wrong_side",
+                    **_historical_recovery_lineage(),
                 },
                 {
                     "event_type": "order_submission_accepted",
                     "run_id": "rid-recovery",
                     "submission_lane": "maker",
-                    "reduce_only_recovery_active": True,
+                    **_historical_recovery_lineage(),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
             status_path.write_text(
-                json.dumps({"run_id": "rid-recovery", "gauge.open_orders": 0}) + "\n",
+                json.dumps(
+                    {
+                        "run_id": "rid-recovery",
+                        "gauge.open_orders": 0,
+                        "settlement_hold_required_count": 2,
+                        "open_order_cleanup_required_count": 1,
+                        "unresolved_lifecycle_obligation_count": 2,
+                        "cancel_fail_closed_count": 1,
+                    }
+                )
+                + "\n",
                 encoding="utf-8",
             )
             errors_path.write_text("", encoding="utf-8")
 
             report = build_report(root, run_id="rid-recovery")
-            recovery = report.get("reduce_only_recovery", {})
-            self.assertEqual(float(recovery.get("edge_waiting_for_maker_exit_rows") or 0.0), 1.0)
-            self.assertEqual(float(recovery.get("local_size_cap_unavailable_rows") or 0.0), 1.0)
-            self.assertEqual(float(recovery.get("local_size_cap_flat_or_wrong_side_rows") or 0.0), 1.0)
-            self.assertEqual(float(recovery.get("local_size_cap_nonflat_or_unknown_rows") or 0.0), 0.0)
-            self.assertEqual(
-                str(recovery.get("local_size_cap_classification") or ""),
-                "flat_or_wrong_side_noop_only",
-            )
-            self.assertEqual(float(recovery.get("accepted_or_reserved_recovery_rows") or 0.0), 1.0)
-            self.assertEqual(
-                int(
-                    (recovery.get("local_reject_cap_source_distribution") or {}).get(
-                        "live_position_flat_or_wrong_side",
-                        0,
-                    )
-                ),
-                1,
-            )
+            lifecycle_residue = report.get("lifecycle_residue", {})
+            self.assertEqual(float(lifecycle_residue.get("settlement_hold_required_count") or 0.0), 2.0)
+            self.assertEqual(float(lifecycle_residue.get("open_order_cleanup_required_count") or 0.0), 1.0)
+            self.assertEqual(float(lifecycle_residue.get("unresolved_lifecycle_obligation_count") or 0.0), 2.0)
+            self.assertEqual(float(lifecycle_residue.get("cancel_fail_closed_count") or 0.0), 1.0)
+            self.assertEqual(str(lifecycle_residue.get("classification") or ""), "mixed_open_and_settlement")
+            self.assertNotIn("reduce_only_recovery", report)
             summary = render_human_summary(report)
-            self.assertIn("reduce_only_recovery=", summary)
-            self.assertIn("classification=flat_or_wrong_side_noop_only", summary)
+            self.assertIn("lifecycle_residue=", summary)
+            self.assertIn("classification=mixed_open_and_settlement", summary)
 
-    def test_build_report_emits_recovery_cost_benefit_metrics(self):
+    def test_build_report_removes_top_level_recovery_cost_surfaces(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             events_path = root / "events_2026-01-01.jsonl"
@@ -3920,12 +4244,11 @@ class NightlySoakReportTests(unittest.TestCase):
                         "stage": "MAKER_TAKER_SELECTIVE",
                         "financial_posture_class": "HALT_NEW_RISK",
                         "sec_to_expiry": 31.0,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                         "reduce_only_size_cap_shares": 10.0,
                         "reduce_only_size_cap_below_min_order_size": False,
                         "reduce_only_min_order_size_shares": 1.0,
                         "reduce_only_net_shares": 10.0,
+                        **_historical_recovery_lineage(),
                     },
                 },
                 {
@@ -3957,12 +4280,11 @@ class NightlySoakReportTests(unittest.TestCase):
                         "stage": "MAKER_TAKER_SELECTIVE",
                         "financial_posture_class": "PREEXPIRY_REDUCE_ONLY",
                         "sec_to_expiry": 18.0,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                         "reduce_only_size_cap_shares": 0.5,
                         "reduce_only_size_cap_below_min_order_size": True,
                         "reduce_only_min_order_size_shares": 1.0,
                         "reduce_only_net_shares": 0.5,
+                        **_historical_recovery_lineage(),
                     },
                 },
                 {
@@ -3974,19 +4296,21 @@ class NightlySoakReportTests(unittest.TestCase):
                     "size": 0.5,
                 },
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "run_id": "rid-recovery-cost",
                     "outcome": "filled",
                     "maker_reduce_only_exit_blocked": True,
                     "maker_no_submission_reason": "submit_rejected_quote_quality_skip_fill_probability",
                 },
                 {
-                    "event_type": "preexpiry_emergency_taker_unwind",
+                    "event_type": _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT,
                     "run_id": "rid-recovery-cost",
                     "outcome": "blocked",
-                    "blocked_reason": "reduce_only_recovery_size_cap_below_min_order_size",
+                    "blocked_reason": _HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE,
                     "maker_reduce_only_exit_blocked": True,
-                    "maker_no_submission_reason": "submit_rejected_reduce_only_recovery_size_cap_below_min_order_size",
+                    "maker_no_submission_reason": (
+                        f"submit_rejected_{_HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE}"
+                    ),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -3994,11 +4318,11 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
-                    "block_reason": "reduce_only_recovery_waiting_for_maker_exit",
-                    "reduce_only_recovery_active": True,
-                    "maker_allowed": True,
-                    "taker_allowed": True,
+                    "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
+                    "maker_phase_allowed": True,
+                    "taker_phase_allowed": True,
                     "time_remaining_sec": 18.0,
+                    **_historical_recovery_lineage(),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4007,10 +4331,10 @@ class NightlySoakReportTests(unittest.TestCase):
                     "stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "submitted",
                     "block_reason": None,
-                    "reduce_only_recovery_active": True,
-                    "maker_allowed": True,
-                    "taker_allowed": True,
+                    "maker_phase_allowed": True,
+                    "taker_phase_allowed": True,
                     "time_remaining_sec": 17.5,
+                    **_historical_recovery_lineage(),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -4021,103 +4345,15 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path.write_text("", encoding="utf-8")
 
             report = build_report(root, run_id="rid-recovery-cost")
-            recovery_cost = report.get("recovery_cost_benefit", {})
-            self.assertEqual(float(recovery_cost.get("recovery_submit_count") or 0.0), 2.0)
-            self.assertEqual(float(recovery_cost.get("recovery_fill_event_count") or 0.0), 2.0)
-            self.assertAlmostEqual(float(recovery_cost.get("fill_notional") or 0.0), 4.68, places=9)
-            self.assertAlmostEqual(
-                float(recovery_cost.get("immediate_adverse_selection") or 0.0),
-                0.63,
-                places=9,
-            )
-            self.assertAlmostEqual(
-                float(recovery_cost.get("immediate_capture_minus_adverse") or 0.0),
-                -0.63,
-                places=9,
-            )
-            fill_classes = recovery_cost.get("fill_class_distribution", {})
-            self.assertEqual(int(fill_classes.get("meaningful_recovery_exit", 0)), 1)
-            self.assertEqual(int(fill_classes.get("tiny_or_dust_recovery_exit", 0)), 1)
-            fill_refinement_classes = recovery_cost.get("fill_refinement_class_distribution", {})
-            self.assertEqual(int(fill_refinement_classes.get("necessary_terminal_risk_exit", 0)), 1)
-            self.assertEqual(int(fill_refinement_classes.get("dust_or_below_min_exit", 0)), 1)
-            self.assertEqual(float(recovery_cost.get("preexpiry_emergency_attempt_count") or 0.0), 2.0)
-            self.assertEqual(float(recovery_cost.get("preexpiry_emergency_fill_count") or 0.0), 1.0)
-            self.assertEqual(float(recovery_cost.get("preexpiry_emergency_block_count") or 0.0), 1.0)
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("preexpiry_emergency_block_reason_distribution") or {}).get(
-                        "reduce_only_recovery_size_cap_below_min_order_size",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("preexpiry_emergency_block_class_distribution") or {}).get(
-                        "blocked_dust_or_below_min",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("preexpiry_emergency_filled_maker_no_submission_distribution") or {}).get(
-                        "submit_rejected_quote_quality_skip_fill_probability",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("preexpiry_emergency_blocked_maker_no_submission_distribution") or {}).get(
-                        "submit_rejected_reduce_only_recovery_size_cap_below_min_order_size",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(float(recovery_cost.get("recovery_taker_edge_eval_count") or 0.0), 2.0)
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("recovery_taker_edge_block_reason_distribution") or {}).get(
-                        "reduce_only_recovery_waiting_for_maker_exit",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("recovery_taker_edge_action_distribution") or {}).get(
-                        "submitted",
-                        0,
-                    )
-                ),
-                1,
-            )
-            self.assertEqual(
-                int(
-                    (recovery_cost.get("recovery_taker_edge_allowance_distribution") or {}).get(
-                        "maker_true_taker_true",
-                        0,
-                    )
-                ),
-                2,
-            )
+            self.assertNotIn("recovery_cost_benefit", report)
+            self.assertNotIn("reduce_only_recovery", report)
+            self.assertNotIn("preexpiry_recovery_churn", report)
+            self.assertNotIn("terminal_handoff_deadband", report)
             summary = render_human_summary(report)
-            self.assertIn("recovery_cost_benefit=", summary)
-            self.assertIn("immediate_net=-0.630000", summary)
-            self.assertIn("preexpiry_emergency_handoff=", summary)
-            self.assertIn("maker_blocked=2", summary)
-            self.assertIn("preexpiry_recovery_taker_gate=", summary)
-            self.assertIn('"reduce_only_recovery_waiting_for_maker_exit": 1', summary)
-            self.assertIn('"maker_true_taker_true": 2', summary)
-            self.assertIn('"submit_rejected_quote_quality_skip_fill_probability": 1', summary)
-            self.assertIn('"submit_rejected_reduce_only_recovery_size_cap_below_min_order_size": 1', summary)
+            self.assertNotIn("recovery_cost_benefit=", summary)
+            self.assertNotIn("preexpiry_emergency_handoff=", summary)
+            self.assertNotIn("preexpiry_recovery_taker_gate=", summary)
+            self.assertNotIn("reduce_only_recovery=", summary)
 
     def test_build_report_emits_taker_competitiveness_metrics(self):
         with tempfile.TemporaryDirectory() as td:
@@ -4417,15 +4653,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "normal_taker_authority_closed",
                     "stage": "OBSERVE",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": False,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "authority_closed",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.79,
                     "market_probability": 0.70,
-                    "reduce_only_recovery_active": False,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4434,15 +4667,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "edge_below_min",
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": False,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "authority_closed",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.55,
                     "market_probability": 0.50,
-                    "reduce_only_recovery_active": False,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4451,15 +4681,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "market_probability_missing",
                     "stage": "SNIPER_PRIMARY",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": False,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "authority_closed",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.55,
                     "market_probability": None,
-                    "reduce_only_recovery_active": False,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4469,15 +4696,12 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "risk_reject_notional_cap",
                     "stage": "SNIPER_PRIMARY",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": False,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "authority_closed",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.90,
                     "market_probability": 0.30,
-                    "reduce_only_recovery_active": False,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4486,50 +4710,45 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "taker",
                     "block_reason": "",
                     "stage": "SNIPER_PRIMARY",
-                    "normal_taker_allowed": True,
-                    "reduce_only_recovery_allowed": False,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "normal_taker_only",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "edge_abs": 0.40,
-                    "reduce_only_recovery_active": False,
+                    **_historical_taker_authority_flags(
+                        taker_phase_allowed=True,
+                    ),
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "edge_evaluation",
                     "run_id": "rid-taker-suppression",
                     "evaluation_scope": "taker",
                     "action_taken": "none",
-                    "block_reason": "reduce_only_recovery_waiting_for_maker_exit",
+                    "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": True,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "reduce_only_recovery_only",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.95,
                     "market_probability": 0.50,
-                    "reduce_only_recovery_active": True,
-                    "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                    "settlement_hold_required": True,
+                    "unresolved_lifecycle_obligation": True,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(),
                 },
                 {
                     "event_type": "edge_evaluation",
                     "run_id": "rid-taker-suppression",
                     "evaluation_scope": "taker",
                     "action_taken": "none",
-                    "block_reason": "reduce_only_recovery_size_cap_below_min_order_size",
+                    "block_reason": _HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE,
                     "stage": "MAKER_TAKER_SELECTIVE",
-                    "normal_taker_allowed": False,
-                    "reduce_only_recovery_allowed": True,
-                    "preexpiry_emergency_taker_allowed": False,
-                    "late_window_authority_class": "reduce_only_recovery_only",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.99,
                     "market_probability": 0.80,
-                    "reduce_only_recovery_active": True,
-                    "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                    "settlement_hold_required": True,
+                    "unresolved_lifecycle_obligation": True,
+                    **_historical_taker_authority_flags(),
+                    **_historical_recovery_lineage(),
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -4543,9 +4762,9 @@ class NightlySoakReportTests(unittest.TestCase):
             suppression = report.get("taker_opportunity_suppression", {})
             self.assertEqual(float(suppression.get("total_taker_edge_eval_count") or 0.0), 7.0)
             normal = suppression.get("normal", {})
-            recovery = suppression.get("recovery", {})
+            recovery = suppression.get("lifecycle_residue", {})
             self.assertEqual(float(normal.get("edge_eval_count") or 0.0), 5.0)
-            self.assertEqual(float(normal.get("taker_enabled_stage_eval_count") or 0.0), 4.0)
+            self.assertEqual(float(normal.get("taker_enabled_phase_eval_count") or 0.0), 4.0)
             self.assertEqual(float(normal.get("submit_candidate_count") or 0.0), 2.0)
             self.assertEqual(float(normal.get("action_taken_taker_count") or 0.0), 1.0)
             self.assertAlmostEqual(float(normal.get("submit_candidate_to_action_rate") or 0.0), 0.5, places=9)
@@ -4555,12 +4774,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(normal_classes.get("truth_missing", 0)), 1)
             self.assertEqual(int(normal_classes.get("risk_size_or_exposure", 0)), 1)
             self.assertEqual(int(normal_classes.get("submitted", 0)), 1)
-            normal_authority = normal.get("late_window_authority_class_distribution", {})
-            self.assertEqual(int(normal_authority.get("authority_closed", 0)), 4)
-            self.assertEqual(int(normal_authority.get("normal_taker_only", 0)), 1)
-            normal_taker_allowed = normal.get("normal_taker_allowed_distribution", {})
-            self.assertEqual(int(normal_taker_allowed.get("false", 0)), 4)
-            self.assertEqual(int(normal_taker_allowed.get("true", 0)), 1)
+            taker_phase_allowed_distribution = normal.get("taker_phase_allowed_distribution", {})
+            self.assertEqual(int(taker_phase_allowed_distribution.get("false", 0)), 4)
+            self.assertEqual(int(taker_phase_allowed_distribution.get("true", 0)), 1)
             normal_edges = normal.get("edge_bucket_distribution", {})
             self.assertEqual(int(normal_edges.get("le_0p10", 0)), 2)
             self.assertEqual(int(normal_edges.get("0p30_0p60", 0)), 1)
@@ -4569,18 +4785,75 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(recovery.get("edge_eval_count") or 0.0), 2.0)
             self.assertEqual(float(recovery.get("submit_candidate_count") or 0.0), 0.0)
             recovery_classes = recovery.get("suppression_class_distribution", {})
-            self.assertEqual(int(recovery_classes.get("recovery_policy", 0)), 2)
+            self.assertEqual(int(recovery_classes.get("lifecycle_residue_policy", 0)), 2)
             self.assertEqual(int(recovery_classes.get("risk_size_or_exposure", 0)), 0)
-            recovery_authority = recovery.get("late_window_authority_class_distribution", {})
-            self.assertEqual(int(recovery_authority.get("reduce_only_recovery_only", 0)), 2)
-            recovery_recovery_allowed = recovery.get("reduce_only_recovery_allowed_distribution", {})
-            self.assertEqual(int(recovery_recovery_allowed.get("true", 0)), 2)
+            recovery_settlement_hold = recovery.get("settlement_hold_required_distribution", {})
+            self.assertEqual(int(recovery_settlement_hold.get("true", 0)), 2)
+            recovery_unresolved = recovery.get("unresolved_lifecycle_obligation_distribution", {})
+            self.assertEqual(int(recovery_unresolved.get("true", 0)), 2)
+            historical_recovery_lineage = recovery.get("historical_recovery_authority_lineage_distribution", {})
+            self.assertEqual(int(historical_recovery_lineage.get("true", 0)), 0)
             recovery_rejects = recovery.get("submit_reject_reason_distribution", {})
             self.assertEqual(int(recovery_rejects.get("risk_reject_size_too_small", 0)), 0)
             summary = render_human_summary(report)
             self.assertIn("taker_opportunity_suppression=", summary)
             self.assertIn("normal_submit_candidates=2", summary)
-            self.assertIn("recovery_submit_candidates=0", summary)
+            self.assertIn("lifecycle_residue_submit_candidates=0", summary)
+
+    def test_build_report_classifies_current_lifecycle_block_reasons_as_residue_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-current-lifecycle-reasons",
+                    "evaluation_scope": "taker",
+                    "action_taken": "none",
+                    "block_reason": "settlement_hold_required",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "book_source": "ws",
+                    "latency_state": "armed",
+                    "fair_probability": 0.95,
+                    "market_probability": 0.50,
+                    "settlement_hold_required": True,
+                    "unresolved_lifecycle_obligation": True,
+                    **_historical_taker_authority_flags(),
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "run_id": "rid-current-lifecycle-reasons",
+                    "evaluation_scope": "taker",
+                    "action_taken": "none",
+                    "block_reason": "open_order_cleanup_required",
+                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "book_source": "ws",
+                    "latency_state": "armed",
+                    "fair_probability": 0.90,
+                    "market_probability": 0.55,
+                    "open_order_cleanup_required": True,
+                    "cancel_fail_closed": True,
+                    **_historical_taker_authority_flags(),
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-current-lifecycle-reasons", "gauge.open_orders": 0}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-current-lifecycle-reasons")
+            suppression = report.get("taker_opportunity_suppression", {})
+            residue = suppression.get("lifecycle_residue", {})
+            residue_classes = residue.get("suppression_class_distribution", {})
+            self.assertEqual(int(residue_classes.get("lifecycle_residue_policy", 0)), 2)
+            self.assertEqual(int(residue_classes.get("other", 0)), 0)
+            self.assertEqual(int(residue.get("settlement_hold_required_distribution", {}).get("true", 0)), 1)
+            self.assertEqual(int(residue.get("open_order_cleanup_required_distribution", {}).get("true", 0)), 1)
+            self.assertEqual(int(residue.get("cancel_fail_closed_distribution", {}).get("true", 0)), 1)
 
     def test_build_report_emits_complement_route_metrics(self):
         with tempfile.TemporaryDirectory() as td:
@@ -4710,7 +4983,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "timing_window_class": "final15",
                         "multi_oracle_status": "confirmed",
                         "multi_oracle_confirmation": True,
-                        "reduce_only_recovery_active": False,
+                        **_historical_recovery_lineage(active=False),
                     },
                 },
                 {
@@ -4731,9 +5004,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "taker_competitiveness": {
                         "stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.74,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                         "reduce_only_side": "SELL",
+                        **_historical_recovery_lineage(),
                     },
                 },
                 {
@@ -4757,15 +5029,15 @@ class NightlySoakReportTests(unittest.TestCase):
             taker_comp = report.get("taker_competitiveness", {})
             self.assertEqual(float(taker_comp.get("actual_submit_count") or 0.0), 2.0)
             self.assertEqual(float(taker_comp.get("normal_competitiveness_submit_count") or 0.0), 1.0)
-            self.assertEqual(float(taker_comp.get("recovery_override_submit_count") or 0.0), 1.0)
+            self.assertEqual(float(taker_comp.get("lifecycle_residue_override_submit_count") or 0.0), 1.0)
             self.assertEqual(float(taker_comp.get("true_unknown_submit_count") or 0.0), 0.0)
             self.assertEqual(
-                float(taker_comp.get("recovery_override_without_normal_payload_count") or 0.0),
+                float(taker_comp.get("lifecycle_residue_override_without_normal_payload_count") or 0.0),
                 1.0,
             )
             submit_classes = taker_comp.get("submit_class_distribution", {})
             self.assertEqual(int(submit_classes.get("normal_competitiveness", 0)), 1)
-            self.assertEqual(int(submit_classes.get("reduce_only_recovery_override", 0)), 1)
+            self.assertEqual(int(submit_classes.get("lifecycle_residue_override", 0)), 1)
             self.assertEqual(int(submit_classes.get("true_unknown", 0)), 0)
             self.assertEqual(
                 int((taker_comp.get("submit_conviction_bucket_distribution") or {}).get("gt_0p66", 0)),
@@ -4782,13 +5054,13 @@ class NightlySoakReportTests(unittest.TestCase):
                 1,
             )
             self.assertNotIn("unknown", taker_comp.get("submit_multi_oracle_status_distribution") or {})
-            recovery_edges = taker_comp.get("submit_recovery_override_edge_bucket_distribution", {})
+            recovery_edges = taker_comp.get("submit_lifecycle_residue_override_edge_bucket_distribution", {})
             self.assertEqual(int(recovery_edges.get("gt_0p60", 0)), 1)
-            recovery_reasons = taker_comp.get("submit_recovery_override_reason_distribution", {})
+            recovery_reasons = taker_comp.get("submit_lifecycle_residue_override_reason_distribution", {})
             self.assertEqual(int(recovery_reasons.get("preexpiry_reduce_only_window_active", 0)), 1)
             fill_classes = taker_comp.get("fill_class_distribution", {})
             self.assertEqual(int(fill_classes.get("normal_competitiveness", 0)), 1)
-            self.assertEqual(int(fill_classes.get("reduce_only_recovery_override", 0)), 1)
+            self.assertEqual(int(fill_classes.get("lifecycle_residue_override", 0)), 1)
             self.assertAlmostEqual(
                 float(taker_comp.get("normal_competitiveness_decision_to_submit_rate") or 0.0),
                 1.0,
@@ -4803,7 +5075,7 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path = root / "errors_2026-01-01.jsonl"
             events = [
                 {
-                    "event_type": "taker_stage_window_semantic_check",
+                    "event_type": "taker_window_semantic_check",
                     "run_id": "rid-gate-posture",
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-1",
@@ -4847,7 +5119,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "required_min_edge": 0.30,
                     "timing_window_class": "final_window",
                     "conviction_score": 0.80,
-                    "reduce_only_recovery_active": False,
+                    **_historical_recovery_lineage(active=False),
                 },
                 {
                     "event_type": "order_submit",
@@ -4866,7 +5138,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "conviction_score": 0.80,
                         "submit_capable_static": True,
                         "submit_capable_dynamic_predicted": True,
-                        "reduce_only_recovery_active": False,
+                        **_historical_recovery_lineage(active=False),
                     },
                     "risk_decision_basis": {
                         "min_sec_to_expiry_for_new_exposure": 45.0,
@@ -4880,8 +5152,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "stage": "MAKER_TAKER_SELECTIVE",
                     "edge_abs": 0.10,
                     "required_min_edge": 0.20,
-                    "reduce_only_recovery_active": True,
-                    "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                    **_historical_recovery_lineage(),
                 },
                 {
                     "event_type": "order_submit",
@@ -4895,12 +5166,11 @@ class NightlySoakReportTests(unittest.TestCase):
                     "taker_competitiveness": {
                         "stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.10,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                        **_historical_recovery_lineage(),
                     },
                     "risk_decision_basis": {
                         "min_sec_to_expiry_for_new_exposure": 45.0,
-                        "reduce_only_recovery_active": True,
+                        **_historical_recovery_lineage(),
                     },
                 },
             ]
@@ -4915,19 +5185,19 @@ class NightlySoakReportTests(unittest.TestCase):
             matrix = report.get("taker_intent_gate_posture_matrix", {})
             self.assertEqual(
                 matrix.get("observed_intent_classification"),
-                "mixed_normal_and_recovery_taker_activity_observed",
+                "mixed_normal_and_lifecycle_residue_taker_activity_observed",
             )
             self.assertEqual(
                 int((matrix.get("event_class_distribution") or {}).get("normal_competitiveness", 0)),
                 3,
             )
             self.assertEqual(
-                int((matrix.get("event_class_distribution") or {}).get("recovery_override", 0)),
+                int((matrix.get("event_class_distribution") or {}).get("lifecycle_residue_override", 0)),
                 2,
             )
             self.assertEqual(float(matrix.get("normal_below_required_min_edge_count") or 0.0), 0.0)
-            self.assertEqual(float(matrix.get("recovery_override_below_required_min_edge_count") or 0.0), 1.0)
-            self.assertEqual(matrix.get("recovery_override_crossed_normal_edge_gate_observed"), True)
+            self.assertEqual(float(matrix.get("lifecycle_residue_override_below_required_min_edge_count") or 0.0), 1.0)
+            self.assertEqual(matrix.get("lifecycle_residue_override_crossed_normal_edge_gate_observed"), True)
             stage_windows = (matrix.get("latest_stage_window_semantics") or {}).get("stage_rows", {})
             self.assertEqual(
                 float((stage_windows.get("MAKER_TAKER_SELECTIVE") or {}).get("effective_final_window_sec") or 0.0),
@@ -4935,12 +5205,12 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             required_min_edge = matrix.get("required_min_edge_by_intent_stage", {})
             normal_sniper = (required_min_edge.get("normal_competitiveness") or {}).get("SNIPER_PRIMARY", {})
-            recovery_mts = (required_min_edge.get("recovery_override") or {}).get("MAKER_TAKER_SELECTIVE", {})
+            recovery_mts = (required_min_edge.get("lifecycle_residue_override") or {}).get("MAKER_TAKER_SELECTIVE", {})
             self.assertEqual(float(normal_sniper.get("min") or 0.0), 0.30)
             self.assertEqual(float(recovery_mts.get("min") or 0.0), 0.20)
             summary = render_human_summary(report)
             self.assertIn("taker_intent_gate_posture=", summary)
-            self.assertIn("recovery_below_required_min_edge=1", summary)
+            self.assertIn("lifecycle_residue_below_required_min_edge=1", summary)
 
     def test_taker_intent_gate_posture_matrix_detects_gate_only_normal_activity(self):
         with tempfile.TemporaryDirectory() as td:
@@ -4966,7 +5236,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "market_reference_mode": "direct_midpoint",
                     "edge_value": 0.10,
                     "required_min_edge": 0.11,
-                    "reduce_only_recovery_active": False,
+                    **_historical_recovery_lineage(active=False),
                 }
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -5005,7 +5275,7 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path = root / "errors_2026-01-01.jsonl"
             events = [
                 {
-                    "event_type": "taker_stage_window_semantic_check",
+                    "event_type": "taker_window_semantic_check",
                     "run_id": run_id,
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-tail",
@@ -5035,14 +5305,14 @@ class NightlySoakReportTests(unittest.TestCase):
                         "stage_bucket": "OBSERVE",
                         "raw_stage": "OBSERVE",
                         "action_taken": "none",
-                        "block_reason": "stage_disallow_taker",
+                        "block_reason": "phase_disallow_taker",
                         "edge_value": 0.01,
                         "required_min_edge": 0.015,
                     }
                 )
             events.append(
                 {
-                    "event_type": "taker_stage_window_semantic_check",
+                    "event_type": "taker_window_semantic_check",
                     "run_id": run_id,
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-tail",
@@ -5095,7 +5365,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
-                    "block_reason": "maker_to_taker_recovery_handoff_disabled",
+                    "block_reason": _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED,
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -5137,11 +5407,11 @@ class NightlySoakReportTests(unittest.TestCase):
             breaches = report.get("taker_doctrine_breaches", {})
             self.assertEqual(float(breaches.get("hard_window_submit_violation_count") or 0.0), 1.0)
             self.assertEqual(
-                float(breaches.get("maker_to_taker_recovery_handoff_disabled_count") or 0.0),
+                float(breaches.get("historical_recovery_handoff_disabled_count") or 0.0),
                 1.0,
             )
             self.assertEqual(
-                float(breaches.get("taker_recovery_disabled_in_taker_scope_count") or 0.0),
+                float(breaches.get("historical_recovery_disabled_in_taker_scope_count") or 0.0),
                 1.0,
             )
             self.assertEqual(
@@ -5156,7 +5426,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(
                 int(
                     (breaches.get("block_reason_distribution") or {}).get(
-                        "maker_to_taker_recovery_handoff_disabled",
+                        _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED,
                         0,
                     )
                 ),
@@ -5165,7 +5435,7 @@ class NightlySoakReportTests(unittest.TestCase):
             summary = render_human_summary(report)
             self.assertIn("taker_doctrine_breaches=", summary)
             self.assertIn("hard_window_submit_violations=1", summary)
-            self.assertIn('"maker_to_taker_recovery_handoff_disabled": 1', summary)
+            self.assertIn("historical_recovery_handoff_disabled=1", summary)
 
     def test_taker_config_gate_posture_uses_run_manifest_snapshot(self):
         with tempfile.TemporaryDirectory() as td:
@@ -5185,11 +5455,9 @@ class NightlySoakReportTests(unittest.TestCase):
                         "git_commit": "abc123",
                         "config_fingerprint_sha256": "cfg-posture",
                         "config": {
-                            "runtime": {
-                                "held_preexpiry_reduce_only_sec": 90.0,
-                                "preexpiry_emergency_taker_window_sec": 45.0,
-                                "terminal_unwind_halt_new_risk_sec": 45.0,
-                            },
+                            "runtime": _historical_recovery_runtime_config(
+                                held_preexpiry_reduce_only_sec=90.0,
+                            ),
                             "risk": {
                                 "min_sec_to_expiry_for_new_exposure": 45.0,
                                 "dynamic_scaling": {
@@ -5231,9 +5499,6 @@ class NightlySoakReportTests(unittest.TestCase):
                                 },
                                 "max_orders_per_cycle": 2,
                                 "per_token_cooldown_sec": 0.25,
-                                "per_token_cooldown_sec_by_stage": {
-                                    "SNIPER_PRIMARY": 0.75,
-                                },
                                 "competitiveness": {
                                     "hard_min_target_usd": 100.0,
                                     "hard_min_enforcement": "skip_if_unachievable",
@@ -5243,10 +5508,6 @@ class NightlySoakReportTests(unittest.TestCase):
                                     "dynamic_size_target_usd_cap": 220.0,
                                     "final_window_enabled": True,
                                     "final_window_sec": 60.0,
-                                    "stage_final_window_sec_by_stage": {
-                                        "MAKER_TAKER_SELECTIVE": 60.0,
-                                        "SNIPER_PRIMARY": 30.0,
-                                    },
                                     "aggressive_window_enabled": False,
                                     "price_aggress_bps_max": 8.0,
                                     "multi_oracle_boost_enabled": True,
@@ -5262,7 +5523,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                     "timing_gate_min_sec_to_expiry": 45.0,
                                     "timing_gate_max_sec_to_expiry": 60.0,
                                     "one_sided_enabled": True,
-                                    "one_sided_edge_threshold_abs": 0.18,
+                                    "one_sided_edge_threshold_abs": 0.15,
                                 },
                                 "execution_quality": {
                                     "min_expected_fill_prob": 0.045,
@@ -5297,7 +5558,7 @@ class NightlySoakReportTests(unittest.TestCase):
             flags = set(posture.get("posture_flags") or [])
             self.assertIn("normal_entry_recovery_boundary_overlap", flags)
             self.assertIn("taker_require_lag_verification_false", flags)
-            self.assertIn("maker_taker_selective_final_window_ge_60s", flags)
+            self.assertIn("taker_default_final_window_ge_60s", flags)
             summary = render_human_summary(report)
             self.assertIn("taker_config_gate_posture=", summary)
             self.assertIn("boundary_class=normal_new_exposure_allowed_inside_held_recovery_window", summary)
@@ -5327,21 +5588,15 @@ class NightlySoakReportTests(unittest.TestCase):
                         "git_commit": "abc123",
                         "config_fingerprint_sha256": "cfg-posture",
                         "config": {
-                            "runtime": {
-                                "held_preexpiry_reduce_only_sec": 45.0,
-                                "preexpiry_emergency_taker_window_sec": 45.0,
-                                "terminal_unwind_halt_new_risk_sec": 45.0,
-                            },
+                            "runtime": _historical_recovery_runtime_config(
+                                held_preexpiry_reduce_only_sec=45.0,
+                            ),
                             "risk": {
                                 "min_sec_to_expiry_for_new_exposure": 45.0,
                             },
                             "taker": {
                                 "competitiveness": {
                                     "final_window_sec": 60.0,
-                                    "stage_final_window_sec_by_stage": {
-                                        "MAKER_TAKER_SELECTIVE": 60.0,
-                                        "SNIPER_PRIMARY": 30.0,
-                                    },
                                 },
                             },
                         },
@@ -5362,7 +5617,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(boundary.get("normal_can_open_inside_taker_final_window"), True)
             self.assertEqual(
                 boundary.get("normal_taker_final_window_overlap_stages"),
-                ["MAKER_TAKER_SELECTIVE", "default"],
+                ["default"],
             )
             self.assertAlmostEqual(
                 float(boundary.get("max_normal_entry_width_inside_final_window_sec") or 0.0),
@@ -5392,21 +5647,13 @@ class NightlySoakReportTests(unittest.TestCase):
                         "git_commit": "abc123",
                         "config_fingerprint_sha256": "cfg-posture",
                         "config": {
-                            "runtime": {
-                                "held_preexpiry_reduce_only_sec": 50.0,
-                                "preexpiry_emergency_taker_window_sec": 45.0,
-                                "terminal_unwind_halt_new_risk_sec": 45.0,
-                            },
+                            "runtime": _historical_recovery_runtime_config(),
                             "risk": {
                                 "min_sec_to_expiry_for_new_exposure": 50.0,
                             },
                             "taker": {
                                 "competitiveness": {
                                     "final_window_sec": 60.0,
-                                    "stage_final_window_sec_by_stage": {
-                                        "MAKER_TAKER_SELECTIVE": 60.0,
-                                        "SNIPER_PRIMARY": 30.0,
-                                    },
                                 },
                             },
                             "strategy": {
@@ -5434,7 +5681,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(boundary.get("normal_can_open_inside_taker_final_window"), True)
             self.assertEqual(
                 boundary.get("normal_taker_final_window_overlap_stages"),
-                ["MAKER_TAKER_SELECTIVE", "default"],
+                ["default"],
             )
             self.assertAlmostEqual(
                 float(boundary.get("max_normal_entry_width_inside_final_window_sec") or 0.0),
@@ -5447,9 +5694,7 @@ class NightlySoakReportTests(unittest.TestCase):
             summary = render_human_summary(report)
             self.assertIn("boundary_class=normal_new_exposure_allowed_inside_taker_final_window", summary)
             self.assertIn("final_window_overlap_max_sec=10.00", summary)
-            self.assertIn("maker_taker_terminal_handoff=", summary)
-            self.assertIn("maker_gate_min_sec=50.00", summary)
-            self.assertIn("maker_gate_closes_at_reduce_only_boundary=1", summary)
+            self.assertNotIn("maker_taker_terminal_handoff=", summary)
 
     def test_taker_config_gate_posture_uses_taker_lane_override_for_boundary_truth(self):
         with tempfile.TemporaryDirectory() as td:
@@ -5469,11 +5714,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "git_commit": "abc123",
                         "config_fingerprint_sha256": "cfg-posture",
                         "config": {
-                            "runtime": {
-                                "held_preexpiry_reduce_only_sec": 50.0,
-                                "preexpiry_emergency_taker_window_sec": 45.0,
-                                "terminal_unwind_halt_new_risk_sec": 45.0,
-                            },
+                            "runtime": _historical_recovery_runtime_config(),
                             "risk": {
                                 "min_sec_to_expiry_for_new_exposure": 50.0,
                                 "min_sec_to_expiry_for_new_exposure_by_lane": {
@@ -5483,10 +5724,6 @@ class NightlySoakReportTests(unittest.TestCase):
                             "taker": {
                                 "competitiveness": {
                                     "final_window_sec": 60.0,
-                                    "stage_final_window_sec_by_stage": {
-                                        "MAKER_TAKER_SELECTIVE": 60.0,
-                                        "SNIPER_PRIMARY": 30.0,
-                                    },
                                 },
                             },
                         },
@@ -5522,7 +5759,7 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 boundary.get("normal_taker_final_window_overlap_stages"),
-                ["MAKER_TAKER_SELECTIVE", "SNIPER_PRIMARY", "default"],
+                ["default"],
             )
             self.assertAlmostEqual(
                 float(boundary.get("max_normal_entry_width_inside_final_window_sec") or 0.0),
@@ -5556,11 +5793,11 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "evaluation_scope": "taker",
                                 "stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "none",
-                                "block_reason": "reduce_only_recovery_waiting_for_maker_exit",
-                                "reduce_only_recovery_active": True,
-                                "maker_allowed": True,
-                                "taker_allowed": True,
+                                "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
+                                "maker_phase_allowed": True,
+                                "taker_phase_allowed": True,
                                 "time_remaining_sec": 49.0,
+                                **_historical_recovery_lineage(),
                             }
                         ),
                         json.dumps(
@@ -5570,11 +5807,11 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "evaluation_scope": "taker",
                                 "stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "none",
-                                "block_reason": "reduce_only_recovery_waiting_for_maker_exit",
-                                "reduce_only_recovery_active": True,
-                                "maker_allowed": True,
-                                "taker_allowed": True,
+                                "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
+                                "maker_phase_allowed": True,
+                                "taker_phase_allowed": True,
                                 "time_remaining_sec": 48.0,
+                                **_historical_recovery_lineage(),
                             }
                         ),
                         json.dumps(
@@ -5585,10 +5822,10 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "taker",
                                 "block_reason": None,
-                                "reduce_only_recovery_active": True,
-                                "maker_allowed": True,
-                                "taker_allowed": True,
+                                "maker_phase_allowed": True,
+                                "taker_phase_allowed": True,
                                 "time_remaining_sec": 44.0,
+                                **_historical_recovery_lineage(),
                             }
                         ),
                     ]
@@ -5604,11 +5841,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "git_commit": "abc123",
                         "config_fingerprint_sha256": "cfg-terminal-deadband",
                         "config": {
-                            "runtime": {
-                                "held_preexpiry_reduce_only_sec": 50.0,
-                                "preexpiry_emergency_taker_window_sec": 45.0,
-                                "terminal_unwind_halt_new_risk_sec": 45.0,
-                            },
+                            "runtime": _historical_recovery_runtime_config(),
                             "risk": {
                                 "min_sec_to_expiry_for_new_exposure": 0.0,
                             },
@@ -5616,9 +5849,6 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "taker": {
                                     "competitiveness": {
                                         "final_window_sec": 60.0,
-                                        "stage_final_window_sec_by_stage": {
-                                            "MAKER_TAKER_SELECTIVE": 60.0,
-                                        },
                                     },
                                 },
                             },
@@ -5636,25 +5866,9 @@ class NightlySoakReportTests(unittest.TestCase):
             )
 
             report = build_report(root, run_id=run_id)
-            deadband = report.get("terminal_handoff_deadband", {})
-            self.assertEqual(str(deadband.get("classification") or ""), "wait_only_deadband_candidate")
-            self.assertEqual(float(deadband.get("candidate_recovery_edge_eval_count") or 0.0), 2.0)
-            self.assertEqual(float(deadband.get("waiting_for_maker_exit_count") or 0.0), 2.0)
-            self.assertEqual(float(deadband.get("action_taker_count") or 0.0), 0.0)
-            self.assertEqual(bool(deadband.get("maker_gate_closes_at_reduce_only_boundary", False)), True)
-            self.assertEqual(
-                int((deadband.get("block_reason_distribution") or {}).get("reduce_only_recovery_waiting_for_maker_exit", 0)),
-                2,
-            )
-            self.assertEqual(
-                int((deadband.get("allowance_distribution") or {}).get("maker_true_taker_true", 0)),
-                2,
-            )
+            self.assertNotIn("terminal_handoff_deadband", report)
             summary = render_human_summary(report)
-            self.assertIn("terminal_handoff_deadband=", summary)
-            self.assertIn("classification=wait_only_deadband_candidate", summary)
-            self.assertIn("candidate_evals=2", summary)
-            self.assertIn("waiting_for_maker_exit=2", summary)
+            self.assertNotIn("terminal_handoff_deadband=", summary)
 
     def test_execution_quality_lane_attribution_splits_normal_and_recovery_taker(self):
         with tempfile.TemporaryDirectory() as td:
@@ -5718,9 +5932,9 @@ class NightlySoakReportTests(unittest.TestCase):
                         "multi_oracle_status": "confirmed",
                         "submit_capable_static": True,
                         "submit_capable_dynamic_predicted": True,
-                        "reduce_only_recovery_active": False,
                         "sec_to_expiry": 55.0,
                         "held_preexpiry_reduce_only_sec": 90.0,
+                        **_historical_recovery_lineage(active=False),
                     },
                     "risk_decision_basis": {
                         "min_sec_to_expiry_for_new_exposure": 45.0,
@@ -5761,10 +5975,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "taker_competitiveness": {
                         "stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.74,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
                         "sec_to_expiry": 54.5,
                         "held_preexpiry_reduce_only_sec": 90.0,
+                        **_historical_recovery_lineage(),
                     },
                     "risk_decision_basis": {
                         "min_sec_to_expiry_for_new_exposure": 45.0,
@@ -5801,7 +6014,7 @@ class NightlySoakReportTests(unittest.TestCase):
             by_lane = lane_attr.get("by_lane", {})
             maker = by_lane.get("maker", {})
             normal = by_lane.get("normal_taker", {})
-            recovery = by_lane.get("reduce_only_recovery_taker", {})
+            recovery = by_lane.get("lifecycle_residue_taker", {})
 
             self.assertAlmostEqual(float(maker.get("immediate_capture_minus_adverse") or 0.0), 0.10, places=9)
             self.assertAlmostEqual(float(normal.get("immediate_capture_minus_adverse") or 0.0), 0.20, places=9)
@@ -5827,21 +6040,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 int((recovery.get("submit_stage_distribution") or {}).get("MAKER_TAKER_SELECTIVE", 0)),
                 1,
             )
-            churn = report.get("preexpiry_recovery_churn", {})
-            self.assertEqual(churn.get("boundary_overlap_detected"), True)
-            self.assertEqual(
-                float(churn.get("normal_taker_submit_inside_allowed_overlap_window_count") or 0.0),
-                1.0,
-            )
-            self.assertEqual(
-                float(churn.get("normal_taker_fill_with_recovery_fill_within_window_count") or 0.0),
-                1.0,
-            )
-            self.assertAlmostEqual(
-                float(churn.get("normal_taker_fill_with_recovery_fill_within_window_ratio") or 0.0),
-                1.0,
-                places=9,
-            )
+            self.assertNotIn("preexpiry_recovery_churn", report)
             decision_ref = report.get("execution_quality_decision_reference_lane_attribution", {})
             decision_by_lane = decision_ref.get("by_lane", {})
             self.assertAlmostEqual(
@@ -5856,7 +6055,7 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertAlmostEqual(
                 float(
-                    (decision_by_lane.get("reduce_only_recovery_taker") or {}).get(
+                    (decision_by_lane.get("lifecycle_residue_taker") or {}).get(
                         "immediate_capture_minus_adverse"
                     )
                     or 0.0
@@ -6004,9 +6203,33 @@ class NightlySoakReportTests(unittest.TestCase):
             root = Path(td)
             (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
             status = [
-                {"counter.book_updates": 10, "counter.book_updates_ws": 8, "counter.book_updates_rest": 2},
-                {"counter.book_updates": 16, "counter.book_updates_ws": 12, "counter.book_updates_rest": 4},
-                {"counter.book_updates": 22, "counter.book_updates_ws": 15, "counter.book_updates_rest": 7},
+                {
+                    "counter.book_updates": 10,
+                    "counter.book_updates_ws": 8,
+                    "pair_truth_pair_count": 2,
+                    "pair_truth_missing_pair_count": 1,
+                    "pair_truth_one_sided_pair_count": 0,
+                    "pair_truth_authoritative_pair_count": 1,
+                    "pair_truth_one_sided_base_keys": [],
+                },
+                {
+                    "counter.book_updates": 16,
+                    "counter.book_updates_ws": 12,
+                    "pair_truth_pair_count": 2,
+                    "pair_truth_missing_pair_count": 1,
+                    "pair_truth_one_sided_pair_count": 1,
+                    "pair_truth_authoritative_pair_count": 0,
+                    "pair_truth_one_sided_base_keys": ["mkt-b"],
+                },
+                {
+                    "counter.book_updates": 22,
+                    "counter.book_updates_ws": 15,
+                    "pair_truth_pair_count": 2,
+                    "pair_truth_missing_pair_count": 0,
+                    "pair_truth_one_sided_pair_count": 1,
+                    "pair_truth_authoritative_pair_count": 1,
+                    "pair_truth_one_sided_base_keys": ["mkt-b", "mkt-c"],
+                },
             ]
             (root / "status_2026-01-01.jsonl").write_text(
                 "\n".join(json.dumps(x) for x in status) + "\n",
@@ -6018,8 +6241,13 @@ class NightlySoakReportTests(unittest.TestCase):
             source_stats = report.get("market_data_source", {})
             self.assertEqual(source_stats.get("book_updates_total_delta"), 12.0)
             self.assertEqual(source_stats.get("book_updates_ws_delta"), 7.0)
-            self.assertEqual(source_stats.get("book_updates_rest_delta"), 5.0)
-            self.assertAlmostEqual(float(source_stats.get("book_updates_rest_ratio") or 0.0), 5.0 / 12.0)
+            self.assertEqual(source_stats.get("pair_truth_pair_count_max"), 2.0)
+            self.assertEqual(source_stats.get("pair_truth_missing_pair_count_max"), 1.0)
+            self.assertEqual(source_stats.get("pair_truth_one_sided_pair_count_max"), 1.0)
+            self.assertEqual(source_stats.get("pair_truth_authoritative_pair_count_max"), 1.0)
+            self.assertAlmostEqual(float(source_stats.get("pair_truth_missing_pair_row_ratio") or 0.0), 2.0 / 3.0)
+            self.assertAlmostEqual(float(source_stats.get("pair_truth_one_sided_row_ratio") or 0.0), 2.0 / 3.0)
+            self.assertEqual(source_stats.get("pair_truth_one_sided_base_keys_seen"), ["mkt-b", "mkt-c"])
 
     def test_build_report_emits_transport_vs_control_authority_clarity(self):
         with tempfile.TemporaryDirectory() as td:
@@ -6027,10 +6255,10 @@ class NightlySoakReportTests(unittest.TestCase):
             (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
             status = [
                 {
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": False,
                     "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.1},
                     "alert_transport_enabled": False,
@@ -6061,10 +6289,10 @@ class NightlySoakReportTests(unittest.TestCase):
             (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
             status = [
                 {
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": False,
                     "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.1},
                 }
@@ -6108,10 +6336,10 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": True,
                     "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.1},
                 }
@@ -6141,10 +6369,10 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": True,
                     "external_guard_active": False,
                     "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": 45.0},
@@ -6160,7 +6388,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(report.get("primary_suppression_cause"), "none")
             contributing = set(report.get("contributing_suppression_causes", []))
             self.assertIn("safety_kill_switch_or_external_guard", contributing)
-            self.assertIn("safety_required_book_feed_disconnected", contributing)
+            self.assertIn("safety_required_market_truth_disconnected", contributing)
 
     def test_build_report_infers_suppression_mode_from_block_reason_distribution(self):
         with tempfile.TemporaryDirectory() as td:
@@ -6188,10 +6416,10 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": False,
                     "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.1},
                 }
@@ -6235,10 +6463,10 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "active",
+                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": False,
                     "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.2},
                 }

@@ -5,8 +5,35 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prodesk.edge_truth_contract import normalize_block_reason
 from prodesk.run_contract import build_run_contract, write_run_contract
 from scripts.edge_truth_audit import run_audit
+
+_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
+_HISTORICAL_RECOVERY_REASON = "preexpiry_reduce_only_window_active"
+
+
+def _legacy_stage_to_lifecycle_phase(stage: object) -> str:
+    normalized = str(stage or "").strip().upper()
+    if normalized == "EXPIRED":
+        return "resolve"
+    if normalized == "MAKER_LATE_WINDOW":
+        return "maker_window"
+    if normalized == "TAKER_COMMITMENT":
+        return "taker_window"
+    if normalized:
+        return "prepare"
+    return ""
+
+
+def _historical_recovery_lineage(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        _HISTORICAL_RECOVERY_ACTIVE_FIELD: True,
+        _HISTORICAL_RECOVERY_REASON_FIELD: _HISTORICAL_RECOVERY_REASON,
+    }
+    payload.update(overrides)
+    return payload
 
 
 class EdgeTruthAuditTests(unittest.TestCase):
@@ -21,34 +48,58 @@ class EdgeTruthAuditTests(unittest.TestCase):
             if (
                 str(out.get("event_type") or "").strip() == "edge_evaluation"
                 and str(out.get("stage") or "").strip().upper() == "EXTREME_ONLY"
-                and (not bool(out.get("reduce_only_recovery_active", False)))
-                and "maker_new_risk_allowed" not in out
-                and "normal_taker_allowed" not in out
+                and (not bool(out.get(_HISTORICAL_RECOVERY_ACTIVE_FIELD, False)))
+                and "maker_phase_allowed" not in out
+                and "taker_phase_allowed" not in out
             ):
                 sec_value = out.get("time_remaining_sec")
                 sec = float(sec_value) if isinstance(sec_value, (int, float)) else None
-                maker_new_risk_allowed = False
-                normal_taker_allowed = False
-                authority_class = "timing_unknown"
-                if sec is None:
-                    authority_class = "timing_unknown"
-                elif sec < 0.0:
-                    authority_class = "expired_recovery_only"
-                elif sec <= 7.0 + 1e-9:
-                    normal_taker_allowed = True
-                    authority_class = "normal_taker_only"
-                elif sec <= 15.0 + 1e-9:
-                    authority_class = "reduce_only_recovery_only"
-                elif sec <= 20.0 + 1e-9:
-                    maker_new_risk_allowed = True
-                    authority_class = "maker_new_risk_only"
+                out["maker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 15.0 + 1e-9 and sec > 7.0 + 1e-9)
+                out["taker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 7.0 + 1e-9)
+                out["open_order_cleanup_required"] = False
+                out["settlement_hold_required"] = False
+                out["unresolved_lifecycle_obligation"] = False
+                out["cancel_fail_closed"] = False
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and "lifecycle_phase" not in out
+            ):
+                if bool(out.get("maker_phase_allowed", False)):
+                    out["lifecycle_phase"] = "maker_window"
+                elif bool(out.get("taker_phase_allowed", False)):
+                    out["lifecycle_phase"] = "taker_window"
                 else:
-                    authority_class = "pre_late_window_existing_stage"
-                out["maker_new_risk_allowed"] = maker_new_risk_allowed
-                out["normal_taker_allowed"] = normal_taker_allowed
-                out["reduce_only_recovery_allowed"] = False
-                out["preexpiry_emergency_taker_allowed"] = False
-                out["late_window_authority_class"] = authority_class
+                    out["lifecycle_phase"] = _legacy_stage_to_lifecycle_phase(out.get("stage"))
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and "maker_phase_allowed" not in out
+            ):
+                out["maker_phase_allowed"] = bool(out.get("lifecycle_phase") == "maker_window")
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and "taker_phase_allowed" not in out
+            ):
+                out["taker_phase_allowed"] = bool(out.get("lifecycle_phase") == "taker_window")
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and "maker_gate_open" not in out
+            ):
+                out["maker_gate_open"] = bool(out.get("maker_phase_allowed", False))
+            if (
+                str(out.get("event_type") or "").strip() == "edge_evaluation"
+                and "taker_gate_open" not in out
+            ):
+                out["taker_gate_open"] = bool(out.get("taker_phase_allowed", False))
+            if str(out.get("event_type") or "").strip() == "edge_evaluation":
+                out["block_reason"] = normalize_block_reason(out.get("block_reason"))
+                for legacy_field in (
+                    "maker_allowed",
+                    "taker_allowed",
+                    "maker_new_risk_allowed",
+                    "normal_taker_allowed",
+                    "late_window_authority_class",
+                ):
+                    out.pop(legacy_field, None)
             normalized_rows.append(out)
         payload = "\n".join(json.dumps(row, sort_keys=True) for row in normalized_rows) + "\n"
         path.write_text(payload, encoding="utf-8")
@@ -120,8 +171,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.05,
                         "oracle_tick_age_sec": 0.2,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
                         "action_taken": "taker",
                         "block_reason": None,
                         "submitted": True,
@@ -143,8 +194,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.01,
                         "oracle_tick_age_sec": 0.2,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": False,
+                        "maker_phase_allowed": True,
+                        "taker_phase_allowed": False,
                         "action_taken": "none",
                         "block_reason": "maker_no_submission",
                         "submitted": False,
@@ -205,8 +256,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.05,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": False,
+                        "maker_phase_allowed": True,
+                        "taker_phase_allowed": False,
                         "action_taken": "none",
                         "block_reason": None,
                         "submitted": False,
@@ -266,10 +317,10 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.0,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": False,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": False,
                         "action_taken": "none",
-                        "block_reason": "stage_disallow_taker",
+                        "block_reason": "phase_disallow_taker",
                         "submitted": False,
                         "filled": False,
                         "result": None,
@@ -327,8 +378,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": None,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
                         "action_taken": "taker",
                         "block_reason": None,
                         "submitted": True,
@@ -385,8 +436,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 "edge_value": 0.05,
                 "oracle_tick_age_sec": 0.2,
                 "latency_state": "armed",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
                 "action_taken": "none",
                 "block_reason": "edge_below_min",
                 "submitted": False,
@@ -443,8 +494,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 "edge_value": 0.05,
                 "oracle_tick_age_sec": 0.2,
                 "latency_state": "armed",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
                 "action_taken": "none",
                 "block_reason": "edge_below_min",
                 "submitted": False,
@@ -502,8 +553,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 "edge_value": 0.05,
                 "oracle_tick_age_sec": 0.2,
                 "latency_state": "armed",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
                 "action_taken": "none",
                 "block_reason": "edge_below_min",
                 "submitted": False,
@@ -567,8 +618,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.10,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": False,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": False,
                         "action_taken": "none",
                         "block_reason": "edge_below_min",
                         "submitted": False,
@@ -625,8 +676,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 "edge_value": 0.05,
                 "oracle_tick_age_sec": 0.2,
                 "latency_state": "armed",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
                 "action_taken": "none",
                 "block_reason": "edge_below_min",
                 "submitted": False,
@@ -687,8 +738,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 "edge_value": 0.10,
                 "oracle_tick_age_sec": 0.2,
                 "latency_state": "armed",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
                 "action_taken": "none",
                 "block_reason": "edge_below_min",
                 "submitted": False,
@@ -749,8 +800,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.05,
                         "oracle_tick_age_sec": 0.2,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
                         "action_taken": "none",
                         "block_reason": "edge_below_min",
                         "submitted": False,
@@ -801,7 +852,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                 str(out1.get("block_reason_taxonomy_sha256")),
                 str(out2.get("block_reason_taxonomy_sha256")),
             )
-            self.assertEqual(str(out1.get("stage_policy_sha256")), str(out2.get("stage_policy_sha256")))
+            self.assertEqual(str(out1.get("phase_policy_sha256")), str(out2.get("phase_policy_sha256")))
             self.assertEqual(str(out1.get("audit_rule_set_sha256")), str(out2.get("audit_rule_set_sha256")))
             self.assertEqual(list(out1.get("findings", [])), list(out2.get("findings", [])))
 
@@ -824,8 +875,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.10,
                         "oracle_tick_age_sec": 0.2,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
                         "action_taken": "taker",
                         "block_reason": None,
                         "submitted": True,
@@ -885,8 +936,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.04,
                         "oracle_tick_age_sec": 0.2,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": False,
+                        "maker_phase_allowed": True,
+                        "taker_phase_allowed": False,
                         "action_taken": "none",
                         "block_reason": "maker_no_submission",
                         "submitted": False,
@@ -946,8 +997,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.10,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": False,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
                         "action_taken": "taker",
                         "block_reason": None,
                         "submitted": False,
@@ -1007,8 +1058,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.05,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": True,
+                        "maker_phase_allowed": True,
+                        "taker_phase_allowed": True,
                         "action_taken": "maker",
                         "block_reason": None,
                         "submitted": True,
@@ -1047,9 +1098,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
             )
             self.assertFalse(bool(out.get("ok")))
             findings = "\n".join(str(x) for x in out.get("findings", []))
-            self.assertIn("maker_allowed_stage_policy_mismatch", findings)
-            self.assertIn("taker_allowed_stage_policy_mismatch", findings)
-            self.assertIn("stage_action_mismatch", findings)
+            self.assertIn("taker_phase_allowed_mismatch", findings)
 
     def test_edge_truth_audit_allows_recovery_override_for_stage_policy_flags(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1070,18 +1119,20 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": 0.05,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": True,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
-                        "action_taken": "maker",
-                        "block_reason": None,
-                        "submitted": True,
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": False,
+                        "open_order_cleanup_required": True,
+                        "unresolved_lifecycle_obligation": True,
+                        "cancel_fail_closed": True,
+                        **_historical_recovery_lineage(),
+                        "action_taken": "none",
+                        "block_reason": "open_order_cleanup_required",
+                        "submitted": False,
                         "filled": False,
                         "result": None,
                         "evaluation_scope": "maker",
                         "cycle_index": 19,
-                        "order_id": "ord-recovery-override",
+                        "order_id": None,
                     }
                 ],
             )
@@ -1112,9 +1163,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
             )
             self.assertTrue(bool(out.get("ok")))
             findings = "\n".join(str(x) for x in out.get("findings", []))
-            self.assertNotIn("maker_allowed_stage_policy_mismatch", findings)
-            self.assertNotIn("taker_allowed_stage_policy_mismatch", findings)
-            self.assertNotIn("stage_action_mismatch", findings)
+            self.assertNotIn("maker_phase_allowed_mismatch", findings)
+            self.assertNotIn("taker_phase_allowed_mismatch", findings)
 
     def test_edge_truth_audit_allows_recovery_action_with_missing_fair_probability(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1135,16 +1185,17 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": None,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": True,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
-                        "action_taken": "maker",
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
+                        "settlement_hold_required": True,
+                        "unresolved_lifecycle_obligation": True,
+                        **_historical_recovery_lineage(),
+                        "action_taken": "taker",
                         "block_reason": None,
                         "submitted": True,
                         "filled": False,
                         "result": None,
-                        "evaluation_scope": "maker",
+                        "evaluation_scope": "taker",
                         "cycle_index": 20,
                         "order_id": "ord-recovery-missing-fair",
                     }
@@ -1198,10 +1249,11 @@ class EdgeTruthAuditTests(unittest.TestCase):
                         "edge_value": None,
                         "oracle_tick_age_sec": 0.1,
                         "latency_state": "armed",
-                        "maker_allowed": True,
-                        "taker_allowed": True,
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+                        "maker_phase_allowed": False,
+                        "taker_phase_allowed": True,
+                        "settlement_hold_required": True,
+                        "unresolved_lifecycle_obligation": True,
+                        **_historical_recovery_lineage(),
                         "action_taken": "taker",
                         "block_reason": None,
                         "submitted": True,
@@ -1242,7 +1294,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
             findings = "\n".join(str(x) for x in out.get("findings", []))
             self.assertNotIn("action_with_invalid_edge_inputs:market_probability_missing", findings)
 
-    def test_edge_truth_audit_allows_standdown_only_zero_rows(self) -> None:
+    def test_edge_truth_audit_allows_scan_only_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             run_id = "rid-standdown"
@@ -1253,7 +1305,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:01Z",
-                        "runtime_state": "no_target_standdown",
+                        "lifecycle_phase": "scan",
                         "target_count": 0,
                         "kill_switch": False,
                         "external_guard_active": False,
@@ -1261,7 +1313,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "no_target_standdown",
+                        "lifecycle_phase": "scan",
                         "target_count": 0,
                         "kill_switch": False,
                         "external_guard_active": False,

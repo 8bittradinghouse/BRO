@@ -66,7 +66,11 @@ def _resolve_secret(*, label: str, source: Dict[str, Any], legacy_env: str) -> T
     raise SecretLoadError(f"unsupported secret source mode for {label}: {mode}")
 
 
-def load_auth_secrets(auth_cfg: Dict[str, Any]) -> Tuple[str, str, Dict[str, str]]:
+def load_auth_secrets(
+    auth_cfg: Dict[str, Any],
+    *,
+    require_funder: bool = True,
+) -> Tuple[str, str, Dict[str, str]]:
     private_key_env = str(auth_cfg.get("private_key_env", "POLYMARKET_PRIVATE_KEY")).strip() or "POLYMARKET_PRIVATE_KEY"
     funder_env = str(auth_cfg.get("funder_env", "POLYMARKET_FUNDER")).strip() or "POLYMARKET_FUNDER"
 
@@ -83,9 +87,12 @@ def load_auth_secrets(auth_cfg: Dict[str, Any]) -> Tuple[str, str, Dict[str, str
         source=private_key_source,
         legacy_env=private_key_env,
     )
-    funder, funder_meta = _resolve_secret(
-        label="funder",
-        source=funder_source,
-        legacy_env=funder_env,
-    )
+    if require_funder:
+        funder, funder_meta = _resolve_secret(
+            label="funder",
+            source=funder_source,
+            legacy_env=funder_env,
+        )
+    else:
+        funder, funder_meta = "", "unused"
     return private_key, funder, {"private_key_source": private_meta, "funder_source": funder_meta}

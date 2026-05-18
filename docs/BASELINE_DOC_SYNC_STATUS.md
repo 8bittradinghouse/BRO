@@ -19,7 +19,7 @@ VERIFIED: A new baseline tag was created for doctrine audit compatibility:
 - Documentation truth sync plus one report-only accounting semantics clarification, one fair-map runtime proof update, one report-only maker sizing feasibility visibility update, one soak-budget maker-submit taxonomy update, and one report-only reduce-only recovery diagnostics update.
 - Trading runtime behavior changed only in the bounded fair-probability map scope patch: maker and taker fair maps are built separately.
 - `ops/soak_budget.yaml` changed validation/report policy only: maker-scope `fair_probability_missing` is now non-actionable for maker-submit enforcement.
-- `scripts/nightly_soak_report.py` now emits `reduce_only_recovery` diagnostics that classify flat/wrong-side size-cap rejects separately from non-flat/unknown recovery-cap cases.
+- `scripts/nightly_soak_report.py` now emits lifecycle-residue truth directly and fences `reduce_only_recovery*` labels as historical replay lineage when older artifacts are reread.
 - No wallet/risk/live semantics change.
 - No live readiness claim.
 

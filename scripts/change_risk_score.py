@@ -12,7 +12,6 @@ from typing import Any, Dict, Iterable, List
 
 CRITICAL_PATTERNS = (
     "executor.py",
-    "observer.py",
     "prodesk/*",
     "docker-compose.yml",
     "configs/*live*.yaml",

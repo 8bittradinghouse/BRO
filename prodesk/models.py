@@ -4,6 +4,28 @@ import dataclasses
 from typing import Any, Dict, Optional
 
 
+def normalize_book_source(source: Any) -> str:
+    return str(source or "").strip().lower()
+
+
+def book_source_is_ws(source: Any) -> bool:
+    normalized = normalize_book_source(source)
+    return normalized == "ws" or normalized.startswith("official_ws")
+
+
+def decision_input_type_from_book_source(source: Any) -> str:
+    normalized = normalize_book_source(source)
+    if book_source_is_ws(normalized) or normalized == "chainlink":
+        return "observed_live"
+    if normalized == "rest":
+        return "observed_other"
+    if normalized in {"paper", "simulated", "synthetic", "emulated"}:
+        return "emulated"
+    if normalized in {"replay", "replayed"}:
+        return "replayed"
+    return "unknown"
+
+
 @dataclasses.dataclass
 class BookTop:
     token_id: str

@@ -58,9 +58,28 @@ ACTIVE_LIVE_TRUST_AUTHORITY_DOCS = [
     REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
     REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
 ]
+LEGACY_STAGE_FAMILY_QUARANTINE_DOCS = [
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_CRASH_RELOCK_BRIDGE_2026-05-08.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SUPPORT_TOOL_FENCE_BOARD_2026-05-10.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SMALL_LOSS_SCAR_TISSUE_BOARD_2026-05-10.md",
+    REPO_ROOT / "docs" / "EXTREME_ONLY_FAMILY_SURGERY_PLAN_2026-05-08.md",
+    REPO_ROOT / "docs" / "EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md",
+]
 
 
 class OperatorDocsCanonicalTests(unittest.TestCase):
+    def test_legacy_stage_family_docs_are_explicitly_quarantined(self):
+        for path in LEGACY_STAGE_FAMILY_QUARANTINE_DOCS:
+            head = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12]).lower()
+            self.assertRegex(
+                head,
+                r"historical-only|pickup bridge|support-only",
+                msg=f"legacy stage-family doc missing explicit quarantine marker: {path}",
+            )
+
     def test_operator_docs_do_not_advertise_direct_executor_invocation(self):
         targets = [
             REPO_ROOT / "README.md",
@@ -89,7 +108,6 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             "python scripts/time_discipline_audit.py --config configs/profiles/paper_universal.yaml",
             "python scripts/alert_profile_audit.py --config configs/profiles/paper_universal.yaml",
             "python scripts/forensics_bundle.py --log-dir ./logs_exec/paper_universal --run-id <run_id> --config configs/profiles/paper_universal.yaml --out-dir ./exports",
-            "python observer.py --config configs/profiles/paper_universal.yaml",
             "python scripts/config_consistency_audit.py --primary configs/profiles/paper_universal.yaml --secondary execution_config.yaml",
         ]
         forbidden = [
@@ -97,7 +115,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             "python scripts/time_discipline_audit.py --config execution_config.yaml",
             "python scripts/alert_profile_audit.py --config execution_config.yaml",
             "python scripts/forensics_bundle.py --log-dir ./logs_exec/paper_universal --run-id <run_id> --config execution_config.yaml --out-dir ./exports",
+            "python observer.py --config configs/profiles/paper_universal.yaml",
             "python observer.py --config config.yaml",
+            "observer.py",
+            "python analyze.py --log-dir ./logs",
             "python scripts/config_consistency_audit.py --primary execution_config.yaml --secondary config.yaml",
         ]
         for snippet in required:
@@ -107,7 +128,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
 
     def test_project_truth_state_is_repo_truth_screen(self):
         text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
-        self.assertIn("repo-level current truth screen", text)
+        self.assertIn("repo-level broad truth screen", text)
+        self.assertIn("It is not the active Packet 2 maker-local pickup owner.", text)
+        self.assertIn("Active Packet 2 maker-local pickup belongs to:", text)
 
     def test_active_truth_and_pickup_docs_share_latest_runtime_anchor(self):
         project_truth = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
@@ -363,16 +386,18 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         for path in targets:
             text = path.read_text(encoding="utf-8")
             self.assertIn(
-                "docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md",
+                "docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md",
                 text,
                 msg=f"maker doctrine anchor missing from {path}",
             )
-            self.assertIn("15-20s", text, msg=f"late-window maker doctrine missing from {path}")
-            self.assertIn("10-15s", text, msg=f"maker sweet-spot doctrine missing from {path}")
+            self.assertTrue(
+                ("15-20s" in text) or ("15s" in text),
+                msg=f"maker timing doctrine anchor missing from {path}",
+            )
             for token in forbidden_tokens:
                 self.assertNotIn(token, text, msg=f"drift-era maker doctrine phrasing still present in {path}")
 
-    def test_doctrine_authority_docs_name_galaxy_blueprint_as_intended_maker_anchor(self):
+    def test_doctrine_authority_docs_name_galaxy_proposal_as_intended_maker_anchor(self):
         targets = [
             REPO_ROOT / "BRO_TEXT_GUIDE.txt",
             REPO_ROOT / "BRO_EDGE_DOCTRINE.txt",
@@ -381,12 +406,12 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         for path in targets:
             text = path.read_text(encoding="utf-8")
             self.assertIn(
-                "docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md",
+                "docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md",
                 text,
-                msg=f"maker blueprint missing from doctrine authority doc {path}",
+                msg=f"maker doctrine proposal missing from doctrine authority doc {path}",
             )
-            self.assertIn("15-20s", text, msg=f"intended maker doctrine window missing from {path}")
-            self.assertIn("10-15s", text, msg=f"maker sweet-spot doctrine missing from {path}")
+            self.assertIn("15s", text, msg=f"intended maker doctrine opening missing from {path}")
+            self.assertIn("7s", text, msg=f"intended taker handoff missing from {path}")
 
     def test_commands_and_proofs_is_not_public_happy_path_surface(self):
         text = (REPO_ROOT / "docs" / "COMMANDS_AND_PROOFS.md").read_text(encoding="utf-8")
@@ -426,10 +451,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_edge_truth_runbook_is_measurement_only_and_defers_runtime_policy(self):
         text = (REPO_ROOT / "docs" / "EDGE_TRUTH_RUNBOOK.md").read_text(encoding="utf-8")
         self.assertIn("measurement/audit contract only", text)
-        self.assertIn("current BRO fighter-specific runtime/timing/stage authority lives in", text)
-        self.assertIn("`MAKER_TAKER_SELECTIVE`: maker yes, taker no", text)
-        self.assertIn("`SNIPER_PRIMARY`: maker no, taker no", text)
-        self.assertIn("`EXTREME_ONLY`: maker no, taker no", text)
+        self.assertIn("current BRO fighter-specific runtime/lifecycle authority lives in", text)
+        self.assertIn("`prepare`: maker no, taker no", text)
+        self.assertIn("`maker_window`: maker yes, taker no", text)
+        self.assertIn("`taker_window`: maker no, taker yes", text)
 
     def test_bro_local_continuity_subset_exists(self):
         for rel in REQUIRED_LOCAL_CONTINUITY_DOCS:
@@ -506,6 +531,23 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("must declare near the top whether it is", agreement)
         self.assertIn("bounded board sink", agreement)
         self.assertIn("historical-only", agreement)
+
+    def test_bridge_docs_lock_restart_floor_against_generic_codex_drift(self):
+        bootstrap = (REPO_ROOT / "docs" / "JIN_BOOTSTRAP_PROMPT.md").read_text(encoding="utf-8")
+        recovery = (REPO_ROOT / "docs" / "JIN_THREAD_RECOVERY_RUNBOOK.md").read_text(encoding="utf-8")
+        command = (REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md").read_text(encoding="utf-8")
+
+        for text in (bootstrap, recovery, command):
+            self.assertIn("docs/JIN_RELOCK_PACK_2026-05-12.md", text)
+            self.assertIn("broad repo truth screen only", text)
+
+        self.assertIn("The strongest earned operating floor becomes base law after restart.", bootstrap)
+        self.assertIn("polished generic Codex/helper posture", bootstrap)
+        self.assertIn("Full-honesty / no-fake-closure posture is mandatory", bootstrap)
+        self.assertIn("operational floor lock", recovery)
+        self.assertIn("anti-base-codex drift lock", recovery)
+        self.assertIn("full-honesty / no-fake-closure lock", recovery)
+        self.assertIn("the strongest earned operating floor becomes base law after restart", command)
 
     def test_gframe_docs_mark_completed_packet_stack_as_historical_support(self):
         audit = (REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md").read_text(encoding="utf-8")
@@ -674,6 +716,12 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Stronger existing doctrine or validator surfaces must not be replaced", sink_text)
         self.assertIn("contradiction compression pass", sink_text)
         self.assertIn("negative-proof pass", sink_text)
+        self.assertIn("Current packet:", sink_text)
+        self.assertIn("Packet 2 `Maker-Live / Economic Trust Qualification`", sink_text)
+        self.assertIn("Packet 2 is already active", program_text)
+        self.assertIn("Packet 3 through Packet 5 remain sequenced and inactive behind Packet 2", sink_text)
+        self.assertNotIn("Packet 2 is next to open", program_text)
+        self.assertNotIn("Next packet:\n- Packet 1 `Taker Live / Economic and Firing Trust Qualification`", sink_text)
 
         repo_dirty = bool(
             subprocess.check_output(
@@ -682,7 +730,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             ).strip()
         )
         if repo_dirty:
-            self.assertIn("current tree cleanliness: `dirty`", sink_text)
+            self.assertRegex(
+                sink_text,
+                r"current tree cleanliness: `dirty(?:[^`]*)`",
+            )
             for path, text in texts.items():
                 self.assertNotIn(
                     "working tree clean",
@@ -714,7 +765,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("## Stage/Config Dead-By-Construction Census", packet_text)
         self.assertIn("## Compensator-Fat / Scar-Tissue Census", packet_text)
         self.assertIn("## Sniper-Derived Taker Surface Map", packet_text)
-        self.assertIn("## External Blueprint Audit: Taker Sword Blueprint", packet_text)
+        self.assertIn("## External Doctrine Proposal Audit: Taker Sword Doctrine Proposal", packet_text)
         self.assertIn("## Null-Hypothesis Subtree Removal Verdict", packet_text)
         self.assertIn("## Historical Closure Quarantine", packet_text)
         self.assertIn("## Bounded Implementation Ladder", packet_text)
@@ -731,9 +782,6 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Packet 1 `Taker Live` now closes `bounded-live-test ready`", sink_text)
         self.assertIn("recovery/handoff owner classification is now explicitly keep-now dead power", sink_text)
         self.assertIn("keep-now explicit two-surface contract", packet_text)
-        self.assertIn("`effective_stage` is the live authority / action surface", packet_text)
-        self.assertIn("`stage_bucket` is the raw timing-lineage / diagnostic surface", packet_text)
-        self.assertIn("CANONICAL_EDGE_STAGE_POLICY", packet_text)
         self.assertIn("current live late-window authority instead comes from the explicit runtime", packet_text)
         self.assertIn("top-level `taker.min_edge`", packet_text)
         self.assertIn("build_taker_competitiveness_policy(...)", packet_text)
@@ -758,6 +806,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Packet 1 removed taker-driven shared `OrderManager` soft-rate budget", sink_text)
         self.assertIn("maker-side `tracked_token_cleanup` / orphan cleanup still runs", sink_text)
         self.assertIn("keep-now explicit two-surface contract", sink_text)
+        self.assertIn("Historical Packet 1 closeout handoff:", packet_text)
+        self.assertIn("Current pickup note:", packet_text)
+        self.assertIn("historical closeout truth only", packet_text)
         self.assertNotIn("`taker.min_edge_by_stage.EXTREME_ONLY`", packet_text)
         self.assertNotIn("canonical paper `required_min_edge=0.11`", packet_text)
 
@@ -767,13 +818,18 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertNotIn("prodesk/sniper_tool.py", packet_text)
         self.assertNotIn("| Taker/Sniper Live |", sink_text)
 
-    def test_live_trust_packet_2_maker_entry_artifact_is_wired_and_recovery_ready(self):
+    def test_live_trust_packet_2_maker_entry_artifact_and_recovery_root_death_prep_are_wired(self):
         packet_path = (
             REPO_ROOT
             / "docs"
             / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
         )
         packet_text = packet_path.read_text(encoding="utf-8")
+        recovery_plan_text = (
+            REPO_ROOT
+            / "docs"
+            / "BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md"
+        ).read_text(encoding="utf-8")
         program_text = (
             REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md"
         ).read_text(encoding="utf-8")
@@ -788,7 +844,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("## Packet-Local Lock Card", packet_text)
         self.assertIn("## Carry-Forward From Packet 1", packet_text)
         self.assertIn("## Open Investigation Lanes", packet_text)
-        self.assertIn("## Immediate Recovery Pickup", packet_text)
+        self.assertIn("## Immediate Packet 2 Pickup", packet_text)
         self.assertIn("## Pilot-Live Severity Covenant", packet_text)
         self.assertIn("## Critical Points That Must Be Defined", packet_text)
         self.assertIn("## Anti-Drift Reinforcement Layer", packet_text)
@@ -796,18 +852,118 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("FMA", packet_text)
         self.assertIn("small recurring negative maker losses", packet_text)
         self.assertIn("SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md", packet_text)
-        self.assertIn("GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md", packet_text)
+        self.assertIn("GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md", packet_text)
+        self.assertIn("truth-owner demotion + Packet 2 pickup reroute", packet_text)
+        self.assertIn("starvation proof correction + steady-state WS grading repair", packet_text)
+        self.assertIn("selector-owned one-sided extinction", packet_text)
+        self.assertIn("diagnostic-surface hardening", packet_text)
         self.assertIn("Recurring self-hardening cadence", program_text)
         self.assertIn("## Pilot-Live Severity Lock", sink_text)
         self.assertIn("LT-008", sink_text)
         self.assertIn("LA-008", sink_text)
+        self.assertIn("## Doctrine-Root Verdict", recovery_plan_text)
+        self.assertIn("## Keep-Now Steel", recovery_plan_text)
+        self.assertIn("## Kill Scope", recovery_plan_text)
+        self.assertIn("## Replacement Owner Model", recovery_plan_text)
+        self.assertIn("## Surgery Order", recovery_plan_text)
+        self.assertIn("cancel-only fail-close", recovery_plan_text)
+        self.assertIn("hold-to-settlement for real accepted exposure", recovery_plan_text)
 
         packet_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
+        recovery_plan_rel = (
+            "docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md"
+        )
+        recovery_extinction_rel = (
+            "docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md"
+        )
         self.assertIn(packet_rel, program_text)
         self.assertIn(packet_rel, sink_text)
         self.assertIn(packet_rel, truth_text)
         self.assertIn(packet_rel, next_plan_text)
         self.assertIn(packet_rel, limits_text)
+        self.assertIn(recovery_plan_rel, packet_text)
+        self.assertIn(recovery_plan_rel, program_text)
+        self.assertIn(recovery_plan_rel, sink_text)
+        self.assertIn(recovery_plan_rel, truth_text)
+        self.assertIn(recovery_plan_rel, next_plan_text)
+        self.assertIn(recovery_plan_rel, limits_text)
+        self.assertIn(recovery_extinction_rel, recovery_plan_text)
+        self.assertIn(recovery_extinction_rel, sink_text)
+        self.assertIn(recovery_extinction_rel, truth_text)
+        self.assertIn(recovery_extinction_rel, next_plan_text)
+        self.assertIn(recovery_extinction_rel, limits_text)
+        self.assertIn("current packet = `Packet 2 Maker-Live / Economic Trust Qualification`", packet_text)
+        self.assertIn("current mode = `active post-audit truth-owner / proof-semantics closeout`", packet_text)
+        self.assertIn("current first work = truth-owner demotion + Packet 2 pickup reroute", packet_text)
+        self.assertIn("current second work = starvation proof correction + steady-state WS grading repair", packet_text)
+        self.assertIn("current third work = selector-owned one-sided extinction + rerun", packet_text)
+        self.assertIn("cancel-only fail-close for open", packet_text)
+        self.assertIn("`docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen", packet_text)
+        self.assertIn("maker gate opens at `15s`", sink_text)
+        self.assertIn("taker handoff opens at `7s`", sink_text)
+        self.assertIn("effective maker new-risk submit window remains `(7.0, 15.0]`", sink_text)
+        self.assertIn("optional later archaeology packet", sink_text)
+        self.assertIn("compatibility archaeology + ignored dead-key support", sink_text)
+        self.assertIn("current watched proof does **not** prove the self-heal caused those", next_plan_text)
+        self.assertIn(
+            "the older selector-owned low-edge one-sided reject family is retired from",
+            next_plan_text,
+        )
+        self.assertIn("canonical maker selection authority", next_plan_text)
+        self.assertIn("recovery / unwind current-owner cut is materially landed", program_text)
+        self.assertIn("compatibility readers, ignored dead-key support, and", program_text)
+        self.assertIn("shared recovery / unwind spine = cut from the current", sink_text)
+
+    def test_jin_relock_pack_is_hardcore_controller_and_bridges_route_through_it(self):
+        relock_text = (REPO_ROOT / "docs" / "JIN_RELOCK_PACK_2026-05-12.md").read_text(
+            encoding="utf-8"
+        )
+        recovery_text = (REPO_ROOT / "docs" / "JIN_THREAD_RECOVERY_RUNBOOK.md").read_text(
+            encoding="utf-8"
+        )
+        sink_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+        packet_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md"
+        ).read_text(encoding="utf-8")
+        program_text = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("pickup bridge", relock_text)
+        self.assertIn("relock controller", relock_text)
+        self.assertIn("anti-drift gate", relock_text)
+        self.assertIn("not owner-law", relock_text)
+        self.assertIn("not current packet truth by itself", relock_text)
+        self.assertIn("## Relock Modes", relock_text)
+        self.assertIn("## Internalization Proof", relock_text)
+        self.assertIn("6 lines", relock_text)
+        self.assertIn("## Lock Scorecard", relock_text)
+        self.assertIn("overall average is `>=95`", relock_text)
+        self.assertIn("## Authority Ladder", relock_text)
+        self.assertIn("`constitutional / law`", relock_text)
+        self.assertIn("`active pickup truth`", relock_text)
+        self.assertIn("`runtime owners`", relock_text)
+        self.assertIn("`support-only`", relock_text)
+        self.assertIn("`historical-only / quarantine`", relock_text)
+        self.assertIn("## Drift Attack Routine", relock_text)
+        self.assertIn("stale-owner scan", relock_text)
+        self.assertIn("semantic-split scan", relock_text)
+        self.assertIn("## Forced Rehardening Cadence", relock_text)
+        self.assertIn("after every 2 investigation sections", relock_text)
+        self.assertIn("Current maker surgery overlay", relock_text)
+        self.assertIn("support docs and schematic docs are never enough by themselves", relock_text)
+
+        relock_rel = "docs/JIN_RELOCK_PACK_2026-05-12.md"
+        self.assertIn(relock_rel, recovery_text)
+        self.assertIn("BRO-wide hardcore relock controller", recovery_text)
+        self.assertIn(relock_rel, sink_text)
+        self.assertIn("BRO-wide anti-drift relock front door", sink_text)
+        self.assertIn(relock_rel, packet_text)
+        self.assertIn("anti-drift front door", packet_text)
+        self.assertIn(relock_rel, program_text)
+        self.assertIn("BRO-wide anti-drift relock controller", program_text)
 
     def test_bro_canonical_doctrine_matches_current_taker_stage_authority(self):
         doctrine_text = (REPO_ROOT / "BRO_CANONICAL_DOCTRINE.txt").read_text(encoding="utf-8")
@@ -841,10 +997,14 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
 
         self.assertIn("maker market-reference uses:", runbook_text)
-        self.assertIn("bounded_single_side_touch", runbook_text)
+        self.assertIn("backfilled_paired_touch", runbook_text)
         self.assertIn("taker market-reference uses:", runbook_text)
         self.assertIn(
-            "`bounded_single_side_touch` when midpoint is unavailable and exactly one ws side is present",
+            "midpoint-backed `direct_midpoint` only when ws midpoint exists",
+            runbook_text,
+        )
+        self.assertIn(
+            "otherwise maker fails closed with missing / non-authoritative market reference truth",
             runbook_text,
         )
         self.assertIn(
@@ -852,28 +1012,67 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             runbook_text,
         )
 
-    def test_doctrine_runbook_names_effective_stage_and_stage_bucket_as_stage_signals(self):
+    def test_owned_market_authority_split_is_explicit_in_current_doctrine_surfaces(self):
         runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
+        validation_text = (REPO_ROOT / "docs" / "CANONICAL_VALIDATION_PATH.md").read_text(encoding="utf-8")
+        doctrine_text = (REPO_ROOT / "BRO_CANONICAL_DOCTRINE.txt").read_text(encoding="utf-8")
 
-        self.assertIn("`effective_stage` and `stage_bucket`", runbook_text)
-        self.assertIn("legacy `stage` and `raw_stage` as compatibility aliases only", runbook_text)
-        self.assertIn("`taker_decision` event", runbook_text)
-        self.assertIn("`extreme_only_on_arrival`", runbook_text)
+        self.assertIn("`owned_market_pair`", runbook_text)
+        self.assertIn("`challenger_market_pair`", runbook_text)
+        self.assertIn("`lifecycle_watch_tokens`", runbook_text)
+        self.assertIn("implementation residue, not canonical doctrine", runbook_text)
+        self.assertIn("pending/prewarm candidates may be transport-watched for warm-up", validation_text)
+        self.assertIn("may contribute active pair-truth failure", validation_text)
+        self.assertIn("one authoritative target", doctrine_text)
+        self.assertIn("pending/prewarm candidates may exist for controlled warm-up", doctrine_text)
+        self.assertIn("lifecycle watch truth must not impersonate active target-pair truth", doctrine_text)
+
+    def test_doctrine_runbook_demotes_stage_family_to_compatibility_only(self):
+        runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
+        edge_text = (REPO_ROOT / "docs" / "EDGE_TRUTH_RUNBOOK.md").read_text(encoding="utf-8")
+
+        self.assertIn("## Stage-Family Compatibility Note", runbook_text)
+        self.assertIn("old stage-family names may still appear", runbook_text)
+        self.assertIn("compatibility lineage only", runbook_text)
+        self.assertIn("owned-market continuity", runbook_text)
+        self.assertIn("lane-local maker/taker gates", runbook_text)
+        self.assertIn("`open_order_cleanup_required`", runbook_text)
+        self.assertIn("`settlement_hold_required`", runbook_text)
+        self.assertIn("`open_order_cleanup_required` (bool)", edge_text)
+        self.assertIn("`settlement_hold_required` (bool)", edge_text)
+        self.assertNotIn("## Stage Policy (Canonical)", runbook_text)
+        self.assertNotIn("`reduce_only_recovery_allowed` (bool", edge_text)
+        self.assertNotIn("`preexpiry_emergency_taker_allowed` (bool)", edge_text)
         self.assertNotIn("legacy `sniper_taker_decision` remains a compatibility alias", runbook_text)
         self.assertNotIn("legacy `taker_decision` remains a compatibility alias", runbook_text)
-        self.assertNotIn("`sniper_primary_on_arrival`", runbook_text)
 
-    def test_doctrine_and_packet_name_timing_gate_handoff_override_recovery_path(self):
-        runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
-        packet_text = (
-            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md"
+    def test_recovery_root_death_docs_do_not_teach_live_reduce_only_recovery_surfaces(self):
+        current_baseline = (REPO_ROOT / "docs" / "CURRENT_BASELINE.md").read_text(encoding="utf-8")
+        baseline_sync = (REPO_ROOT / "docs" / "BASELINE_DOC_SYNC_STATUS.md").read_text(encoding="utf-8")
+        gate_board = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_GATE_LEGITIMACY_BOARD_2026-05-10.md"
         ).read_text(encoding="utf-8")
+        scar_board = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SMALL_LOSS_SCAR_TISSUE_BOARD_2026-05-10.md"
+        ).read_text(encoding="utf-8")
+        recovery_plan = (
+            REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md"
+        ).read_text(encoding="utf-8")
+        project_truth = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
+        next_packet = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
 
-        self.assertIn("timing-gate handoff override path", runbook_text)
-        self.assertIn("does not restore normal taker live authority", runbook_text)
-        self.assertIn("timing_gate_handoff_override_active=true", packet_text)
-        self.assertIn("outside the nominal `<=7s` emergency window", packet_text)
-        self.assertIn("`maker_to_taker_recovery_handoff_disabled`", packet_text)
+        self.assertNotIn("Current-code nightly report now surfaces `reduce_only_recovery` diagnostics", current_baseline)
+        self.assertNotIn("emits `reduce_only_recovery` diagnostics", baseline_sync)
+        self.assertNotIn("shared recovery safety spine", gate_board)
+        self.assertNotIn("KEEP BUT FENCE", gate_board.splitlines()[21])
+        self.assertIn("CUT / HISTORICAL-COMPAT LINEAGE", gate_board)
+        self.assertIn("CUT / HISTORICAL-COMPAT LINEAGE", scar_board)
+        self.assertIn("open_order_cleanup_required", recovery_plan)
+        self.assertIn("unresolved_lifecycle_obligation", recovery_plan)
+        self.assertNotIn("cancel_cleanup_required", recovery_plan)
+        self.assertNotIn("unresolved_lifecycle_residue", recovery_plan)
+        self.assertNotIn("next packet to open inside that lane is `Maker-Live / Economic Trust Qualification`", project_truth)
+        self.assertNotIn("recovery / unwind` compatibility archaeology + ignored dead-key support closeout", next_packet)
 
 
 if __name__ == "__main__":

@@ -17,10 +17,24 @@ class ApiContractDriftAuditTests(unittest.TestCase):
                 "polymarket_trades": [
                     {"id": "t1", "asset_id": "tok1", "side": "BUY", "price": "0.46", "size": "2", "timestamp": 1735000000000}
                 ],
-                "chainlink_message": {
-                    "payload": {"symbol": "btc/usd", "value": "64000.1", "timestamp": "2026-01-01T00:00:00Z"}
+                "rtds_stream_tick_event": {
+                    "contract": "bro.rtds_stream.event.v1",
+                    "event": "tick",
+                    "symbol": "btc/usd",
+                    "price": 64000.1,
+                    "topic": "crypto_prices_chainlink",
+                    "source_ts_utc": "2026-01-01T00:00:00Z",
                 },
-                "book_feed_message": {"asset_id": "tok1", "bids": [[0.45, 10]], "asks": [[0.46, 9]]},
+                "market_stream_top_event": {
+                    "contract": "bro.market_stream.event.v1",
+                    "event": "top",
+                    "token_id": "tok1",
+                    "best_bid_price": 0.45,
+                    "best_bid_size": 10,
+                    "best_ask_price": 0.46,
+                    "best_ask_size": 9,
+                    "received_ts_utc": "2026-01-01T00:00:00Z",
+                },
             }
             path = root / "samples.json"
             path.write_text(json.dumps(sample), encoding="utf-8")
@@ -33,8 +47,22 @@ class ApiContractDriftAuditTests(unittest.TestCase):
             sample = {
                 "polymarket_orders": [{"id": "o1", "asset_id": "tok1", "side": "BUY", "price": "x", "size": "10"}],
                 "polymarket_trades": [{"id": "", "asset_id": "tok1", "side": "BUY", "price": "0.4", "size": "2"}],
-                "chainlink_message": {"payload": {"symbol": "", "value": "nan", "timestamp": ""}},
-                "book_feed_message": {"asset_id": "tok1", "bids": {}, "asks": []},
+                "rtds_stream_tick_event": {
+                    "contract": "",
+                    "event": "tick",
+                    "symbol": "",
+                    "price": "nan",
+                    "topic": "",
+                    "source_ts_utc": "",
+                },
+                "market_stream_top_event": {
+                    "contract": "bro.market_stream.event.v1",
+                    "event": "top",
+                    "token_id": "tok1",
+                    "best_bid_price": None,
+                    "best_ask_price": None,
+                    "best_bid_size": "oops",
+                },
             }
             path = root / "samples.json"
             path.write_text(json.dumps(sample), encoding="utf-8")
@@ -44,7 +72,8 @@ class ApiContractDriftAuditTests(unittest.TestCase):
         self.assertIn("api_contract_missing_field:polymarket_orders:status", text)
         self.assertIn("api_contract_type_mismatch:polymarket_orders:price:numeric", text)
         self.assertIn("api_contract_type_mismatch:polymarket_trades:timestamp:numeric", text)
-        self.assertIn("api_contract_type_mismatch:book_feed_message:bids:list", text)
+        self.assertIn("api_contract_missing_field:market_stream_top_event:best_bid_or_best_ask", text)
+        self.assertIn("api_contract_type_mismatch:market_stream_top_event:best_bid_size:numeric", text)
         self.assertIn("BRO-2301", result["error_codes"])
 
 

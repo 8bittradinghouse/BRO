@@ -31,7 +31,7 @@ Primary config surfaces:
 - this packet was written under a drift-era runtime posture where the active
   maker timing gate lived at `50-60s`.
 - intended maker timing doctrine remains anchored on:
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
   - doctrine window: `15-20s`
   - sweet spot: `10-15s`
 - the `50-60s` frame discussed below is preserved as runtime history for this

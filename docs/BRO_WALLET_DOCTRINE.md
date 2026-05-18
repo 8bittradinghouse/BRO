@@ -176,7 +176,8 @@ The core responsibilities of the wallet module
 Track:
 
 POL balance
-USDC.e balance
+pUSD balance
+with any `USDC.e` treated as pre-wrap or operator-funding ancestry only
 any stray assets
 balances by raw units and normalized decimals
 

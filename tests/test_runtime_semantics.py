@@ -5,83 +5,77 @@ from prodesk.runtime_semantics import (
     RUNTIME_CLASS_INVALID_SAFETY,
     RUNTIME_CLASS_NON_PROMOTABLE_NO_PARTICIPATION,
     RUNTIME_CLASS_VALID_ACTIVE,
-    RUNTIME_CLASS_VALID_STANDDOWN,
+    RUNTIME_CLASS_VALID_SCAN,
     classify_runtime,
     resolve_guard_connectivity_requirements,
 )
 
 
 class RuntimeSemanticsTests(unittest.TestCase):
-    def test_guard_requirements_disable_book_feed_for_no_target_standdown(self):
+    def test_guard_requirements_disable_market_truth_for_scan_phase(self):
         status_row = {
-            "runtime_state": "no_target_standdown",
+            "lifecycle_phase": "scan",
             "active_targets_present": False,
-            "no_target_standdown": True,
-            "book_feed_required": False,
+            "market_truth_required": False,
         }
         out = resolve_guard_connectivity_requirements(
             status_row=status_row,
             require_book_feed_connected_config=True,
         )
-        self.assertFalse(out["book_feed_required"])
+        self.assertFalse(out["market_truth_required"])
         self.assertFalse(out["active_targets_present"])
 
-    def test_guard_requirements_enable_book_feed_for_active_targets(self):
+    def test_guard_requirements_enable_market_truth_for_active_targets(self):
         status_row = {
-            "runtime_state": "active",
+            "lifecycle_phase": "prepare",
             "active_targets_present": True,
-            "no_target_standdown": False,
-            "book_feed_required": True,
+            "market_truth_required": True,
         }
         out = resolve_guard_connectivity_requirements(
             status_row=status_row,
             require_book_feed_connected_config=True,
         )
-        self.assertTrue(out["book_feed_required"])
+        self.assertTrue(out["market_truth_required"])
         self.assertTrue(out["active_targets_present"])
 
-    def test_classify_runtime_valid_standdown(self):
+    def test_classify_runtime_valid_scan(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
             },
             {
                 "ts_utc": "2099-01-01T00:05:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
             },
         ]
         out = classify_runtime(status_rows=status_rows, events=[])
-        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_STANDDOWN)
+        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_SCAN)
         self.assertFalse(out["promotion_eligible"])
 
-    def test_classify_runtime_non_promotable_long_standdown(self):
+    def test_classify_runtime_non_promotable_long_scan(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
             },
             {
                 "ts_utc": "2099-01-01T00:30:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
             },
@@ -96,10 +90,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
             status_rows.append(
                 {
                     "ts_utc": f"2099-01-01T00:0{idx}:00Z",
-                    "runtime_state": "no_target_standdown",
+                    "lifecycle_phase": "scan",
                     "active_targets_present": False,
-                    "no_target_standdown": True,
-                    "book_feed_required": False,
+                    "market_truth_required": False,
                     "kill_switch": True,
                     "external_guard_active": True,
                 }
@@ -112,10 +105,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": 45.0},
@@ -129,10 +121,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": None},
@@ -149,10 +140,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
             status_rows.append(
                 {
                     "ts_utc": f"2099-01-01T00:0{idx}:00Z",
-                    "runtime_state": "active",
+                    "lifecycle_phase": "prepare",
                     "active_targets_present": True,
-                    "no_target_standdown": False,
-                    "book_feed_required": True,
+                    "market_truth_required": True,
                     "kill_switch": False,
                     "external_guard_active": False,
                     "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": None},
@@ -166,20 +156,18 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": None},
             },
             {
                 "ts_utc": "2099-01-01T00:01:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.actions_last_cycle": 1,
@@ -187,20 +175,18 @@ class RuntimeSemanticsTests(unittest.TestCase):
             },
             {
                 "ts_utc": "2099-01-01T00:02:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": None},
             },
             {
                 "ts_utc": "2099-01-01T00:03:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.open_orders": 1,
@@ -208,10 +194,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
             },
             {
                 "ts_utc": "2099-01-01T00:04:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": None},
@@ -222,14 +207,13 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
         self.assertTrue(out["promotion_eligible"])
 
-    def test_classify_runtime_invalid_when_standdown_has_order_submission_attempts(self):
+    def test_classify_runtime_invalid_when_scan_has_order_submission_attempts(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.order_submission_attempts_last_cycle": 1,
@@ -239,31 +223,29 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
         self.assertFalse(out["promotion_eligible"])
 
-    def test_classify_runtime_invalid_when_standdown_has_order_submission_attempts_in_status_window(self):
+    def test_classify_runtime_invalid_when_scan_has_order_submission_attempts_in_status_window(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.order_submission_attempts_last_status_window": 2,
             }
         ]
         out = classify_runtime(status_rows=status_rows, events=[])
-        self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
+        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_SCAN)
         self.assertFalse(out["promotion_eligible"])
 
-    def test_classify_runtime_invalid_when_standdown_requires_book_feed(self):
+    def test_classify_runtime_invalid_when_scan_requires_market_truth(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": 45.0},
@@ -277,10 +259,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.open_orders": 1,
@@ -288,10 +269,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
             },
             {
                 "ts_utc": "2099-01-01T00:01:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.open_orders": 0,
@@ -308,10 +288,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.taker_actions_last_cycle": 1,
@@ -326,10 +305,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.taker_submitted_last_status_window": 3,
@@ -344,20 +322,18 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.2},
             },
             {
                 "ts_utc": "2099-01-01T00:01:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.3},
@@ -372,10 +348,9 @@ class RuntimeSemanticsTests(unittest.TestCase):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "no_target_standdown",
+                "lifecycle_phase": "scan",
                 "active_targets_present": False,
-                "no_target_standdown": True,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
                 "gauge.order_submission_attempts_last_cycle": 1,
@@ -383,18 +358,17 @@ class RuntimeSemanticsTests(unittest.TestCase):
         ]
         out = classify_runtime(status_rows=status_rows, events=[])
         self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
-        self.assertEqual(out.get("primary_suppression_cause"), "standdown_order_submission_violation")
+        self.assertEqual(out.get("primary_suppression_cause"), "scan_order_submission_violation")
         self.assertFalse(bool(out.get("ambiguous_suppression_cause", False)))
-        self.assertIn("standdown_order_submission_violation", out.get("suppression_cause_candidates", []))
+        self.assertIn("scan_order_submission_violation", out.get("suppression_cause_candidates", []))
 
     def test_classify_runtime_emits_ambiguous_suppression_cause_on_tied_precedence(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "book_feed_required": True,
+                "market_truth_required": True,
                 "kill_switch": True,
                 "external_guard_active": False,
                 "book_feed": {"enabled": True, "connected": False, "last_msg_age_sec": 45.0},
@@ -406,7 +380,7 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(str(out.get("primary_suppression_cause") or ""), "")
         contributing = set(out.get("contributing_suppression_causes", []))
         self.assertIn("safety_kill_switch_or_external_guard", contributing)
-        self.assertIn("safety_required_book_feed_disconnected", contributing)
+        self.assertIn("safety_required_market_truth_disconnected", contributing)
 
     def test_classify_runtime_status_rows_missing_emits_explicit_primary_cause(self):
         out = classify_runtime(status_rows=[], events=[])
@@ -420,8 +394,7 @@ class RuntimeSemanticsTests(unittest.TestCase):
                 "ts_utc": "2099-01-01T00:00:00Z",
                 "runtime_state": "active",
                 "active_targets_present": False,
-                "no_target_standdown": False,
-                "book_feed_required": False,
+                "market_truth_required": False,
                 "kill_switch": False,
                 "external_guard_active": False,
             }

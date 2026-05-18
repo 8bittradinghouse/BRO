@@ -13,7 +13,7 @@ This packet is analysis-first and does **not** change runtime behavior.
   maker timing gate lived at `50-60s`.
 - that posture is preserved here as specimen context only.
 - intended maker timing doctrine remains anchored on:
-  - `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
   - doctrine window: `15-20s`
   - sweet spot: `10-15s`
 

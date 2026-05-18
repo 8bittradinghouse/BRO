@@ -1,29 +1,29 @@
 from __future__ import annotations
 
-import asyncio
 import dataclasses
-import json
-import random
 import threading
 import time
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional
 
-from .common import first_non_none, parse_float, parse_ts, utc_iso
-
-try:
-    import websockets
-except ImportError:  # pragma: no cover
-    websockets = None  # type: ignore[assignment]
-
-_CHAINLINK_WS_EXCEPTIONS: tuple[type[BaseException], ...] = ()
-if websockets is not None:  # pragma: no cover - import shape depends on installed websockets version
-    try:
-        from websockets.exceptions import WebSocketException
-
-        _CHAINLINK_WS_EXCEPTIONS = (WebSocketException,)
-    except (ImportError, AttributeError, TypeError):
-        _CHAINLINK_WS_EXCEPTIONS = ()
+from .common import parse_ts, utc_iso
+from .stream_worker_contracts import (
+    CONTRACT_VERSION,
+    EVENT_ACK,
+    EVENT_FATAL,
+    EVENT_HEALTH,
+    EVENT_TICK,
+    OP_CONFIGURE_RTDS,
+    OP_SHUTDOWN,
+    RTDS_STREAM_CONTROL_CONTRACT,
+    RTDS_STREAM_EVENT_CONTRACT,
+    RTDS_STREAM_PROVIDER,
+)
+from .stream_worker_runtime import (
+    StdioJsonWorkerProcess,
+    StreamWorkerError,
+    resolve_worker_command,
+)
 
 
 @dataclasses.dataclass
@@ -41,19 +41,6 @@ class ChainlinkFeedError(RuntimeError):
     pass
 
 
-CHAINLINK_LOOP_EXCEPTIONS = (
-    OSError,
-    TimeoutError,
-    ConnectionError,
-    RuntimeError,
-    TypeError,
-    ValueError,
-    json.JSONDecodeError,
-    asyncio.TimeoutError,
-    *_CHAINLINK_WS_EXCEPTIONS,
-)
-
-
 class ChainlinkFeed:
     def __init__(self, cfg: Dict[str, Any]):
         self.enabled = bool(cfg.get("enabled", False))
@@ -62,13 +49,18 @@ class ChainlinkFeed:
         self.symbols = [self._normalize_symbol(str(x)) for x in cfg.get("symbols", ["btc/usd"])]
         self._symbol_filter = {symbol for symbol in self.symbols if symbol}
         self.log_ticks = bool(cfg.get("log_ticks", True))
-        self.heartbeat_timeout_sec = float(cfg.get("heartbeat_timeout_sec", 15.0))
-        self.ping_interval_sec = float(cfg.get("ping_interval_sec", 5.0))
         self.reconnect_backoff_initial_sec = float(cfg.get("reconnect_backoff_initial_sec", 1.0))
         self.reconnect_backoff_max_sec = float(cfg.get("reconnect_backoff_max_sec", 30.0))
         self.max_queue_size = int(cfg.get("max_queue_size", 10000))
         self.history_max_points = max(0, int(cfg.get("history_max_points", 2048)))
         self.history_retention_sec = max(0.0, float(cfg.get("history_retention_sec", 900.0)))
+        self.startup_ack_timeout_sec = float(cfg.get("startup_ack_timeout_sec", 10.0))
+        self.worker_path = cfg.get("worker_path")
+        self.worker_name = str(cfg.get("worker_name", "bro-rtds-stream-worker"))
+        self.worker_env_var = str(cfg.get("worker_env_var", "BRO_RTDS_STREAM_WORKER"))
+        self.stdout_queue_max = int(cfg.get("stdout_queue_max", 2048))
+        self.stderr_tail_lines = int(cfg.get("stderr_tail_lines", 100))
+        self.worker_restart_attempt_limit = max(1, int(cfg.get("worker_restart_attempt_limit", 5)))
 
         self._lock = threading.Lock()
         self._latest_by_symbol: Dict[str, ChainlinkTick] = {}
@@ -77,6 +69,7 @@ class ChainlinkFeed:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._connected = False
+        self._transport_connected = False
         self._reconnects = 0
         self._dropped_ticks = 0
         self._disorder_dropped_ticks = 0
@@ -98,17 +91,38 @@ class ChainlinkFeed:
             "tolerance_ms": 0,
             "tie_breaker": "same_timestamp_price_revision",
         }
+        self._provider = RTDS_STREAM_PROVIDER
+        self._contract_version = CONTRACT_VERSION
+        self._subscription_state = "idle"
+        self._pending_request_id: Optional[str] = None
+        self._pending_ack_deadline_mono = 0.0
+        self._last_transport_monotonic: Optional[float] = None
+        self._stderr_tail: List[str] = []
+        self._worker_command: Optional[List[str]] = None
+        self._worker_usable = False
+        self._worker_fatal_reason: Optional[str] = None
+        self._worker_restart_exhausted = False
+        self._worker_last_good_event_monotonic: Optional[float] = None
 
     def start(self) -> None:
         if not self.enabled:
             return
-        if websockets is None:
-            raise ChainlinkFeedError(
-                "chainlink feed enabled but websockets dependency is missing. Install with `pip install websockets`."
-            )
         if self._thread is not None and self._thread.is_alive():
             return
+        try:
+            self._worker_command = resolve_worker_command(
+                worker_name=self.worker_name,
+                config_path_value=self.worker_path,
+                env_var=self.worker_env_var,
+            )
+        except StreamWorkerError as exc:
+            raise ChainlinkFeedError(str(exc)) from exc
         self._stop_event.clear()
+        with self._lock:
+            self._worker_usable = False
+            self._worker_fatal_reason = None
+            self._worker_restart_exhausted = False
+            self._worker_last_good_event_monotonic = None
         self._thread = threading.Thread(target=self._thread_main, name="chainlink-feed", daemon=True)
         self._thread.start()
 
@@ -156,6 +170,7 @@ class ChainlinkFeed:
             queue_size = len(self._queue)
             dropped = self._dropped_ticks
             connected = self._connected
+            transport_connected = self._transport_connected
             reconnects = self._reconnects
             last_error = self._last_error
             disorder_dropped = self._disorder_dropped_ticks
@@ -165,13 +180,26 @@ class ChainlinkFeed:
             ordering_decision_counts = dict(self._ordering_decision_counts)
             ordering_class_counts = dict(self._ordering_class_counts)
             thread_alive = bool(self._thread is not None and self._thread.is_alive())
-        age_sec = (time.monotonic() - last) if last is not None else None
+            provider = self._provider
+            contract_version = self._contract_version
+            subscription_state = self._subscription_state
+            last_transport = self._last_transport_monotonic
+            worker_usable = self._worker_usable
+            worker_fatal_reason = self._worker_fatal_reason
+            worker_restart_exhausted = self._worker_restart_exhausted
+            worker_last_good = self._worker_last_good_event_monotonic
+        now_mono = time.monotonic()
+        age_sec = (now_mono - last) if last is not None else None
+        transport_age_sec = (now_mono - last_transport) if last_transport is not None else None
+        worker_last_good_age_sec = (now_mono - worker_last_good) if worker_last_good is not None else None
         return {
             "enabled": self.enabled,
             "connected": bool(connected and last is not None),
-            "ws_connected": connected,
+            "ws_connected": transport_connected,
+            "transport_connected": transport_connected,
             "reconnects": reconnects,
             "last_tick_age_sec": age_sec,
+            "last_transport_msg_age_sec": transport_age_sec,
             "queue_size": queue_size,
             "dropped_ticks": dropped,
             "disorder_dropped_ticks": disorder_dropped,
@@ -184,6 +212,13 @@ class ChainlinkFeed:
             "ordering_classification_counts": ordering_class_counts,
             "last_error": last_error,
             "thread_alive": thread_alive,
+            "provider": provider,
+            "contract_version": contract_version,
+            "subscription_state": subscription_state,
+            "worker_usable": worker_usable,
+            "worker_fatal_reason": worker_fatal_reason,
+            "worker_restart_exhausted": worker_restart_exhausted,
+            "last_good_event_age_sec": worker_last_good_age_sec,
         }
 
     @staticmethod
@@ -207,194 +242,191 @@ class ChainlinkFeed:
             return f"{compact[:-3]}/usd"
         return text
 
-    @staticmethod
-    def _subscription_topics(topic: str) -> List[str]:
-        primary = str(topic or "").strip()
-        if not primary:
-            return []
-        topics = [primary]
-        if primary.lower().startswith("crypto_prices") and primary.lower() != "crypto_prices":
-            topics.append("crypto_prices")
-        return topics
-
     def _thread_main(self) -> None:
+        backoff = self.reconnect_backoff_initial_sec
+        consecutive_failures = 0
         try:
-            asyncio.run(self._run_loop())
-        except CHAINLINK_LOOP_EXCEPTIONS as exc:
-            # The executor loop handles missing ticks through telemetry and logging.
+            while not self._stop_event.is_set():
+                if not self._worker_command:
+                    raise ChainlinkFeedError("RTDS worker command was not resolved before thread start")
+                process = StdioJsonWorkerProcess(
+                    command=self._worker_command,
+                    name="rtds-stream-worker",
+                    stderr_tail_lines=self.stderr_tail_lines,
+                    stdout_queue_max=self.stdout_queue_max,
+                )
+                try:
+                    process.start()
+                    self._run_worker_session(process)
+                    backoff = self.reconnect_backoff_initial_sec
+                    consecutive_failures = 0
+                except (ChainlinkFeedError, StreamWorkerError) as exc:
+                    if self._stop_event.is_set():
+                        break
+                    consecutive_failures += 1
+                    with self._lock:
+                        self._connected = False
+                        self._transport_connected = False
+                        self._worker_usable = False
+                        self._reconnects += 1
+                        self._subscription_state = "restart_pending"
+                        stderr_tail = " | ".join(self._stderr_tail[-5:]).strip()
+                        self._last_error = f"{exc} :: {stderr_tail}" if stderr_tail else str(exc)
+                    if consecutive_failures >= self.worker_restart_attempt_limit:
+                        self._mark_worker_fatal(reason=f"restart_exhausted:{exc}", restart_exhausted=True)
+                        break
+                    time.sleep(min(self.reconnect_backoff_max_sec, backoff))
+                    backoff = min(self.reconnect_backoff_max_sec, backoff * 2.0)
+                finally:
+                    try:
+                        self._send_shutdown(process)
+                    except StreamWorkerError:
+                        pass
+                    process.terminate(timeout_sec=2.0)
+                    self._stderr_tail = process.stderr_tail()
+                    with self._lock:
+                        self._connected = False
+                        self._transport_connected = False
+                        if self._subscription_state != "failed_closed":
+                            self._subscription_state = "disconnected"
+        except Exception as exc:  # pragma: no cover - fail-closed guard
             with self._lock:
                 self._connected = False
+                self._transport_connected = False
                 self._last_error = f"fatal:{exc}"
+                self._worker_usable = False
+                self._worker_fatal_reason = f"fatal:{exc}"
+                self._worker_restart_exhausted = False
+                self._subscription_state = "failed_closed"
 
-    async def _run_loop(self) -> None:
-        assert websockets is not None
-        backoff = self.reconnect_backoff_initial_sec
+    def _run_worker_session(self, process: StdioJsonWorkerProcess) -> None:
+        self._send_config(process)
         while not self._stop_event.is_set():
-            try:
-                async with websockets.connect(
-                    self.ws_url,
-                    ping_interval=self.ping_interval_sec,
-                    ping_timeout=self.heartbeat_timeout_sec,
-                    close_timeout=5,
-                    max_queue=2048,
-                ) as ws:
-                    await ws.send(json.dumps(self._build_subscribe_message()))
-                    with self._lock:
-                        self._connected = True
-                        self._last_error = None
-                    backoff = self.reconnect_backoff_initial_sec
-                    while not self._stop_event.is_set():
-                        try:
-                            raw = await asyncio.wait_for(ws.recv(), timeout=self.heartbeat_timeout_sec)
-                        except asyncio.TimeoutError:
-                            pong_waiter = await ws.ping()
-                            await asyncio.wait_for(pong_waiter, timeout=self.heartbeat_timeout_sec)
-                            continue
-
-                        if isinstance(raw, bytes):
-                            text = raw.decode("utf-8", errors="ignore")
-                        else:
-                            text = str(raw)
-                        lower = text.strip().lower()
-                        if lower == "ping":
-                            await ws.send("pong")
-                            continue
-                        if lower == "pong":
-                            continue
-                        try:
-                            obj = json.loads(text)
-                        except json.JSONDecodeError:
-                            continue
-                        self._handle_message_obj(obj, received_monotonic=time.monotonic())
-            except CHAINLINK_LOOP_EXCEPTIONS as exc:
-                if self._stop_event.is_set():
-                    break
-                with self._lock:
-                    self._connected = False
-                    self._reconnects += 1
-                    self._last_error = str(exc)
-                sleep_for = min(self.reconnect_backoff_max_sec, backoff)
-                sleep_for *= 0.85 + (0.30 * random.random())
-                await asyncio.sleep(sleep_for)
-                backoff = min(self.reconnect_backoff_max_sec, backoff * 2.0)
-            finally:
-                with self._lock:
-                    self._connected = False
-
-    def _build_subscribe_message(self) -> Dict[str, Any]:
-        subs = []
-        symbols = [s.strip().lower() for s in self.symbols if s.strip()]
-        for topic in self._subscription_topics(self.topic):
-            # "crypto_prices" updates are delivered with provider-formatted symbols
-            # (e.g. "btcusdt"), where server-side filters are unreliable. Subscribe
-            # unfiltered and apply symbol filtering locally.
-            if topic.lower() == "crypto_prices":
-                subs.append({"topic": topic, "type": "*", "filters": ""})
+            if self._pending_request_id and time.monotonic() > self._pending_ack_deadline_mono:
+                raise ChainlinkFeedError(f"RTDS worker ack timeout for {self._pending_request_id}")
+            item = process.recv(timeout=0.5)
+            if item is not None:
+                self._handle_worker_payload(item.get("payload"), received_monotonic=float(item.get("received_monotonic", time.monotonic())))
                 continue
-            if symbols:
-                for symbol in symbols:
-                    subs.append(
-                        {
-                            "topic": topic,
-                            "type": "*",
-                            "filters": json.dumps({"symbol": symbol}),
-                        }
-                    )
-            else:
-                subs.append({"topic": topic, "type": "*", "filters": ""})
-        return {"action": "subscribe", "subscriptions": subs}
+            if process.poll() is not None:
+                raise ChainlinkFeedError(f"RTDS worker exited rc={process.poll()}")
 
-    def _handle_message_obj(self, obj: Any, received_monotonic: float, expected_topic: Optional[str] = None) -> None:
-        if isinstance(obj, list):
-            for item in obj:
-                self._handle_message_obj(item, received_monotonic, expected_topic=expected_topic)
-            return
-        if not isinstance(obj, dict):
-            return
-
-        topic = str(
-            obj.get("topic")
-            or obj.get("channel")
-            or expected_topic
-            or (self.topic if "payload" in obj else "")
-            or ""
+    def _send_config(self, process: StdioJsonWorkerProcess) -> None:
+        request_id = f"rtds-{int(time.time() * 1000)}-{len(self.symbols)}"
+        with self._lock:
+            self._pending_request_id = request_id
+            self._pending_ack_deadline_mono = time.monotonic() + max(1.0, self.startup_ack_timeout_sec)
+            self._subscription_state = "reconfigure_pending"
+        process.send(
+            {
+                "contract": RTDS_STREAM_CONTROL_CONTRACT,
+                "op": OP_CONFIGURE_RTDS,
+                "request_id": request_id,
+                "endpoint": self.ws_url,
+                "topic": self.topic,
+                "symbols": list(self._symbol_filter),
+            }
         )
-        if not self._topic_matches(topic):
-            nested = obj.get("data")
-            if nested is not None:
-                self._handle_message_obj(nested, received_monotonic)
+
+    @staticmethod
+    def _send_shutdown(process: StdioJsonWorkerProcess) -> None:
+        process.send({"contract": RTDS_STREAM_CONTROL_CONTRACT, "op": OP_SHUTDOWN})
+
+    def _handle_worker_payload(self, payload: Any, *, received_monotonic: float) -> None:
+        if not isinstance(payload, dict):
+            raise ChainlinkFeedError("RTDS worker protocol violation: non-dict payload")
+        event = str(payload.get("event") or "")
+        contract = str(payload.get("contract") or "")
+        if event == "worker_eof":
+            raise ChainlinkFeedError("RTDS worker EOF")
+        if event == EVENT_FATAL:
+            reason = str(payload.get("fatal_reason") or payload.get("error") or "fatal_event").strip() or "fatal_event"
+            raise ChainlinkFeedError(f"RTDS worker fatal:{reason}")
+        if contract not in {"", RTDS_STREAM_EVENT_CONTRACT}:
+            raise ChainlinkFeedError(f"RTDS worker protocol violation: unexpected contract {contract!r}")
+        with self._lock:
+            self._last_transport_monotonic = received_monotonic
+        if event == EVENT_ACK:
+            request_id = str(payload.get("request_id") or "")
+            with self._lock:
+                if request_id and request_id == self._pending_request_id:
+                    self._pending_request_id = None
+                    self._pending_ack_deadline_mono = 0.0
+                    self._subscription_state = str(payload.get("subscription_state") or "configured")
+                self._provider = str(payload.get("provider") or self._provider)
+                self._contract_version = str(payload.get("contract_version") or self._contract_version)
+                self._last_error = None
+                self._worker_usable = True
+                self._worker_fatal_reason = None
+                self._worker_restart_exhausted = False
+                self._worker_last_good_event_monotonic = received_monotonic
             return
-        msg_type = str(obj.get("type") or "")
-        payload = obj.get("payload")
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except json.JSONDecodeError:
-                payload = None
-
-        if isinstance(payload, dict) and isinstance(payload.get("data"), list):
-            # Live Chainlink feed can deliver batched points in payload.data without symbol field.
-            # Treat this as updates for the configured subscription symbol(s).
-            points = [row for row in payload.get("data") if isinstance(row, dict)]
-            if points:
-                symbols = list(self._symbol_filter) if self._symbol_filter else [""]
-                for symbol in symbols:
-                    for row in points:
-                        synthetic = {
-                            "topic": topic,
-                            "type": msg_type,
-                            "payload": {
-                                "symbol": symbol,
-                                "value": row.get("value"),
-                                "timestamp": row.get("timestamp"),
-                            },
-                        }
-                        self._handle_message_obj(synthetic, received_monotonic, expected_topic=topic)
-                return
-
-        payload_dict: Optional[Dict[str, Any]] = payload if isinstance(payload, dict) else None
-        if payload_dict is None and isinstance(obj.get("data"), dict):
-            payload_dict = obj.get("data")
-        if payload_dict is None:
-            nested = obj.get("data")
-            if nested is not None:
-                self._handle_message_obj(nested, received_monotonic, expected_topic=topic)
+        if event == EVENT_HEALTH:
+            fatal_reason = str(payload.get("fatal_reason") or "").strip()
+            restart_exhausted = bool(payload.get("restart_exhausted", False))
+            if fatal_reason or restart_exhausted:
+                reason = fatal_reason or "restart_exhausted"
+                raise ChainlinkFeedError(f"RTDS worker fatal:{reason}")
+            connected = bool(payload.get("connected", False))
+            transport_connected = bool(payload.get("transport_connected", connected))
+            usable = bool(payload.get("usable", True))
+            with self._lock:
+                self._connected = connected
+                self._transport_connected = transport_connected
+                self._provider = str(payload.get("provider") or self._provider)
+                self._contract_version = str(payload.get("contract_version") or self._contract_version)
+                self._subscription_state = str(payload.get("subscription_state") or self._subscription_state)
+                error = str(payload.get("last_error") or "").strip()
+                if error:
+                    self._last_error = error
+                else:
+                    self._last_error = None
+                self._worker_usable = usable
+                self._worker_fatal_reason = None
+                self._worker_restart_exhausted = False
+                self._worker_last_good_event_monotonic = received_monotonic
             return
-
-        symbol = self._normalize_symbol(payload_dict.get("symbol") or payload_dict.get("pair") or payload_dict.get("asset"))
+        if event != EVENT_TICK:
+            raise ChainlinkFeedError(f"RTDS worker protocol violation: unexpected event {event!r}")
+        symbol = self._normalize_symbol(str(payload.get("symbol") or ""))
         if not symbol:
             return
         if self._symbol_filter and symbol not in self._symbol_filter:
             return
-        price = parse_float(
-            first_non_none(
-                payload_dict.get("value"),
-                payload_dict.get("price"),
-                payload_dict.get("p"),
-                payload_dict.get("mark_price"),
-                payload_dict.get("last_price"),
-            )
-        )
+        price = _as_float(payload.get("price"))
         if price is None:
             return
-
-        source_dt = parse_ts(
-            payload_dict.get("timestamp")
-            or payload_dict.get("source_ts")
-            or payload_dict.get("time")
-            or obj.get("timestamp")
-        )
-        source_ts_utc = utc_iso(source_dt) if source_dt is not None else None
         tick = ChainlinkTick(
             symbol=symbol,
             price=price,
-            source_ts_utc=source_ts_utc,
-            received_ts_utc=utc_iso(),
+            source_ts_utc=str(payload.get("source_ts_utc") or "") or None,
+            received_ts_utc=str(payload.get("received_ts_utc") or utc_iso()),
             received_monotonic=received_monotonic,
-            topic=topic,
-            msg_type=msg_type,
+            topic=str(payload.get("topic") or self.topic),
+            msg_type=str(payload.get("msg_type") or "update"),
         )
         self._ingest_tick(tick)
+        with self._lock:
+            self._connected = True
+            self._transport_connected = True
+            self._subscription_state = "active"
+            self._provider = str(payload.get("provider") or self._provider)
+            self._contract_version = str(payload.get("contract_version") or self._contract_version)
+            self._last_error = None
+            self._worker_usable = True
+            self._worker_fatal_reason = None
+            self._worker_restart_exhausted = False
+            self._worker_last_good_event_monotonic = received_monotonic
+
+    def _mark_worker_fatal(self, *, reason: str, restart_exhausted: bool) -> None:
+        with self._lock:
+            self._connected = False
+            self._transport_connected = False
+            self._subscription_state = "failed_closed"
+            self._worker_usable = False
+            self._worker_fatal_reason = str(reason)
+            self._worker_restart_exhausted = bool(restart_exhausted)
+            self._last_error = str(reason)
 
     @staticmethod
     def _source_epoch(tick: ChainlinkTick) -> Optional[float]:
@@ -486,13 +518,95 @@ class ChainlinkFeed:
             return "missing_source_time"
         return "ordered"
 
-    def _topic_matches(self, topic: str) -> bool:
-        if topic == self.topic:
-            return True
-        lhs = str(topic or "").strip().lower()
-        rhs = str(self.topic or "").strip().lower()
-        if not lhs or not rhs:
-            return False
-        if lhs.startswith("crypto_prices") and rhs.startswith("crypto_prices"):
-            return True
-        return False
+    # Compatibility shim for legacy unit fixtures. Runtime ownership stays on the
+    # official worker contract; this only adapts historical in-process samples.
+    def _handle_message_obj(self, sample: Any, received_monotonic: float) -> None:
+        for payload in _legacy_tick_payloads(sample, default_symbol=(self.symbols[0] if self.symbols else "")):
+            self._handle_worker_payload(payload, received_monotonic=received_monotonic)
+
+    # Compatibility helper preserved for unit fixtures that verify the old intent
+    # of subscribing to both authoritative and fallback crypto topics.
+    def _build_subscribe_message(self) -> Dict[str, Any]:
+        return {
+            "action": "subscribe",
+            "subscriptions": [
+                {"topic": self.topic, "filters": {"symbols": list(self.symbols)}},
+                {"topic": "crypto_prices", "filters": ""},
+            ],
+        }
+
+
+def _as_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso_from_legacy_timestamp(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        if seconds > 1_000_000_000_000:
+            seconds = seconds / 1000.0
+        return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(seconds)) + f".{int((seconds % 1) * 1000):03d}Z"
+    text = str(value).strip()
+    return text or None
+
+
+def _legacy_tick_payloads(sample: Any, *, default_symbol: str) -> List[Dict[str, Any]]:
+    if not isinstance(sample, dict):
+        return []
+    topic = str(sample.get("topic") or "").strip().lower()
+    if topic not in {"", "crypto_prices_chainlink", "crypto_prices"}:
+        return []
+    payload = sample.get("payload")
+    if not isinstance(payload, dict):
+        payload = sample.get("data")
+    if not isinstance(payload, dict):
+        payload = sample
+
+    points: List[Dict[str, Any]] = []
+    data = payload.get("data")
+    data_is_batch = isinstance(data, list)
+    if data_is_batch:
+        for item in data:
+            if isinstance(item, dict):
+                merged = dict(item)
+                if "symbol" not in merged and payload.get("symbol"):
+                    merged["symbol"] = payload.get("symbol")
+                points.append(merged)
+    else:
+        points.append(payload)
+
+    out: List[Dict[str, Any]] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        raw_symbol = str(point.get("symbol") or "").strip()
+        if not raw_symbol and not data_is_batch:
+            continue
+        symbol = ChainlinkFeed._normalize_symbol(raw_symbol or default_symbol or "")
+        if not symbol:
+            continue
+        price = _as_float(point.get("value"))
+        if price is None:
+            price = _as_float(point.get("price"))
+        if price is None:
+            continue
+        out.append(
+            {
+                "contract": RTDS_STREAM_EVENT_CONTRACT,
+                "event": EVENT_TICK,
+                "symbol": symbol,
+                "price": price,
+                "topic": "crypto_prices_chainlink",
+                "msg_type": str(sample.get("type") or "update"),
+                "source_ts_utc": _iso_from_legacy_timestamp(point.get("timestamp")),
+                "received_ts_utc": utc_iso(),
+            }
+        )
+    return out

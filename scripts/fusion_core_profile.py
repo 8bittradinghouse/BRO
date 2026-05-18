@@ -51,7 +51,7 @@ LANE_REGISTRY: dict[str, dict[str, Any]] = {
     "maker": {
         "display_name": "Solar Slug Maker Cannon",
         "max_depth_class": "full_depth",
-        "bounded_only": False,
+        "summary_only": False,
         "requires_deep_outcome_records_for_full_depth": True,
         "profile_families": [
             "outcome_balance",
@@ -68,7 +68,7 @@ LANE_REGISTRY: dict[str, dict[str, Any]] = {
     "taker": {
         "display_name": "Taker Katana",
         "max_depth_class": "bounded_depth",
-        "bounded_only": True,
+        "summary_only": True,
         "requires_deep_outcome_records_for_full_depth": False,
         "profile_families": [
             "window_conversion_overview",
@@ -506,7 +506,7 @@ def _build_lane_readiness(
     maker_deep_coverage_ratio = _safe_ratio(maker_deep_run_count, maker_support_rows)
     if maker_deep_run_count <= 0:
         maker_depth = "bounded_depth"
-        maker_reason_codes = ["maker_deep_outcome_records_missing_bounded_only"]
+        maker_reason_codes = ["maker_deep_outcome_records_missing_summary_only"]
         maker_promotion_blockers = ["deep_outcome_records_missing_for_full_depth"]
         maker_promotion_requirements = [
             {
@@ -561,13 +561,13 @@ def _build_lane_readiness(
         "source_row_count": taker_support_rows,
         "deep_outcome_run_count": 0,
         "supported_profile_families": LANE_REGISTRY["taker"]["profile_families"],
-        "reason_codes": ["taker_bounded_depth_only", "taker_summary_surfaces_present" if taker_support_rows > 0 else "taker_summary_surfaces_missing"],
-        "promotion_blockers": ["lane_registry_bounded_only", "deep_taker_truth_mapping_not_earned"],
+        "reason_codes": ["taker_limited_depth_only", "taker_summary_surfaces_present" if taker_support_rows > 0 else "taker_summary_surfaces_missing"],
+        "promotion_blockers": ["lane_registry_summary_only", "deep_taker_truth_mapping_not_earned"],
         "promotion_requirements": [
             {
                 "kind": "mapping_packet",
                 "metric": "taker_truth_mapping",
-                "current": "bounded_summary_only",
+                "current": "summary_only",
                 "required_state": "earned_deeper_truth_mapping",
             }
         ],
@@ -1446,7 +1446,12 @@ def _build_maker_profiles(
         valuation_bruise_state = str(valuation_bruise_state_raw).strip() if valuation_bruise_state_raw is not None else ""
         if valuation_bruise_state:
             valuation_bruise_state_counter[valuation_bruise_state] += 1
-        maker_reference_fallback_activity += float(_coerce_float(row_by_run.get(run_id, {}).get("maker_reference_bounded_fallback_activity")) or 0.0)
+        maker_reference_fallback_activity += float(
+            _coerce_float(
+                row_by_run.get(run_id, {}).get("maker_reference_missing_activity")
+            )
+            or 0.0
+        )
         for key, value in (valuation_truth.get("valuation_degraded_reason_family_counts_run") or {}).items():
             valuation_reason_family_counter[str(key)] += int(_coerce_float(value) or 0.0)
     if not valuation_bruise_state_counter:
@@ -1485,7 +1490,7 @@ def _build_maker_profiles(
                     "valuation_hard_degraded_ratio": _safe_ratio(valuation_hard_degraded_rows, valuation_status_rows),
                     "held_unpriceable_started_count": held_unpriceable_started_count,
                     "held_unpriceable_recovered_count": held_unpriceable_recovered_count,
-                    "maker_reference_bounded_fallback_activity": maker_reference_fallback_activity,
+                    "maker_reference_missing_activity": maker_reference_fallback_activity,
                     "valuation_degraded_reason_family_counts_run": _sorted_counter_dict(valuation_reason_family_counter),
                 },
                 heuristic_flags=[],

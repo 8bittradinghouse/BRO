@@ -99,6 +99,87 @@ class BroMetricHarvestTests(unittest.TestCase):
                 "selected_runs.txt",
             )
 
+    def test_harvest_reports_prefers_stronger_runtime_and_readiness_truth_over_stale_canonical_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            report_root = root / "reports"
+            report_root.mkdir()
+            out_dir = root / "out"
+            run_dir = report_root / "run-alpha"
+            run_dir.mkdir()
+
+            _write_json(
+                run_dir / "validation_summary.json",
+                {
+                    "run_id": "run-alpha",
+                    "overall_exit_code": 0,
+                    "ok": True,
+                    "validator_determinism_ok": True,
+                    "edge_truth_determinism_ok": True,
+                    "non_edge_determinism_ok": True,
+                },
+            )
+            _write_json(
+                run_dir / "canonical_paper_validation.json",
+                {
+                    "run_id": "run-alpha",
+                    "runtime_classification": "INVALID_DEADLOCK",
+                    "promotion_eligible": False,
+                    "highest_passing_stage": "none",
+                    "blocking_stage": "paper",
+                    "recommended_next_stage": "paper",
+                    "gate_passed": False,
+                },
+            )
+            _write_json(
+                run_dir / "nightly_soak_report.json",
+                {
+                    "artifact_identity": {"profile_name": "paper_universal"},
+                    "runtime_classification": {
+                        "classification": "VALID_ACTIVE",
+                        "promotion_eligible": True,
+                    },
+                    "duration_minutes": 20.0,
+                },
+            )
+            _write_json(
+                run_dir / "readiness_gate.json",
+                {
+                    "highest_passing_stage": "paper",
+                    "blocking_stage": "pilot_live",
+                    "recommended_next_stage": "pilot_live",
+                },
+            )
+            _write_json(
+                run_dir / "soak_hardening_gate.json",
+                {"ok": True, "readiness": {"highest_passing_stage": "paper", "blocking_stage": "pilot_live"}},
+            )
+            _write_json(
+                root / "run_contract_run-alpha.json",
+                {
+                    "run_id": "run-alpha",
+                    "start_ts": "2026-04-28T13:00:00Z",
+                    "stop_ts": "2026-04-28T13:40:00Z",
+                    "session_type": "paper_canonical",
+                    "log_root": str(root),
+                },
+            )
+
+            outputs = bro_metric_harvest.harvest_reports(report_root=report_root, out_dir=out_dir)
+            run_rows = [
+                json.loads(line)
+                for line in outputs["run_index_jsonl"].read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(run_rows), 1)
+            row = run_rows[0]
+            self.assertEqual(row["runtime_classification"], "VALID_ACTIVE")
+            self.assertEqual(row["runtime_classification_source"], "nightly_soak_report.json")
+            self.assertEqual(row["highest_passing_stage"], "paper")
+            self.assertEqual(row["blocking_stage"], "pilot_live")
+            self.assertEqual(row["recommended_next_stage"], "pilot_live")
+            self.assertTrue(bool(row["promotion_eligible"]))
+
     def test_harvest_reports_writes_engineer_first_outputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)
@@ -150,7 +231,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "active_targets_seen": 1.0,
                             "meaningful_participation": 1.0,
                             "decision_events": 50.0,
-                            "required_book_feed_disconnected_rows": 2.0,
+                            "required_market_truth_disconnected_rows": 2.0,
                         },
                     },
                     "duration_minutes": 12.0,
@@ -175,9 +256,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                     },
                     "edge_truth": {
                         "maker_reference_direct_midpoint_activity": 100.0,
-                        "maker_reference_bounded_fallback_activity": 6.0,
+                        "maker_reference_missing_activity": 6.0,
                         "maker_reference_direct_midpoint_action_activity": 8.0,
-                        "maker_reference_bounded_fallback_action_activity": 1.0,
+                        "maker_reference_missing_action_activity": 1.0,
                         "maker_no_submission_cause_distribution": {"replace_guard_min_rest": 7},
                         "maker_block_reason_distribution": {"maker_timing_gate_closed": 11},
                     },
@@ -294,14 +375,6 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "decision_predicted_reject_reason_distribution": {"size_too_small": 3},
                         "stage_final_risk_reject_reason_distribution": {"MAKER_TAKER_SELECTIVE": {"risk_reject_size_too_small": 2}},
                     },
-                    "reduce_only_recovery": {
-                        "edge_waiting_for_maker_exit_rows": 2.0,
-                        "local_size_cap_classification": "nonflat_or_unknown_present",
-                        "local_size_cap_nonflat_or_unknown_rows": 1.0,
-                        "local_size_cap_flat_or_wrong_side_rows": 4.0,
-                        "local_size_cap_unavailable_rows": 5.0,
-                        "local_reject_lane_distribution": {"maker": 4, "taker": 1},
-                    },
                     "wallet_authority": {
                         "authority_status_class": "authoritative",
                         "authoritative_wallet_contract_present": True,
@@ -347,18 +420,18 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "valuation_hard_degraded_enter_count": 1.0,
                         "valuation_hard_degraded_clear_count": 1.0,
                         "held_unpriceable_unrecovered_meaningful_count": 0.0,
-                        "held_unpriceable_unrecovered_dust_exempted_count": 1.0,
+                        "held_unpriceable_unrecovered_non_defect_count": 1.0,
                         "held_unpriceable_escalation_ratio": 0.25,
-                        "preexpiry_emergency_taker_attempt_count": 12.0,
-                        "preexpiry_emergency_taker_block_count": 8.0,
-                        "preexpiry_emergency_taker_fill_count": 4.0,
-                        "preexpiry_emergency_taker_block_reason_counts": {"risk_reject_size_too_small": 8},
+                        "settlement_hold_required_count": 12.0,
+                        "open_order_cleanup_required_count": 4.0,
+                        "unresolved_lifecycle_obligation_count": 8.0,
+                        "cancel_fail_closed_count": 4.0,
                     },
                     "market_data_source": {
-                        "book_updates_rest_ratio": 0.3,
                         "book_updates_ws_delta": 90.0,
-                        "book_updates_rest_delta": 30.0,
                         "book_updates_total_delta": 120.0,
+                        "pair_truth_missing_pair_row_ratio": 0.3,
+                        "pair_truth_one_sided_row_ratio": 0.1,
                     },
                     "stale_data": {"disarmed_edge_blocks": 9.0},
                     "secondary_oracle_pyth": {"connected_ratio_when_enabled": 1.0, "unavailable_sample_count": 0.0},
@@ -580,7 +653,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "active_targets_seen": 1.0,
                             "meaningful_participation": 0.0,
                             "decision_events": 5.0,
-                            "required_book_feed_disconnected_rows": 5.0,
+                            "required_market_truth_disconnected_rows": 5.0,
                         },
                     },
                     "duration_minutes": 5.0,
@@ -605,9 +678,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                     },
                     "edge_truth": {
                         "maker_reference_direct_midpoint_activity": 0.0,
-                        "maker_reference_bounded_fallback_activity": 0.0,
+                        "maker_reference_missing_activity": 0.0,
                         "maker_reference_direct_midpoint_action_activity": 0.0,
-                        "maker_reference_bounded_fallback_action_activity": 0.0,
+                        "maker_reference_missing_action_activity": 0.0,
                         "maker_no_submission_cause_distribution": {"no_desired_quote": 5},
                         "maker_block_reason_distribution": {"maker_timing_gate_closed": 30},
                     },
@@ -634,14 +707,6 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "fill_stage_distribution": {},
                         "decision_predicted_reject_reason_distribution": {"size_too_small": 10},
                         "stage_final_risk_reject_reason_distribution": {"EXTREME_ONLY": {"risk_reject_size_too_small": 10}},
-                    },
-                    "reduce_only_recovery": {
-                        "edge_waiting_for_maker_exit_rows": 0.0,
-                        "local_size_cap_classification": "flat_or_wrong_side_only",
-                        "local_size_cap_nonflat_or_unknown_rows": 0.0,
-                        "local_size_cap_flat_or_wrong_side_rows": 2.0,
-                        "local_size_cap_unavailable_rows": 2.0,
-                        "local_reject_lane_distribution": {"taker": 2},
                     },
                     "wallet_authority": {
                         "authority_status_class": "bootstrap_non_authoritative",
@@ -673,7 +738,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "valuation_hard_degraded_ratio": 0.5,
                         "valuation_bruise_state": "open_meaningful_unpriceable",
                         "valuation_dominant_reason_family_run": "hard_degraded",
-                        "valuation_dominant_held_unpriceable_cause_run": "preexpiry_fetch_failure",
+                        "valuation_dominant_held_unpriceable_cause_run": "preexpiry_ws_missing_or_unusable",
                         "valuation_dominant_source_degraded_rows": "hard_degraded",
                         "valuation_degraded_reason_family_counts_run": {
                             "hard_degraded": 1.0,
@@ -688,21 +753,21 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "valuation_hard_degraded_enter_count": 1.0,
                         "valuation_hard_degraded_clear_count": 0.0,
                         "held_unpriceable_unrecovered_meaningful_count": 1.0,
-                        "held_unpriceable_unrecovered_dust_exempted_count": 0.0,
+                        "held_unpriceable_unrecovered_non_defect_count": 0.0,
                         "held_unpriceable_escalation_ratio": 1.0,
                         "held_unpriceable_cause_counts_run": {
-                            "preexpiry_fetch_failure": 1.0,
+                            "preexpiry_ws_missing_or_unusable": 1.0,
                         },
-                        "preexpiry_emergency_taker_attempt_count": 3.0,
-                        "preexpiry_emergency_taker_block_count": 3.0,
-                        "preexpiry_emergency_taker_fill_count": 0.0,
-                        "preexpiry_emergency_taker_block_reason_counts": {"risk_reject_size_too_small": 3},
+                        "settlement_hold_required_count": 3.0,
+                        "open_order_cleanup_required_count": 3.0,
+                        "unresolved_lifecycle_obligation_count": 3.0,
+                        "cancel_fail_closed_count": 3.0,
                     },
                     "market_data_source": {
-                        "book_updates_rest_ratio": 0.8,
                         "book_updates_ws_delta": 5.0,
-                        "book_updates_rest_delta": 20.0,
                         "book_updates_total_delta": 25.0,
+                        "pair_truth_missing_pair_row_ratio": 0.8,
+                        "pair_truth_one_sided_row_ratio": 0.2,
                     },
                     "stale_data": {"disarmed_edge_blocks": 12.0},
                     "secondary_oracle_pyth": {"connected_ratio_when_enabled": 0.5, "unavailable_sample_count": 2.0},
@@ -745,7 +810,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "active_targets_seen": 1.0,
                             "meaningful_participation": 1.0,
                             "decision_events": 7.0,
-                            "required_book_feed_disconnected_rows": 0.0,
+                            "required_market_truth_disconnected_rows": 0.0,
                         },
                     },
                     "duration_minutes": 9.0,
@@ -767,9 +832,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "maker_competitiveness": {"timing_gate_blocked_count_decision": 0.0, "timing_gate_blocked_count_edge_eval": 0.0},
                     "edge_truth": {
                         "maker_reference_direct_midpoint_activity": 2.0,
-                        "maker_reference_bounded_fallback_activity": 2.0,
+                        "maker_reference_missing_activity": 2.0,
                         "maker_reference_direct_midpoint_action_activity": 1.0,
-                        "maker_reference_bounded_fallback_action_activity": 1.0,
+                        "maker_reference_missing_action_activity": 1.0,
                         "maker_no_submission_cause_distribution": {},
                         "maker_block_reason_distribution": {},
                     },
@@ -788,14 +853,6 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "fill_stage_distribution": {"SNIPER_PRIMARY": 1},
                         "decision_predicted_reject_reason_distribution": {},
                         "stage_final_risk_reject_reason_distribution": {},
-                    },
-                    "reduce_only_recovery": {
-                        "edge_waiting_for_maker_exit_rows": 0.0,
-                        "local_size_cap_classification": "flat_or_wrong_side_only",
-                        "local_size_cap_nonflat_or_unknown_rows": 0.0,
-                        "local_size_cap_flat_or_wrong_side_rows": 0.0,
-                        "local_size_cap_unavailable_rows": 0.0,
-                        "local_reject_lane_distribution": {},
                     },
                     "wallet_authority": {
                         "authority_status_class": "authoritative",
@@ -840,18 +897,18 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "valuation_hard_degraded_enter_count": 0.0,
                         "valuation_hard_degraded_clear_count": 0.0,
                         "held_unpriceable_unrecovered_meaningful_count": 0.0,
-                        "held_unpriceable_unrecovered_dust_exempted_count": 0.0,
+                        "held_unpriceable_unrecovered_non_defect_count": 0.0,
                         "held_unpriceable_escalation_ratio": 0.0,
-                        "preexpiry_emergency_taker_attempt_count": 0.0,
-                        "preexpiry_emergency_taker_block_count": 0.0,
-                        "preexpiry_emergency_taker_fill_count": 0.0,
-                        "preexpiry_emergency_taker_block_reason_counts": {},
+                        "settlement_hold_required_count": 0.0,
+                        "open_order_cleanup_required_count": 0.0,
+                        "unresolved_lifecycle_obligation_count": 0.0,
+                        "cancel_fail_closed_count": 0.0,
                     },
                     "market_data_source": {
-                        "book_updates_rest_ratio": 0.2,
                         "book_updates_ws_delta": 80.0,
-                        "book_updates_rest_delta": 20.0,
                         "book_updates_total_delta": 100.0,
+                        "pair_truth_missing_pair_row_ratio": 0.2,
+                        "pair_truth_one_sided_row_ratio": 0.0,
                     },
                     "stale_data": {"disarmed_edge_blocks": 0.0},
                     "secondary_oracle_pyth": {"connected_ratio_when_enabled": 1.0, "unavailable_sample_count": 0.0},
@@ -903,6 +960,8 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(alpha["validation_status_source"], "derived")
             self.assertEqual(alpha["valuation_bruise_state"], "recovered_clean")
             self.assertEqual(alpha["valuation_dominant_reason_family_run"], "degraded_using_last_known_mid")
+            self.assertEqual(alpha["settlement_hold_required_count"], 12.0)
+            self.assertEqual(alpha["open_order_cleanup_required_count"], 4.0)
             self.assertEqual(alpha["taker_final_window_decision_count"], 20)
             self.assertEqual(alpha["maker_quote_quality_skip_total_count"], 0.0)
             self.assertEqual(alpha["maker_sizing_reject_total_count"], 0.0)
@@ -937,7 +996,9 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(beta["validation_status"], "fail")
             self.assertEqual(beta["validation_policy_failed"], None)
             self.assertEqual(beta["valuation_bruise_state"], "open_meaningful_unpriceable")
-            self.assertEqual(beta["valuation_dominant_held_unpriceable_cause_run"], "preexpiry_fetch_failure")
+            self.assertEqual(beta["valuation_dominant_held_unpriceable_cause_run"], "preexpiry_ws_missing_or_unusable")
+            self.assertEqual(beta["unresolved_lifecycle_obligation_count"], 3.0)
+            self.assertEqual(beta["cancel_fail_closed_count"], 3.0)
             self.assertEqual(beta["maker_no_submit_total_count"], 5.0)
             self.assertEqual(beta["risk_reject_total_count"], 10.0)
             self.assertEqual(beta["maker_lifecycle_gap_class_distribution"]["partial_fill_incomplete"], 1.0)
@@ -950,7 +1011,7 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(gamma["taker_final_window_decision_ratio"], 0.5)
             self.assertEqual(gamma["market_data_ws_ratio"], 0.8)
             self.assertEqual(gamma["wallet_reserved_ratio"], 0.05)
-            self.assertEqual(gamma["maker_reference_fallback_ratio"], 0.5)
+            self.assertEqual(gamma["maker_reference_missing_ratio"], 0.5)
             self.assertEqual(gamma["outcome_truth_attribution_usability_ratio"], 1.0)
 
             catalog = json.loads((out_dir / "metric_catalog.json").read_text(encoding="utf-8"))
@@ -971,6 +1032,8 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(anomaly_summary["engineer_focus"]["maker_window_sizing_reject_count_total"], 1.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["maker_window_impossible_row_count_total"], 2.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["risk_reject_total_count"], 19.0)
+            self.assertEqual(anomaly_summary["engineer_focus"]["settlement_hold_required_count_total"], 15.0)
+            self.assertEqual(anomaly_summary["engineer_focus"]["cancel_fail_closed_count_total"], 7.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["valuation_bruise_open_run_count"], 1)
             self.assertIn("maker_truth_population_note", anomaly_summary)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_complete_record_count_total"], 5.0)
@@ -997,7 +1060,7 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(anomaly_summary["aggregates"]["valuation_bruise_state_counts"]["open_meaningful_unpriceable"], 1)
             self.assertEqual(anomaly_summary["aggregates"]["valuation_degraded_reason_family_counts"]["hard_degraded"], 1.0)
             self.assertEqual(
-                anomaly_summary["aggregates"]["valuation_held_unpriceable_cause_counts"]["preexpiry_fetch_failure"],
+                anomaly_summary["aggregates"]["valuation_held_unpriceable_cause_counts"]["preexpiry_ws_missing_or_unusable"],
                 1.0,
             )
             self.assertEqual(anomaly_summary["aggregates"]["taker_decision_window_counts"]["final_window"], 31)
@@ -1099,7 +1162,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "complete_joined_count_by_class": {"clean": 1, "borderline": 0, "trash": 1},
                     "complete_bad_ratio_by_class": {"clean": 0.0, "borderline": 0.0, "trash": 1.0},
                     "multifill_incorrect_ratio_by_class": {"clean": 0.0, "borderline": 0.0, "trash": 1.0},
-                    "dominant_driver_distribution": {"queue_delta_gt_50": 1, "queue_pressure": 1},
+                    "dominant_driver_distribution": {"queue_delta_gt_50": 1, "queue_delta_pressure": 1},
                     "top_trash_target_side_ref_counts": {"target-b|SELL": 1},
                     "top_clean_target_side_ref_counts": {"target-a|BUY": 1},
                     "cannon_window_class_distribution": {"10_to_15s": 1, "gt_20s": 1},
@@ -1150,9 +1213,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "external_blocked_latent_market_evaluable_count": 0,
                     "external_blocked_latent_market_full_cannon_candidate_count": 0,
                     "external_blocked_latent_market_reject_reason_distribution": {},
-                    "full_candidate_runtime_stage_disallow_count": 1,
+                    "full_candidate_runtime_phase_disallow_count": 1,
                     "reject_reason_distribution": {"secondary_oracle_direction_mismatch": 1},
-                    "stage_distribution": {"MAKER_TAKER_SELECTIVE": 2},
+                    "lifecycle_phase_distribution": {"prepare": 2},
                     "financial_posture_class_distribution": {"NORMAL": 2},
                     "cannon_window_class_distribution": {"10_to_15s": 1, "15_to_20s": 1},
                     "session_regime_class_distribution": {
@@ -1162,7 +1225,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "stack_pressure_class_distribution": {"below_soft_cap": 1, "within_hard_cap": 1},
                     "secondary_oracle_status_distribution": {"confirmed": 1, "direction_mismatch": 1},
                     "secondary_oracle_confirmation_distribution": {"confirmed": 1, "not_confirmed": 1},
-                    "maker_new_risk_allowed_distribution": {"allowed": 1, "disallowed": 1},
+                    "maker_phase_allowed_distribution": {"allowed": 1, "disallowed": 1},
                     "geometry_viable_counts": {"not_viable": 1, "viable": 1},
                     "cannon_depth_requirement_counts": {"met": 1, "not_met": 1},
                     "depth_multiple_vs_cannon_target_summary": {"min": 0.6, "mean": 1.3, "max": 2.0},
@@ -1187,9 +1250,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "external_blocked_latent_market_reject_reason_distribution": {
                         "insufficient_depth_multiple": 1
                     },
-                    "full_candidate_runtime_stage_disallow_count": 0,
+                    "full_candidate_runtime_phase_disallow_count": 0,
                     "reject_reason_distribution": {"insufficient_depth_multiple": 1},
-                    "stage_distribution": {"OBSERVE": 2},
+                    "lifecycle_phase_distribution": {"prepare": 2},
                     "market_reference_class_distribution": {"authoritative": 2},
                     "market_reference_mode_distribution": {"direct_midpoint": 2},
                     "market_reference_source_side_distribution": {"mid": 2},
@@ -1204,7 +1267,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                     "stack_pressure_class_distribution": {"below_soft_cap": 2},
                     "secondary_oracle_status_distribution": {"confirmed": 2},
                     "secondary_oracle_confirmation_distribution": {"confirmed": 2},
-                    "maker_new_risk_allowed_distribution": {"allowed": 2},
+                    "maker_phase_allowed_distribution": {"allowed": 2},
                     "probe_visible_depth_fail_closed_zero_distribution": {"reported_or_not_needed": 2},
                     "geometry_viable_counts": {"viable": 2},
                     "cannon_depth_requirement_counts": {"met": 1, "not_met": 1},
@@ -1225,7 +1288,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "decision_result": "submitted",
                         "outcome_truth_status": "complete",
                         "decision_quality": "correct",
-                        "dominant_driver": "queue_pressure",
+                        "dominant_driver": "queue_delta_pressure",
                         "maker_cannon_shadow_version": 1,
                         "cannon_window_class": "10_to_15s",
                         "maker_timing_band_class": "10_to_15s",
@@ -1272,7 +1335,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "stack_pressure_class": "below_soft_cap",
                         "secondary_oracle_status": "confirmed",
                         "secondary_oracle_confirmation": True,
-                        "maker_new_risk_allowed": False,
+                        "maker_phase_allowed": False,
                         "geometry_viable": True,
                         "cannon_depth_requirement_met": True,
                         "depth_multiple_vs_cannon_target": 2.0,
@@ -1299,7 +1362,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "stack_pressure_class": "within_hard_cap",
                         "secondary_oracle_status": "direction_mismatch",
                         "secondary_oracle_confirmation": False,
-                        "maker_new_risk_allowed": True,
+                        "maker_phase_allowed": True,
                         "geometry_viable": False,
                         "cannon_depth_requirement_met": False,
                         "depth_multiple_vs_cannon_target": 0.6,
@@ -1335,7 +1398,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "stack_pressure_class": "below_soft_cap",
                         "secondary_oracle_status": "confirmed",
                         "secondary_oracle_confirmation": True,
-                        "maker_new_risk_allowed": True,
+                        "maker_phase_allowed": True,
                         "probe_visible_depth_fail_closed_zero": "reported_or_not_needed",
                         "geometry_viable": True,
                         "cannon_depth_requirement_met": True,
@@ -1368,7 +1431,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "stack_pressure_class": "below_soft_cap",
                         "secondary_oracle_status": "confirmed",
                         "secondary_oracle_confirmation": True,
-                        "maker_new_risk_allowed": True,
+                        "maker_phase_allowed": True,
                         "probe_visible_depth_fail_closed_zero": "reported_or_not_needed",
                         "geometry_viable": True,
                         "cannon_depth_requirement_met": False,
@@ -1427,6 +1490,11 @@ class BroMetricHarvestTests(unittest.TestCase):
                 shadow_summary["complete_bad_ratio_by_timing_band"],
                 {"10_to_15s": 0.0, "20_to_30s": 1.0},
             )
+            self.assertEqual(
+                shadow_summary["dominant_driver_distribution"],
+                {"queue_delta_gt_50": 1, "queue_delta_pressure": 1},
+            )
+            self.assertNotIn("queue_pressure", shadow_summary["dominant_driver_distribution"])
             calibration_audit = json.loads(
                 outputs["maker_fight_admission_calibration_audit_json"].read_text(encoding="utf-8")
             )
@@ -1456,6 +1524,8 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(len(bundle_rows), 2)
             self.assertEqual(bundle_rows[0]["maker_cannon_shadow_version"], 1)
             self.assertEqual(bundle_rows[0]["maker_timing_band_class"], "10_to_15s")
+            self.assertEqual(bundle_rows[0]["dominant_driver"], "queue_delta_pressure")
+            self.assertNotEqual(bundle_rows[0]["dominant_driver"], "queue_pressure")
             cannon_probe_rows = [
                 json.loads(line)
                 for line in outputs["maker_cannon_late_window_probe_rows_jsonl"].read_text(encoding="utf-8").splitlines()

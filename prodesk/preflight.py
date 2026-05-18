@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 import requests
 
 from .common import utc_now
-from .gateway import _normalize_evm_address, _normalize_private_key
+from .gateway import _normalize_evm_address, _normalize_private_key, _normalize_wallet_mode
 from .market_discovery import MarketDiscovery
 from .market_data import RestBookClient
 from .http_session import build_hardened_session
@@ -17,6 +17,7 @@ from .paths import validate_runtime_write_paths
 from .secrets import SecretLoadError, load_auth_secrets
 from .security import run_security_checks
 from .state_store import load_state
+from .stream_worker_runtime import StreamWorkerError, resolve_worker_command
 from .time_sync import capture_host_time_sync_snapshot
 
 
@@ -64,13 +65,18 @@ def run_preflight_checks(
             findings.append("live_confirmation_missing")
 
         auth_cfg = cfg["auth"]
+        wallet_mode = _normalize_wallet_mode(auth_cfg.get("wallet_mode", "poly_proxy"))
+        requires_funder = wallet_mode != "eoa"
         pk_env = str(auth_cfg.get("private_key_env", "POLYMARKET_PRIVATE_KEY")).strip() or "POLYMARKET_PRIVATE_KEY"
         funder_env = str(auth_cfg.get("funder_env", "POLYMARKET_FUNDER")).strip() or "POLYMARKET_FUNDER"
         private_key_source = _auth_secret_source(auth_cfg, source_key="private_key_source", legacy_env=pk_env)
         funder_source = _auth_secret_source(auth_cfg, source_key="funder_source", legacy_env=funder_env)
 
         missing_env_names: List[str] = []
-        for source, legacy_env in ((private_key_source, pk_env), (funder_source, funder_env)):
+        source_pairs = [(private_key_source, pk_env)]
+        if requires_funder:
+            source_pairs.append((funder_source, funder_env))
+        for source, legacy_env in source_pairs:
             source_mode = str(source.get("mode", "env")).strip().lower() or "env"
             if source_mode != "env":
                 continue
@@ -82,7 +88,7 @@ def run_preflight_checks(
 
         if not missing_env_names:
             try:
-                private_key, funder, source_meta = load_auth_secrets(auth_cfg)
+                private_key, funder, source_meta = load_auth_secrets(auth_cfg, require_funder=requires_funder)
             except SecretLoadError as exc:
                 findings.append(f"secret_load_failed:{exc}")
             else:
@@ -91,11 +97,12 @@ def run_preflight_checks(
                 except ValueError as exc:
                     source = str(source_meta.get("private_key_source", "private_key"))
                     findings.append(f"invalid_private_key:{source}:{exc}")
-                try:
-                    _normalize_evm_address(funder)
-                except ValueError as exc:
-                    source = str(source_meta.get("funder_source", "funder"))
-                    findings.append(f"invalid_funder:{source}:{exc}")
+                if requires_funder:
+                    try:
+                        _normalize_evm_address(funder)
+                    except ValueError as exc:
+                        source = str(source_meta.get("funder_source", "funder"))
+                        findings.append(f"invalid_funder:{source}:{exc}")
 
         security_cfg = cfg.get("security", {})
         if bool(security_cfg.get("require_live_security_ack", True)):
@@ -118,15 +125,23 @@ def run_preflight_checks(
     chainlink_cfg = cfg.get("chainlink", {})
     if bool(chainlink_cfg.get("enabled", False)):
         try:
-            import websockets  # noqa: F401
-        except ImportError:
-            findings.append("chainlink_websockets_dependency_missing")
+            resolve_worker_command(
+                worker_name=str(chainlink_cfg.get("worker_name", "bro-rtds-stream-worker")),
+                config_path_value=chainlink_cfg.get("worker_path"),
+                env_var=str(chainlink_cfg.get("worker_env_var", "BRO_RTDS_STREAM_WORKER")),
+            )
+        except StreamWorkerError:
+            findings.append("chainlink_worker_missing")
     md_ws_cfg = cfg.get("market_data", {}).get("ws", {})
     if bool(md_ws_cfg.get("enabled", False)):
         try:
-            import websockets  # noqa: F401
-        except ImportError:
-            findings.append("market_data_ws_dependency_missing")
+            resolve_worker_command(
+                worker_name=str(md_ws_cfg.get("worker_name", "bro-market-stream-worker")),
+                config_path_value=md_ws_cfg.get("worker_path"),
+                env_var=str(md_ws_cfg.get("worker_env_var", "BRO_MARKET_STREAM_WORKER")),
+            )
+        except StreamWorkerError:
+            findings.append("market_data_worker_missing")
     metrics_cfg = cfg.get("metrics", {})
     if bool(metrics_cfg.get("enabled", False)):
         try:

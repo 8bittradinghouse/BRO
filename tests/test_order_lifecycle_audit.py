@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from prodesk.edge_truth_contract import legacy_stage_to_lifecycle_phase
 from prodesk.canonical_authority import CAPABILITY_VALIDATE_POSTRUN
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
 from prodesk.run_contract import build_run_contract, write_run_contract
@@ -26,8 +27,42 @@ class OrderLifecycleAuditTests(unittest.TestCase):
         return cfg_path
 
     def _write_rows(self, path: Path, rows: list[dict]) -> None:
+        normalized_rows: list[dict] = []
+        runtime_state_to_phase = {
+            "active": "prepare",
+            "prepare": "prepare",
+            "scan": "scan",
+            "safety_halt": "resolve",
+            "resolve": "resolve",
+            "maker_window": "maker_window",
+            "taker_window": "taker_window",
+        }
+        for raw_row in rows:
+            row = dict(raw_row)
+            event_type = str(row.get("event_type") or "").strip()
+            if event_type == "runtime_state_transition":
+                runtime_state = str(row.get("runtime_state") or "").strip().lower()
+                previous_runtime_state = str(row.get("previous_runtime_state") or "").strip().lower()
+                lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+                if not lifecycle_phase:
+                    lifecycle_phase = runtime_state_to_phase.get(runtime_state, runtime_state or "prepare")
+                    row["lifecycle_phase"] = lifecycle_phase
+                if "scan_phase" not in row:
+                    row["scan_phase"] = lifecycle_phase == "scan"
+                if runtime_state in runtime_state_to_phase:
+                    row["runtime_state"] = runtime_state_to_phase[runtime_state]
+                if previous_runtime_state in runtime_state_to_phase:
+                    row["previous_runtime_state"] = runtime_state_to_phase[previous_runtime_state]
+            elif event_type == "order_submit" and "lifecycle_phase" not in row:
+                stage_name = str(row.get("stage") or "").strip()
+                lifecycle_phase = legacy_stage_to_lifecycle_phase(stage_name)
+                if not lifecycle_phase:
+                    execution_preference = str(row.get("execution_preference") or "").strip().lower()
+                    lifecycle_phase = "taker_window" if execution_preference == "taker_only" else "maker_window"
+                row["lifecycle_phase"] = lifecycle_phase
+            normalized_rows.append(row)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n"
+        payload = "\n".join(json.dumps(row, sort_keys=True) for row in normalized_rows) + "\n"
         path.write_text(payload, encoding="utf-8")
 
     def _write_contract(self, *, root: Path, log_dir: Path, run_id: str, events_path: Path, status_path: Path) -> Path:
@@ -77,12 +112,12 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "no_target_standdown",
+                        "previous_runtime_state": "scan",
                         "runtime_state": "active",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": False,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": False,
+                        "market_truth_required": True,
                         "kill_switch": False,
                         "transition_reason_code": "targets_activated",
                         "transition_reason_detail": "details",
@@ -491,9 +526,9 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "ts_event_utc": "2026-03-22T00:00:00Z",
                         "runtime_state": "active",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": False,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": False,
+                        "market_truth_required": True,
                         "kill_switch": False,
                         "transition_reason_code": "targets_activated",
                         "transition_reason_detail": "details",
@@ -541,12 +576,12 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "no_target_standdown",
+                        "previous_runtime_state": "scan",
                         "runtime_state": "active",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": False,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": False,
+                        "market_truth_required": True,
                         "kill_switch": False,
                         "transition_reason_code": "targets_activated",
                         "transition_reason_detail": "details",
@@ -610,9 +645,9 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "previous_runtime_state": "active",
                         "runtime_state": "active",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": True,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": True,
+                        "market_truth_required": True,
                         "kill_switch": True,
                         "transition_reason_code": "kill_switch_engaged",
                         "transition_reason_detail": "details",
@@ -639,7 +674,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self.assertFalse(bool(payload.get("ok")))
             self.assertIn(
-                "runtime_state_transition:kill_switch_runtime_state_mismatch:active",
+                "runtime_state_transition:kill_switch_runtime_state_mismatch:prepare",
                 "\n".join(str(x) for x in payload.get("findings", [])),
             )
 
@@ -663,9 +698,9 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "previous_runtime_state": "active",
                         "runtime_state": "safety_halt",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": True,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": True,
+                        "market_truth_required": True,
                         "kill_switch": True,
                         "transition_reason_code": "kill_switch_engaged",
                         "transition_reason_detail": "details",
@@ -710,12 +745,12 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "no_target_standdown",
+                        "previous_runtime_state": "scan",
                         "runtime_state": "active",
                         "active_targets_present": True,
-                        "no_target_standdown": False,
-                        "previous_book_feed_required": False,
-                        "book_feed_required": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": False,
+                        "market_truth_required": True,
                         "kill_switch": False,
                         "transition_reason_code": "targets_activated",
                         "transition_reason_detail": "details",

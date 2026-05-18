@@ -66,13 +66,13 @@ def _validate_endpoint(
     section: str,
     enabled: bool,
     url: Any,
-    heartbeat_raw: Any,
-    ping_raw: Any,
+    startup_ack_raw: Any,
+    worker_name_raw: Any,
     findings: List[str],
     warnings: List[str],
-) -> Tuple[Optional[float], Optional[float]]:
+) -> Optional[float]:
     if not enabled:
-        return None, None
+        return None
 
     text_url = str(url or "").strip()
     if not text_url:
@@ -80,18 +80,16 @@ def _validate_endpoint(
     elif not text_url.lower().startswith("wss://"):
         findings.append(f"{section}:url_not_wss:{text_url}")
 
-    heartbeat = _safe_float(heartbeat_raw)
-    ping = _safe_float(ping_raw)
-    if heartbeat is None or heartbeat <= 0:
-        findings.append(f"{section}:heartbeat_timeout_invalid:{heartbeat_raw!r}")
-    if ping is None or ping <= 0:
-        findings.append(f"{section}:ping_interval_invalid:{ping_raw!r}")
-    if heartbeat is not None and ping is not None:
-        if ping >= heartbeat:
-            findings.append(f"{section}:ping_interval_ge_heartbeat:{ping}>={heartbeat}")
-        if ping > heartbeat * 0.8:
-            warnings.append(f"{section}:ping_interval_close_to_heartbeat:{ping}/{heartbeat}")
-    return heartbeat, ping
+    worker_name = str(worker_name_raw or "").strip()
+    if not worker_name:
+        findings.append(f"{section}:worker_name_missing")
+
+    startup_ack = _safe_float(startup_ack_raw)
+    if startup_ack is None or startup_ack <= 0:
+        findings.append(f"{section}:startup_ack_timeout_invalid:{startup_ack_raw!r}")
+    elif startup_ack > 60.0:
+        warnings.append(f"{section}:startup_ack_timeout_high:{startup_ack}")
+    return startup_ack
 
 
 def _parse_ts(value: Any) -> Optional[dt.datetime]:
@@ -189,12 +187,12 @@ def run_audit(
     md = cfg.get("market_data", {}) if isinstance(cfg.get("market_data"), dict) else {}
     ws = md.get("ws", {}) if isinstance(md.get("ws"), dict) else {}
     ws_enabled = bool(ws.get("enabled", False))
-    ws_heartbeat, ws_ping = _validate_endpoint(
+    ws_startup_ack = _validate_endpoint(
         section="market_data.ws",
         enabled=ws_enabled,
         url=ws.get("url"),
-        heartbeat_raw=ws.get("heartbeat_timeout_sec"),
-        ping_raw=ws.get("ping_interval_sec"),
+        startup_ack_raw=ws.get("startup_ack_timeout_sec"),
+        worker_name_raw=ws.get("worker_name"),
         findings=findings,
         warnings=warnings,
     )
@@ -209,17 +207,17 @@ def run_audit(
     if ws_enabled:
         if stale_after is None or stale_after <= 0:
             findings.append(f"market_data.ws:stale_after_invalid:{ws.get('stale_after_sec')!r}")
-        if stale_after is not None and ws_heartbeat is not None and stale_after >= ws_heartbeat:
-            findings.append(f"market_data.ws:stale_after_ge_heartbeat:{stale_after}>={ws_heartbeat}")
+        if stale_after is not None and ws_startup_ack is not None and stale_after >= ws_startup_ack:
+            warnings.append(f"market_data.ws:stale_after_ge_startup_ack:{stale_after}>={ws_startup_ack}")
 
     chain = cfg.get("chainlink", {}) if isinstance(cfg.get("chainlink"), dict) else {}
     chain_enabled = bool(chain.get("enabled", False))
-    _validate_endpoint(
+    chain_startup_ack = _validate_endpoint(
         section="chainlink",
         enabled=chain_enabled,
         url=chain.get("ws_url"),
-        heartbeat_raw=chain.get("heartbeat_timeout_sec"),
-        ping_raw=chain.get("ping_interval_sec"),
+        startup_ack_raw=chain.get("startup_ack_timeout_sec"),
+        worker_name_raw=chain.get("worker_name"),
         findings=findings,
         warnings=warnings,
     )
@@ -316,6 +314,12 @@ def run_audit(
             max_chain_dropped_ticks = 0.0
             book_thread_dead_rows = 0
             chainlink_thread_dead_rows = 0
+            book_worker_unusable_rows = 0
+            chainlink_worker_unusable_rows = 0
+            book_worker_restart_exhausted_rows = 0
+            chainlink_worker_restart_exhausted_rows = 0
+            book_worker_fatal_rows = 0
+            chainlink_worker_fatal_rows = 0
             ordering_policy_specs: Dict[str, int] = {}
             ordering_policy_missing_rows = 0
             ordering_policy_invalid_rows = 0
@@ -355,6 +359,18 @@ def run_audit(
                     book_thread_dead_rows += 1
                 if bool(chain_status.get("enabled", False)) and (not bool(chainlink_thread_alive)):
                     chainlink_thread_dead_rows += 1
+                if bool(book.get("enabled", False)) and not _as_bool(book.get("worker_usable"), default=True):
+                    book_worker_unusable_rows += 1
+                if bool(chain_status.get("enabled", False)) and not _as_bool(chain_status.get("worker_usable"), default=True):
+                    chainlink_worker_unusable_rows += 1
+                if _as_bool(book.get("worker_restart_exhausted"), default=False):
+                    book_worker_restart_exhausted_rows += 1
+                if _as_bool(chain_status.get("worker_restart_exhausted"), default=False):
+                    chainlink_worker_restart_exhausted_rows += 1
+                if str(book.get("worker_fatal_reason") or "").strip():
+                    book_worker_fatal_rows += 1
+                if str(chain_status.get("worker_fatal_reason") or "").strip():
+                    chainlink_worker_fatal_rows += 1
                 ordering_policy_raw = chain_status.get("ordering_policy")
                 if ordering_policy_raw is None:
                     ordering_policy_missing_rows += 1
@@ -408,6 +424,12 @@ def run_audit(
                     "chainlink_dropped_ticks_max": max_chain_dropped_ticks,
                     "book_feed_thread_dead_rows": int(book_thread_dead_rows),
                     "chainlink_thread_dead_rows": int(chainlink_thread_dead_rows),
+                    "book_feed_worker_unusable_rows": int(book_worker_unusable_rows),
+                    "chainlink_worker_unusable_rows": int(chainlink_worker_unusable_rows),
+                    "book_feed_worker_restart_exhausted_rows": int(book_worker_restart_exhausted_rows),
+                    "chainlink_worker_restart_exhausted_rows": int(chainlink_worker_restart_exhausted_rows),
+                    "book_feed_worker_fatal_rows": int(book_worker_fatal_rows),
+                    "chainlink_worker_fatal_rows": int(chainlink_worker_fatal_rows),
                     "ordering_policy_required_keys": list(ORDERING_POLICY_REQUIRED_KEYS),
                     "ordering_policy_observed_specs": [json.loads(text) for text in sorted(ordering_policy_specs.keys())],
                     "ordering_policy_missing_rows": int(ordering_policy_missing_rows),
@@ -426,10 +448,10 @@ def run_audit(
             max_chain_dropped_ticks_allowed = 0.0
             max_chain_queue_size_allowed = float(max(1000, int(chain.get("max_queue_size", 10000))))
             ws_stale_after_cfg = _safe_float(ws.get("stale_after_sec")) or 3.0
-            ws_heartbeat_cfg = _safe_float(ws.get("heartbeat_timeout_sec")) or 12.0
-            chain_heartbeat_cfg = _safe_float(chain.get("heartbeat_timeout_sec")) or 15.0
-            max_book_age_sec = max(2.0 * ws_stale_after_cfg, ws_heartbeat_cfg)
-            max_chain_age_sec = max(2.0 * chain_heartbeat_cfg, 15.0)
+            ws_startup_ack_cfg = _safe_float(ws.get("startup_ack_timeout_sec")) or 10.0
+            chain_startup_ack_cfg = _safe_float(chain.get("startup_ack_timeout_sec")) or 10.0
+            max_book_age_sec = max(2.0 * ws_stale_after_cfg, ws_startup_ack_cfg)
+            max_chain_age_sec = max(2.0 * chain_startup_ack_cfg, 15.0)
 
             if book_down_ratio > max_book_down_ratio:
                 findings.append(
@@ -471,6 +493,22 @@ def run_audit(
                 findings.append(f"websocket_evidence_book_feed_thread_dead_rows:{int(book_thread_dead_rows)}")
             if chainlink_thread_dead_rows > 0:
                 findings.append(f"websocket_evidence_chainlink_thread_dead_rows:{int(chainlink_thread_dead_rows)}")
+            if book_worker_unusable_rows > 0:
+                findings.append(f"websocket_evidence_book_feed_worker_unusable_rows:{int(book_worker_unusable_rows)}")
+            if chainlink_worker_unusable_rows > 0:
+                findings.append(f"websocket_evidence_chainlink_worker_unusable_rows:{int(chainlink_worker_unusable_rows)}")
+            if book_worker_restart_exhausted_rows > 0:
+                findings.append(
+                    f"websocket_evidence_book_feed_worker_restart_exhausted_rows:{int(book_worker_restart_exhausted_rows)}"
+                )
+            if chainlink_worker_restart_exhausted_rows > 0:
+                findings.append(
+                    f"websocket_evidence_chainlink_worker_restart_exhausted_rows:{int(chainlink_worker_restart_exhausted_rows)}"
+                )
+            if book_worker_fatal_rows > 0:
+                findings.append(f"websocket_evidence_book_feed_worker_fatal_rows:{int(book_worker_fatal_rows)}")
+            if chainlink_worker_fatal_rows > 0:
+                findings.append(f"websocket_evidence_chainlink_worker_fatal_rows:{int(chainlink_worker_fatal_rows)}")
             if ordering_policy_missing_rows > 0:
                 findings.append(
                     f"websocket_ordering_policy_missing_rows:{int(ordering_policy_missing_rows)}"

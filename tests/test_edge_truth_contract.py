@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 from prodesk.edge_truth_contract import (
@@ -8,15 +9,49 @@ from prodesk.edge_truth_contract import (
     EDGE_ACTION_TAKER,
     EDGE_EVAL_SCOPE_MAKER,
     EDGE_EVAL_SCOPE_TAKER,
+    EDGE_LIFECYCLE_PHASE_FIELD,
     EdgeInputSnapshot,
     compute_edge_value,
     is_canonical_block_reason,
-    stage_allows_action,
+    lifecycle_phase_from_payload,
+    lifecycle_phase_surface_fields,
+    market_truth_required_from_payload,
+    phase_allows_action,
     validate_edge_inputs,
 )
 
 
 class EdgeTruthContractTests(unittest.TestCase):
+    def test_legacy_stage_family_vocabulary_is_quarantined_to_contract_boundary(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        scan_targets = [
+            repo_root / "executor.py",
+            repo_root / "prodesk",
+            repo_root / "scripts",
+        ]
+        legacy_terms = (
+            "effective_stage",
+            "stage_bucket",
+            "raw_stage",
+            "maker_new_risk_allowed",
+            "normal_taker_allowed",
+            "late_window_authority_class",
+            "stage_disallow_",
+            "_token_stage_info",
+            "stage_transition",
+            "_taker_stage_window_token_ids",
+        )
+        allowed_path = repo_root / "prodesk" / "edge_truth_contract.py"
+        offenders: dict[str, list[str]] = {}
+        for target in scan_targets:
+            files = [target] if target.is_file() else list(target.rglob("*.py"))
+            for path in files:
+                text = path.read_text(encoding="utf-8")
+                hits = [term for term in legacy_terms if term in text]
+                if hits and path != allowed_path:
+                    offenders[str(path.relative_to(repo_root))] = hits
+        self.assertEqual(offenders, {})
+
     def test_validate_edge_inputs_passes_with_complete_snapshot(self) -> None:
         out = validate_edge_inputs(
             EdgeInputSnapshot(
@@ -25,7 +60,7 @@ class EdgeTruthContractTests(unittest.TestCase):
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=0.3,
                 latency_state="armed",
-                stage="MAKER_TAKER_SELECTIVE",
+                lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
             ),
             oracle_max_tick_age_sec=1.5,
@@ -42,7 +77,7 @@ class EdgeTruthContractTests(unittest.TestCase):
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=0.3,
                 latency_state="armed",
-                stage="MAKER_TAKER_SELECTIVE",
+                lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
             ),
             oracle_max_tick_age_sec=1.5,
@@ -59,7 +94,7 @@ class EdgeTruthContractTests(unittest.TestCase):
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=3.0,
                 latency_state="armed",
-                stage="MAKER_TAKER_SELECTIVE",
+                lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
             ),
             oracle_max_tick_age_sec=1.5,
@@ -76,7 +111,7 @@ class EdgeTruthContractTests(unittest.TestCase):
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=0.2,
                 latency_state=None,
-                stage="SNIPER_PRIMARY",
+                lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
             ),
             oracle_max_tick_age_sec=1.5,
@@ -85,14 +120,64 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertFalse(bool(out.valid))
         self.assertEqual(str(out.reason_code), "latency_state_missing")
 
-    def test_stage_allows_action_follows_canonical_policy(self) -> None:
-        self.assertTrue(stage_allows_action("MAKER_TAKER_SELECTIVE", EDGE_ACTION_MAKER))
-        self.assertFalse(stage_allows_action("MAKER_TAKER_SELECTIVE", EDGE_ACTION_TAKER))
-        self.assertTrue(stage_allows_action("OBSERVE", EDGE_ACTION_NONE))
-        self.assertFalse(stage_allows_action("OBSERVE", EDGE_ACTION_MAKER))
-        self.assertFalse(stage_allows_action("SNIPER_PRIMARY", EDGE_ACTION_MAKER))
-        self.assertFalse(stage_allows_action("SNIPER_PRIMARY", EDGE_ACTION_TAKER))
-        self.assertFalse(stage_allows_action("EXTREME_ONLY", EDGE_ACTION_TAKER))
+    def test_phase_allows_action_follows_canonical_policy(self) -> None:
+        self.assertTrue(phase_allows_action("maker_window", EDGE_ACTION_MAKER))
+        self.assertFalse(phase_allows_action("maker_window", EDGE_ACTION_TAKER))
+        self.assertTrue(phase_allows_action("scan", EDGE_ACTION_NONE))
+        self.assertFalse(phase_allows_action("scan", EDGE_ACTION_MAKER))
+        self.assertFalse(phase_allows_action("prepare", EDGE_ACTION_MAKER))
+        self.assertFalse(phase_allows_action("prepare", EDGE_ACTION_TAKER))
+        self.assertFalse(phase_allows_action("resolve", EDGE_ACTION_TAKER))
+
+    def test_lifecycle_phase_surface_fields_emit_canonical_field(self) -> None:
+        payload = lifecycle_phase_surface_fields(lifecycle_phase="maker_window")
+        self.assertEqual(payload[EDGE_LIFECYCLE_PHASE_FIELD], "maker_window")
+
+    def test_lifecycle_phase_from_payload_upgrades_extreme_only_authority_rows(self) -> None:
+        self.assertEqual(
+            lifecycle_phase_from_payload(
+                {
+                    "lineage_stage": "EXTREME_ONLY",
+                    "time_remaining_sec": 12.0,
+                }
+            ),
+            "maker_window",
+        )
+        self.assertEqual(
+            lifecycle_phase_from_payload(
+                {
+                    "lineage_stage": "EXTREME_ONLY",
+                    "time_remaining_sec": 6.0,
+                }
+            ),
+            "taker_window",
+        )
+
+    def test_lifecycle_phase_from_payload_ignores_retired_authority_aliases(self) -> None:
+        self.assertEqual(
+            lifecycle_phase_from_payload(
+                {
+                    "lineage_stage": "EXTREME_ONLY",
+                    "maker_new_risk_allowed": True,
+                    "normal_taker_allowed": False,
+                    "late_window_authority_class": "maker_new_risk_only",
+                }
+            ),
+            "prepare",
+        )
+
+    def test_market_truth_required_from_payload_prefers_canonical_field(self) -> None:
+        self.assertTrue(
+            market_truth_required_from_payload(
+                {
+                    "market_truth_required": True,
+                    "book_feed_required": False,
+                }
+            )
+        )
+
+    def test_market_truth_required_from_payload_ignores_legacy_book_feed_alias(self) -> None:
+        self.assertFalse(market_truth_required_from_payload({"book_feed_required": True}))
 
     def test_compute_edge_value_returns_none_when_missing_inputs(self) -> None:
         self.assertIsNone(compute_edge_value(fair_probability=None, market_probability=0.5))
@@ -109,6 +194,7 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("maker_requires_ws_book_source"))
         self.assertTrue(is_canonical_block_reason("taker_requires_ws_book_source"))
         self.assertTrue(is_canonical_block_reason("taker_outside_final_window"))
+        self.assertTrue(is_canonical_block_reason("taker_window_already_submitted"))
         self.assertTrue(is_canonical_block_reason("taker_hard_min_notional_unachievable"))
         self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
         self.assertTrue(is_canonical_block_reason("taker_visible_fill_ratio_below_min"))
@@ -117,13 +203,12 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("complement_token_mapping_unavailable"))
         self.assertTrue(is_canonical_block_reason("complement_token_fair_probability_unavailable"))
         self.assertTrue(is_canonical_block_reason("complement_token_price_unavailable"))
-        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_size_cap_below_min_order_size"))
-        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_no_reducing_side"))
-        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_waiting_for_maker_exit"))
-        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_size_cap_unavailable"))
-        self.assertTrue(is_canonical_block_reason("reduce_only_recovery_touch_price_unavailable"))
-        self.assertTrue(is_canonical_block_reason("maker_to_taker_recovery_handoff_disabled"))
-        self.assertTrue(is_canonical_block_reason("taker_recovery_disabled_in_taker_scope"))
+        self.assertTrue(is_canonical_block_reason("open_order_cleanup_required"))
+        self.assertTrue(is_canonical_block_reason("settlement_hold_required"))
+        self.assertTrue(is_canonical_block_reason("phase_disallow_maker"))
+        self.assertTrue(is_canonical_block_reason("phase_disallow_taker"))
+        self.assertTrue(is_canonical_block_reason("stage_disallow_maker"))
+        self.assertTrue(is_canonical_block_reason("stage_disallow_taker"))
         self.assertFalse(is_canonical_block_reason("unspecified_no_action"))
         self.assertFalse(is_canonical_block_reason("some_random_reason"))
 

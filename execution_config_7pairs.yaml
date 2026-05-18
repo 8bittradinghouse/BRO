@@ -33,11 +33,13 @@ market_data:
   max_retries: 2
   ws:
     enabled: true
-    url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-    channel: "market"
+    url: "wss://ws-subscriptions-clob.polymarket.com"
     stale_after_sec: 3
-    heartbeat_timeout_sec: 12
-    ping_interval_sec: 5
+    startup_ack_timeout_sec: 10
+    worker_restart_attempt_limit: 5
+    worker_name: "bro-market-stream-worker"
+    worker_path: ""
+    worker_env_var: "BRO_MARKET_STREAM_WORKER"
     reconnect_backoff_initial_sec: 1
     reconnect_backoff_max_sec: 20
 
@@ -48,8 +50,11 @@ chainlink:
   symbols: ["btc/usd"]
   symbol_for_targets: "btc/usd"
   log_ticks: true
-  heartbeat_timeout_sec: 15
-  ping_interval_sec: 5
+  startup_ack_timeout_sec: 10
+  worker_restart_attempt_limit: 5
+  worker_name: "bro-rtds-stream-worker"
+  worker_path: ""
+  worker_env_var: "BRO_RTDS_STREAM_WORKER"
   reconnect_backoff_initial_sec: 1
   reconnect_backoff_max_sec: 30
   mid_move_min_delta: 0.001
@@ -151,7 +156,15 @@ security:
 auth:
   host: "https://clob.polymarket.com"
   chain_id: 137
+  wallet_mode: "poly_proxy"
   signature_type: 1
   private_key_env: "POLYMARKET_PRIVATE_KEY"
   funder_env: "POLYMARKET_FUNDER"
   enforce_post_only: true
+  heartbeat_enabled: true
+  heartbeat_interval_sec: 5.0
+  heartbeat_retry_sec: 2.0
+  matching_engine_retry_attempts: 3
+  matching_engine_retry_initial_sec: 0.5
+  matching_engine_retry_max_sec: 4.0
+  relayer_url: ""

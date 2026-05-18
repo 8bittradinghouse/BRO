@@ -10,11 +10,12 @@ Hard rule:
 
 Authority boundary:
 - this file defines the edge-evaluation measurement/audit contract only
-- it does not define fighter-specific runtime timing or weapon policy
-- current BRO fighter-specific runtime/timing/stage authority lives in
+- it does not define fighter-specific runtime lifecycle or weapon policy
+- current BRO fighter-specific runtime/lifecycle authority lives in
   `docs/DOCTRINE_RUNBOOK.md`
-- the exact stage-eligibility contract below must match
-  `prodesk.edge_truth_contract.CANONICAL_EDGE_STAGE_POLICY`
+- active edge truth must follow the lifecycle-owned contract in
+  `prodesk.edge_truth_contract`; legacy stage aliases may exist only as bounded
+  compatibility readouts during migration
 
 Outcome-truth boundary:
 - Outcome interpretation is governed separately by `BRO_OUTCOME_TRUTH_DOCTRINE.txt`.
@@ -23,8 +24,9 @@ Outcome-truth boundary:
 
 Semantic contract alignment:
 - `BRO_CANONICAL_DOCTRINE.txt` is the semantic root for emitted edge field names.
-- `maker_allowed` and `taker_allowed` are emitted lane-action booleans for the row.
-- `maker_new_risk_allowed`, `normal_taker_allowed`, `reduce_only_recovery_allowed`, and `preexpiry_emergency_taker_allowed` carry the Packet 1 late-window authority contract.
+- `maker_phase_allowed` and `taker_phase_allowed` are lifecycle-phase permission facts for the row.
+- `maker_gate_open` and `taker_gate_open` carry the lane-gate verdict beneath lifecycle phase.
+- `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, and `cancel_fail_closed` are explicit lifecycle residue truth only; they must not backfill retired lane-permission aliases.
 - `action_taken` is the emitted action choice for the row.
 - `block_reason` is the emitted local stop reason for the row; later surfaces may
   map it into blocker lanes but may not rewrite its owner.
@@ -50,7 +52,7 @@ Required fields:
 - `run_id`
 - `token_id`
 - `timestamp_utc`
-- `stage`
+- `lifecycle_phase`
 - `time_remaining_sec`
 - `fair_probability`
 - `market_probability`
@@ -66,20 +68,21 @@ Required fields:
 - `secondary_oracle_status`
 - `secondary_oracle_confirmation`
 - `financial_posture_class`
-- `maker_allowed` (bool)
-- `taker_allowed` (bool)
-- `maker_new_risk_allowed` (bool)
-- `normal_taker_allowed` (bool)
-- `reduce_only_recovery_allowed` (bool)
-- `preexpiry_emergency_taker_allowed` (bool)
-- `late_window_authority_class` (string)
+- `maker_phase_allowed` (bool)
+- `taker_phase_allowed` (bool)
+- `maker_gate_open` (bool)
+- `taker_gate_open` (bool)
+- `open_order_cleanup_required` (bool)
+- `settlement_hold_required` (bool)
+- `unresolved_lifecycle_obligation` (bool)
+- `cancel_fail_closed` (bool)
 - `action_taken` (`maker|taker|none`)
 - `submitted` (bool)
 - `filled` (bool)
 - `evaluation_scope` (`maker|taker`)
 - `cycle_index` (int >= 0)
 - `decision_input_source` (nullable string)
-- `decision_input_type` (`observed_live|replayed|bounded_derived|emulated|unknown`)
+- `decision_input_type` (`observed_live|observed_other|replayed|emulated|unknown`)
 - `decision_input_emulated` (bool)
 - `decision_input_data_class` (`observed_live|observed_other|emulated|unknown`)
 
@@ -96,13 +99,12 @@ Nullable fields:
 
 Provenance constraints:
 - `result` must stay `null` for all rows in this packet.
-- `market_reference_class` may legitimately be `authoritative`,
-  `bounded_approximation`, or `not_available` depending on emitted reference truth.
+- `market_reference_class` may legitimately be `authoritative` or `not_available`
+  depending on emitted reference truth.
 - `market_reference_confidence` current emitted values are
-  `authoritative`, `bounded_low`, or `none`.
+  `authoritative` or `none`.
 - `market_reference_basis` current emitted values are
-  `direct_book_midpoint`, `ws_recent_paired_touch`, `ws_single_side_touch`, or
-  `missing`.
+  `direct_book_midpoint`, `ws_recent_paired_touch`, or `missing`.
   Report-only `report_book_top_pair_backfill` remains a downstream reconstructed
   basis label, not a live emitted edge value.
 - `secondary_oracle_status` current emitted values are
@@ -111,21 +113,21 @@ Provenance constraints:
 - `financial_posture_class` current emitted values are
   `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, or
   `HALT_NEW_RISK`.
+- Historical artifact lineage may still contain `reduce_only_recovery_*` or
+  `preexpiry_emergency_taker_*` fields, but those are no longer part of the
+  current emitted edge-truth contract.
 - Opportunity-key uniqueness is enforced with identity priority:
   `token_id` when visible, otherwise `target_ref`.
 - No decision action may silently rely on emulated decision input.
   If emulated decision input exists, it must be explicitly disclosed via
   `decision_input_emulated=true` and is treated as non-promotable for harness realism.
 
-Canonical audit stage-policy (exact):
-- `OBSERVE`: maker no, taker no
-- `EVALUATE`: maker no, taker no
-- `MAKER_POSITION`: maker yes, taker no
-- `MAKER_TAKER_SELECTIVE`: maker yes, taker no
-- `SNIPER_PRIMARY`: maker no, taker no
-- `EXTREME_ONLY`: maker no, taker no
-- `EXPIRED`: maker no, taker no
-- `UNKNOWN`: maker no, taker no
+Canonical audit lifecycle-phase policy (exact):
+- `scan`: maker no, taker no
+- `prepare`: maker no, taker no
+- `maker_window`: maker yes, taker no
+- `taker_window`: maker no, taker yes
+- `resolve`: maker no, taker no
 
 Canonical latency state vocabulary:
 - `disarmed`

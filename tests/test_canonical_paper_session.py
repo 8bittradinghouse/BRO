@@ -26,6 +26,7 @@ from scripts.canonical_paper_session import (
     run_contract_path,
     summarize_postrun_validation,
     utc_iso,
+    write_postrun_validation_artifact,
     SessionContext,
     SessionRunner,
 )
@@ -246,6 +247,84 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
             self.assertTrue(bool(summary.get("reports_complete")))
             self.assertTrue(bool(summary.get("execution_error")))
             self.assertFalse(bool(summary.get("determinism_consistent")))
+
+    def test_write_postrun_validation_artifact_persists_current_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            report_dir = Path(td) / "reports" / "rid-write"
+            artifact_path = report_dir / "canonical_paper_validation.json"
+            self._write_minimal_reports(report_dir, "rid-write", overall_exit_code=0)
+            payload = write_postrun_validation_artifact(
+                run_id="rid-write",
+                report_dir=report_dir,
+                script_exit_code=0,
+                artifact_path=artifact_path,
+                session_phase="validate_postrun",
+            )
+            persisted = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload, persisted)
+            self.assertEqual(str(persisted.get("status") or ""), "pass")
+            self.assertEqual(str(persisted.get("runtime_classification") or ""), "VALID_ACTIVE")
+            self.assertEqual(str(persisted.get("highest_passing_stage") or ""), "paper")
+            self.assertEqual(str(persisted.get("session_phase") or ""), "validate_postrun")
+            self.assertEqual(int(persisted.get("schema_version") or 0), 1)
+
+    def test_phase_validate_postrun_persists_summary_and_exits_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td) / "logs_exec" / "paper_universal"
+            state_path = log_dir / "sessions" / "session-test" / "state.json"
+            run_id = "rid-phase-validate"
+            report_dir = log_dir / "reports" / run_id
+            self._write_minimal_reports(report_dir, run_id, overall_exit_code=0)
+
+            ctx = SessionContext(
+                session_id=str(uuid.uuid4()),
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                config_path=DEFAULT_EXECUTION_CONFIG,
+                state_path=state_path,
+                log_dir=log_dir,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+            ctx.current_phase = "stop"
+            ctx.run_contract_path = run_contract_path(log_dir=ctx.log_dir, run_id=run_id)
+            ctx.run_contract_path.write_text(json.dumps({"run_id": run_id}) + "\n", encoding="utf-8")
+
+            with patch(
+                "scripts.canonical_paper_session.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    args=["canonical_paper_validation.sh"],
+                    returncode=0,
+                    stdout="validation ok\n",
+                    stderr="",
+                ),
+            ):
+                runner.phase_validate_postrun()
+
+            self.assertEqual(str(ctx.current_phase or ""), "validate_postrun")
+            self.assertEqual(str(ctx.postrun_validation.get("status") or ""), "pass")
+            self.assertTrue(bool(ctx.postrun_validation.get("reports_complete")))
+            self.assertTrue(bool(ctx.postrun_validation.get("summary_exit_matches")))
+            self.assertTrue(bool(ctx.postrun_validation.get("determinism_consistent")))
+            self.assertEqual(ctx.postrun_validation.get("script_exit_code"), 0)
+
+            state_payload = json.loads(ctx.session_state_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(state_payload.get("postrun_validation", {}).get("status") or ""),
+                "pass",
+            )
+            phase_history = state_payload.get("phase_history") or []
+            self.assertTrue(phase_history)
+            self.assertEqual(str(phase_history[-1].get("phase") or ""), "validate_postrun")
+            self.assertEqual(str(phase_history[-1].get("status") or ""), "completed")
+
+            persisted = json.loads((report_dir / "canonical_paper_validation.json").read_text(encoding="utf-8"))
+            self.assertEqual(str(persisted.get("status") or ""), "pass")
+            self.assertEqual(str(persisted.get("session_phase") or ""), "validate_postrun")
 
     def test_observe_manifest_for_run_id_reads_expected_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -482,6 +561,220 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
             self.assertEqual(str(own_state.get("phase") or ""), "preflight")
             self.assertEqual(str(own_state.get("run_contract_path") or ""), "")
 
+    def test_phase_start_recovers_abandoned_open_session_without_live_services(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            run_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=session_id,
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+            ctx.current_phase = "preflight"
+            runner._write_state()
+
+            other_session_id = str(uuid.uuid4())
+            other_run_id = str(uuid.uuid4())
+            other_contract_path = run_contract_path(log_dir=log_dir, run_id=other_run_id)
+            other_start_ts = "2026-05-16T00:00:00.000Z"
+            other_contract = build_run_contract(
+                session_id=other_session_id,
+                run_id=other_run_id,
+                phase="start",
+                session_type="paper_canonical",
+                authority_level="authoritative",
+                allowed_actions=list(CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
+                manifest_path=log_dir / f"run_manifest_{other_run_id}.json",
+                log_root=log_dir,
+                state_root=state_path.parent,
+                start_ts=other_start_ts,
+                stop_ts="",
+                evidence_slice_start_ts=other_start_ts,
+                evidence_slice_end_ts="",
+                status_path=str(log_dir / "status_2026-05-16.jsonl"),
+                events_path=str(log_dir / "events_2026-05-16.jsonl"),
+                errors_path="",
+            )
+            from prodesk.run_contract import write_run_contract  # local import to avoid expanding module import list
+
+            write_run_contract(other_contract_path, other_contract, allow_open=True)
+            other_state_path = log_dir / "sessions" / other_session_id / "session_state.json"
+            other_state_path.parent.mkdir(parents=True, exist_ok=True)
+            other_state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": other_session_id,
+                        "ts_utc": "2026-05-16T00:00:00.000Z",
+                        "phase": "active",
+                        "run_id": other_run_id,
+                        "session_type": "paper_canonical",
+                        "run_contract_path": str(other_contract_path),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            runner._phase_enter = lambda phase, entry: (_ for _ in ()).throw(RuntimeError("phase_enter_called"))  # type: ignore[method-assign]
+            with patch("scripts.canonical_paper_session._docker_compose_ps_lines", return_value=["NAME STATUS"]):
+                with self.assertRaises(RuntimeError) as exc:
+                    runner.phase_start()
+            self.assertEqual(str(exc.exception), "phase_enter_called")
+
+            closed = load_run_contract(other_contract_path, allow_open=False)
+            self.assertTrue(bool(str(closed.get("stop_ts") or "").strip()))
+            recovered_state = json.loads(other_state_path.read_text(encoding="utf-8"))
+            self.assertIn("recovered_abandoned_session", recovered_state)
+            self.assertEqual(
+                str((recovered_state.get("recovered_abandoned_session") or {}).get("reason") or ""),
+                "stale_open_session_no_pid",
+            )
+            recovery_note = other_state_path.parent / "abandoned_session_recovery.json"
+            self.assertTrue(recovery_note.exists())
+
+    def test_phase_start_recovers_dead_prestart_session_with_no_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            run_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=session_id,
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+            ctx.current_phase = "preflight"
+            runner._write_state()
+
+            other_session_id = str(uuid.uuid4())
+            other_state_path = log_dir / "sessions" / other_session_id / "session_state.json"
+            other_state_path.parent.mkdir(parents=True, exist_ok=True)
+            other_state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": other_session_id,
+                        "runner_pid": 999999,
+                        "ts_utc": utc_iso(),
+                        "phase": "preflight",
+                        "run_id": str(uuid.uuid4()),
+                        "session_type": "paper_canonical",
+                        "run_contract_path": "",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            runner._phase_enter = lambda phase, entry: (_ for _ in ()).throw(RuntimeError("phase_enter_called"))  # type: ignore[method-assign]
+            with patch("scripts.canonical_paper_session._docker_compose_ps_lines", return_value=["NAME STATUS"]):
+                with self.assertRaises(RuntimeError) as exc:
+                    runner.phase_start()
+            self.assertEqual(str(exc.exception), "phase_enter_called")
+
+            recovered_state = json.loads(other_state_path.read_text(encoding="utf-8"))
+            self.assertIn("recovered_abandoned_session", recovered_state)
+            self.assertEqual(
+                str((recovered_state.get("recovered_abandoned_session") or {}).get("reason") or ""),
+                "runner_pid_dead_prestart",
+            )
+            recovery_note = other_state_path.parent / "abandoned_session_recovery.json"
+            self.assertTrue(recovery_note.exists())
+
+    def test_phase_start_recovers_stale_prestart_session_without_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            run_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=session_id,
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=run_id,
+                session_token=str(uuid.uuid4()),
+            )
+            runner = SessionRunner(ctx)
+            ctx.current_phase = "preflight"
+            runner._write_state()
+
+            other_session_id = str(uuid.uuid4())
+            other_state_path = log_dir / "sessions" / other_session_id / "session_state.json"
+            other_state_path.parent.mkdir(parents=True, exist_ok=True)
+            other_state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": other_session_id,
+                        "ts_utc": "2026-05-16T00:00:00.000Z",
+                        "phase": "preflight",
+                        "run_id": str(uuid.uuid4()),
+                        "session_type": "paper_canonical",
+                        "run_contract_path": "",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            runner._phase_enter = lambda phase, entry: (_ for _ in ()).throw(RuntimeError("phase_enter_called"))  # type: ignore[method-assign]
+            with patch("scripts.canonical_paper_session._docker_compose_ps_lines", return_value=["NAME STATUS"]):
+                with self.assertRaises(RuntimeError) as exc:
+                    runner.phase_start()
+            self.assertEqual(str(exc.exception), "phase_enter_called")
+
+            recovered_state = json.loads(other_state_path.read_text(encoding="utf-8"))
+            self.assertIn("recovered_abandoned_session", recovered_state)
+            self.assertEqual(
+                str((recovered_state.get("recovered_abandoned_session") or {}).get("reason") or ""),
+                "stale_prestart_session_no_pid",
+            )
+
     def test_write_state_omits_uninitialized_manifest_and_contract_paths(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -508,6 +801,50 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
             payload = json.loads(ctx.session_state_path.read_text(encoding="utf-8"))
             self.assertEqual(str(payload.get("run_manifest_path") or ""), "")
             self.assertEqual(str(payload.get("run_contract_path") or ""), "")
+
+    def test_write_state_persists_config_compatibility_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs_exec" / "paper_universal"
+            state_path = root / "data" / "paper_universal" / "state.json"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            ctx = SessionContext(
+                session_id=str(uuid.uuid4()),
+                config_path=root / "configs" / "profiles" / "paper_universal.yaml",
+                active_minutes=1.0,
+                wait_sec=1.0,
+                do_build=False,
+                archive_export=False,
+                max_lines_per_file=1000,
+                log_dir=log_dir,
+                state_path=state_path,
+                run_id=str(uuid.uuid4()),
+                session_token=str(uuid.uuid4()),
+                ignored_compatibility_fields=["strategy.maker_competitiveness.queue_pressure"],
+                compatibility_warnings=[
+                    "strategy.maker_competitiveness.queue_pressure is a removed queue-pressure compatibility surface and is ignored"
+                ],
+            )
+            runner = SessionRunner(ctx)
+
+            session_state = json.loads(ctx.session_state_path.read_text(encoding="utf-8"))
+            session_identity = json.loads((ctx.report_root / "session_identity.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                session_state.get("ignored_compatibility_fields"),
+                ["strategy.maker_competitiveness.queue_pressure"],
+            )
+            self.assertEqual(int(session_state.get("compatibility_warning_count") or 0), 1)
+            self.assertIn(
+                "removed queue-pressure compatibility surface",
+                "\n".join(str(x) for x in session_state.get("compatibility_warnings") or []),
+            )
+            self.assertEqual(
+                session_identity.get("ignored_compatibility_fields"),
+                ["strategy.maker_competitiveness.queue_pressure"],
+            )
+            self.assertEqual(int(session_identity.get("compatibility_warning_count") or 0), 1)
 
     def test_phase_active_fails_fast_when_stack_dies_early(self) -> None:
         with tempfile.TemporaryDirectory() as td:

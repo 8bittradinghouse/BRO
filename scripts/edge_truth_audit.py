@@ -12,27 +12,31 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from prodesk.config import load_execution_config
 from prodesk.edge_truth_contract import (
-    CANONICAL_EDGE_STAGE_POLICY,
     EDGE_ACTION_MAKER,
     EDGE_ACTION_NONE,
     EDGE_ACTION_TAKER,
-    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-    EDGE_AUTH_NORMAL_TAKER_FIELD,
-    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
-    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
     EDGE_ACTIONS,
     EDGE_BLOCK_REASONS,
     EDGE_EVAL_SCOPE_MAKER,
     EDGE_EVAL_SCOPE_TAKER,
     EDGE_EVAL_SCOPES,
-    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+    EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD,
+    EDGE_LIFECYCLE_PHASE_FIELD,
+    EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD,
+    EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD,
+    EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD,
+    LIFECYCLE_PHASES,
+    EDGE_MAKER_GATE_OPEN_FIELD,
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
+    EDGE_TAKER_GATE_OPEN_FIELD,
+    EDGE_TAKER_PHASE_ALLOWED_FIELD,
     EdgeInputSnapshot,
     compute_edge_value,
     is_canonical_block_reason,
     normalize_edge_action,
     normalize_edge_scope,
-    stage_allows_action,
-    stage_policy,
+    phase_allows_action,
+    phase_policy,
     validate_edge_inputs,
 )
 from prodesk.jsonl_utils import load_jsonl
@@ -49,15 +53,17 @@ REQUIRED_FIELDS = (
     "run_id",
     "token_id",
     "timestamp_utc",
-    "stage",
+    EDGE_LIFECYCLE_PHASE_FIELD,
     "time_remaining_sec",
     "fair_probability",
     "market_probability",
     "edge_value",
     "oracle_tick_age_sec",
     "latency_state",
-    "maker_allowed",
-    "taker_allowed",
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
+    EDGE_TAKER_PHASE_ALLOWED_FIELD,
+    EDGE_MAKER_GATE_OPEN_FIELD,
+    EDGE_TAKER_GATE_OPEN_FIELD,
     "action_taken",
     "submitted",
     "filled",
@@ -70,8 +76,8 @@ AUDIT_RULE_SET = (
     "required_types_and_ranges",
     "scope_and_action_vocabulary",
     "row_run_id_matches_selected_run",
-    "eligibility_matches_authority_contract",
-    "action_requires_eligible_stage_field",
+    "eligibility_matches_phase_contract",
+    "action_requires_open_phase_gate",
     "no_action_requires_canonical_block_reason",
     "action_requires_submission",
     "scope_action_consistency",
@@ -81,7 +87,9 @@ AUDIT_RULE_SET = (
     "edge_value_consistency",
     "opportunity_identity_and_uniqueness",
 )
-
+HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
+HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
 
 def _sha256_json_payload(payload: Any) -> str:
     rendered = json.dumps(
@@ -162,15 +170,17 @@ def _row_key(row: Dict[str, Any]) -> str:
         "cycle_index": row.get("cycle_index"),
         "evaluation_scope": str(row.get("evaluation_scope") or "").strip().lower(),
         "timestamp_utc": str(row.get("timestamp_utc") or "").strip(),
-        "stage": str(row.get("stage") or "").strip().upper(),
+        EDGE_LIFECYCLE_PHASE_FIELD: str(row.get(EDGE_LIFECYCLE_PHASE_FIELD) or "").strip().lower(),
         "time_remaining_sec": _safe_float(row.get("time_remaining_sec")),
         "fair_probability": _safe_float(row.get("fair_probability")),
         "market_probability": _safe_float(row.get("market_probability")),
         "edge_value": _safe_float(row.get("edge_value")),
         "oracle_tick_age_sec": _safe_float(row.get("oracle_tick_age_sec")),
         "latency_state": str(row.get("latency_state") or "").strip().lower(),
-        "maker_allowed": row.get("maker_allowed"),
-        "taker_allowed": row.get("taker_allowed"),
+        EDGE_MAKER_PHASE_ALLOWED_FIELD: row.get(EDGE_MAKER_PHASE_ALLOWED_FIELD),
+        EDGE_TAKER_PHASE_ALLOWED_FIELD: row.get(EDGE_TAKER_PHASE_ALLOWED_FIELD),
+        EDGE_MAKER_GATE_OPEN_FIELD: row.get(EDGE_MAKER_GATE_OPEN_FIELD),
+        EDGE_TAKER_GATE_OPEN_FIELD: row.get(EDGE_TAKER_GATE_OPEN_FIELD),
         "action_taken": str(row.get("action_taken") or "").strip().lower(),
         "block_reason": str(row.get("block_reason") or "").strip().lower(),
         "submitted": row.get("submitted"),
@@ -233,6 +243,28 @@ def _coerce_int(value: Any) -> Optional[int]:
     return None
 
 
+def _has_lifecycle_residue_truth(row: Dict[str, Any]) -> bool:
+    return any(
+        bool(row.get(field))
+        for field in (
+            EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD,
+            EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD,
+            EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD,
+            EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD,
+        )
+    )
+
+
+def _has_historical_lifecycle_lineage(row: Dict[str, Any]) -> bool:
+    if bool(row.get(HISTORICAL_RECOVERY_ACTIVE_FIELD, False)):
+        return True
+    if bool(row.get(HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD, False)):
+        return True
+    if str(row.get(HISTORICAL_RECOVERY_REASON_FIELD) or "").strip():
+        return True
+    return False
+
+
 def _opportunity_identity(row: Dict[str, Any]) -> Optional[str]:
     source_token_id = str(row.get("source_token_id") or "").strip()
     if source_token_id and source_token_id != "[REDACTED]":
@@ -249,7 +281,7 @@ def _opportunity_identity(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _status_indicates_no_target_standdown(
+def _status_indicates_scan_phase(
     *,
     contract: Dict[str, Any],
     max_lines_per_file: int,
@@ -261,18 +293,22 @@ def _status_indicates_no_target_standdown(
     bounded_rows = apply_contract_bounds(rows, contract)
     if not bounded_rows:
         return False
-    saw_standdown = False
+    saw_scan_phase = False
     for row in bounded_rows:
         if not isinstance(row, dict):
             continue
+        lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
         runtime_state = str(
             row.get("runtime_state")
             or row.get("runtime_mode")
             or ""
         ).strip().lower()
-        if runtime_state != "no_target_standdown":
+        if lifecycle_phase:
+            if lifecycle_phase != "scan":
+                return False
+        elif runtime_state != "scan":
             return False
-        saw_standdown = True
+        saw_scan_phase = True
         target_count = _coerce_int(row.get("target_count"))
         if target_count is not None and int(target_count) != 0:
             return False
@@ -280,7 +316,7 @@ def _status_indicates_no_target_standdown(
         guard_active = _coerce_bool(row.get("external_guard_active"))
         if kill_switch is True or guard_active is True:
             return False
-    return saw_standdown
+    return saw_scan_phase
 
 
 def run_audit(
@@ -338,13 +374,13 @@ def run_audit(
         if isinstance(row, dict) and str(row.get("event_type") or "").strip() == "edge_evaluation"
     ]
     if not edge_rows:
-        standdown_only = False
+        scan_only = False
         if contract:
-            standdown_only = _status_indicates_no_target_standdown(
+            scan_only = _status_indicates_scan_phase(
                 contract=contract,
                 max_lines_per_file=max_lines_per_file,
             )
-        if not standdown_only:
+        if not scan_only:
             findings.append("edge_truth_rows_missing")
 
     seen_keys: set[str] = set()
@@ -371,7 +407,7 @@ def run_audit(
         action = normalize_edge_action(row.get("action_taken"))
         row_run_id = str(row.get("run_id") or "").strip()
         token_id = str(row.get("token_id") or "").strip()
-        stage = str(row.get("stage") or "").strip().upper()
+        lifecycle_phase = str(row.get(EDGE_LIFECYCLE_PHASE_FIELD) or "").strip().lower()
         timestamp_utc = str(row.get("timestamp_utc") or "").strip()
 
         if not token_id:
@@ -385,68 +421,45 @@ def run_audit(
         if action not in EDGE_ACTIONS:
             findings.append(f"{row_prefix}_action_taken_invalid:{action or 'missing'}")
 
-        maker_allowed = row.get("maker_allowed")
-        taker_allowed = row.get("taker_allowed")
-        reduce_only_recovery_active = bool(row.get("reduce_only_recovery_active", False))
+        maker_phase_allowed = row.get(EDGE_MAKER_PHASE_ALLOWED_FIELD)
+        taker_phase_allowed = row.get(EDGE_TAKER_PHASE_ALLOWED_FIELD)
+        maker_gate_open = row.get(EDGE_MAKER_GATE_OPEN_FIELD)
+        taker_gate_open = row.get(EDGE_TAKER_GATE_OPEN_FIELD)
+        lifecycle_residue_truth_active = _has_lifecycle_residue_truth(row)
+        historical_lifecycle_lineage_active = _has_historical_lifecycle_lineage(row)
         submitted = row.get("submitted")
         filled = row.get("filled")
-        if not isinstance(maker_allowed, bool):
-            findings.append(f"{row_prefix}_maker_allowed_not_bool")
-        if not isinstance(taker_allowed, bool):
-            findings.append(f"{row_prefix}_taker_allowed_not_bool")
+        if not lifecycle_phase:
+            findings.append(f"{row_prefix}_lifecycle_phase_missing")
+        if not isinstance(maker_phase_allowed, bool):
+            findings.append(f"{row_prefix}_maker_phase_allowed_not_bool")
+        if not isinstance(taker_phase_allowed, bool):
+            findings.append(f"{row_prefix}_taker_phase_allowed_not_bool")
+        if not isinstance(maker_gate_open, bool):
+            findings.append(f"{row_prefix}_maker_gate_open_not_bool")
+        if not isinstance(taker_gate_open, bool):
+            findings.append(f"{row_prefix}_taker_gate_open_not_bool")
         if not isinstance(submitted, bool):
             findings.append(f"{row_prefix}_submitted_not_bool")
         if not isinstance(filled, bool):
             findings.append(f"{row_prefix}_filled_not_bool")
-        has_explicit_authority_contract = any(
-            field in row
-            for field in (
-                EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-                EDGE_AUTH_NORMAL_TAKER_FIELD,
-                EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
-                EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
-                EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+        expected_maker_phase_allowed, expected_taker_phase_allowed = phase_policy(lifecycle_phase)
+        if (
+            isinstance(maker_phase_allowed, bool)
+            and (not historical_lifecycle_lineage_active)
+            and bool(maker_phase_allowed) != bool(expected_maker_phase_allowed)
+        ):
+            findings.append(
+                f"{row_prefix}_maker_phase_allowed_mismatch:{lifecycle_phase}:{maker_phase_allowed}:{expected_maker_phase_allowed}"
             )
-        )
-        expected_maker_allowed = None
-        expected_taker_allowed = None
-        if has_explicit_authority_contract:
-            expected_maker_allowed = bool(
-                row.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)
-            ) or bool(row.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False))
-            expected_taker_allowed = bool(row.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False))
-            if (
-                isinstance(maker_allowed, bool)
-                and bool(maker_allowed) != bool(expected_maker_allowed)
-            ):
-                findings.append(
-                    f"{row_prefix}_maker_allowed_authority_contract_mismatch:{maker_allowed}:{expected_maker_allowed}"
-                )
-            if (
-                isinstance(taker_allowed, bool)
-                and bool(taker_allowed) != bool(expected_taker_allowed)
-            ):
-                findings.append(
-                    f"{row_prefix}_taker_allowed_authority_contract_mismatch:{taker_allowed}:{expected_taker_allowed}"
-                )
-        else:
-            expected_maker_allowed, expected_taker_allowed = stage_policy(stage)
-            if (
-                isinstance(maker_allowed, bool)
-                and (not reduce_only_recovery_active)
-                and bool(maker_allowed) != bool(expected_maker_allowed)
-            ):
-                findings.append(
-                    f"{row_prefix}_maker_allowed_stage_policy_mismatch:{stage}:{maker_allowed}:{expected_maker_allowed}"
-                )
-            if (
-                isinstance(taker_allowed, bool)
-                and (not reduce_only_recovery_active)
-                and bool(taker_allowed) != bool(expected_taker_allowed)
-            ):
-                findings.append(
-                    f"{row_prefix}_taker_allowed_stage_policy_mismatch:{stage}:{taker_allowed}:{expected_taker_allowed}"
-                )
+        if (
+            isinstance(taker_phase_allowed, bool)
+            and (not historical_lifecycle_lineage_active)
+            and bool(taker_phase_allowed) != bool(expected_taker_phase_allowed)
+        ):
+            findings.append(
+                f"{row_prefix}_taker_phase_allowed_mismatch:{lifecycle_phase}:{taker_phase_allowed}:{expected_taker_phase_allowed}"
+            )
 
         cycle_index = row.get("cycle_index")
         if not isinstance(cycle_index, int) or int(cycle_index) < 0:
@@ -498,7 +511,7 @@ def run_audit(
                 time_remaining_sec=_safe_float(row.get("time_remaining_sec")),
                 oracle_tick_age_sec=_safe_float(row.get("oracle_tick_age_sec")),
                 latency_state=str(row.get("latency_state") or "").strip().lower() or None,
-                stage=stage,
+                lifecycle_phase=lifecycle_phase or None,
                 evaluation_scope=scope,
             ),
             oracle_max_tick_age_sec=float(oracle_max_tick_age_sec),
@@ -524,31 +537,34 @@ def run_audit(
         elif block_reason:
             findings.append(f"{row_prefix}_block_reason_present_for_action")
 
-        if action == EDGE_ACTION_MAKER and maker_allowed is not True:
-            findings.append(f"{row_prefix}_action_requires_maker_allowed_true")
-        if action == EDGE_ACTION_TAKER and taker_allowed is not True:
-            findings.append(f"{row_prefix}_action_requires_taker_allowed_true")
-        allow_recovery_missing_probability_input = (
+        if action == EDGE_ACTION_MAKER and maker_phase_allowed is not True:
+            findings.append(f"{row_prefix}_action_requires_maker_phase_allowed_true")
+        if action == EDGE_ACTION_TAKER and taker_phase_allowed is not True:
+            findings.append(f"{row_prefix}_action_requires_taker_phase_allowed_true")
+        if action == EDGE_ACTION_MAKER and maker_gate_open is not True:
+            findings.append(f"{row_prefix}_action_requires_maker_gate_open_true")
+        if action == EDGE_ACTION_TAKER and taker_gate_open is not True:
+            findings.append(f"{row_prefix}_action_requires_taker_gate_open_true")
+        allow_historical_lifecycle_missing_probability_input = (
             action != EDGE_ACTION_NONE
-            and bool(reduce_only_recovery_active)
+            and bool(historical_lifecycle_lineage_active)
             and str(validation.reason_code or "").strip().lower()
             in {"fair_probability_missing", "market_probability_missing"}
         )
         if (
             (not validation.valid)
             and action != EDGE_ACTION_NONE
-            and (not allow_recovery_missing_probability_input)
+            and (not allow_historical_lifecycle_missing_probability_input)
         ):
             findings.append(f"{row_prefix}_action_with_invalid_edge_inputs:{validation.reason_code}")
 
         if action != EDGE_ACTION_NONE:
             action_rows += 1
             if (
-                (not reduce_only_recovery_active)
-                and (not has_explicit_authority_contract)
-                and (not stage_allows_action(stage, action))
+                (not historical_lifecycle_lineage_active)
+                and (not phase_allows_action(lifecycle_phase, action))
             ):
-                findings.append(f"{row_prefix}_stage_action_mismatch:{stage}:{action}")
+                findings.append(f"{row_prefix}_phase_action_mismatch:{lifecycle_phase}:{action}")
             if submitted is not True:
                 findings.append(f"{row_prefix}_action_without_submission")
             if action == EDGE_ACTION_MAKER and scope != EDGE_EVAL_SCOPE_MAKER:
@@ -572,15 +588,25 @@ def run_audit(
                 "token_id": token_id,
                 "target_ref": (str(row.get("target_ref") or "").strip() or None),
                 "timestamp_utc": timestamp_utc,
-                "stage": stage,
+                EDGE_LIFECYCLE_PHASE_FIELD: lifecycle_phase or None,
                 "time_remaining_sec": _safe_float(row.get("time_remaining_sec")),
                 "fair_probability": _safe_float(row.get("fair_probability")),
                 "market_probability": _safe_float(row.get("market_probability")),
                 "edge_value": _safe_float(row.get("edge_value")),
                 "oracle_tick_age_sec": _safe_float(row.get("oracle_tick_age_sec")),
                 "latency_state": str(row.get("latency_state") or "").strip().lower() or None,
-                "maker_allowed": bool(maker_allowed) if isinstance(maker_allowed, bool) else None,
-                "taker_allowed": bool(taker_allowed) if isinstance(taker_allowed, bool) else None,
+                EDGE_MAKER_PHASE_ALLOWED_FIELD: (
+                    bool(maker_phase_allowed) if isinstance(maker_phase_allowed, bool) else None
+                ),
+                EDGE_TAKER_PHASE_ALLOWED_FIELD: (
+                    bool(taker_phase_allowed) if isinstance(taker_phase_allowed, bool) else None
+                ),
+                EDGE_MAKER_GATE_OPEN_FIELD: (
+                    bool(maker_gate_open) if isinstance(maker_gate_open, bool) else None
+                ),
+                EDGE_TAKER_GATE_OPEN_FIELD: (
+                    bool(taker_gate_open) if isinstance(taker_gate_open, bool) else None
+                ),
                 "action_taken": action,
                 "block_reason": (block_reason or None),
                 "submitted": bool(submitted) if isinstance(submitted, bool) else None,
@@ -616,10 +642,13 @@ def run_audit(
     edge_records_sha256 = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
     required_fields_sha256 = _sha256_json_payload(sorted(REQUIRED_FIELDS))
     block_reason_taxonomy_sha256 = _sha256_json_payload(sorted(EDGE_BLOCK_REASONS))
-    stage_policy_sha256 = _sha256_json_payload(
+    phase_policy_sha256 = _sha256_json_payload(
         {
             key: [bool(val[0]), bool(val[1])]
-            for key, val in sorted(CANONICAL_EDGE_STAGE_POLICY.items(), key=lambda item: str(item[0]))
+            for key, val in sorted(
+                ((phase_name, phase_policy(phase_name)) for phase_name in LIFECYCLE_PHASES),
+                key=lambda item: str(item[0]),
+            )
         }
     )
     audit_rule_set_sha256 = _sha256_json_payload(sorted(AUDIT_RULE_SET))
@@ -648,7 +677,7 @@ def run_audit(
         "edge_records_sha256": edge_records_sha256,
         "required_fields_sha256": required_fields_sha256,
         "block_reason_taxonomy_sha256": block_reason_taxonomy_sha256,
-        "stage_policy_sha256": stage_policy_sha256,
+        "phase_policy_sha256": phase_policy_sha256,
         "audit_rule_set_sha256": audit_rule_set_sha256,
     }
 

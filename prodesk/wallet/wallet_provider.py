@@ -264,7 +264,8 @@ class GatewayLiveWalletTruthSource:
         )
 
     def nonce_snapshot(self) -> NonceSnapshot:
-        # py-clob-client does not currently expose a canonical chain nonce read endpoint.
+        # The official CLOB clients are not the canonical owner of on-chain nonce truth.
+        # Deposit-wallet / relayer lanes must source nonce truth from the relayer surface instead.
         return NonceSnapshot(
             current_nonce=None,
             pending_nonces=tuple(),

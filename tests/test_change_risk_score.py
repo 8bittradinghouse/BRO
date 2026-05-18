@@ -9,6 +9,11 @@ class ChangeRiskScoreTests(unittest.TestCase):
         self.assertIn(result["risk_level"], {"high", "critical"})
         self.assertTrue(result["requires_extra_gates"])
 
+    def test_historical_archive_path_is_not_critical(self):
+        result = run_score(["docs/archive/retired_tooling_notes.md"])
+        self.assertEqual(result["risk_level"], "low")
+        self.assertFalse(result["requires_extra_gates"])
+
     def test_low_risk_for_single_doc_change(self):
         result = run_score(["README.md"])
         self.assertEqual(result["risk_level"], "low")

@@ -52,6 +52,15 @@ The session runner remains the authoritative lifecycle engine and enforces expli
 
 `<run_id>` is mandatory to preserve deterministic audit targeting.
 `<path>` should point to `run_contract_<run_id>.json` in the canonical log root.
+Every canonical rerun through this command now rewrites both:
+- `validation_summary.json`
+- `canonical_paper_validation.json`
+
+Truth precedence after replay:
+- `validation_summary.json` remains the validator exit/determinism owner
+- `nightly_soak_report.json` remains the runtime-classification owner
+- `readiness_gate.json` remains the stage-boundary owner
+- `canonical_paper_validation.json` is the synchronized derived summary tying those surfaces together for downstream gating/harvest
 
 Canonical postrun validators in this path:
 - `paper_harness_audit`
@@ -99,8 +108,14 @@ Paper-harness realism checks enforced in this path:
 - market-data liveliness floors (`book_updates_ws_delta`, `book_updates_total_delta`)
 - action-row source purity in `paper_harness_audit`:
   clear `edge_evaluation` rows with `action_taken in {maker,taker}` must stay
-  `book_source=ws`; whole-stream `book_updates_rest_ratio` is descriptive/watch
-  truth only
+  `book_source=ws`; whole-stream pair-truth health now rides explicit
+  `pair_truth_missing_pair_row_ratio` / `pair_truth_missing_pair_count_max`
+  support truth rather than REST-mix grading
+- active target health semantics are authoritative-active-pair only:
+  pending/prewarm candidates may be transport-watched for warm-up, and
+  lifecycle watch tokens may remain for cleanup/settlement, but neither class
+  may contribute active pair-truth failure, ws-slo degradation, or outage
+  health findings in the canonical validation path
 - fill realism envelopes (`max_maker_fill_rate`, `max_taker_bonus_fill_rate`)
 - proving-lineage tuple surfaced directly in `paper_harness_audit` output:
   - `run_id`

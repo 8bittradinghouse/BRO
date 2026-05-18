@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from prodesk.config import extract_config_compatibility_metadata, load_execution_config
+
 
 def _load_compose(path: pathlib.Path) -> Dict[str, Any]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -35,9 +37,11 @@ def _get_arg_value(tokens: List[str], flag: str) -> Optional[str]:
     return None
 
 
-def run_audit(*, compose_path: pathlib.Path) -> Dict[str, Any]:
+def run_audit(*, compose_path: pathlib.Path, config_path: Optional[pathlib.Path] = None) -> Dict[str, Any]:
     findings: List[str] = []
     warnings: List[str] = []
+    compatibility_warnings: List[str] = []
+    ignored_compatibility_fields: List[str] = []
 
     compose = _load_compose(compose_path.resolve())
     services = compose.get("services", {})
@@ -109,10 +113,29 @@ def run_audit(*, compose_path: pathlib.Path) -> Dict[str, Any]:
     if "--no-trigger-on-kill-switch" not in tokens and "--trigger-on-kill-switch" not in tokens:
         warnings.append("bro-guardian:kill_switch_trigger_mode_implicit_default_true")
 
+    resolved_config_path = ""
+    if config_path is not None:
+        resolved = pathlib.Path(config_path).resolve()
+        resolved_config_path = str(resolved)
+        if resolved.exists():
+            cfg = load_execution_config(resolved)
+            compatibility_meta = extract_config_compatibility_metadata(cfg)
+            ignored_compatibility_fields = list(
+                compatibility_meta.get("ignored_compatibility_fields") or []
+            )
+            compatibility_warnings = list(compatibility_meta.get("compatibility_warnings") or [])
+            for warning in compatibility_warnings:
+                if warning not in warnings:
+                    warnings.append(warning)
+
     return {
         "compose_path": str(compose_path.resolve()),
+        "config_path": resolved_config_path,
         "finding_count": len(findings),
         "warning_count": len(warnings),
+        "compatibility_warning_count": len(compatibility_warnings),
+        "compatibility_warnings": compatibility_warnings,
+        "ignored_compatibility_fields": ignored_compatibility_fields,
         "findings": findings,
         "warnings": warnings,
         "ok": len(findings) == 0,
@@ -122,9 +145,13 @@ def run_audit(*, compose_path: pathlib.Path) -> Dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bro guardian launch profile audit")
     parser.add_argument("--compose", default="./docker-compose.yml", help="docker-compose file path")
+    parser.add_argument("--config", default="", help="Optional execution config path")
     parser.add_argument("--out", default="", help="Optional output JSON path")
     args = parser.parse_args()
-    result = run_audit(compose_path=pathlib.Path(args.compose))
+    result = run_audit(
+        compose_path=pathlib.Path(args.compose),
+        config_path=(pathlib.Path(args.config) if str(args.config or "").strip() else None),
+    )
     rendered = json.dumps(result, indent=2, sort_keys=True)
     print(rendered)
     if args.out:

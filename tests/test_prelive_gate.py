@@ -26,7 +26,14 @@ class PreliveGateTests(unittest.TestCase):
             "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
         }
 
-    def _write_cfg(self, root: Path, *, mode: str = "live", allow_taker: bool = True) -> Path:
+    def _write_cfg(
+        self,
+        root: Path,
+        *,
+        mode: str = "live",
+        allow_taker: bool = True,
+        include_legacy_queue_pressure: bool = False,
+    ) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         # Canonical doctrine fixtures must not set both doctrine and deprecated taker freshness keys.
         cfg["taker"].pop("max_chainlink_tick_age_sec", None)
@@ -38,6 +45,12 @@ class PreliveGateTests(unittest.TestCase):
         cfg["auth"]["allow_taker"] = allow_taker
         if str(mode).strip().lower() == "live":
             cfg["wallet"]["approval_spender_targets"] = ["0x1111111111111111111111111111111111111111"]
+        if include_legacy_queue_pressure:
+            cfg["strategy"]["maker_competitiveness"]["queue_pressure"] = {
+                "enabled": "definitely_not_bool",
+                "allowed_stages": ["EXTREME_ONLY"],
+                "inside_price_ticks": 0,
+            }
         cfg["storage"]["log_dir"] = str(root / "logs_exec")
         cfg["storage"]["state_path"] = str(root / "logs_exec" / "state.json")
         cfg["runtime"]["guard_stop_file"] = str(root / "logs_exec" / "guard_stop.txt")
@@ -205,6 +218,52 @@ class PreliveGateTests(unittest.TestCase):
                     allow_env_secrets_in_live=True,
                 )
         self.assertTrue(result["ok"], msg=str(result["findings"]))
+
+    def test_prelive_gate_surfaces_ignored_legacy_queue_pressure_warning_without_failing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(
+                root,
+                mode="live",
+                allow_taker=True,
+                include_legacy_queue_pressure=True,
+            )
+            run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
+            backup_dir = self._write_backup_bundle(root)
+            env = {
+                "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
+                "POLYMARKET_FUNDER": "0x" + ("b" * 40),
+                "SECURITY_ACK": "YES",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                result = run_prelive_gate(
+                    config_path=cfg_path,
+                    policy_path=Path("ops/ramp_policy.yaml"),
+                    required_stage="pilot_live",
+                    run_id=run_id,
+                    skip_readiness=True,
+                    skip_runtime_audit=True,
+                    skip_config_consistency=True,
+                    skip_manifest_check=False,
+                    manifest_max_age_hours=48.0,
+                    manifest_min_schema_version=2,
+                    skip_backup_check=False,
+                    backup_dir=backup_dir,
+                    backup_max_age_hours=48.0,
+                    skip_run_integrity_audit=True,
+                    allow_env_secrets_in_live=True,
+                )
+        self.assertTrue(result["ok"], msg=str(result["findings"]))
+        self.assertEqual(int(result.get("compatibility_warning_count") or 0), 1)
+        self.assertIn(
+            "strategy.maker_competitiveness.queue_pressure",
+            list((result.get("checks", {}).get("config_compatibility", {}) or {}).get("ignored_compatibility_fields") or []),
+        )
+        self.assertIn(
+            "removed queue-pressure compatibility surface",
+            "\n".join(str(x) for x in result.get("compatibility_warnings") or []),
+        )
 
     def test_prelive_gate_blocks_env_secret_sources_in_live_by_default(self):
         with tempfile.TemporaryDirectory() as td:
@@ -411,6 +470,54 @@ class PreliveGateTests(unittest.TestCase):
         self.assertTrue(result["ok"], msg=str(result["findings"]))
         kwargs = audit_mock.call_args.kwargs
         self.assertEqual(Path(str(kwargs.get("run_contract_path"))).resolve(), contract_path.resolve())
+
+    def test_prelive_gate_surfaces_timing_warnings_without_failing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root, mode="live", allow_taker=True)
+            run_id = self._write_manifest(root)
+            self._write_authoritative_time_contract(root, run_id)
+            backup_dir = self._write_backup_bundle(root)
+            env = {
+                "POLYMARKET_PRIVATE_KEY": "0x" + ("a" * 64),
+                "POLYMARKET_FUNDER": "0x" + ("b" * 40),
+                "SECURITY_ACK": "YES",
+            }
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch(
+                    "scripts.prelive_gate.run_websocket_hardening_audit",
+                    return_value={"findings": [], "warnings": ["timing_watch_book_feed_last_msg_age_warn_band_p95:9.100>warn:9.000:limit:12.000"]},
+                ), mock.patch(
+                    "scripts.prelive_gate.run_time_discipline_audit",
+                    return_value={"findings": [], "warnings": ["timing_watch_duplicate_selection_gate_timing_owner_active"]},
+                ):
+                    result = run_prelive_gate(
+                        config_path=cfg_path,
+                        policy_path=Path("ops/ramp_policy.yaml"),
+                        required_stage="pilot_live",
+                        run_id=run_id,
+                        skip_readiness=True,
+                        skip_runtime_audit=True,
+                        skip_config_consistency=True,
+                        skip_manifest_check=False,
+                        manifest_max_age_hours=48.0,
+                        manifest_min_schema_version=2,
+                        skip_backup_check=False,
+                        backup_dir=backup_dir,
+                        backup_max_age_hours=48.0,
+                        skip_run_integrity_audit=True,
+                        allow_env_secrets_in_live=True,
+                    )
+        self.assertTrue(result["ok"], msg=str(result["findings"]))
+        self.assertEqual(int(result.get("timing_warning_count") or 0), 2)
+        self.assertIn(
+            "timing_watch_duplicate_selection_gate_timing_owner_active",
+            result.get("timing_warnings", []),
+        )
+        self.assertTrue(
+            any(str(x).startswith("timing_watch_book_feed_last_msg_age_warn_band_p95:") for x in result.get("timing_warnings", [])),
+            msg=result.get("timing_warnings", []),
+        )
 
     def test_prelive_gate_requires_explicit_run_id_when_readiness_enabled(self):
         with tempfile.TemporaryDirectory() as td:

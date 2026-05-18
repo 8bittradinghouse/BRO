@@ -17,7 +17,6 @@ Canonical paper discipline recipe for short controlled runs.
   and front-of-house harness truth.
 - Required claim classes:
   - `authoritative`
-  - `bounded_approximation`
   - `not_modeled`
 
 ## Scientific Proving Discipline
@@ -89,25 +88,24 @@ Policy source for these thresholds:
 ## Decision-Input Truth Disclosure
 - Decision-path evidence (`edge_evaluation`) must declare decision-input provenance:
   - `decision_input_source`
-  - `decision_input_type` (`observed_live|replayed|emulated|bounded_derived|unknown`)
+  - `decision_input_type` (`observed_live|observed_other|replayed|emulated|unknown`)
   - `decision_input_emulated` (bool)
   - `decision_input_data_class`
-  - `execution_realism_class` (`bounded_approximation|not_modeled`)
+  - `execution_realism_class` (`not_modeled`)
 - Semantic distinction:
   - `decision_input_source`, `decision_input_type`, `decision_input_emulated`,
     and `decision_input_data_class` are live contract terms
   - `execution_realism_class` is an audit/harness classification term, not a
     replacement for the emitted decision-input fields
   - harness claim classes may still use `authoritative`, but current emitted
-    `execution_realism_class` values are only `bounded_approximation` and
-    `not_modeled`
+    `execution_realism_class` value is `not_modeled`
 - Paper harness realism is fail-closed for hidden emulation:
   - if emulated decision input is used, it must be explicitly disclosed
   - undisclosed decision-input emulation is a harness-audit failure
   - action on emulated decision input is forbidden unless explicitly enabled for a controlled scenario;
     canonical paper profile keeps this disabled.
 - Harness audit surfaces explicit counts:
-  - decision count by input class (`observed_live|replayed|emulated|bounded_derived|unknown`)
+  - decision count by input class (`observed_live|observed_other|replayed|emulated|unknown`)
   - action count by input class
   - emulated-action rows (hard-fail by default)
   - fill-policy basis counts
@@ -124,7 +122,7 @@ Policy source for these thresholds:
   - `taker_policy`
 - Canonical interpretation:
   - maker expectancy is `not_modeled` (queue position is not explicitly modeled)
-  - taker expectancy is `bounded_approximation` (best-touch price + visible top-size bounds)
+  - taker expectancy is `not_modeled` while fills remain bounded by visible top-of-book liquidity
 
 ## Timestamp Domain Semantics
 - Event-time fields are domain-labeled:

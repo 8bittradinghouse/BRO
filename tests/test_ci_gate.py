@@ -7,7 +7,7 @@ from scripts import ci_gate
 
 
 class CiGateTests(unittest.TestCase):
-    def test_compileall_step_does_not_track_legacy_simulator(self):
+    def test_compileall_step_stays_on_canonical_paths(self):
         run_steps = []
 
         def _record_step(name, cmd):  # noqa: ANN001
@@ -39,6 +39,9 @@ class CiGateTests(unittest.TestCase):
 
         with mock.patch("scripts.ci_gate.subprocess.run", return_value=mock.Mock(returncode=0)), mock.patch(
             "scripts.ci_gate.run_step", side_effect=_record_step
+        ), mock.patch(
+            "scripts.ci_gate.load_execution_config",
+            return_value={"storage": {}, "runtime": {}, "_meta": {}},
         ), mock.patch("sys.argv", ["ci_gate.py"]):
             ci_gate.main()
 
@@ -49,7 +52,11 @@ class CiGateTests(unittest.TestCase):
                 break
 
         self.assertIsNotNone(compile_cmd)
-        self.assertIn("observer.py", compile_cmd)
+        self.assertEqual(compile_cmd[:3], [mock.ANY, "-m", "compileall"])
+        self.assertIn("executor.py", compile_cmd)
+        self.assertIn("prodesk", compile_cmd)
+        self.assertIn("scripts", compile_cmd)
+        self.assertIn("tests", compile_cmd)
         self.assertNotIn("simulator.py", compile_cmd)
 
 

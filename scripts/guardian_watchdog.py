@@ -264,11 +264,13 @@ def evaluate_guard(
     recent_error_count: int,
     max_errors_in_window: int,
     mode_trigger_level: float,
-    trigger_on_kill_switch: bool,
-    require_chainlink_connected: bool,
-    require_book_feed_connected: bool,
-    chainlink_disconnect_min_age_sec: float,
-    book_feed_disconnect_min_age_sec: float,
+    trigger_on_kill_switch: bool = True,
+    require_chainlink_connected: bool = False,
+    require_book_feed_connected: bool = False,
+    require_gateway_heartbeat_healthy: bool = False,
+    chainlink_disconnect_min_age_sec: float = 20.0,
+    book_feed_disconnect_min_age_sec: float = 20.0,
+    gateway_heartbeat_max_age_sec: float = 12.0,
 ) -> Tuple[bool, str, Dict[str, Any]]:
     details: Dict[str, Any] = {
         "startup_elapsed_sec": startup_elapsed_sec,
@@ -326,10 +328,11 @@ def evaluate_guard(
         status_row=status_row,
         require_book_feed_connected_config=bool(require_book_feed_connected),
     )
+    details["lifecycle_phase"] = str(guard_requirements.get("lifecycle_phase") or "")
     details["runtime_state"] = str(guard_requirements.get("runtime_state") or "")
     details["active_targets_present"] = bool(guard_requirements.get("active_targets_present", False))
-    details["no_target_standdown"] = bool(guard_requirements.get("no_target_standdown", False))
-    details["book_feed_required"] = bool(guard_requirements.get("book_feed_required", False))
+    details["scan_phase"] = bool(guard_requirements.get("scan_phase", False))
+    details["market_truth_required"] = bool(guard_requirements.get("market_truth_required", False))
 
     if require_chainlink_connected:
         chainlink = status_row.get("chainlink")
@@ -353,7 +356,7 @@ def evaluate_guard(
                     details["disconnect_signal_strength"] = "strong_age_threshold"
                     return True, "chainlink_disconnected", details
 
-    if bool(guard_requirements.get("book_feed_required", False)):
+    if bool(guard_requirements.get("market_truth_required", False)):
         book_feed = status_row.get("book_feed")
         if isinstance(book_feed, dict) and bool(book_feed.get("enabled", False)):
             if not bool(book_feed.get("connected", False)):
@@ -373,6 +376,27 @@ def evaluate_guard(
                 elif age_val >= float(book_feed_disconnect_min_age_sec):
                     details["disconnect_signal_strength"] = "strong_age_threshold"
                     return True, "book_feed_disconnected", details
+
+    if require_gateway_heartbeat_healthy:
+        gateway = status_row.get("gateway")
+        if isinstance(gateway, dict) and bool(gateway.get("resting_orders_present", False)):
+            heartbeat_enabled = bool(gateway.get("heartbeat_enabled", False))
+            heartbeat_age_raw = gateway.get("heartbeat_last_success_age_sec")
+            heartbeat_age = float(heartbeat_age_raw) if isinstance(heartbeat_age_raw, (int, float)) else None
+            details["gateway"] = {
+                "heartbeat_enabled": heartbeat_enabled,
+                "heartbeat_last_success_age_sec": heartbeat_age,
+                "heartbeat_failures": int(gateway.get("heartbeat_failures", 0) or 0),
+                "resting_orders_present": True,
+                "max_heartbeat_age_sec": float(gateway_heartbeat_max_age_sec),
+                "matching_engine_status": str(gateway.get("matching_engine_status") or ""),
+            }
+            if not heartbeat_enabled:
+                return True, "gateway_heartbeat_disabled", details
+            if heartbeat_age is None:
+                return True, "gateway_heartbeat_missing", details
+            if heartbeat_age >= float(gateway_heartbeat_max_age_sec):
+                return True, "gateway_heartbeat_stale", details
 
     return False, "", details
 
@@ -510,8 +534,10 @@ def run_watchdog(args: argparse.Namespace) -> int:
             trigger_on_kill_switch=bool(args.trigger_on_kill_switch),
             require_chainlink_connected=bool(args.require_chainlink_connected),
             require_book_feed_connected=bool(args.require_book_feed_connected),
+            require_gateway_heartbeat_healthy=bool(getattr(args, "require_gateway_heartbeat_healthy", False)),
             chainlink_disconnect_min_age_sec=float(args.chainlink_disconnect_min_age_sec),
             book_feed_disconnect_min_age_sec=float(args.book_feed_disconnect_min_age_sec),
+            gateway_heartbeat_max_age_sec=float(getattr(args, "gateway_heartbeat_max_age_sec", 12.0)),
         )
         details["run_id"] = active_run_id or None
         details["authoritative_guard_mode"] = bool(authority.authoritative)
@@ -652,6 +678,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Arm guard when book feed is enabled but disconnected",
     )
     parser.add_argument(
+        "--require-gateway-heartbeat-healthy",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Arm guard when resting live orders exist but gateway heartbeat truth is missing, stale, or disabled",
+    )
+    parser.add_argument(
         "--chainlink-disconnect-min-age-sec",
         type=float,
         default=20.0,
@@ -662,6 +694,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=20.0,
         help="Require book feed last_msg_age_sec to exceed this before arming disconnect guard",
+    )
+    parser.add_argument(
+        "--gateway-heartbeat-max-age-sec",
+        type=float,
+        default=12.0,
+        help="Max tolerated gateway heartbeat_last_success_age_sec when resting live orders are present",
     )
     parser.add_argument(
         "--disconnect-confirm-polls",

@@ -82,23 +82,18 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
             result = run_audit(config_path=cfg_path)
         self.assertTrue(result["ok"], msg=str(result["findings"]))
 
-    def test_audit_flags_invalid_ws_url_and_timing(self):
+    def test_audit_flags_insecure_ws_url_and_queue_risk(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg_path = self._write_cfg(root)
             cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
             cfg["market_data"]["ws"]["url"] = "ws://insecure.local/ws"
-            cfg["market_data"]["ws"]["heartbeat_timeout_sec"] = 5
-            cfg["market_data"]["ws"]["ping_interval_sec"] = 5
-            cfg["market_data"]["ws"]["stale_after_sec"] = 6
             cfg["chainlink"]["max_queue_size"] = 500
             cfg_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
             result = run_audit(config_path=cfg_path)
         self.assertFalse(result["ok"])
         text = "\n".join(result["findings"])
         self.assertIn("market_data.ws:url_not_wss", text)
-        self.assertIn("market_data.ws:ping_interval_ge_heartbeat", text)
-        self.assertIn("market_data.ws:stale_after_ge_heartbeat", text)
         self.assertIn("chainlink:max_queue_size_too_low_or_invalid", text)
 
     def test_audit_flags_runtime_websocket_reliability_breaches(self):
@@ -166,6 +161,44 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
         self.assertIn("websocket_evidence_book_feed_thread_dead_rows", text)
         self.assertIn("websocket_evidence_chainlink_thread_dead_rows", text)
         self.assertIn("BRO-2201", result.get("error_codes", []))
+
+    def test_audit_flags_worker_fatal_and_restart_exhausted_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root)
+            run_id = "run-ws-fatal"
+            rows = [
+                {
+                    "ts_utc": "2026-01-01T00:00:00.000Z",
+                    "run_id": run_id,
+                    "book_feed": {
+                        "enabled": True,
+                        "connected": False,
+                        "worker_usable": False,
+                        "worker_fatal_reason": "queue_overflow",
+                        "worker_restart_exhausted": True,
+                    },
+                    "chainlink": {
+                        "enabled": True,
+                        "connected": False,
+                        "worker_usable": False,
+                        "worker_fatal_reason": "decode_error",
+                        "worker_restart_exhausted": True,
+                        "ordering_policy": self._ordering_policy_payload(),
+                        "ordering_classification_counts": self._ordering_class_counts(ordered=1),
+                    },
+                }
+            ]
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(config_path=cfg_path, log_dir=root, run_id=run_id)
+        self.assertFalse(result["ok"])
+        text = "\n".join(result["findings"])
+        self.assertIn("websocket_evidence_book_feed_worker_unusable_rows", text)
+        self.assertIn("websocket_evidence_book_feed_worker_restart_exhausted_rows", text)
+        self.assertIn("websocket_evidence_chainlink_worker_fatal_rows", text)
 
     def test_audit_supports_run_contract_bounded_replay(self):
         with tempfile.TemporaryDirectory() as td:

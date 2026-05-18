@@ -1,7 +1,7 @@
 {
   "schema_name": "solar_slug_maker_truth_semantics_map",
   "schema_version": 1,
-  "generated_utc_date": "2026-04-26",
+  "generated_utc_date": "2026-05-10",
   "weapon_alias": "Solar Slug Maker Cannon",
   "canonical_lane": "maker",
   "scope": "bounded_truth_and_pathway_schematic",
@@ -73,6 +73,16 @@
         "maker_multifill_complete_incorrect_ratio"
       ],
       "misuse_risk": "Complete outcomes are a subset of submits and should be compared against incomplete records deliberately."
+    },
+    "campaign_ledger_truth": {
+      "unit": "target_ref_campaign",
+      "surface": "nightly_soak_report financial_performance lane summaries and capital progression",
+      "example_metrics": [
+        "maker_net_pnl_usd",
+        "maker_closed_trade_count",
+        "maker_gross_settlement_notional_usd"
+      ],
+      "misuse_risk": "Campaign-ledger truth is realized cashflow plus settlement and should not be treated as fixed-horizon outcome truth or fill-event execution economics."
     }
   },
   "pathways": [
@@ -86,7 +96,7 @@
       ],
       "high_value_fields": [
         "maker_reference_direct_midpoint_activity",
-        "maker_reference_bounded_fallback_activity",
+        "maker_reference_missing_activity",
         "market_data_rest_ratio"
       ],
       "outputs_to_next_pathway": [
@@ -94,7 +104,9 @@
         "fair_probability_context",
         "market_data_health_context"
       ],
-      "plain_english": "This is the ruler and feed spine the maker lane uses to see the market."
+      "plain_english": "This is the ruler and feed spine the maker lane uses to see the market.",
+      "packet_2_owner_class": "runtime_owner_evidence",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "decision_cycle_edge_truth",
@@ -114,7 +126,9 @@
         "allowed_vs_blocked_decision_truth",
         "action_taken_truth"
       ],
-      "plain_english": "This is the what-did-maker-see and what-did-maker-choose layer."
+      "plain_english": "This is the what-did-maker-see and what-did-maker-choose layer.",
+      "packet_2_owner_class": "decision_truth_owner_evidence",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "stage_and_lane_eligibility",
@@ -132,7 +146,9 @@
       "outputs_to_next_pathway": [
         "maker_lane_authority_state"
       ],
-      "plain_english": "This answers whether maker was allowed to act before asking whether it should have acted."
+      "plain_english": "This answers whether maker was allowed to act before asking whether it should have acted.",
+      "packet_2_owner_class": "runtime_authority_truth",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "risk_sizing_quote_quality_friction",
@@ -152,7 +168,9 @@
         "submit_feasibility_truth",
         "pre_submit_friction_truth"
       ],
-      "plain_english": "This is the chambering and trigger-discipline layer for maker shots."
+      "plain_english": "This is the chambering and trigger-discipline layer for maker shots.",
+      "packet_2_owner_class": "mixed_runtime_leafs_plus_supporting_readout",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "submit_ownership_lifecycle",
@@ -172,7 +190,9 @@
         "order_identity_truth",
         "lifecycle_geometry_truth"
       ],
-      "plain_english": "This is where maker intent becomes a tracked order lifecycle instead of a decision row."
+      "plain_english": "This is where maker intent becomes a tracked order lifecycle instead of a decision row.",
+      "packet_2_owner_class": "lifecycle_owner_evidence",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "fill_event_execution_surface",
@@ -190,7 +210,9 @@
       "outputs_to_next_pathway": [
         "fill_event_execution_economics"
       ],
-      "plain_english": "This measures how fills behaved after the shot was taken, not whether the shot itself was wise."
+      "plain_english": "This measures how fills behaved after the shot was taken, not whether the shot itself was wise.",
+      "packet_2_owner_class": "supporting_fill_event_economics",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "outcome_truth_forensic_surface",
@@ -215,7 +237,9 @@
         "maker_wound_anatomy",
         "basis_and_horizon_context"
       ],
-      "plain_english": "This is the main autopsy layer for maker losses."
+      "plain_english": "This is the main autopsy layer for maker losses.",
+      "packet_2_owner_class": "outcome_owner_evidence",
+      "packet_2_call": "KEEP"
     },
     {
       "id": "harvest_compression_shop_tooling",
@@ -240,9 +264,121 @@
         "debug_readiness",
         "tuning_readiness"
       ],
-      "plain_english": "This is the shop gauge cluster that joins the artifact truth into a reusable instrument."
+      "plain_english": "This is the shop gauge cluster that joins the artifact truth into a reusable instrument.",
+      "packet_2_owner_class": "support_only_shop_tooling",
+      "packet_2_call": "KEEP_BUT_FENCE"
     }
   ],
+  "packet_2_classification_overlay": {
+    "companion_boards": [
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_AUTHORITY_CENSUS_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_GATE_LEGITIMACY_BOARD_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_DOCTRINE_PROPOSAL_DELTA_BOARD_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SUPPORT_TOOL_FENCE_BOARD_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_HISTORY_ONLY_DEMOTION_BOARD_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SMALL_LOSS_SCAR_TISSUE_BOARD_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_PATH_FORENSIC_SEMANTIC_AUDIT_2026-05-10.md",
+      "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_TIMING_OWNER_LAYER_2026-05-10.md"
+    ],
+    "current_code_hardening": {
+      "maker_live_river": [
+        "stage_and_sec_to_expiry_seed",
+        "maker_prereq_and_timing_gate",
+        "ws_source_legality",
+        "authoritative_market_reference_filter",
+        "competitiveness_profile",
+        "post_only_pre_submit_handling",
+        "selection_gate",
+        "risk_submit_legality",
+        "lifecycle_context_propagation",
+        "emitted_truth_and_validators"
+      ],
+      "timing_owner_layer": {
+        "maker_competitiveness_gate_window": "[15.0,20.0]",
+        "risk_new_exposure_gate": "blocks <=15.0 for maker because maker inherits the global threshold",
+        "effective_maker_new_risk_submit_window": "(15.0,20.0]",
+        "selection_gate_timing_fields_current_state": "dormant_unset_in_active_paper_profile"
+      }
+    },
+    "surface_classifications": [
+      {
+        "id": "market_reference_substrate",
+        "owner_class": "runtime_owner_law",
+        "packet_2_call": "KEEP",
+        "note": "Authoritative market-reference truth and required WS-book truth remain current runtime owners."
+      },
+      {
+        "id": "selection_gate_runtime_leafs",
+        "owner_class": "active_paper_runtime_leafs",
+        "packet_2_call": "KEEP",
+        "note": "Timing window, secondary confirmation, 350-dollar shot, and repeat-target calm remain active paper runtime leaves."
+      },
+      {
+        "id": "selection_gate_depth_multiple_delta",
+        "owner_class": "blueprint_default_lineage_delta",
+        "packet_2_call": "KEEP_BUT_FENCE",
+        "note": "The stronger 1.5x depth expectation is restored as current paper runtime steel and remains part of the cannon truth surface."
+      },
+      {
+        "id": "admission_shadow_bridge",
+        "owner_class": "research_bridge",
+        "packet_2_call": "KEEP_BUT_FENCE",
+        "note": "Admission-shadow and late-window probe surfaces are comparative research tools, not runtime authority."
+      },
+      {
+        "id": "harvest_compression_shop_tooling",
+        "owner_class": "support_only_shop_tool",
+        "packet_2_call": "KEEP_BUT_FENCE",
+        "note": "FMA may compress and compare truth but may not replace emitted runtime or validator truth."
+      }
+    ],
+    "history_only_demotions": [
+      {
+        "id": "drift_era_maker_timing_language",
+        "class": "historical_only",
+        "note": "Older 45-60s and 50-60s maker timing language may explain ancestry but may not own current Packet 2 doctrine."
+      },
+      {
+        "id": "old_maker_lag_owner_story",
+        "class": "historical_only",
+        "note": "The old token_lag_not_verified_for_maker story is not the stable current blocker owner on present code."
+      }
+    ],
+    "scar_tissue_candidates": [
+      {
+        "id": "dust_family",
+        "packet_2_call": "CUT_CURRENT_LIVE_AUTHORITY",
+        "note": "Current code removes dust shadow and enforcement authority; only descriptive dust classification and narrow non-defect retired-market handling remain."
+      },
+      {
+        "id": "maker_recovery_family",
+        "packet_2_call": "CUT_MAKER_PRIVILEGES_KEEP_SHARED_SAFETY_SPINE",
+        "note": "Current code cuts maker-side recovery privileges and demotes the old shared recovery spine to historical compatibility lineage; it is no longer current owner-law."
+      },
+      {
+        "id": "queue_pressure_family",
+        "packet_2_call": "CUT_HISTORICAL_ONLY_LINEAGE",
+        "note": "Current code removed the queue-pressure runtime/config/report family; only legacy-config ignored compatibility and historical replay lineage remain."
+      }
+    ],
+    "small_loss_focus": [
+      {
+        "id": "complete_outcome_truth",
+        "priority": "primary_trace",
+        "note": "Completion bias, multifill wound geometry, and target-cluster families are the strongest direct candidates for recurring small negative maker dollars."
+      },
+      {
+        "id": "fill_event_execution_surface",
+        "priority": "supporting_only",
+        "note": "Fill-event execution economics matter but do not own the final loss verdict alone."
+      },
+      {
+        "id": "market_reference_substrate",
+        "priority": "foundation_trace",
+        "note": "Truth-thin market-reference rows can poison every downstream economic reading if their owner boundary is ignored."
+      }
+    ]
+  },
   "hotspot_families": [
     {
       "id": "completion_bias",

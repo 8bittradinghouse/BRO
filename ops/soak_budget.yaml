@@ -32,10 +32,10 @@ websocket:
   max_lines_per_file: 50000
   max_book_feed_down_ratio: 0.20
   max_chainlink_down_ratio: 0.20
-  # Paper harness realism: websocket is primary; REST fallback is bounded.
+  # Paper harness realism: pair-truth collapse must remain exceptional.
   min_book_updates_total_delta: 1
   min_book_updates_ws_delta: 1
-  max_book_updates_rest_ratio: 0.35
+  max_pair_truth_missing_pair_row_ratio: 0.0
   max_book_feed_reconnects_per_hour: 40
   max_chainlink_reconnects_per_hour: 40
   max_book_feed_last_msg_age_sec: 12
@@ -59,7 +59,7 @@ soak:
   min_duration_minutes: 10
   min_quote_uptime_ratio: 0.05
   max_error_rows: 0
-  max_preexpiry_404_anomaly_count: 0
+  max_preexpiry_ws_missing_or_unusable_anomaly_count: 0
   max_lifecycle_context_mismatch_count: 0
   max_lifecycle_context_missing_sec_to_expiry_count: 0
   max_valuation_hard_degraded_unrecovered_count: 0

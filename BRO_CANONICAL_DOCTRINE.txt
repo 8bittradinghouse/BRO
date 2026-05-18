@@ -107,8 +107,18 @@ Required semantic laws:
 - one term, one meaning
 - one decision boundary, one owner
 - one blocker lane, one authoritative report owner
+- one bot, one profile, one fingerprint, one truth, one authoritative target
+  pair
 - downstream surfaces consume upstream truth; they do not reinterpret it into a
   second dialect
+
+Target-pair authority law:
+
+- only one actionable pair may be authoritative for runtime truth at a time
+- pending/prewarm candidates may exist for controlled warm-up, but they have
+  zero decision authority and zero runtime health authority
+- held/open-order lifecycle watch may persist for cleanup and settlement, but
+  lifecycle watch truth must not impersonate active target-pair truth
 
 Forbidden semantic failure modes:
 
@@ -239,10 +249,10 @@ Additional deployed value vocabulary:
 | `promotion_eligibility_hint` | `true`, `false` | live runtime posture hint only; not final promotion classification |
 | `transition_reason_code` | `runtime_state_changed`, `book_requirement_changed`, `kill_switch_engaged`, `targets_activated`, `targets_absent` | runtime-transition explanation only |
 | `secondary_oracle_status` | `confirmed`, `direction_mismatch`, `disabled`, `unknown` | emitted selection/oracle status only; compatibility input `available` must normalize to `unknown` before emission |
-| `market_reference_basis` | `direct_book_midpoint`, `ws_recent_paired_touch`, `ws_single_side_touch`, `missing` | emitted reference-formation basis only; report-only `report_book_top_pair_backfill` remains a downstream reconstructed basis label |
-| `market_reference_confidence` | `authoritative`, `bounded_low`, `none` | emitted confidence tier for reference formation only |
+| `market_reference_basis` | `direct_book_midpoint`, `ws_recent_paired_touch`, `missing` | emitted reference-formation basis only; report-only `report_book_top_pair_backfill` remains a downstream reconstructed basis label |
+| `market_reference_confidence` | `authoritative`, `none` | emitted confidence tier for reference formation only |
 | `decision_input_source` | `ws`, `rest`, `chainlink`, `replay`, `replayed`, `paper`, `simulated`, `synthetic`, `emulated`, `unknown` | emitted decision-input source only; type/class carry the normalized doctrine meaning |
-| `decision_input_type` | `observed_live`, `replayed`, `bounded_derived`, `emulated`, `unknown` | emitted decision-input provenance only |
+| `decision_input_type` | `observed_live`, `observed_other`, `replayed`, `emulated`, `unknown` | emitted decision-input provenance only |
 | `decision_input_data_class` | `observed_live`, `observed_other`, `emulated`, `unknown` | emitted input data-class disclosure only |
 | `authority_status_class` | `authoritative`, `bootstrap_non_authoritative` | live wallet/startup authority vocabulary; `legacy_fallback_non_authoritative` is report/readout fallback only |
 | `startup_authority_ready` | `true`, `false` | wallet/startup readiness fact only |
@@ -251,8 +261,8 @@ Additional deployed value vocabulary:
 | `canonical_live_pending_wallet_tx_available` | `true`, `false` | wallet live pending-wallet-tx availability fact only |
 | `financial_posture_class` | `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, `HALT_NEW_RISK` | lifecycle/risk posture only |
 | `decision_result` | `submitted`, `submit_rejected`, `selection_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged` | submit-path/local order-manager outcome only |
-| `execution_realism_class` | `bounded_approximation`, `not_modeled` | emitted paper-realism classification only |
-| `claim_boundary_class` | `bounded_approximation`, `not_provable_missing_inputs`, `not_modeled_incomplete_lifecycle` | outcome-layer claim boundary only |
+| `execution_realism_class` | `not_modeled` | emitted paper-realism classification only |
+| `claim_boundary_class` | `not_provable_missing_inputs`, `not_modeled_incomplete_lifecycle` | outcome-layer claim boundary only |
 | `record_claim_boundary_class` | `complete`, `partial_missing_data`, `incomplete_lifecycle`, `missing_decision_reference`, `missing_eval_reference`, `unknown` | record-level outcome completeness boundary only |
 | `outcome_truth_status` | `complete`, `unknown_missing_data`, `unknown_incomplete_lifecycle`, `unknown_missing_decision_reference`, `unknown_missing_eval_reference`, `unknown_missing_linkage` | outcome completeness/status only |
 
@@ -287,7 +297,6 @@ Cross-system truth/surface classes:
 | Class | Meaning |
 | --- | --- |
 | `authoritative` | direct truth that may drive or close a decision boundary |
-| `bounded_approximation` | usable bounded truth, but not full authority |
 | `not_available` | emitted fail-closed reference-absence class when required truth is unavailable |
 | `descriptive_only` | research/support surface only |
 | `historical` | archive or lineage surface from prior runs/states |
@@ -343,7 +352,7 @@ They may not:
 | Runtime transition consumers | `runtime_state_transition`, lifecycle audits | `previous_runtime_state`, `runtime_state`, `previous_book_feed_required`, `book_feed_required`, `transition_reason_code`, `transition_reason_detail` | truth owner within transition domain | treating transition detail as steady-state doctrine or promotion proof |
 | Edge truth consumers | `edge_evaluation`, edge audit/runbook | `maker_allowed`, `taker_allowed`, `action_taken`, `block_reason`, `submitted`, `filled`, `result`, `evaluation_scope`, `decision_input_*`, `target_ref`, `source_target_ref`, market-reference qualifiers, `secondary_oracle_status`, `secondary_oracle_confirmation`, `financial_posture_class` | truth owner | treating stage permission as quoteability or submit authority |
 | Wallet authority consumers | wallet status, wallet health, readiness gates | `canonical_live_wallet_truth`, domain truth containers, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, canonical-live availability/detail fields, `live_truth_gap_reasons` | truth owner within wallet domain | treating wallet/startup authority as market-truth language |
-| Quote/order consumers | competitiveness context, order-manager handoff | `market_reference_class`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `target_ref`, `block_reason`, `decision_block_reason`, `decision_result`, `financial_posture_class` | truth owner for quote/submit path decisions | upgrading bounded truth to authoritative by report logic |
+| Quote/order consumers | competitiveness context, order-manager handoff | `market_reference_class`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `target_ref`, `block_reason`, `decision_block_reason`, `decision_result`, `financial_posture_class` | truth owner for quote/submit path decisions | upgrading missing or non-authoritative truth into authoritative truth by report logic |
 | Paper-harness / realism consumers | canonical paper validation, fill artifacts, audit recipes | `execution_realism_class`, `decision_input_*`, `target_ref` | truth owner within paper-realism domain | treating realism grade as market authority or outcome completeness |
 | Outcome truth consumers | outcome truth audit and attribution layers | `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status`, linked upstream live contract names | truth owner within outcome domain | rewriting upstream runtime meaning or collapsing unlike ownership layers |
 | Report/gate consumers | reports, audits, readiness/soak/promotion gates | emitted live contract names, `promotion_eligible`, canonical blocker-lane map, linked outcome-truth terms | truth consumer | renaming, upgrading, or re-owning upstream meaning |

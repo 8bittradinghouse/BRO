@@ -7,6 +7,15 @@ import time
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from .common import parse_ts, utc_now
+from .edge_truth_contract import (
+    EDGE_CHALLENGER_MARKET_REF_FIELD,
+    EDGE_LIFECYCLE_PHASE_FIELD,
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
+    EDGE_MARKET_TRUTH_REQUIRED_FIELD,
+    EDGE_OWNED_MARKET_REF_FIELD,
+    EDGE_TAKER_PHASE_ALLOWED_FIELD,
+    lifecycle_phase_from_payload,
+)
 from .exposure_classifier import (
     EXPOSURE_CLASS_DUST_ELIGIBLE,
     EXPOSURE_CLASS_DUST_QUARANTINED,
@@ -41,8 +50,6 @@ class RiskEngine:
         self._valuation_hard_degraded: bool = False
         self._valuation_degraded_reasons: List[str] = []
         self._exposure_class_by_token: Dict[str, str] = {}
-        self._dust_capacity_enforce_enabled: bool = False
-        self._dust_capacity_candidate_token_ids: List[str] = []
         self._last_mark_to_market_skipped_nonflat_by_class: Dict[str, int] = {}
 
     def set_kill_switch(self, reason: str) -> None:
@@ -67,7 +74,6 @@ class RiskEngine:
         self,
         *,
         exposure_class_by_token: Optional[Dict[str, Any]] = None,
-        dust_capacity_enforce_enabled: Optional[bool] = None,
     ) -> None:
         raw = exposure_class_by_token if isinstance(exposure_class_by_token, dict) else {}
         normalized: Dict[str, str] = {}
@@ -78,23 +84,6 @@ class RiskEngine:
             klass = str(exposure_class or "").strip().upper() or EXPOSURE_CLASS_MEANINGFUL
             normalized[token] = klass
         self._exposure_class_by_token = normalized
-        if dust_capacity_enforce_enabled is not None:
-            self._dust_capacity_enforce_enabled = bool(dust_capacity_enforce_enabled)
-        self._dust_capacity_candidate_token_ids = sorted(
-            token_id
-            for token_id, klass in normalized.items()
-            if str(klass).strip().upper() in {EXPOSURE_CLASS_DUST_ELIGIBLE, EXPOSURE_CLASS_DUST_QUARANTINED}
-        )
-
-    def _dust_capacity_snapshot(self) -> Dict[str, Any]:
-        cap = int(float(self.cfg.get("position_dust_token_count_cap", 0) or 0))
-        candidate_ids = list(self._dust_capacity_candidate_token_ids)
-        return {
-            "enabled": bool(self._dust_capacity_enforce_enabled and cap > 0),
-            "candidate_count": int(len(candidate_ids)),
-            "token_count_cap": int(cap),
-            "candidate_token_ids": candidate_ids,
-        }
 
     @classmethod
     def _is_flat_position(cls, net_shares: float) -> bool:
@@ -446,21 +435,10 @@ class RiskEngine:
         used = len(self.order_timestamps) + int(self._order_submission_reserved_outstanding)
         return max(0, soft - used)
 
-    def _order_rate_recovery_reserved_slots(self, *, limit: int) -> int:
-        raw = self.cfg.get("order_rate_recovery_reserved_slots", 0)
-        try:
-            reserved = int(float(raw or 0.0))
-        except (TypeError, ValueError):
-            reserved = 0
-        return max(0, min(int(reserved), max(0, int(limit) - 1)))
-
     def order_capacity_state(self, soft_limit_pct: float = 1.0) -> Dict[str, int]:
         self._prune()
         limit = max(1, int(self.cfg["max_orders_per_min"]))
         soft_limit = max(1, int(math.floor(limit * float(soft_limit_pct))))
-        reserved_recovery_slots = self._order_rate_recovery_reserved_slots(limit=limit)
-        non_recovery_hard_limit = max(1, int(limit - reserved_recovery_slots))
-        non_recovery_soft_limit = max(0, int(soft_limit - reserved_recovery_slots))
         accepted_used = int(len(self.order_timestamps))
         reserved_outstanding = max(0, int(self._order_submission_reserved_outstanding))
         transport_attempted_recent = int(len(self.order_submission_transport_attempt_timestamps))
@@ -468,17 +446,17 @@ class RiskEngine:
         return {
             "orders_limit": int(limit),
             "orders_soft_limit": int(soft_limit),
-            "orders_recovery_reserved_slots": int(reserved_recovery_slots),
-            "orders_hard_limit_non_recovery": int(non_recovery_hard_limit),
-            "orders_soft_limit_non_recovery": int(non_recovery_soft_limit),
+            "orders_recovery_reserved_slots": 0,
+            "orders_hard_limit_non_recovery": int(limit),
+            "orders_soft_limit_non_recovery": int(soft_limit),
             "orders_used_accepted": int(accepted_used),
             "orders_reserved_outstanding": int(reserved_outstanding),
             "orders_transport_attempted_recent": int(transport_attempted_recent),
             "orders_soft_effective_used": int(effective_used),
             "orders_soft_remaining": int(max(0, soft_limit - effective_used)),
-            "orders_soft_remaining_non_recovery": int(max(0, non_recovery_soft_limit - effective_used)),
+            "orders_soft_remaining_non_recovery": int(max(0, soft_limit - effective_used)),
             "orders_hard_remaining_recovery": int(max(0, limit - accepted_used)),
-            "orders_hard_remaining_non_recovery": int(max(0, non_recovery_hard_limit - accepted_used)),
+            "orders_hard_remaining_non_recovery": int(max(0, limit - accepted_used)),
         }
 
     def remaining_cancel_capacity(self, soft_limit_pct: float = 1.0) -> int:
@@ -570,7 +548,8 @@ class RiskEngine:
             size=float(intent.size),
         )
         financial_posture_class = str(context.get("financial_posture_class") or "UNKNOWN").strip().upper()
-        reduce_only_recovery_active = bool(context.get("reduce_only_recovery_active", False))
+        open_order_cleanup_required = bool(context.get("open_order_cleanup_required", False))
+        settlement_hold_required = bool(context.get("settlement_hold_required", False))
         require_lifecycle_context_for_decisions = bool(
             context.get("require_lifecycle_context_for_decisions", False)
         )
@@ -578,33 +557,63 @@ class RiskEngine:
         lifecycle_context_present = bool(sec_to_expiry is not None)
         lifecycle_context_missing_reason = str(context.get("lifecycle_context_missing_reason") or "").strip()
         lifecycle_context_mismatch = bool(context.get("lifecycle_context_mismatch", False))
-        if reduce_only_recovery_active and financial_posture_class == "NORMAL":
-            lifecycle_context_mismatch = True
-            if not lifecycle_context_missing_reason:
-                lifecycle_context_missing_reason = "reduce_only_recovery_active_with_normal_financial_posture"
-        reduce_only_recovery_priority = bool(reduce_only_recovery_active and pure_risk_reducing_intent)
-        context_stage = str(context.get("stage") or "").strip().upper() or "UNKNOWN"
+        context_lifecycle_phase = str(lifecycle_phase_from_payload(context) or "").strip().lower() or "scan"
         context_submission_lane = str(context.get("submission_lane") or "").strip().lower() or "unknown"
+        market_truth_required = bool(context.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, False))
+        maker_phase_allowed = bool(
+            context.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, context_lifecycle_phase == "maker_window")
+        )
+        taker_phase_allowed = bool(
+            context.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, context_lifecycle_phase == "taker_window")
+        )
         early_basis_base: Dict[str, Any] = {
             "submission_lane": str(context_submission_lane),
-            "stage": str(context_stage),
+            EDGE_LIFECYCLE_PHASE_FIELD: str(context_lifecycle_phase),
             "financial_posture_class": str(financial_posture_class),
             "sec_to_expiry": sec_to_expiry,
-            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-            "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+            EDGE_MARKET_TRUTH_REQUIRED_FIELD: bool(market_truth_required),
+            EDGE_MAKER_PHASE_ALLOWED_FIELD: bool(maker_phase_allowed),
+            EDGE_TAKER_PHASE_ALLOWED_FIELD: bool(taker_phase_allowed),
+            EDGE_OWNED_MARKET_REF_FIELD: (
+                str(context.get(EDGE_OWNED_MARKET_REF_FIELD) or "").strip() or None
+            ),
+            EDGE_CHALLENGER_MARKET_REF_FIELD: (
+                str(context.get(EDGE_CHALLENGER_MARKET_REF_FIELD) or "").strip() or None
+            ),
+            "open_order_cleanup_required": bool(open_order_cleanup_required),
+            "settlement_hold_required": bool(settlement_hold_required),
             "lifecycle_context_present": bool(lifecycle_context_present),
             "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
             "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
             "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
         }
-        if lifecycle_context_mismatch and (not pure_risk_reducing_intent):
+        if open_order_cleanup_required:
+            return RiskDecision(
+                False,
+                "open_order_cleanup_required",
+                "open unfilled order cleanup owns the token lifecycle; no new submit is legal",
+                basis={
+                    **early_basis_base,
+                    "risk_authority": "lifecycle_cleanup",
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                },
+            )
+        if settlement_hold_required:
+            return RiskDecision(
+                False,
+                "settlement_hold_required",
+                "accepted exposure is held to settlement; no in-cycle recovery submit is legal",
+                basis={
+                    **early_basis_base,
+                    "risk_authority": "settlement_hold",
+                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
+                },
+            )
+        if lifecycle_context_mismatch:
             return RiskDecision(
                 False,
                 "lifecycle_context_posture_mismatch_blocked",
-                (
-                    "risk-increasing intent blocked because "
-                    "reduce_only_recovery_active is incompatible with NORMAL posture"
-                ),
+                "submission blocked because lifecycle posture is internally contradictory",
                 basis={
                     **early_basis_base,
                     "risk_authority": "lifecycle_context",
@@ -614,12 +623,11 @@ class RiskEngine:
         if (
             context_submission_lane == "taker"
             and str(intent.side or "").strip().upper() == "SELL"
-            and (not pure_risk_reducing_intent)
         ):
             return RiskDecision(
                 False,
                 "normal_taker_same_token_sell_forbidden",
-                "normal taker same-token SELL is forbidden unless the intent is pure reduce-only",
+                "normal taker same-token SELL is forbidden",
                 basis={
                     **early_basis_base,
                     "risk_authority": "taker_side_policy",
@@ -641,34 +649,8 @@ class RiskEngine:
                     "terminal_unwind_halt_new_risk_active": True,
                 },
             )
-        dust_capacity_snapshot = self._dust_capacity_snapshot()
-        if (
-            bool(dust_capacity_snapshot.get("enabled", False))
-            and int(dust_capacity_snapshot.get("candidate_count", 0)) >= int(
-                dust_capacity_snapshot.get("token_count_cap", 0)
-            )
-            and not pure_risk_reducing_intent
-        ):
-            return RiskDecision(
-                False,
-                "dust_token_capacity_exhausted",
-                (
-                    f"candidate_count={int(dust_capacity_snapshot.get('candidate_count', 0))}"
-                    f">=cap={int(dust_capacity_snapshot.get('token_count_cap', 0))}"
-                ),
-                basis={
-                    **early_basis_base,
-                    "risk_authority": "dust_capacity",
-                    "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
-                    "dust_capacity_guard": dust_capacity_snapshot,
-                },
-            )
         order_capacity = self.order_capacity_state(soft_limit_pct=1.0)
-        hard_limit = (
-            int(order_capacity.get("orders_limit") or 0)
-            if reduce_only_recovery_priority
-            else int(order_capacity.get("orders_hard_limit_non_recovery") or 0)
-        )
+        hard_limit = int(order_capacity.get("orders_limit") or 0)
         if int(order_capacity.get("orders_used_accepted") or 0) >= int(hard_limit):
             return RiskDecision(
                 False,
@@ -683,12 +665,6 @@ class RiskEngine:
                     "risk_reduction_only_intent": bool(pure_risk_reducing_intent),
                     "order_rate_limit_basis": {
                         "orders_limit": int(order_capacity.get("orders_limit") or 0),
-                        "orders_hard_limit_non_recovery": int(
-                            order_capacity.get("orders_hard_limit_non_recovery") or 0
-                        ),
-                        "orders_recovery_reserved_slots": int(
-                            order_capacity.get("orders_recovery_reserved_slots") or 0
-                        ),
                         "orders_used_accepted": int(order_capacity.get("orders_used_accepted") or 0),
                     },
                 },
@@ -712,23 +688,7 @@ class RiskEngine:
                 )
 
         min_order_size = float(self.cfg["min_order_size"])
-        reduce_only_terminal_min_notional_usd = float(
-            self.cfg.get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
-        )
-        terminal_reduce_only_posture = financial_posture_class in {
-            "PREEXPIRY_REDUCE_ONLY",
-            "HARD_DEGRADED_REDUCE_ONLY",
-            "HALT_NEW_RISK",
-        }
-        terminal_reduce_only_notional_exemption = bool(
-            reduce_only_recovery_priority
-            and terminal_reduce_only_posture
-            and float(intent.size) + 1e-9 < min_order_size
-            and reduce_only_terminal_min_notional_usd > 0.0
-            and float(intent.price) > 0.0
-            and (float(intent.size) * float(intent.price) + 1e-9) >= reduce_only_terminal_min_notional_usd
-        )
-        if float(intent.size) < min_order_size and (not terminal_reduce_only_notional_exemption):
+        if float(intent.size) < min_order_size:
             return RiskDecision(
                 False,
                 "size_too_small",
@@ -798,7 +758,7 @@ class RiskEngine:
         basis_base: Dict[str, Any] = {
             "risk_authority": "risk_engine_v2",
             "submission_lane": str(context_submission_lane),
-            "stage": str(context_stage),
+            EDGE_LIFECYCLE_PHASE_FIELD: str(context_lifecycle_phase),
             "financial_posture_class": str(financial_posture_class),
             "sec_to_expiry": sec_to_expiry,
             "min_sec_to_expiry_for_new_exposure": float(min_sec_to_expiry_for_new_exposure),
@@ -809,14 +769,21 @@ class RiskEngine:
             "dynamic_scaling": dynamic_scaling_basis,
             "valuation_hard_degraded": bool(self._valuation_hard_degraded),
             "valuation_degraded_reasons": list(self._valuation_degraded_reasons),
-            "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-            "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
+            EDGE_MARKET_TRUTH_REQUIRED_FIELD: bool(market_truth_required),
+            EDGE_MAKER_PHASE_ALLOWED_FIELD: bool(maker_phase_allowed),
+            EDGE_TAKER_PHASE_ALLOWED_FIELD: bool(taker_phase_allowed),
+            EDGE_OWNED_MARKET_REF_FIELD: (
+                str(context.get(EDGE_OWNED_MARKET_REF_FIELD) or "").strip() or None
+            ),
+            EDGE_CHALLENGER_MARKET_REF_FIELD: (
+                str(context.get(EDGE_CHALLENGER_MARKET_REF_FIELD) or "").strip() or None
+            ),
+            "open_order_cleanup_required": bool(open_order_cleanup_required),
+            "settlement_hold_required": bool(settlement_hold_required),
             "lifecycle_context_present": bool(lifecycle_context_present),
             "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
             "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
             "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
-            "reduce_only_terminal_min_notional_usd": float(reduce_only_terminal_min_notional_usd),
-            "terminal_reduce_only_notional_exemption": bool(terminal_reduce_only_notional_exemption),
             "effective_caps": {
                 "max_abs_position_shares_base": float(max_abs_position_base),
                 "max_abs_position_shares_effective": float(max_abs_position_effective),
@@ -826,8 +793,6 @@ class RiskEngine:
             },
             "order_rate_limit_basis": {
                 "orders_limit": int(order_capacity.get("orders_limit") or 0),
-                "orders_hard_limit_non_recovery": int(order_capacity.get("orders_hard_limit_non_recovery") or 0),
-                "orders_recovery_reserved_slots": int(order_capacity.get("orders_recovery_reserved_slots") or 0),
                 "orders_used_accepted": int(order_capacity.get("orders_used_accepted") or 0),
             },
             "intent_exposure_class": str(

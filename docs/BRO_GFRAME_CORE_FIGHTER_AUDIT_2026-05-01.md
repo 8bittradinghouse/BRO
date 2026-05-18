@@ -1,5 +1,11 @@
 # BRO G-Frame Core Fighter Audit
 
+## Classification
+- `current owner`
+- this is the active G-frame / whole-fighter board sink
+- legacy stage-family terms may appear only as bounded historical evidence, not
+  as current lifecycle doctrine
+
 ## Purpose
 This packet answers two linked questions without collapsing them into one muddy
 label:
@@ -241,7 +247,7 @@ Current evidence:
       carry direct-midpoint market-reference truth with confirmed
       `secondary_oracle_*` and non-null `secondary_fair_probability`
     - the same-time null-oracle duplicates are taker-scope
-      `stage_disallow_taker` rows, not a proven maker-scope owner split
+      `phase_disallow_taker` rows, not a proven maker-scope owner split
     - `maker_fight_admission_shadow` matches the maker-scope rows on this
       specimen
   - that means the highest currently-proven Brain breach returns to
@@ -307,9 +313,9 @@ Open contradictions:
   - `8a389...` late-window rewrites
   - `7b4c...` late + mid-window rewrites
   - `bc4...` mid-window rewrites
-- the earlier stronger runtime-owner split claim still remains unproven:
+  - the earlier stronger runtime-owner split claim still remains unproven:
   - same-time null rows in the maker band on `bc4...` are taker-scope
-    `stage_disallow_taker` evaluations
+    `phase_disallow_taker` evaluations
   - maker-scope `edge_evaluation` and `maker_fight_admission_shadow` align on
     that specimen
 - the remaining open downstream consumer-chain questions now belong to the
@@ -317,7 +323,7 @@ Open contradictions:
 
 Pass 1 finding:
 - doctrine root is materially stronger and mostly coherent
-- emitter ownership for `maker_allowed`, `secondary_oracle_*`,
+- emitter ownership for `maker_phase_allowed`, `secondary_oracle_*`,
   `market_reference_*`, and `decision_input_*` is mostly explicit on the active
   path
 
@@ -378,7 +384,7 @@ Current evidence:
 - active doctrine timing remains the intended `15-20s` maker window
 - the old runtime/live-tape choke on the prior anchor `8db2...` was source-layer
   lag verification:
-  - active near-expiry rows reached `maker_allowed=true`
+- active near-expiry rows reached `maker_phase_allowed=true`
   - those rows carried `maker_prereq_ok=false`
   - the emitted prereq reason was `token_lag_not_verified_for_maker`
 - live under-the-hood inspection on the repaired current anchor `8a389...`
@@ -389,7 +395,7 @@ Current evidence:
   - active trading tokens retain `leadlag_verified=1.0`
 - fresh live Packet 2 red-team specimen `d30...` reconfirms the same closure on
   a new current-code run:
-  - doctrinal `15-20s` rows carry `maker_allowed=true` and `maker_prereq_ok=true`
+  - doctrinal `15-20s` rows carry `maker_phase_allowed=true` and `maker_prereq_ok=true`
   - current event tape contains `0` occurrences of
     `token_lag_not_verified_for_maker`
   - live actionability survives to:
@@ -433,7 +439,7 @@ Current evidence:
     no unexplained maker-core choke remains on the clean paper specimen
 - downstream nightly/waterfall summaries remain subordinate consumers and may
   still compress historical failure surfaces into
-  `secondary_oracle_not_confirmed` / `stage_disallow_maker`
+  `secondary_oracle_not_confirmed` / `phase_disallow_maker`
 - for spinal-cord closure work, runtime/doctrine events, canonical validation,
   and watched current-code tape remain the diagnostic owner; downstream report
   compression is subordinate consumer evidence only

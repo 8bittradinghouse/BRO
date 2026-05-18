@@ -50,7 +50,6 @@ Operator runbooks:
 ## Repository layout
 
 - `executor.py`: internal execution engine (not an operator entrypoint)
-- `observer.py`: read-only market observer (no trading path)
 - `prodesk/`: modular execution/risk/feeds/security code
 - `configs/`: BTC/SOL/XRP paper/live config examples
 - `scripts/`: readiness/security/reconciliation/backup/CI tooling
@@ -455,17 +454,7 @@ python scripts/ops_brief.py --log-dir ./logs_exec/paper_universal --run-id <run_
 python scripts/desk_trade_report.py --log-dir ./logs_exec/paper_universal --date $(date -u +%F)
 ```
 
-## Observer and analysis tools
-
-- Read-only observer:
-```bash
-python observer.py --config configs/profiles/paper_universal.yaml
-```
-
-- Microstructure analysis:
-```bash
-python analyze.py --log-dir ./logs
-```
+## Analysis tools
 
 - Lead/lag analysis:
 ```bash
@@ -475,5 +464,16 @@ python analyze_leadlag.py --log-dir ./logs_exec
 ## Notes
 
 - This repo contains trading execution code paths. It is not observer-only.
+- Official canonical substrate path is:
+  - `py-clob-client-v2` for trading/auth
+  - `bro-market-stream-worker` for market websocket truth
+  - `bro-rtds-stream-worker` for RTDS/oracle truth
+- Phase 2 WS/CLOB closure hardening remains `NO-GO` for closure-grade claims
+  until the remaining live proof is clean:
+  - deterministic container build proof is landed
+  - watched 20-minute paper specimen plus under-the-hood artifact review still remain
 - Keep defaults in paper until preflight, soak, and reconciliation checks are clean.
 - Use `DRILLBOOK.md` as the run procedure for unattended live operation.
+- Legacy custom-websocket observer-family tooling has been retired from the
+  active repo path; canonical diagnostics live on the official stream-worker
+  substrate and the runtime/paper audit stack above.

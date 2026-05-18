@@ -189,6 +189,15 @@ def run_gate(
     max_chainlink_last_tick_age_p95_sec: float,
     max_chainlink_dropped_ticks: float,
     max_chainlink_queue_size: float,
+    max_book_feed_worker_unusable_rows: int = 0,
+    max_chainlink_worker_unusable_rows: int = 0,
+    max_book_feed_worker_restart_exhausted_rows: int = 0,
+    max_chainlink_worker_restart_exhausted_rows: int = 0,
+    max_gateway_heartbeat_age_sec: float = 12.0,
+    max_gateway_heartbeat_missing_or_invalid_rows: int = 0,
+    max_gateway_heartbeat_disabled_resting_rows: int = 0,
+    max_gateway_matching_engine_error_rows: int = 0,
+    max_gateway_matching_engine_restart_window_age_sec: float = 30.0,
     max_lines_per_file: int = DEFAULT_MAX_LINES_PER_FILE,
     max_book_feed_last_msg_age_spike_rows: int = 0,
     max_chainlink_last_tick_age_spike_rows: int = 0,
@@ -273,9 +282,22 @@ def run_gate(
     missing_chain_dropped_count = 0
     book_age_spike_rows = 0
     chain_age_spike_rows = 0
+    gateway_heartbeat_missing_or_invalid_rows = 0
+    gateway_heartbeat_disabled_resting_rows = 0
+    gateway_heartbeat_stale_rows = 0
+    gateway_matching_engine_error_rows = 0
+    gateway_matching_engine_restart_window_rows = 0
+    max_gateway_heartbeat_age = 0.0
+    max_gateway_heartbeat_failures = 0.0
+    max_gateway_matching_engine_restart_window_age = 0.0
+    book_worker_unusable_rows = 0
+    chain_worker_unusable_rows = 0
+    book_worker_restart_exhausted_rows = 0
+    chain_worker_restart_exhausted_rows = 0
     for row in rows:
         book = _as_dict(row.get("book_feed"))
         chain = _as_dict(row.get("chainlink"))
+        gateway = _as_dict(row.get("gateway"))
         if not book:
             missing_book_count += 1
         if not chain:
@@ -287,12 +309,20 @@ def run_gate(
         if not chain_connected:
             chain_down_count += 1
         if book:
+            if bool(book.get("enabled", False)) and not _as_bool(book.get("worker_usable"), default=True):
+                book_worker_unusable_rows += 1
+            if _as_bool(book.get("worker_restart_exhausted"), default=False):
+                book_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(book)
             if reconnects is None:
                 missing_book_reconnect_count += 1
             else:
                 max_book_reconnects = max(max_book_reconnects, float(reconnects))
         if chain:
+            if bool(chain.get("enabled", False)) and not _as_bool(chain.get("worker_usable"), default=True):
+                chain_worker_unusable_rows += 1
+            if _as_bool(chain.get("worker_restart_exhausted"), default=False):
+                chain_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(chain)
             if reconnects is None:
                 missing_chain_reconnect_count += 1
@@ -330,6 +360,33 @@ def run_gate(
                 missing_chain_dropped_count += 1
             else:
                 max_chain_dropped = max(max_chain_dropped, float(dropped_ticks))
+        if gateway:
+            resting_orders_present = _as_bool(gateway.get("resting_orders_present"), default=False)
+            heartbeat_enabled = _as_bool(gateway.get("heartbeat_enabled"), default=False)
+            heartbeat_age = _coerce_float(gateway.get("heartbeat_last_success_age_sec"))
+            heartbeat_failures = _coerce_float(gateway.get("heartbeat_failures"))
+            if heartbeat_failures is not None:
+                max_gateway_heartbeat_failures = max(max_gateway_heartbeat_failures, float(heartbeat_failures))
+            if resting_orders_present:
+                if not heartbeat_enabled:
+                    gateway_heartbeat_disabled_resting_rows += 1
+                elif heartbeat_age is None:
+                    gateway_heartbeat_missing_or_invalid_rows += 1
+                else:
+                    max_gateway_heartbeat_age = max(max_gateway_heartbeat_age, float(heartbeat_age))
+                    if float(heartbeat_age) > float(max_gateway_heartbeat_age_sec):
+                        gateway_heartbeat_stale_rows += 1
+            matching_engine_status = str(gateway.get("matching_engine_status") or "").strip().lower()
+            if matching_engine_status == "error":
+                gateway_matching_engine_error_rows += 1
+            elif matching_engine_status == "restart_window":
+                gateway_matching_engine_restart_window_rows += 1
+                restart_window_age = _coerce_float(gateway.get("matching_engine_restart_window_age_sec"))
+                if restart_window_age is not None:
+                    max_gateway_matching_engine_restart_window_age = max(
+                        max_gateway_matching_engine_restart_window_age,
+                        float(restart_window_age),
+                    )
 
     sample_count = len(rows)
     book_down_ratio = (float(book_down_count) / float(sample_count)) if sample_count > 0 else 1.0
@@ -413,6 +470,56 @@ def run_gate(
         findings.append(
             f"websocket_slo_chainlink_queue_size_too_high:{max_chain_queue:.6f}>max:{float(max_chainlink_queue_size):.6f}"
         )
+    if book_worker_unusable_rows > int(max_book_feed_worker_unusable_rows):
+        findings.append(
+            "websocket_slo_book_feed_worker_unusable_rows:"
+            + f"{book_worker_unusable_rows}>max:{int(max_book_feed_worker_unusable_rows)}"
+        )
+    if chain_worker_unusable_rows > int(max_chainlink_worker_unusable_rows):
+        findings.append(
+            "websocket_slo_chainlink_worker_unusable_rows:"
+            + f"{chain_worker_unusable_rows}>max:{int(max_chainlink_worker_unusable_rows)}"
+        )
+    if book_worker_restart_exhausted_rows > int(max_book_feed_worker_restart_exhausted_rows):
+        findings.append(
+            "websocket_slo_book_feed_worker_restart_exhausted_rows:"
+            + f"{book_worker_restart_exhausted_rows}>max:{int(max_book_feed_worker_restart_exhausted_rows)}"
+        )
+    if chain_worker_restart_exhausted_rows > int(max_chainlink_worker_restart_exhausted_rows):
+        findings.append(
+            "websocket_slo_chainlink_worker_restart_exhausted_rows:"
+            + f"{chain_worker_restart_exhausted_rows}>max:{int(max_chainlink_worker_restart_exhausted_rows)}"
+        )
+    if gateway_heartbeat_disabled_resting_rows > int(max_gateway_heartbeat_disabled_resting_rows):
+        findings.append(
+            "websocket_slo_gateway_heartbeat_disabled_with_resting_orders:"
+            + f"{gateway_heartbeat_disabled_resting_rows}>max:{int(max_gateway_heartbeat_disabled_resting_rows)}"
+        )
+    if gateway_heartbeat_missing_or_invalid_rows > int(max_gateway_heartbeat_missing_or_invalid_rows):
+        findings.append(
+            "websocket_slo_gateway_heartbeat_missing_or_invalid_rows:"
+            + f"{gateway_heartbeat_missing_or_invalid_rows}>max:{int(max_gateway_heartbeat_missing_or_invalid_rows)}"
+        )
+    if gateway_heartbeat_stale_rows > 0:
+        findings.append(
+            "websocket_slo_gateway_heartbeat_stale_rows:"
+            + f"{gateway_heartbeat_stale_rows}:peak_age:{max_gateway_heartbeat_age:.6f}>max:{float(max_gateway_heartbeat_age_sec):.6f}"
+        )
+    if gateway_matching_engine_error_rows > int(max_gateway_matching_engine_error_rows):
+        findings.append(
+            "websocket_slo_gateway_matching_engine_error_rows:"
+            + f"{gateway_matching_engine_error_rows}>max:{int(max_gateway_matching_engine_error_rows)}"
+        )
+    if max_gateway_matching_engine_restart_window_age > float(max_gateway_matching_engine_restart_window_age_sec):
+        findings.append(
+            "websocket_slo_gateway_matching_engine_restart_window_persistent:"
+            + f"{max_gateway_matching_engine_restart_window_age:.6f}>max:{float(max_gateway_matching_engine_restart_window_age_sec):.6f}"
+        )
+    if gateway_matching_engine_restart_window_rows > 0:
+        warnings.append(
+            "websocket_slo_gateway_matching_engine_restart_window_rows:"
+            + str(int(gateway_matching_engine_restart_window_rows))
+        )
 
     return {
         "log_dir": str(log_dir.resolve()),
@@ -439,6 +546,18 @@ def run_gate(
             "chainlink_last_tick_age_spike_ratio": chain_age_spike_ratio,
             "chainlink_dropped_ticks_max": max_chain_dropped,
             "chainlink_queue_size_max": max_chain_queue,
+            "book_feed_worker_unusable_rows": book_worker_unusable_rows,
+            "chainlink_worker_unusable_rows": chain_worker_unusable_rows,
+            "book_feed_worker_restart_exhausted_rows": book_worker_restart_exhausted_rows,
+            "chainlink_worker_restart_exhausted_rows": chain_worker_restart_exhausted_rows,
+            "gateway_heartbeat_age_max_sec": max_gateway_heartbeat_age,
+            "gateway_heartbeat_failures_max": max_gateway_heartbeat_failures,
+            "gateway_heartbeat_missing_or_invalid_rows": gateway_heartbeat_missing_or_invalid_rows,
+            "gateway_heartbeat_disabled_resting_rows": gateway_heartbeat_disabled_resting_rows,
+            "gateway_heartbeat_stale_rows": gateway_heartbeat_stale_rows,
+            "gateway_matching_engine_error_rows": gateway_matching_engine_error_rows,
+            "gateway_matching_engine_restart_window_rows": gateway_matching_engine_restart_window_rows,
+            "gateway_matching_engine_restart_window_age_max_sec": max_gateway_matching_engine_restart_window_age,
             "book_feed_missing_rows": missing_book_count,
             "chainlink_missing_rows": missing_chain_count,
             "book_feed_reconnects_missing_or_invalid_rows": missing_book_reconnect_count,
@@ -464,6 +583,17 @@ def run_gate(
             "max_chainlink_last_tick_age_p95_sec": float(max_chainlink_last_tick_age_p95_sec),
             "max_chainlink_dropped_ticks": float(max_chainlink_dropped_ticks),
             "max_chainlink_queue_size": float(max_chainlink_queue_size),
+            "max_book_feed_worker_unusable_rows": int(max_book_feed_worker_unusable_rows),
+            "max_chainlink_worker_unusable_rows": int(max_chainlink_worker_unusable_rows),
+            "max_book_feed_worker_restart_exhausted_rows": int(max_book_feed_worker_restart_exhausted_rows),
+            "max_chainlink_worker_restart_exhausted_rows": int(max_chainlink_worker_restart_exhausted_rows),
+            "max_gateway_heartbeat_age_sec": float(max_gateway_heartbeat_age_sec),
+            "max_gateway_heartbeat_missing_or_invalid_rows": int(max_gateway_heartbeat_missing_or_invalid_rows),
+            "max_gateway_heartbeat_disabled_resting_rows": int(max_gateway_heartbeat_disabled_resting_rows),
+            "max_gateway_matching_engine_error_rows": int(max_gateway_matching_engine_error_rows),
+            "max_gateway_matching_engine_restart_window_age_sec": float(
+                max_gateway_matching_engine_restart_window_age_sec
+            ),
             "max_lines_per_file": int(max(0, int(max_lines_per_file))),
         },
         "finding_count": len(findings),
@@ -504,6 +634,15 @@ def main() -> None:
     parser.add_argument("--max-chainlink-last-tick-age-p95-sec", type=float, default=12.0)
     parser.add_argument("--max-chainlink-dropped-ticks", type=float, default=0.0)
     parser.add_argument("--max-chainlink-queue-size", type=float, default=10000.0)
+    parser.add_argument("--max-book-feed-worker-unusable-rows", type=int, default=0)
+    parser.add_argument("--max-chainlink-worker-unusable-rows", type=int, default=0)
+    parser.add_argument("--max-book-feed-worker-restart-exhausted-rows", type=int, default=0)
+    parser.add_argument("--max-chainlink-worker-restart-exhausted-rows", type=int, default=0)
+    parser.add_argument("--max-gateway-heartbeat-age-sec", type=float, default=12.0)
+    parser.add_argument("--max-gateway-heartbeat-missing-or-invalid-rows", type=int, default=0)
+    parser.add_argument("--max-gateway-heartbeat-disabled-resting-rows", type=int, default=0)
+    parser.add_argument("--max-gateway-matching-engine-error-rows", type=int, default=0)
+    parser.add_argument("--max-gateway-matching-engine-restart-window-age-sec", type=float, default=30.0)
     parser.add_argument(
         "--max-lines-per-file",
         type=int,
@@ -593,6 +732,60 @@ def main() -> None:
         ),
         max_chainlink_dropped_ticks=max(0.0, _cfg_float("max_chainlink_dropped_ticks", float(args.max_chainlink_dropped_ticks))),
         max_chainlink_queue_size=max(0.0, _cfg_float("max_chainlink_queue_size", float(args.max_chainlink_queue_size))),
+        max_book_feed_worker_unusable_rows=max(
+            0,
+            _cfg_int("max_book_feed_worker_unusable_rows", int(args.max_book_feed_worker_unusable_rows)),
+        ),
+        max_chainlink_worker_unusable_rows=max(
+            0,
+            _cfg_int("max_chainlink_worker_unusable_rows", int(args.max_chainlink_worker_unusable_rows)),
+        ),
+        max_book_feed_worker_restart_exhausted_rows=max(
+            0,
+            _cfg_int(
+                "max_book_feed_worker_restart_exhausted_rows",
+                int(args.max_book_feed_worker_restart_exhausted_rows),
+            ),
+        ),
+        max_chainlink_worker_restart_exhausted_rows=max(
+            0,
+            _cfg_int(
+                "max_chainlink_worker_restart_exhausted_rows",
+                int(args.max_chainlink_worker_restart_exhausted_rows),
+            ),
+        ),
+        max_gateway_heartbeat_age_sec=max(
+            0.0,
+            _cfg_float("max_gateway_heartbeat_age_sec", float(args.max_gateway_heartbeat_age_sec)),
+        ),
+        max_gateway_heartbeat_missing_or_invalid_rows=max(
+            0,
+            _cfg_int(
+                "max_gateway_heartbeat_missing_or_invalid_rows",
+                int(args.max_gateway_heartbeat_missing_or_invalid_rows),
+            ),
+        ),
+        max_gateway_heartbeat_disabled_resting_rows=max(
+            0,
+            _cfg_int(
+                "max_gateway_heartbeat_disabled_resting_rows",
+                int(args.max_gateway_heartbeat_disabled_resting_rows),
+            ),
+        ),
+        max_gateway_matching_engine_error_rows=max(
+            0,
+            _cfg_int(
+                "max_gateway_matching_engine_error_rows",
+                int(args.max_gateway_matching_engine_error_rows),
+            ),
+        ),
+        max_gateway_matching_engine_restart_window_age_sec=max(
+            0.0,
+            _cfg_float(
+                "max_gateway_matching_engine_restart_window_age_sec",
+                float(args.max_gateway_matching_engine_restart_window_age_sec),
+            ),
+        ),
         max_lines_per_file=max(0, _cfg_int("max_lines_per_file", int(args.max_lines_per_file))),
         run_contract_path=(pathlib.Path(args.run_contract) if str(args.run_contract).strip() else None),
         session_phase=str(args.session_phase),

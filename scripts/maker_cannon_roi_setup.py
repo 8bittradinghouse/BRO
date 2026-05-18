@@ -193,12 +193,12 @@ def analyze_active_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "depth_requirement_1p5x": _summarize_rule(
             candidate_rows,
             lambda row: _coerce_bool(row.get("cannon_depth_requirement_met")) is True,
-            "Depth relative to the $350 cannon shot is the strongest current cannon-doctrine filter.",
+            "Depth relative to the $100 cannon shot is the strongest current cannon-doctrine filter.",
         ),
         "geometry_viable_only": _summarize_rule(
             candidate_rows,
             _geometry_ok,
-            "Current geometry still blocks a real subset of fights, so fixed $350 cannot be treated as universal without doctrine exceptions.",
+            "Current geometry still blocks a real subset of fights, so fixed $100 cannot be treated as universal without doctrine exceptions.",
         ),
         "fill_prob_margin_nonnegative": _summarize_rule(
             candidate_rows,

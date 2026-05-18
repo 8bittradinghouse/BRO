@@ -479,7 +479,7 @@ if [[ "${DO_VERIFY}" -eq 1 ]]; then
     --run-contract "${RUN_CONTRACT_PATH}" \
     --session-phase validate_active \
     --max-lines-per-file 0
-  "${PY_BIN}" scripts/guardian_profile_audit.py --compose ./docker-compose.yml
+  "${PY_BIN}" scripts/guardian_profile_audit.py --compose ./docker-compose.yml --config "${CONFIG_PATH}"
   "${PY_BIN}" scripts/run_integrity_audit.py \
     --log-dir "${LOG_DIR_PATH}" \
     --run-id "${RUN_ID}" \

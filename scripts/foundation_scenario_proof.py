@@ -10,6 +10,7 @@ import pathlib
 from typing import Any, Dict, Iterable, List, Tuple
 
 from prodesk.chainlink_feed import ChainlinkFeed
+from prodesk.edge_truth_contract import LEGACY_EDGE_AUTHORITY_FIELD_NAMES
 from prodesk.run_contract import build_run_contract, write_run_contract
 from scripts.order_lifecycle_audit import run_audit as run_lifecycle_audit
 from scripts.paper_harness_audit import run_audit as run_paper_harness_audit
@@ -22,6 +23,16 @@ AUDIT_SURFACE_NAMES = (
     "paper_harness_audit",
     "order_lifecycle_audit",
 )
+HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
+HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
+
+
+def _has_historical_lifecycle_lineage(row: Dict[str, Any]) -> bool:
+    if bool(row.get(HISTORICAL_RECOVERY_ACTIVE_FIELD, False)):
+        return True
+    if str(row.get(HISTORICAL_RECOVERY_REASON_FIELD) or "").strip():
+        return True
+    return False
 
 
 def _iso(ts: dt.datetime) -> str:
@@ -83,10 +94,11 @@ def _base_status_row(
         "ts_source_utc": None,
         "ts_decision_utc": ts_utc,
         "time_policy": _time_policy(),
-        "runtime_state": "active",
+        "runtime_state": "prepare",
+        "lifecycle_phase": "prepare",
         "active_targets_present": True,
-        "no_target_standdown": False,
-        "book_feed_required": True,
+        "scan_phase": False,
+        "market_truth_required": True,
         "kill_switch": False,
         "counter.cycles": float(cycle),
         "gauge.open_orders": 1.0,
@@ -135,33 +147,61 @@ def _event(
         "ts_decision_utc": ts_utc,
     }
     row.update(extra)
+    normalized_event_type = str(event_type).strip().lower()
+    if normalized_event_type == "runtime_state_transition" and not str(row.get("lifecycle_phase") or "").strip():
+        runtime_state = str(row.get("runtime_state") or "").strip().lower()
+        row["lifecycle_phase"] = {
+            "scan": "scan",
+            "prepare": "prepare",
+            "active": "prepare",
+            "safety_halt": "resolve",
+        }.get(runtime_state, "prepare")
+    if normalized_event_type == "order_submit" and not str(row.get("lifecycle_phase") or "").strip():
+        execution_preference = str(row.get("execution_preference") or "").strip().lower()
+        row["lifecycle_phase"] = (
+            "taker_window"
+            if execution_preference == "taker_only"
+            else "maker_window"
+        )
     if str(event_type).strip() == "edge_evaluation":
         evaluation_scope = str(row.get("evaluation_scope") or "").strip().lower()
-        maker_allowed = bool(row.get("maker_allowed", False))
-        taker_allowed = bool(row.get("taker_allowed", False))
-        recovery_active = bool(row.get("reduce_only_recovery_active", False))
-        if "maker_new_risk_allowed" not in row:
-            row["maker_new_risk_allowed"] = bool(
-                evaluation_scope == "maker" and maker_allowed and (not recovery_active)
+        lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+        maker_phase_allowed = bool(
+            row.get(
+                "maker_phase_allowed",
+                evaluation_scope == "maker" and lifecycle_phase == "maker_window",
             )
-        if "normal_taker_allowed" not in row:
-            row["normal_taker_allowed"] = bool(
-                evaluation_scope == "taker" and taker_allowed and (not recovery_active)
+        )
+        taker_phase_allowed = bool(
+            row.get(
+                "taker_phase_allowed",
+                evaluation_scope == "taker" and lifecycle_phase == "taker_window",
             )
-        row.setdefault("reduce_only_recovery_allowed", bool(recovery_active))
-        row.setdefault("preexpiry_emergency_taker_allowed", False)
-        if "late_window_authority_class" not in row:
-            if bool(row.get("preexpiry_emergency_taker_allowed", False)):
-                row["late_window_authority_class"] = "preexpiry_emergency_recovery_only"
-            elif bool(row.get("reduce_only_recovery_allowed", False)):
-                row["late_window_authority_class"] = "reduce_only_recovery_only"
-            elif bool(row.get("normal_taker_allowed", False)):
-                row["late_window_authority_class"] = "normal_taker_only"
-            elif bool(row.get("maker_new_risk_allowed", False)):
-                row["late_window_authority_class"] = "maker_new_risk_only"
-            else:
-                row["late_window_authority_class"] = "authority_closed"
-    return row
+        )
+        historical_recovery_lineage_active = _has_historical_lifecycle_lineage(row)
+        lifecycle_residue_active = bool(
+            row.get("open_order_cleanup_required", False)
+            or row.get("settlement_hold_required", False)
+            or row.get("unresolved_lifecycle_obligation", False)
+            or row.get("cancel_fail_closed", False)
+            or historical_recovery_lineage_active
+        )
+        if lifecycle_residue_active:
+            row.setdefault("settlement_hold_required", True)
+            row.setdefault("unresolved_lifecycle_obligation", True)
+            row.setdefault("open_order_cleanup_required", False)
+            row.setdefault("cancel_fail_closed", False)
+        row.setdefault(
+            "maker_phase_allowed",
+            bool(maker_phase_allowed and (not lifecycle_residue_active)),
+        )
+        row.setdefault(
+            "taker_phase_allowed",
+            bool(taker_phase_allowed and (not lifecycle_residue_active)),
+        )
+        for legacy_key in LEGACY_EDGE_AUTHORITY_FIELD_NAMES:
+            row.pop(legacy_key, None)
+        return row
 
 
 def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -203,12 +243,13 @@ def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[s
             event_type="runtime_state_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "no_target_standdown",
-                "runtime_state": "active",
+                "previous_runtime_state": "scan",
+                "runtime_state": "prepare",
+                "lifecycle_phase": "prepare",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": False,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": False,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "transition_reason_code": "targets_activated",
                 "transition_reason_detail": "scenario_clean",
@@ -239,11 +280,14 @@ def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[s
                 "token_id": "tok-clean",
                 "action_taken": "maker",
                 "evaluation_scope": "maker",
-                "maker_allowed": True,
-                "taker_allowed": False,
+                "maker_phase_allowed": True,
+                "taker_phase_allowed": False,
+                "maker_gate_open": True,
+                "taker_gate_open": False,
                 "submitted": True,
                 "filled": True,
                 "result": None,
+                "book_source": "ws",
                 "decision_input_source": "ws",
                 "decision_input_emulated": False,
                 "decision_input_data_class": "observed_live",
@@ -280,8 +324,8 @@ def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[s
                 "price": 0.5,
                 "size": 10.0,
                 "source": "paper",
-                "fill_policy_basis": "bounded_visible_liquidity_top_of_book",
-                "execution_realism_class": "bounded_approximation",
+                "fill_policy_basis": "visible_liquidity_top_of_book",
+                "execution_realism_class": "not_modeled",
                 "decision_input_type": "observed_live",
             },
         ),
@@ -331,9 +375,9 @@ def _degraded_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
                 "previous_runtime_state": "active",
                 "runtime_state": "active",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": True,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "transition_reason_code": "book_requirement_changed",
                 "transition_reason_detail": "scenario_degraded",
@@ -353,16 +397,19 @@ def _degraded_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
                 "token_id": "tok-degraded",
                 "action_taken": "none",
                 "evaluation_scope": "maker",
-                "maker_allowed": True,
-                "taker_allowed": False,
+                "maker_phase_allowed": True,
+                "taker_phase_allowed": False,
+                "maker_gate_open": True,
+                "taker_gate_open": False,
                 "block_reason": "stale_book",
                 "submitted": False,
                 "filled": False,
                 "result": None,
+                "book_source": "rest",
                 "decision_input_source": "rest",
                 "decision_input_emulated": False,
-                "decision_input_data_class": "observed_live",
-                "decision_input_type": "bounded_derived",
+                "decision_input_data_class": "observed_other",
+                "decision_input_type": "observed_other",
                 "execution_realism_class": "not_modeled",
             },
         ),
@@ -412,9 +459,9 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
                 "previous_runtime_state": "active",
                 "runtime_state": "active",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": True,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "transition_reason_code": "runtime_state_changed",
                 "transition_reason_detail": "scenario_reconnect",
@@ -445,16 +492,19 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
                 "token_id": "tok-reconnect",
                 "action_taken": "taker",
                 "evaluation_scope": "taker",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
+                "maker_gate_open": False,
+                "taker_gate_open": True,
                 "submitted": True,
                 "filled": True,
                 "result": None,
+                "book_source": "ws",
                 "decision_input_source": "ws",
                 "decision_input_emulated": False,
                 "decision_input_data_class": "observed_live",
                 "decision_input_type": "observed_live",
-                "execution_realism_class": "bounded_approximation",
+                "execution_realism_class": "not_modeled",
             },
         ),
         _event(
@@ -486,8 +536,8 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
                 "price": 0.5,
                 "size": 6.0,
                 "source": "paper",
-                "fill_policy_basis": "bounded_visible_liquidity_top_of_book",
-                "execution_realism_class": "bounded_approximation",
+                "fill_policy_basis": "visible_liquidity_top_of_book",
+                "execution_realism_class": "not_modeled",
                 "decision_input_type": "observed_live",
             },
         ),
@@ -537,9 +587,9 @@ def _disorder_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
                 "previous_runtime_state": "active",
                 "runtime_state": "active",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": True,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": True,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "transition_reason_code": "runtime_state_changed",
                 "transition_reason_detail": "scenario_disorder",
@@ -570,12 +620,15 @@ def _disorder_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
                 "token_id": "tok-disorder",
                 "action_taken": "none",
                 "evaluation_scope": "maker",
-                "maker_allowed": True,
-                "taker_allowed": False,
+                "maker_phase_allowed": True,
+                "taker_phase_allowed": False,
+                "maker_gate_open": True,
+                "taker_gate_open": False,
                 "block_reason": "oracle_unavailable_or_stale",
                 "submitted": False,
                 "filled": False,
                 "result": None,
+                "book_source": "ws",
                 "decision_input_source": "ws",
                 "decision_input_emulated": False,
                 "decision_input_data_class": "observed_live",
@@ -628,12 +681,12 @@ def _thin_liquidity_partial_fill_scenario_rows(
             event_type="runtime_state_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "no_target_standdown",
+                "previous_runtime_state": "scan",
                 "runtime_state": "active",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": False,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": False,
+                "market_truth_required": True,
                 "kill_switch": False,
                 "transition_reason_code": "targets_activated",
                 "transition_reason_detail": "scenario_thin_liquidity_partial_fill",
@@ -653,16 +706,19 @@ def _thin_liquidity_partial_fill_scenario_rows(
                 "token_id": "tok-thin",
                 "action_taken": "taker",
                 "evaluation_scope": "taker",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
+                "maker_gate_open": False,
+                "taker_gate_open": True,
                 "submitted": True,
                 "filled": True,
                 "result": None,
+                "book_source": "ws",
                 "decision_input_source": "ws",
                 "decision_input_emulated": False,
                 "decision_input_data_class": "observed_live",
                 "decision_input_type": "observed_live",
-                "execution_realism_class": "bounded_approximation",
+                "execution_realism_class": "not_modeled",
             },
         ),
         _event(
@@ -694,8 +750,8 @@ def _thin_liquidity_partial_fill_scenario_rows(
                 "price": 0.5,
                 "size": 2.5,
                 "source": "paper",
-                "fill_policy_basis": "bounded_visible_liquidity_top_of_book",
-                "execution_realism_class": "bounded_approximation",
+                "fill_policy_basis": "visible_liquidity_top_of_book",
+                "execution_realism_class": "not_modeled",
                 "decision_input_type": "observed_live",
             },
         ),
@@ -723,11 +779,12 @@ def _poor_truth_standdown_scenario_rows(
                 ws_updates_ws=0.0,
                 ws_updates_rest=2.0,
             ),
-            "runtime_state": "safety_halt",
+            "runtime_state": "resolve",
+            "lifecycle_phase": "resolve",
             "kill_switch": True,
             "active_targets_present": True,
-            "no_target_standdown": False,
-            "book_feed_required": True,
+            "scan_phase": False,
+            "market_truth_required": True,
         },
         {
             **_base_status_row(
@@ -745,11 +802,12 @@ def _poor_truth_standdown_scenario_rows(
                 ws_updates_ws=0.0,
                 ws_updates_rest=3.0,
             ),
-            "runtime_state": "safety_halt",
+            "runtime_state": "resolve",
+            "lifecycle_phase": "resolve",
             "kill_switch": True,
             "active_targets_present": True,
-            "no_target_standdown": False,
-            "book_feed_required": True,
+            "scan_phase": False,
+            "market_truth_required": True,
         },
     ]
     events = [
@@ -759,11 +817,11 @@ def _poor_truth_standdown_scenario_rows(
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
                 "previous_runtime_state": "active",
-                "runtime_state": "safety_halt",
+                "runtime_state": "resolve",
                 "active_targets_present": True,
-                "no_target_standdown": False,
-                "previous_book_feed_required": True,
-                "book_feed_required": True,
+                "scan_phase": False,
+                "previous_market_truth_required": True,
+                "market_truth_required": True,
                 "kill_switch": True,
                 "transition_reason_code": "kill_switch_engaged",
                 "transition_reason_detail": "scenario_poor_truth_standdown",
@@ -783,17 +841,20 @@ def _poor_truth_standdown_scenario_rows(
                 "token_id": "tok-poor-truth",
                 "action_taken": "none",
                 "evaluation_scope": "taker",
-                "maker_allowed": False,
-                "taker_allowed": True,
+                "maker_phase_allowed": False,
+                "taker_phase_allowed": True,
+                "maker_gate_open": False,
+                "taker_gate_open": True,
                 "block_reason": "oracle_unavailable_or_stale",
                 "submitted": False,
                 "filled": False,
                 "result": None,
+                "book_source": "rest",
                 "decision_input_source": "rest",
                 "decision_input_emulated": False,
                 "decision_input_data_class": "observed_other",
-                "decision_input_type": "bounded_derived",
-                "execution_realism_class": "bounded_approximation",
+                "decision_input_type": "observed_other",
+                "execution_realism_class": "not_modeled",
             },
         ),
     ]
@@ -955,10 +1016,10 @@ def _scenario_definitions() -> Dict[str, Dict[str, Any]]:
     return {
         "clean_canonical": {
             "builder": _clean_scenario_rows,
-            "scenario_fixture_type": "bounded_approximation_fixture",
+            "scenario_fixture_type": "not_modeled_fixture",
             "scenario_execution_purpose": "canonical_behavior_fixture",
             "scenario_realism_interpretation": (
-                "maker_preferred_path_with_bounded_fill_fixture_not_venue_queue_realism"
+                "maker_preferred_path_with_not_modeled_fill_fixture_not_venue_queue_realism"
             ),
             "expected_audits": {
                 "websocket_hardening_audit": True,
@@ -971,7 +1032,7 @@ def _scenario_definitions() -> Dict[str, Dict[str, Any]]:
             "builder": _reconnect_scenario_rows,
             "scenario_fixture_type": "degraded_behavior_fixture",
             "scenario_execution_purpose": "transport_reconnect_resilience_fixture",
-            "scenario_realism_interpretation": "bounded_approximation_fixture_with_reconnect_recovery",
+            "scenario_realism_interpretation": "not_modeled_fixture_with_reconnect_recovery",
             "expected_audits": {
                 "websocket_hardening_audit": True,
                 "time_discipline_audit": True,
@@ -1005,9 +1066,9 @@ def _scenario_definitions() -> Dict[str, Dict[str, Any]]:
         },
         "thin_liquidity_partial_fill": {
             "builder": _thin_liquidity_partial_fill_scenario_rows,
-            "scenario_fixture_type": "bounded_approximation_fixture",
+            "scenario_fixture_type": "not_modeled_fixture",
             "scenario_execution_purpose": "partial_fill_visibility_fixture",
-            "scenario_realism_interpretation": "bounded_visible_liquidity_fill_fixture_not_full_venue_microstructure",
+            "scenario_realism_interpretation": "visible_liquidity_fill_fixture_not_full_venue_microstructure",
             "expected_audits": {
                 "websocket_hardening_audit": True,
                 "time_discipline_audit": True,

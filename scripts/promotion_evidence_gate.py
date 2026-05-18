@@ -175,6 +175,13 @@ def run_gate(
     max_websocket_book_feed_reconnects_per_hour: float,
     max_websocket_chainlink_reconnects_per_hour: float,
     max_websocket_chainlink_dropped_ticks: float,
+    max_websocket_book_feed_worker_unusable_rows: int = 0,
+    max_websocket_chainlink_worker_unusable_rows: int = 0,
+    max_websocket_book_feed_worker_restart_exhausted_rows: int = 0,
+    max_websocket_chainlink_worker_restart_exhausted_rows: int = 0,
+    max_websocket_gateway_heartbeat_missing_or_invalid_rows: int = 0,
+    max_websocket_gateway_heartbeat_disabled_resting_rows: int = 0,
+    max_websocket_gateway_matching_engine_error_rows: int = 0,
     websocket_report_required: bool = False,
     allowed_nonvenue_verification_levels: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
@@ -218,6 +225,23 @@ def run_gate(
             "book_feed_reconnects_per_hour": _safe_float(metrics.get("book_feed_reconnects_per_hour")),
             "chainlink_reconnects_per_hour": _safe_float(metrics.get("chainlink_reconnects_per_hour")),
             "chainlink_dropped_ticks_max": _safe_float(metrics.get("chainlink_dropped_ticks_max")),
+            "book_feed_worker_unusable_rows": _safe_float(metrics.get("book_feed_worker_unusable_rows")),
+            "chainlink_worker_unusable_rows": _safe_float(metrics.get("chainlink_worker_unusable_rows")),
+            "book_feed_worker_restart_exhausted_rows": _safe_float(
+                metrics.get("book_feed_worker_restart_exhausted_rows")
+            ),
+            "chainlink_worker_restart_exhausted_rows": _safe_float(
+                metrics.get("chainlink_worker_restart_exhausted_rows")
+            ),
+            "gateway_heartbeat_missing_or_invalid_rows": _safe_float(
+                metrics.get("gateway_heartbeat_missing_or_invalid_rows")
+            ),
+            "gateway_heartbeat_disabled_resting_rows": _safe_float(
+                metrics.get("gateway_heartbeat_disabled_resting_rows")
+            ),
+            "gateway_matching_engine_error_rows": _safe_float(
+                metrics.get("gateway_matching_engine_error_rows")
+            ),
         }
 
     _lineage_presence_and_validity_checks(
@@ -434,6 +458,51 @@ def run_gate(
                 "websocket_promotion_chainlink_dropped_ticks_too_high:"
                 + f"{websocket_metrics['chainlink_dropped_ticks_max']:.6f}>max:{float(max_websocket_chainlink_dropped_ticks):.6f}"
             )
+        if websocket_metrics["book_feed_worker_unusable_rows"] > float(max_websocket_book_feed_worker_unusable_rows):
+            findings.append(
+                "websocket_promotion_book_feed_worker_unusable_rows_too_high:"
+                + f"{websocket_metrics['book_feed_worker_unusable_rows']:.6f}>max:{float(max_websocket_book_feed_worker_unusable_rows):.6f}"
+            )
+        if websocket_metrics["chainlink_worker_unusable_rows"] > float(max_websocket_chainlink_worker_unusable_rows):
+            findings.append(
+                "websocket_promotion_chainlink_worker_unusable_rows_too_high:"
+                + f"{websocket_metrics['chainlink_worker_unusable_rows']:.6f}>max:{float(max_websocket_chainlink_worker_unusable_rows):.6f}"
+            )
+        if websocket_metrics["book_feed_worker_restart_exhausted_rows"] > float(
+            max_websocket_book_feed_worker_restart_exhausted_rows
+        ):
+            findings.append(
+                "websocket_promotion_book_feed_worker_restart_exhausted_rows_too_high:"
+                + f"{websocket_metrics['book_feed_worker_restart_exhausted_rows']:.6f}>max:{float(max_websocket_book_feed_worker_restart_exhausted_rows):.6f}"
+            )
+        if websocket_metrics["chainlink_worker_restart_exhausted_rows"] > float(
+            max_websocket_chainlink_worker_restart_exhausted_rows
+        ):
+            findings.append(
+                "websocket_promotion_chainlink_worker_restart_exhausted_rows_too_high:"
+                + f"{websocket_metrics['chainlink_worker_restart_exhausted_rows']:.6f}>max:{float(max_websocket_chainlink_worker_restart_exhausted_rows):.6f}"
+            )
+        if websocket_metrics["gateway_heartbeat_missing_or_invalid_rows"] > float(
+            max_websocket_gateway_heartbeat_missing_or_invalid_rows
+        ):
+            findings.append(
+                "websocket_promotion_gateway_heartbeat_missing_or_invalid_rows_too_high:"
+                + f"{websocket_metrics['gateway_heartbeat_missing_or_invalid_rows']:.6f}>max:{float(max_websocket_gateway_heartbeat_missing_or_invalid_rows):.6f}"
+            )
+        if websocket_metrics["gateway_heartbeat_disabled_resting_rows"] > float(
+            max_websocket_gateway_heartbeat_disabled_resting_rows
+        ):
+            findings.append(
+                "websocket_promotion_gateway_heartbeat_disabled_resting_rows_too_high:"
+                + f"{websocket_metrics['gateway_heartbeat_disabled_resting_rows']:.6f}>max:{float(max_websocket_gateway_heartbeat_disabled_resting_rows):.6f}"
+            )
+        if websocket_metrics["gateway_matching_engine_error_rows"] > float(
+            max_websocket_gateway_matching_engine_error_rows
+        ):
+            findings.append(
+                "websocket_promotion_gateway_matching_engine_error_rows_too_high:"
+                + f"{websocket_metrics['gateway_matching_engine_error_rows']:.6f}>max:{float(max_websocket_gateway_matching_engine_error_rows):.6f}"
+            )
         decision_trace.extend(
             [
                 decision_item(
@@ -495,6 +564,97 @@ def run_gate(
                     ),
                     note="hard fail threshold",
                 ),
+                decision_item(
+                    check="websocket_book_feed_worker_unusable_rows",
+                    level="hard_fail",
+                    metric="book_feed_worker_unusable_rows",
+                    comparator="max",
+                    value=websocket_metrics["book_feed_worker_unusable_rows"],
+                    threshold=float(max_websocket_book_feed_worker_unusable_rows),
+                    passed=(
+                        websocket_metrics["book_feed_worker_unusable_rows"]
+                        <= float(max_websocket_book_feed_worker_unusable_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_chainlink_worker_unusable_rows",
+                    level="hard_fail",
+                    metric="chainlink_worker_unusable_rows",
+                    comparator="max",
+                    value=websocket_metrics["chainlink_worker_unusable_rows"],
+                    threshold=float(max_websocket_chainlink_worker_unusable_rows),
+                    passed=(
+                        websocket_metrics["chainlink_worker_unusable_rows"]
+                        <= float(max_websocket_chainlink_worker_unusable_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_book_feed_worker_restart_exhausted_rows",
+                    level="hard_fail",
+                    metric="book_feed_worker_restart_exhausted_rows",
+                    comparator="max",
+                    value=websocket_metrics["book_feed_worker_restart_exhausted_rows"],
+                    threshold=float(max_websocket_book_feed_worker_restart_exhausted_rows),
+                    passed=(
+                        websocket_metrics["book_feed_worker_restart_exhausted_rows"]
+                        <= float(max_websocket_book_feed_worker_restart_exhausted_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_chainlink_worker_restart_exhausted_rows",
+                    level="hard_fail",
+                    metric="chainlink_worker_restart_exhausted_rows",
+                    comparator="max",
+                    value=websocket_metrics["chainlink_worker_restart_exhausted_rows"],
+                    threshold=float(max_websocket_chainlink_worker_restart_exhausted_rows),
+                    passed=(
+                        websocket_metrics["chainlink_worker_restart_exhausted_rows"]
+                        <= float(max_websocket_chainlink_worker_restart_exhausted_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_gateway_heartbeat_missing_or_invalid_rows",
+                    level="hard_fail",
+                    metric="gateway_heartbeat_missing_or_invalid_rows",
+                    comparator="max",
+                    value=websocket_metrics["gateway_heartbeat_missing_or_invalid_rows"],
+                    threshold=float(max_websocket_gateway_heartbeat_missing_or_invalid_rows),
+                    passed=(
+                        websocket_metrics["gateway_heartbeat_missing_or_invalid_rows"]
+                        <= float(max_websocket_gateway_heartbeat_missing_or_invalid_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_gateway_heartbeat_disabled_resting_rows",
+                    level="hard_fail",
+                    metric="gateway_heartbeat_disabled_resting_rows",
+                    comparator="max",
+                    value=websocket_metrics["gateway_heartbeat_disabled_resting_rows"],
+                    threshold=float(max_websocket_gateway_heartbeat_disabled_resting_rows),
+                    passed=(
+                        websocket_metrics["gateway_heartbeat_disabled_resting_rows"]
+                        <= float(max_websocket_gateway_heartbeat_disabled_resting_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
+                decision_item(
+                    check="websocket_gateway_matching_engine_error_rows",
+                    level="hard_fail",
+                    metric="gateway_matching_engine_error_rows",
+                    comparator="max",
+                    value=websocket_metrics["gateway_matching_engine_error_rows"],
+                    threshold=float(max_websocket_gateway_matching_engine_error_rows),
+                    passed=(
+                        websocket_metrics["gateway_matching_engine_error_rows"]
+                        <= float(max_websocket_gateway_matching_engine_error_rows)
+                    ),
+                    note="hard fail threshold",
+                ),
             ]
         )
         warnings.extend(
@@ -518,14 +678,14 @@ def run_gate(
             "maker_reference_direct_midpoint_activity": _safe_float(
                 soak.get("maker_reference_direct_midpoint_activity")
             ),
-            "maker_reference_bounded_fallback_activity": _safe_float(
-                soak.get("maker_reference_bounded_fallback_activity")
+            "maker_reference_missing_activity": _safe_float(
+                soak.get("maker_reference_missing_activity")
             ),
-            "maker_market_reference_fallback_bid_count": _safe_float(
-                soak.get("maker_market_reference_fallback_bid_count")
+            "maker_market_reference_missing_count": _safe_float(
+                soak.get("maker_market_reference_missing_count")
             ),
-            "maker_market_reference_fallback_ask_count": _safe_float(
-                soak.get("maker_market_reference_fallback_ask_count")
+            "maker_market_reference_one_sided_context_count": _safe_float(
+                soak.get("maker_market_reference_one_sided_context_count")
             ),
             "reconcile_mismatch_ratio": mismatch_ratio,
             "reconcile_verification_level": verification_level,
@@ -577,6 +737,23 @@ def run_gate(
             "max_websocket_book_feed_reconnects_per_hour": float(max_websocket_book_feed_reconnects_per_hour),
             "max_websocket_chainlink_reconnects_per_hour": float(max_websocket_chainlink_reconnects_per_hour),
             "max_websocket_chainlink_dropped_ticks": float(max_websocket_chainlink_dropped_ticks),
+            "max_websocket_book_feed_worker_unusable_rows": float(max_websocket_book_feed_worker_unusable_rows),
+            "max_websocket_chainlink_worker_unusable_rows": float(max_websocket_chainlink_worker_unusable_rows),
+            "max_websocket_book_feed_worker_restart_exhausted_rows": float(
+                max_websocket_book_feed_worker_restart_exhausted_rows
+            ),
+            "max_websocket_chainlink_worker_restart_exhausted_rows": float(
+                max_websocket_chainlink_worker_restart_exhausted_rows
+            ),
+            "max_websocket_gateway_heartbeat_missing_or_invalid_rows": float(
+                max_websocket_gateway_heartbeat_missing_or_invalid_rows
+            ),
+            "max_websocket_gateway_heartbeat_disabled_resting_rows": float(
+                max_websocket_gateway_heartbeat_disabled_resting_rows
+            ),
+            "max_websocket_gateway_matching_engine_error_rows": float(
+                max_websocket_gateway_matching_engine_error_rows
+            ),
             "websocket_report_required": bool(websocket_report_required),
             "allowed_nonvenue_verification_levels": sorted(allowed_nonvenue_levels),
         },
@@ -599,6 +776,9 @@ def run_gate(
                 "websocket report presence (if required)",
                 "websocket down ratios",
                 "websocket chainlink_dropped_ticks_max",
+                "websocket worker usability and restart exhaustion",
+                "websocket gateway heartbeat health",
+                "websocket gateway matching engine error rows",
             ],
             "warning": [
                 "websocket reconnect rates",
@@ -627,6 +807,13 @@ def main() -> None:
     parser.add_argument("--max-websocket-book-feed-reconnects-per-hour", type=float, default=None)
     parser.add_argument("--max-websocket-chainlink-reconnects-per-hour", type=float, default=None)
     parser.add_argument("--max-websocket-chainlink-dropped-ticks", type=float, default=None)
+    parser.add_argument("--max-websocket-book-feed-worker-unusable-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-chainlink-worker-unusable-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-book-feed-worker-restart-exhausted-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-chainlink-worker-restart-exhausted-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-gateway-heartbeat-missing-or-invalid-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-gateway-heartbeat-disabled-resting-rows", type=int, default=None)
+    parser.add_argument("--max-websocket-gateway-matching-engine-error-rows", type=int, default=None)
     parser.add_argument("--out", default="", help="Optional output JSON path")
     args = parser.parse_args()
 
@@ -711,6 +898,69 @@ def main() -> None:
         args.max_websocket_chainlink_dropped_ticks,
         float(profile_ws_policy.get("max_chainlink_dropped_ticks", ws_policy.get("max_chainlink_dropped_ticks", 0.0))),
     )
+    max_websocket_book_feed_worker_unusable_rows = _pick_int(
+        args.max_websocket_book_feed_worker_unusable_rows,
+        int(
+            profile_ws_policy.get(
+                "max_book_feed_worker_unusable_rows",
+                ws_policy.get("max_book_feed_worker_unusable_rows", 0),
+            )
+        ),
+    )
+    max_websocket_chainlink_worker_unusable_rows = _pick_int(
+        args.max_websocket_chainlink_worker_unusable_rows,
+        int(
+            profile_ws_policy.get(
+                "max_chainlink_worker_unusable_rows",
+                ws_policy.get("max_chainlink_worker_unusable_rows", 0),
+            )
+        ),
+    )
+    max_websocket_book_feed_worker_restart_exhausted_rows = _pick_int(
+        args.max_websocket_book_feed_worker_restart_exhausted_rows,
+        int(
+            profile_ws_policy.get(
+                "max_book_feed_worker_restart_exhausted_rows",
+                ws_policy.get("max_book_feed_worker_restart_exhausted_rows", 0),
+            )
+        ),
+    )
+    max_websocket_chainlink_worker_restart_exhausted_rows = _pick_int(
+        args.max_websocket_chainlink_worker_restart_exhausted_rows,
+        int(
+            profile_ws_policy.get(
+                "max_chainlink_worker_restart_exhausted_rows",
+                ws_policy.get("max_chainlink_worker_restart_exhausted_rows", 0),
+            )
+        ),
+    )
+    max_websocket_gateway_heartbeat_missing_or_invalid_rows = _pick_int(
+        args.max_websocket_gateway_heartbeat_missing_or_invalid_rows,
+        int(
+            profile_ws_policy.get(
+                "max_gateway_heartbeat_missing_or_invalid_rows",
+                ws_policy.get("max_gateway_heartbeat_missing_or_invalid_rows", 0),
+            )
+        ),
+    )
+    max_websocket_gateway_heartbeat_disabled_resting_rows = _pick_int(
+        args.max_websocket_gateway_heartbeat_disabled_resting_rows,
+        int(
+            profile_ws_policy.get(
+                "max_gateway_heartbeat_disabled_resting_rows",
+                ws_policy.get("max_gateway_heartbeat_disabled_resting_rows", 0),
+            )
+        ),
+    )
+    max_websocket_gateway_matching_engine_error_rows = _pick_int(
+        args.max_websocket_gateway_matching_engine_error_rows,
+        int(
+            profile_ws_policy.get(
+                "max_gateway_matching_engine_error_rows",
+                ws_policy.get("max_gateway_matching_engine_error_rows", 0),
+            )
+        ),
+    )
     websocket_report_required = bool(profile_ws_policy.get("report_required", ws_policy.get("report_required", False)))
     allowed_nonvenue_verification_levels = profile_reconcile_policy.get(
         "allowed_nonvenue_verification_levels",
@@ -733,6 +983,28 @@ def main() -> None:
         max_websocket_book_feed_reconnects_per_hour=max(0.0, float(max_websocket_book_feed_reconnects_per_hour)),
         max_websocket_chainlink_reconnects_per_hour=max(0.0, float(max_websocket_chainlink_reconnects_per_hour)),
         max_websocket_chainlink_dropped_ticks=max(0.0, float(max_websocket_chainlink_dropped_ticks)),
+        max_websocket_book_feed_worker_unusable_rows=max(0, int(max_websocket_book_feed_worker_unusable_rows)),
+        max_websocket_chainlink_worker_unusable_rows=max(0, int(max_websocket_chainlink_worker_unusable_rows)),
+        max_websocket_book_feed_worker_restart_exhausted_rows=max(
+            0,
+            int(max_websocket_book_feed_worker_restart_exhausted_rows),
+        ),
+        max_websocket_chainlink_worker_restart_exhausted_rows=max(
+            0,
+            int(max_websocket_chainlink_worker_restart_exhausted_rows),
+        ),
+        max_websocket_gateway_heartbeat_missing_or_invalid_rows=max(
+            0,
+            int(max_websocket_gateway_heartbeat_missing_or_invalid_rows),
+        ),
+        max_websocket_gateway_heartbeat_disabled_resting_rows=max(
+            0,
+            int(max_websocket_gateway_heartbeat_disabled_resting_rows),
+        ),
+        max_websocket_gateway_matching_engine_error_rows=max(
+            0,
+            int(max_websocket_gateway_matching_engine_error_rows),
+        ),
         websocket_report_required=websocket_report_required,
         allowed_nonvenue_verification_levels=[
             str(value).strip().lower()

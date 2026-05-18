@@ -1,5 +1,11 @@
 # BRO Pilot-Live Packet 1: Taker Live Trust Qualification
 
+## Classification
+- `historical-only`
+- this packet records pre-lifecycle-surgery taker doctrine and wound lineage
+- old stage-family language here is ancestry only and must not be read as
+  current owner-law
+
 ## Authority Lock
 Current pickup point:
 - active phase:
@@ -209,8 +215,9 @@ Forbidden answers from historical closeout:
 Current doctrine-root verdict:
 - doctrine-root `SNIPER_PRIMARY` wording is now source-corrected.
 - `SNIPER_PRIMARY` is not current canonical live taker authority.
-- canonical live taker authority is the narrow `EXTREME_ONLY <=7s` commitment
-  lane.
+- canonical live taker authority is the explicit `<=7s` taker commitment lane,
+  surfaced as `TAKER_COMMITMENT` on `effective_stage`; raw `EXTREME_ONLY`
+  remains lineage only.
 - any stage-local or naming surfaces that imply broader live authority are
   compatibility legacy until explicitly repaired.
 
@@ -272,16 +279,16 @@ Current doctrine-root verdict:
 | --- | --- | --- | --- | --- |
 | `executor._stage_name_for_sec_to_expiry()` | raw stage-bucket producer | canonical bucket producer with compatibility legacy naming burden | yes | keep, but do not let bucket name outrank tighter doctrine |
 | `executor._emit_taker_stage_window_semantic_check()` | semantic self-audit | canonical emitted self-audit with legacy bridge alias | yes | keep now |
-| `taker.min_edge_by_stage` non-`EXTREME_ONLY` keys | stage-local taker threshold | source-collapsed; noncanonical taker stages are now rejected by config and ignored by runtime init | no for newly validated configs | guarded |
-| `taker.per_token_cooldown_sec_by_stage` non-`EXTREME_ONLY` keys | stage-local taker cooldown | source-collapsed; noncanonical taker stages are rejected by config and the stage-local branch is now ignored by canonical runtime | no | guarded |
-| `_run_taker().stage_priority_rank` privileging non-`EXTREME_ONLY` stages | candidate ordering | source-collapsed; canonical runtime no longer grants stage-priority authority to taker ordering | no | guarded |
+| `taker.min_edge_by_stage` non-`TAKER_COMMITMENT` keys | stage-local taker threshold | source-collapsed; noncanonical taker stages are now rejected by config and ignored by runtime init | no for newly validated configs | guarded |
+| `taker.per_token_cooldown_sec_by_stage` non-`TAKER_COMMITMENT` keys | stage-local taker cooldown | source-collapsed; noncanonical taker stages are rejected by config and the stage-local branch is now ignored by canonical runtime | no | guarded |
+| `_run_taker().stage_priority_rank` privileging non-`TAKER_COMMITMENT` stages | candidate ordering | source-collapsed; canonical runtime no longer grants stage-priority authority to taker ordering | no | guarded |
 | `stage_final_window_sec_by_stage` mechanism | stage-local window override | diagnostic shim; canonical runtime now ignores it for live taker authority | no | compatibility-only residue until later purge |
 
 ## Split-Brain Inventory
 | Surface | Purpose | Initial class | Duplicate-risk | Notes |
 | --- | --- | --- | --- | --- |
 | `SNIPER_PRIMARY` | raw late-stage bucket name | compatibility legacy | high | conflicts with current doctrine-root meaning |
-| `EXTREME_ONLY` | strictest raw taker bucket | canonical bucket with narrower live-fire authority layered on top | medium | must not be mistaken for “all `0-20s` are live-fire eligible” |
+| `EXTREME_ONLY` | raw late-window lineage bucket | compatibility lineage bucket beneath explicit effective-stage authority labels | medium | must not be mistaken for “all `0-20s` are live-fire eligible” |
 | `taker_enabled` | canonical taker enablement view | canonical runtime owner | low | current runtime owner is source-collapsed onto effective `taker_enabled` |
 | `_run_taker` | main taker controller | canonical runtime owner | low | current code has no live sniper wrapper sibling |
 | `_taker_context` | canonical taker context owner | canonical runtime owner | low | current code has no live sniper context wrapper sibling |
@@ -299,15 +306,15 @@ Current doctrine-root verdict:
 | `stage_priority_rank` privileging `SNIPER_PRIMARY` | older taker-stage ordering logic | historical only in active runtime | yes | compatibility bridge | reduced runtime blast radius, remaining semantic fog |
 | `stage_final_window_sec_by_stage` override mechanism | per-stage window experimentation | no in canonical runtime | yes | diagnostic shim | extra compatibility mass |
 | historical sniper-root enable bridge | removed runtime ancestry | no longer active on current code | no | historical-only residue | archived artifacts may still mention it |
-| maker-only `bounded_single_side_touch` while taker fail-closes | maker recoverability on one-sided books | explicit current runtime policy asymmetry: maker bounded fallback allowed, taker bounded fallback unauthorized and fail-closed on missing midpoint | no | valid interlock / shared-frame defer | taker starvation suspicion, keep-now doctrine/runtime verdict, shared-frame redesign deferred |
+| historical maker-only `bounded_single_side_touch` while taker fail-closes | maker recoverability on one-sided books | historical runtime asymmetry before later Packet 1 follow-on surgery; current doctrine/runtime now allow taker `bounded_single_side_touch` on ws one-sided tape while maker bounded fallback has been removed from current code | no | historical-only lineage | ancestry only; do not read as current law |
 | `maker_to_taker_recovery_handoff_disabled` | prevent taker from inheriting maker baggage as live authority | yes | no | valid interlock / dead-power guard | chatter, operator confusion |
 | `taker_requires_ws_book_source` | prevent taker from acting on weaker book sources | yes | no | valid interlock | low direct cost |
 | consumer string matching on `sniper_taker` in reports | keep downstream metrics coherent with older taker artifacts | partly historical only; current code now normalizes through canonical helper contract | mostly | consumer-only mirror | reduced drift risk, remaining translation fat for historical compatibility |
 | historical handoff-era taker closeout references | preserve ancestry and prior proof | yes as history only | current board owners cover current truth | compatibility bridge | stale authority risk if overread |
 
 Keep now:
-- fail-closed `market_probability_missing`
-- current taker no-bounded-fallback market-reference policy
+- fail-closed `market_probability_missing` for fully missing ws market-reference truth
+- taker `bounded_single_side_touch` on ws one-sided tape
 - `taker_requires_ws_book_source`
 - `maker_to_taker_recovery_handoff_disabled` until proven redundant
 - `executor._emit_taker_stage_window_semantic_check()`
@@ -555,14 +562,12 @@ Artifact anchors:
   - `069f`: taker fail-closed rows for `a24e89e12cd9e236` from about `14.48s` down through `10.22s`, while maker keeps publishing `bounded_single_side_touch` on that same ref and later on `39e55ce1e1774017` / `b8b6cc4e22f26f84`.
 - `VERIFIED`: taker fail-closed rows are `observed_live`, `book_source=ws`, `market_reference_class=not_available`, `market_reference_mode=missing`, `market_probability=null`.
 - `VERIFIED`: maker on the same thin tape can still emit `market_reference_class=bounded_approximation`, `market_reference_mode=bounded_single_side_touch`, and non-null `market_probability`.
-- `VERIFIED`: current runtime now names this split as two explicit owner contracts rather than one explicit maker policy plus ad hoc taker fallthrough:
-  - maker market-reference policy may emit `bounded_single_side_touch` as `bounded_approximation`
-  - taker market-reference policy has no bounded fallback and remains explicit `missing -> fail_closed_market_probability_missing`
-- `VERIFIED`: current doctrine and current runtime now agree on the same keep-now owner call:
-  - maker bounded single-side fallback remains an explicitly labeled maker-only bounded approximation path
-  - taker no-bounded-fallback remains a fail-closed blind-fire interlock, not a Packet 1-local bug to relax
-- `VERIFIED`: any future attempt to let taker inherit maker fallback would be shared-frame behavior surgery and is out of scope for Packet 1 unless doctrine-root authority changes first
-- `INFERRED`: this asymmetry is not theoretical and not purely archival. It is current-code late-window behavior in both fresh Packet 1 specimens.
+- `VERIFIED`: at the time of these specimens, the runtime named a real split:
+  - maker market-reference policy could emit `bounded_single_side_touch` as `bounded_approximation`
+  - taker market-reference policy remained explicit `missing -> fail_closed_market_probability_missing`
+- `VERIFIED`: this asymmetry is now historical rather than current owner-law.
+- `VERIFIED`: later Packet 1 follow-on surgery removed the taker midpoint-only fallback asymmetry on canonical ws one-sided books.
+- `INFERRED`: these rows remain useful ancestry for how the family used to behave, but they must not be read as current doctrine/runtime verdict.
 
 Current status:
 - `VERIFIED`: this finding is now historical rather than current owner-law.
@@ -623,9 +628,9 @@ Current status:
 - `VERIFIED`: any future change here would be shared-frame behavior surgery or
   telemetry/report cleanup, not a Packet 1-local live-authority loosening.
 
-## External Blueprint Audit: Taker Sword Blueprint
+## External Doctrine Proposal Audit: Taker Sword Doctrine Proposal
 Audit anchor:
-- `docs/TAKER_SWORD_BLUEPRINT_2026-05-07.md`
+- `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
 - external Grok challenge input only; not an active doctrine owner
 - burden rule for this audit:
   - no sniper-derived taker surface inherits doctrine steel from age, activity,
@@ -636,9 +641,9 @@ Audit anchor:
 | Blueprint demand | Current taker lane evidence | Match status | Packet 1 call |
 | --- | --- | --- | --- |
 | Chainlink primary plus Pyth secondary are non-negotiable | `secondary_oracle.pyth.enabled=true`; runtime computes same-direction confirmation between primary and secondary edges, but current secondary oracle is confirmation/boost context rather than unconditional fire prerequisite | partial | keep under challenge; current BRO uses the second oracle, but not with the same hard-owner semantics as the blueprint |
-| Official Polymarket CLOB API with signed orders | `LiveClobGateway` uses `py_clob_client.ClobClient` against `https://clob.polymarket.com` with `signature_type=1`; live taker submit path resolves through `place_taker_order_with_outcome()` | aligned | proven current live execution surface; this does not by itself justify inherited sniper-era stage doctrine |
+| Official Polymarket CLOB API with signed orders | `LiveClobGateway` uses `py-clob-client-v2` against `https://clob.polymarket.com`; live taker submit path resolves through `place_taker_order_with_outcome()` with canonical `wallet_mode` ownership | aligned | proven current live execution surface; this does not by itself justify inherited sniper-era stage doctrine |
 | IOC taker execution | `place_taker_order_with_outcome()` hard-codes `tif="IOC"` and `post_only=False` for taker submits | aligned | proven keep-now runtime behavior |
-| Final `8-12s` sniper window | current canonical taker doctrine hard-locks `<=7s`; active config sets `final_window_sec: 7.0`; `stage_final_window_sec_by_stage` is fenced as diagnostic-only | mismatch | current `<=7s` / `EXTREME_ONLY` window does not earn steel from the external blueprint and stays under keep-proof burden |
+| Final `8-12s` sniper window | current canonical taker doctrine hard-locks `<=7s`; active config sets `final_window_sec: 7.0`; `stage_final_window_sec_by_stage` is fenced as diagnostic-only | mismatch | current `<=7s` taker commitment lane does not earn steel from the external blueprint and stays under keep-proof burden |
 | Hard dual-oracle delta threshold `>=0.20` before fire | current top-level taker fire threshold is now canonical `taker.min_edge=0.11`; `multi_oracle_edge_threshold_abs` remains optional boost eligibility rather than unconditional fire permission | partial | current threshold owner is cleaner, but dual-oracle confirmation still does not own fire permission the way the blueprint demands |
 | Liquidity must be `1.5x` order size at aggressive price | current taker lane checks `visible_fill_ratio >= min_visible_fill_ratio`; active profile uses `min_visible_fill_ratio: 0.5`, which is not the same contract as explicit `1.5x` depth | mismatch | current visibility/depth rule is real runtime behavior but not blueprint-equivalent; keep under challenge |
 | Peak-window / regime whitelist | no explicit taker-only `allowed_peak_windows` gate was found; current lane has operating-mode health gates plus time-of-day scalers for paper liquidity and dynamic risk sizing, not a hard taker peak-hours whitelist | mismatch | current taker regime gating does not inherit steel from the external blueprint and stays challenge-open |
@@ -658,7 +663,7 @@ Current audit call:
   - observability richness
 - `VERIFIED`: BRO currently diverges from the external blueprint most on the
   same surfaces that look sniper-era or add-on heavy:
-  - hard `<=7s` / `EXTREME_ONLY` live window
+  - hard `<=7s` taker commitment lane
   - multi-oracle confirmation still acting as boost logic rather than a hard
     fire prerequisite
   - `multi_oracle_edge_threshold_abs` being boost logic instead of a hard fire
@@ -984,7 +989,7 @@ Preserve while fixing:
 - market-reference class truth
 
 Candidate slice order:
-1. preserve the keep-now taker no-bounded-fallback verdict and prevent drift
+1. preserve the current taker bounded-one-sided WS verdict and prevent drift
 2. map shared-frame contact points
 3. revisit only if doctrine-root authority or shared-frame architecture
    changes
@@ -1028,7 +1033,7 @@ Explicitly forbidden to answer:
 | 1 | doctrine-root contradiction cleanup | resolve current owner for `SNIPER_PRIMARY` and live taker authority | runtime behavior until authority story is settled | `docs/DOCTRINE_RUNBOOK.md`, `BRO_CANONICAL_DOCTRINE.txt`, board owners | aligned doctrine + doc guard | medium | semantic cleanup only |
 | 2 | vocabulary / owner collapse | remove duplicate live-lane meanings and shadow owners | taker safety interlocks | runtime names, config names, report labels, board docs | one-language map | medium | semantic cleanup only |
 | 3 | stage/window authority collapse | remove dead-by-construction stage-local live semantics | hard `<=7s` live doctrine and stage fail-closed | `executor.py`, `paper_universal.yaml`, doctrine docs | timing-clean watched run + semantic check outputs | medium | config/contract change |
-| 4 | fallback / market-probability verdict lock and shared-frame defer map | preserve the current keep-now taker no-bounded-fallback interlock and isolate any later shared-frame redesign | fail-closed blind-fire protection | market-reference formation and taker validation path | watched seam run plus doctrine/runtime verdict lock | medium | semantic cleanup only / defer |
+| 4 | fallback / market-probability verdict lock and shared-frame defer map | preserve the current taker bounded-one-sided WS verdict plus fully-missing fail-closed boundary and isolate any later shared-frame redesign | fail-closed blind-fire protection | market-reference formation and taker validation path | watched seam run plus doctrine/runtime verdict lock | medium | semantic cleanup only / defer |
 | 5 | recovery / handoff collapse | simplify taker dead-power / maker baggage seams | safety posture and no-new-risk doctrine | recovery relays, report consumers | reduced chatter with preserved doctrine | medium | runtime/report mixed |
 | 6 | consumer/report truth cleanup | remove second-dialect taker consumer drift | runtime event ownership | `nightly_soak_report.py`, audits, docs | consumer outputs match runtime owner language | low | report/audit consumer change |
 | 7 | compensator-fat safe reductions | cut compatibility or dormant shims proven unnecessary before clone-ready surgery | preserve list and board truth | packet-local identified surfaces only | smaller relay count, no doctrine loss | medium | mixed, bounded |
@@ -1131,13 +1136,13 @@ Current strongest findings:
     - no conviction-owned candidate ranking authority on the canonical taker
       path
     - current canonical paper top-level `taker.min_edge=0.11`
-- late-window maker/taker fallback asymmetry is `VERIFIED` on current code,
-  not just suspected
-- late-window maker/taker fallback asymmetry now carries a `VERIFIED`
-  keep-now verdict:
-  - maker-only bounded single-side fallback remains authorized
-  - taker remains explicit fail-closed on missing midpoint
-  - any redesign is shared-frame surgery later, not Packet 1-local loosening
+- historical late-window maker/taker fallback asymmetry is `VERIFIED` on the
+  specimen-era code path, not just suspected
+- current doctrine/runtime no longer keep that exact asymmetry:
+  - maker bounded single-side fallback is removed from current code
+  - taker `bounded_single_side_touch` remains authorized on ws one-sided tape
+  - fully missing ws market reference still fail-closes through
+    `market_probability_missing`
 - recovery/handoff now carries a `VERIFIED` keep-now owner classification:
   - maker-originated handoff into taker recovery remains dead power
   - timing-gate handoff override remains dead power
@@ -1152,7 +1157,7 @@ Current strongest findings:
     - `aggressive_window_enabled` / `aggressive_window_sec`
     - `stage_priority_enabled`
     - inherited taker helper/config alias mass
-- Packet 1 now explicitly audits the external `Taker Sword Blueprint` against
+- Packet 1 now explicitly audits the external `Taker Sword Doctrine Proposal` against
   current BRO taker truth:
   - the current lane matches best on CLOB/IOC execution, fail-closed posture,
     and observability; current paper shot size is temporarily detuned to `$20`
@@ -1326,7 +1331,7 @@ Current lane status:
   - decide which safety interlocks stay as explicit cross-lane contracts and
     which false-authority shells get deleted
 
-Immediate next packet work:
+Historical Packet 1 closeout handoff:
 1. lock this Packet 1 closeout truth against the watched specimen
    `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 2. keep the doctrine-root, two-surface stage contract, fallback verdict, and
@@ -1334,3 +1339,10 @@ Immediate next packet work:
 3. open `Packet 2 Maker-Live / Economic Trust Qualification` as the next
    bounded `pilot_live` packet through:
    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+
+Current pickup note:
+- this handoff block is historical closeout truth only
+- active `pilot_live` pickup now belongs to:
+  - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
+  - current Packet 2 maker owner boards

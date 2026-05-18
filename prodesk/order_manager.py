@@ -11,14 +11,15 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 from .common import parse_float, parse_ts, utc_iso, utc_now
 from .edge_truth_contract import (
-    EDGE_AUTH_MAKER_NEW_RISK_FIELD,
-    EDGE_AUTH_NORMAL_TAKER_FIELD,
-    EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD,
-    EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD,
-    EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD,
+    EDGE_LIFECYCLE_PHASE_FIELD,
+    EDGE_MAKER_PHASE_ALLOWED_FIELD,
     EDGE_STAGE_BUCKET_FIELD,
-    EDGE_STAGE_EFFECTIVE_FIELD,
-    stage_surface_fields,
+    lineage_stage_from_payload,
+    lifecycle_phase_from_payload,
+    lifecycle_phase_surface_fields,
+    legacy_stage_to_lifecycle_phase,
+    lineage_stage_surface_fields,
+    normalize_block_reason,
 )
 from .execution_quality import ExecutionQualityModel
 from .gateway import BaseGateway, GatewayError, PostOnlyRejectError
@@ -96,6 +97,59 @@ def _normalize_soft_limit_pct(value: object, default: float) -> float:
     if parsed <= 0:
         return default
     return min(parsed, 1.0)
+
+
+def _canonical_lifecycle_phase_from_stage(stage: Any) -> str:
+    return str(legacy_stage_to_lifecycle_phase(stage) or "").strip().lower()
+
+
+def _canonical_lifecycle_phase_from_payload(payload: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(lifecycle_phase_from_payload(payload) or "").strip().lower()
+
+
+def _compat_lineage_stage_from_payload(payload: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    lineage_stage = str(payload.get("lineage_stage") or "").strip().upper()
+    if lineage_stage:
+        return lineage_stage
+    lineage_stage = str(lineage_stage_from_payload(payload) or "").strip().upper()
+    if lineage_stage:
+        return lineage_stage
+    lifecycle_phase = _canonical_lifecycle_phase_from_payload(payload)
+    if lifecycle_phase == "maker_window":
+        return "MAKER_LATE_WINDOW"
+    if lifecycle_phase == "taker_window":
+        return "TAKER_COMMITMENT"
+    if lifecycle_phase == "resolve":
+        return "EXPIRED"
+    if lifecycle_phase == "prepare":
+        return "SNIPER_PRIMARY"
+    if lifecycle_phase == "scan":
+        return "OBSERVE"
+    return ""
+
+
+def _resolve_event_lifecycle_phase(
+    *,
+    intent_stage: Any = None,
+    risk_context: Optional[Dict[str, Any]] = None,
+    risk_basis: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str, Optional[str]]:
+    intent_phase = _canonical_lifecycle_phase_from_stage(intent_stage)
+    if intent_phase:
+        return intent_phase, "intent_stage_compat", None
+    basis_phase = _canonical_lifecycle_phase_from_payload(risk_basis)
+    if basis_phase:
+        basis_has_direct_field = isinstance(risk_basis, dict) and bool(risk_basis.get(EDGE_LIFECYCLE_PHASE_FIELD))
+        return basis_phase, ("risk_decision_basis" if basis_has_direct_field else "risk_decision_basis_stage_compat"), None
+    context_phase = _canonical_lifecycle_phase_from_payload(risk_context)
+    if context_phase:
+        context_has_direct_field = isinstance(risk_context, dict) and bool(risk_context.get(EDGE_LIFECYCLE_PHASE_FIELD))
+        return context_phase, ("risk_context" if context_has_direct_field else "risk_context_stage_compat"), None
+    return "scan", "unknown", "missing_intent_and_lifecycle_context"
 
 
 class OrderManager:
@@ -215,88 +269,46 @@ class OrderManager:
         self._seen_trade_ids_queue: Deque[str] = deque()
         self.last_fill_ts_utc: Optional[str] = None
         self.quality = ExecutionQualityModel(strategy_cfg.get("execution_quality", {}))
-        execution_quality_cfg = strategy_cfg.get("execution_quality", {})
-        if not isinstance(execution_quality_cfg, dict):
-            execution_quality_cfg = {}
-        recovery_min_fill_prob_floor = parse_float(
-            execution_quality_cfg.get("reduce_only_recovery_min_expected_fill_prob_floor")
-        )
-        self.reduce_only_recovery_min_expected_fill_prob_floor = (
-            max(0.0, min(1.0, float(recovery_min_fill_prob_floor)))
-            if recovery_min_fill_prob_floor is not None
-            else 0.02
-        )
-        recovery_queue_multiplier = parse_float(
-            execution_quality_cfg.get("reduce_only_recovery_max_queue_ahead_size_multiplier")
-        )
-        self.reduce_only_recovery_max_queue_ahead_size_multiplier = (
-            max(1.0, float(recovery_queue_multiplier))
-            if recovery_queue_multiplier is not None
-            else 2.0
-        )
         maker_competitiveness_cfg = strategy_cfg.get("maker_competitiveness", {})
         if not isinstance(maker_competitiveness_cfg, dict):
             maker_competitiveness_cfg = {}
-        queue_pressure_cfg = maker_competitiveness_cfg.get("queue_pressure", {})
-        if not isinstance(queue_pressure_cfg, dict):
-            queue_pressure_cfg = {}
-        queue_pressure_allowed_stages = queue_pressure_cfg.get("allowed_stages", ["MAKER_TAKER_SELECTIVE"])
-        if not isinstance(queue_pressure_allowed_stages, list):
-            queue_pressure_allowed_stages = ["MAKER_TAKER_SELECTIVE"]
-        self.maker_queue_pressure_enabled = bool(queue_pressure_cfg.get("enabled", False))
-        self.maker_queue_pressure_allowed_stages = {
-            str(stage or "").strip().upper()
-            for stage in queue_pressure_allowed_stages
-            if str(stage or "").strip()
-        }
-        self.maker_queue_pressure_min_edge_abs = max(
-            0.0,
-            float(queue_pressure_cfg.get("min_edge_abs", 0.05) or 0.0),
-        )
-        self.maker_queue_pressure_inside_price_ticks = max(
-            1,
-            int(float(queue_pressure_cfg.get("inside_price_ticks", 1) or 1)),
-        )
-        self.maker_queue_pressure_favored_side_only = bool(
-            queue_pressure_cfg.get("favored_side_only", True)
-        )
-        self.maker_queue_pressure_tight_spread_only = bool(
-            queue_pressure_cfg.get("tight_spread_only", True)
-        )
-        self.maker_queue_pressure_skip_below_geometry_floor = bool(
-            queue_pressure_cfg.get("skip_below_geometry_floor", True)
-        )
-        self.maker_queue_pressure_force_replace_on_adjustment = bool(
-            queue_pressure_cfg.get("force_replace_on_adjustment", True)
-        )
         selection_gate_cfg = maker_competitiveness_cfg.get("selection_gate", {})
         if not isinstance(selection_gate_cfg, dict):
             selection_gate_cfg = {}
-        selection_gate_allowed_stages = selection_gate_cfg.get(
-            "allowed_stages", ["MAKER_TAKER_SELECTIVE"]
-        )
-        if not isinstance(selection_gate_allowed_stages, list):
-            selection_gate_allowed_stages = ["MAKER_TAKER_SELECTIVE"]
-        self.maker_selection_gate_enabled = bool(selection_gate_cfg.get("enabled", False))
-        self.maker_selection_gate_allowed_stages = {
-            str(stage or "").strip().upper()
-            for stage in selection_gate_allowed_stages
-            if str(stage or "").strip()
-        }
+        lifecycle_cfg = runtime_cfg.get("lifecycle", {}) if isinstance(runtime_cfg, dict) else {}
+        if not isinstance(lifecycle_cfg, dict):
+            lifecycle_cfg = {}
+        lifecycle_selection_cfg = lifecycle_cfg.get("selection", {})
+        if not isinstance(lifecycle_selection_cfg, dict):
+            lifecycle_selection_cfg = {}
+        lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
+        if not isinstance(lifecycle_phase_cfg, dict):
+            lifecycle_phase_cfg = {}
+        selection_owner_cfg = lifecycle_selection_cfg if lifecycle_selection_cfg else selection_gate_cfg
+        self.maker_selection_gate_enabled = bool(selection_owner_cfg.get("enabled", False))
         self.maker_selection_gate_require_secondary_oracle_confirmation = bool(
-            selection_gate_cfg.get("require_secondary_oracle_confirmation", True)
+            selection_owner_cfg.get("require_secondary_oracle_confirmation", True)
         )
-        self.maker_selection_gate_require_one_sided_active = bool(
-            selection_gate_cfg.get("require_one_sided_active", False)
-        )
-        selection_gate_min_sec_to_expiry = selection_gate_cfg.get(
+        selection_gate_min_sec_to_expiry = selection_owner_cfg.get(
             "min_sec_to_expiry",
             None,
         )
-        selection_gate_max_sec_to_expiry = selection_gate_cfg.get(
+        selection_gate_max_sec_to_expiry = selection_owner_cfg.get(
             "max_sec_to_expiry",
             None,
         )
+        if lifecycle_phase_cfg:
+            # Lifecycle selection owns market admission. Maker submit legality
+            # must stay inside the canonical maker window instead of inheriting
+            # the much earlier market-admission floor.
+            selection_gate_min_sec_to_expiry = lifecycle_phase_cfg.get(
+                "taker_window_open_sec",
+                selection_gate_min_sec_to_expiry,
+            )
+            selection_gate_max_sec_to_expiry = lifecycle_phase_cfg.get(
+                "maker_window_open_sec",
+                selection_gate_max_sec_to_expiry,
+            )
         self.maker_selection_gate_min_sec_to_expiry = (
             float(selection_gate_min_sec_to_expiry)
             if isinstance(selection_gate_min_sec_to_expiry, (int, float))
@@ -311,13 +323,19 @@ class OrderManager:
         )
         self.maker_selection_gate_cannon_target_notional_usd = max(
             1e-9,
-            float(selection_gate_cfg.get("cannon_target_notional_usd", 350.0) or 350.0),
+            float(selection_owner_cfg.get("cannon_target_notional_usd", 350.0) or 350.0),
         )
         self.maker_selection_gate_min_depth_multiple = max(
             0.0,
-            float(selection_gate_cfg.get("min_depth_multiple", 1.5) or 0.0),
+            float(
+                selection_owner_cfg.get(
+                    "maker_min_depth_multiple",
+                    selection_owner_cfg.get("min_depth_multiple", 1.5),
+                )
+                or 0.0
+            ),
         )
-        max_same_target_submit_count_prior = selection_gate_cfg.get(
+        max_same_target_submit_count_prior = selection_owner_cfg.get(
             "max_same_target_submit_count_prior",
             1,
         )
@@ -325,7 +343,7 @@ class OrderManager:
             0,
             int(float(max_same_target_submit_count_prior or 0)),
         )
-        max_same_target_side_submit_count_prior = selection_gate_cfg.get(
+        max_same_target_side_submit_count_prior = selection_owner_cfg.get(
             "max_same_target_side_submit_count_prior",
             1,
         )
@@ -545,21 +563,22 @@ class OrderManager:
         shadow_event: Dict[str, Any],
         competitiveness_context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        stage = str(
-            shadow_event.get("stage")
-            or competitiveness_context.get("stage")
-            or ""
-        ).strip().upper()
-        maker_new_risk_allowed = bool(
-            shadow_event.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, competitiveness_context.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False))
-        )
-        gate_applied = bool(
-            self.maker_selection_gate_enabled
-            and (
-                maker_new_risk_allowed
-                or stage in self.maker_selection_gate_allowed_stages
+        lifecycle_phase = str(
+            shadow_event.get(EDGE_LIFECYCLE_PHASE_FIELD)
+            or competitiveness_context.get(EDGE_LIFECYCLE_PHASE_FIELD)
+            or competitiveness_context.get("lifecycle_phase")
+                    or legacy_stage_to_lifecycle_phase(
+                        shadow_event.get("stage")
+                        or _compat_lineage_stage_from_payload(competitiveness_context)
+                    )
+        ).strip().lower()
+        maker_phase_allowed = bool(
+            shadow_event.get(
+                EDGE_MAKER_PHASE_ALLOWED_FIELD,
+                competitiveness_context.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, False),
             )
         )
+        gate_applied = bool(self.maker_selection_gate_enabled)
         depth_multiple_vs_cannon_target = None
         visible_depth_notional_usd = None
         desired_quote_price = parse_float(shadow_event.get("desired_quote_price"))
@@ -631,8 +650,6 @@ class OrderManager:
                 and not secondary_oracle_confirmation
             ):
                 reject_reasons.append("secondary_oracle_not_confirmed")
-            if self.maker_selection_gate_require_one_sided_active and not one_sided_active:
-                reject_reasons.append("selection_non_one_sided")
             if not repeat_target_calm:
                 reject_reasons.append("selection_prior_target_submit")
             if cannon_depth_requirement_met is not True:
@@ -644,8 +661,8 @@ class OrderManager:
             "enabled": bool(self.maker_selection_gate_enabled),
             "applied": bool(gate_applied),
             "passed": bool(gate_applied and not reject_reasons) if gate_applied else None,
-            "stage": stage,
-            "require_one_sided_active": bool(self.maker_selection_gate_require_one_sided_active),
+            EDGE_LIFECYCLE_PHASE_FIELD: lifecycle_phase,
+            EDGE_MAKER_PHASE_ALLOWED_FIELD: bool(maker_phase_allowed),
             "one_sided_active": bool(one_sided_active),
             "cannon_target_notional_usd": float(self.maker_selection_gate_cannon_target_notional_usd),
             "cannon_min_depth_multiple": float(self.maker_selection_gate_min_depth_multiple),
@@ -829,33 +846,23 @@ class OrderManager:
             "side": str(side).strip().upper(),
             "one_sided_active": bool(competitiveness_context.get("one_sided_active", False)),
             "side_policy": str(competitiveness_context.get("side_policy") or "TWO_SIDED").strip().upper(),
-            **stage_surface_fields(
-                effective_stage=(
-                    desired_intent.stage
-                    or competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
-                    or competitiveness_context.get("stage")
-                ),
-                stage_bucket=(
-                    competitiveness_context.get(EDGE_STAGE_BUCKET_FIELD)
-                    or competitiveness_context.get("raw_stage")
-                ),
+            **lifecycle_phase_surface_fields(
+                lifecycle_phase=(
+                    competitiveness_context.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                    or competitiveness_context.get("lifecycle_phase")
+                    or legacy_stage_to_lifecycle_phase(
+                        desired_intent.stage
+                        or _compat_lineage_stage_from_payload(competitiveness_context)
+                    )
+                )
             ),
-            EDGE_AUTH_MAKER_NEW_RISK_FIELD: bool(
-                competitiveness_context.get(EDGE_AUTH_MAKER_NEW_RISK_FIELD, False)
+            **lineage_stage_surface_fields(
+                lineage_stage=(
+                    competitiveness_context.get("lineage_stage")
+                    or competitiveness_context.get(EDGE_STAGE_BUCKET_FIELD)
+                    or competitiveness_context.get("lineage_stage")
+                )
             ),
-            EDGE_AUTH_NORMAL_TAKER_FIELD: bool(
-                competitiveness_context.get(EDGE_AUTH_NORMAL_TAKER_FIELD, False)
-            ),
-            EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD: bool(
-                competitiveness_context.get(EDGE_AUTH_REDUCE_ONLY_RECOVERY_FIELD, False)
-            ),
-            EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD: bool(
-                competitiveness_context.get(EDGE_AUTH_PREEXPIRY_EMERGENCY_TAKER_FIELD, False)
-            ),
-            EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD: str(
-                competitiveness_context.get(EDGE_LATE_WINDOW_AUTHORITY_CLASS_FIELD) or "unknown"
-            ).strip().lower()
-            or "unknown",
             "cycle_index": int(cycle_index) if isinstance(cycle_index, int) else None,
             "ts_decision_utc": (
                 str(desired_intent.decision_reference_ts_utc).strip()
@@ -951,9 +958,6 @@ class OrderManager:
             "financial_posture_class": str(
                 competitiveness_context.get("financial_posture_class") or "UNKNOWN"
             ).strip().upper(),
-            "reduce_only_recovery_active": bool(
-                competitiveness_context.get("reduce_only_recovery_active", False)
-            ),
             "replace_guard_would_block": bool(replace_guard_would_block),
             "decision_result": None,
             "decision_block_reason": None,
@@ -1078,7 +1082,7 @@ class OrderManager:
 
     @staticmethod
     def _normalize_maker_no_submission_category(reason: str) -> str:
-        normalized = str(reason or "").strip().lower()
+        normalized = normalize_block_reason(reason)
         if not normalized:
             return "unknown"
         if normalized.startswith("submit_rejected_"):
@@ -1093,7 +1097,7 @@ class OrderManager:
             "quote_quality_skip_queue_depth": "quote_quality_skip_queue_depth",
             "one_sided_mode_disallow_side": "one_sided_mode_disallow_side",
             "maker_timing_gate_closed": "maker_timing_gate_closed",
-            "stage_disallow_maker": "stage_disallow_maker",
+            "phase_disallow_maker": "phase_disallow_maker",
             "risk_reject": "risk_reject",
             "replace_guard_min_rest": "replace_guard_min_rest",
             "replace_cancel_unavailable": "replace_cancel_unavailable",
@@ -1103,8 +1107,10 @@ class OrderManager:
             "sizing_reject": "sizing_reject",
             "wallet_reject": "wallet_reject",
             "order_submit_exception": "order_submit_exception",
+            "maker_commitment_hold_active": "maker_commitment_hold_active",
             "maker_commitment_context_missing": "maker_commitment_context_missing",
-            "reduce_only_recovery_size_cap_below_min_order_size": "reduce_only_recovery_size_cap_below_min_order_size",
+            "open_order_cleanup_required": "open_order_cleanup_required",
+            "settlement_hold_required": "settlement_hold_required",
         }
         return str(mapping.get(normalized, "unknown"))
 
@@ -1418,179 +1424,38 @@ class OrderManager:
             return None, normalized_reason
 
         risk_context_payload: Dict[str, Any] = dict(risk_context) if isinstance(risk_context, dict) else {}
-        reduce_only_recovery_active = bool(risk_context_payload.get("reduce_only_recovery_active", False))
-        reduce_only_size_cap_raw = risk_context_payload.get("reduce_only_size_cap_shares")
-        reduce_only_size_cap = parse_float(reduce_only_size_cap_raw)
-        reduce_only_size_cap_below_min_order_size = bool(
-            risk_context_payload.get("reduce_only_size_cap_below_min_order_size", False)
-        )
         financial_posture_class = str(risk_context_payload.get("financial_posture_class") or "UNKNOWN").strip().upper()
-        terminal_reduce_only_posture = financial_posture_class in {
-            "PREEXPIRY_REDUCE_ONLY",
-            "HARD_DEGRADED_REDUCE_ONLY",
-            "HALT_NEW_RISK",
-        }
-        reduce_only_terminal_min_notional_usd = float(
-            self.risk.cfg.get("reduce_only_terminal_min_notional_usd", 0.0) or 0.0
-        )
-        reduce_only_min_order_size_raw = risk_context_payload.get("reduce_only_min_order_size_shares")
-        reduce_only_min_order_size_shares = parse_float(reduce_only_min_order_size_raw)
-        reduce_only_dynamic_size_cap_source = ""
-        pos_for_priority = self.risk.positions.get(intent.token_id)
-        net_shares_for_priority = float(getattr(pos_for_priority, "net_shares", 0.0) or 0.0)
-        intent_side_upper = str(intent.side or "").strip().upper()
-        if reduce_only_recovery_active:
-            dynamic_reduce_only_cap = 0.0
-            if net_shares_for_priority > 1e-9 and intent_side_upper == "SELL":
-                dynamic_reduce_only_cap = abs(float(net_shares_for_priority))
-            elif net_shares_for_priority < -1e-9 and intent_side_upper == "BUY":
-                dynamic_reduce_only_cap = abs(float(net_shares_for_priority))
-            if dynamic_reduce_only_cap <= 1e-9:
-                reduce_only_size_cap = 0.0
-                reduce_only_dynamic_size_cap_source = "live_position_flat_or_wrong_side"
-            elif not isinstance(reduce_only_size_cap, (int, float)) or float(reduce_only_size_cap) <= 0.0:
-                reduce_only_size_cap = float(dynamic_reduce_only_cap)
-                reduce_only_dynamic_size_cap_source = "live_position_cap_fallback"
-            elif float(reduce_only_size_cap) > (float(dynamic_reduce_only_cap) + 1e-9):
-                reduce_only_size_cap = float(dynamic_reduce_only_cap)
-                reduce_only_dynamic_size_cap_source = "live_position_cap_clamp"
-            if reduce_only_dynamic_size_cap_source:
-                risk_context_payload["reduce_only_dynamic_size_cap_source"] = str(
-                    reduce_only_dynamic_size_cap_source
-                )
-                risk_context_payload["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
-                risk_context_payload["reduce_only_net_shares_live"] = float(net_shares_for_priority)
-        reduce_only_size_for_priority = float(intent.size)
-        if isinstance(reduce_only_size_cap, (int, float)) and float(reduce_only_size_cap) > 0.0:
-            reduce_only_size_for_priority = min(float(reduce_only_size_for_priority), float(reduce_only_size_cap))
-        reduce_only_recovery_priority = bool(
-            reduce_only_recovery_active
-            and RiskEngine._is_pure_risk_reducing_intent(
-                net_shares=net_shares_for_priority,
-                side=str(intent.side or ""),
-                size=float(reduce_only_size_for_priority),
-            )
-        )
-        reduce_only_terminal_notional_exemption_eligible = bool(
-            reduce_only_recovery_priority
-            and terminal_reduce_only_posture
-            and isinstance(reduce_only_size_cap, (int, float))
-            and float(reduce_only_size_cap) > 0.0
-            and float(intent.price) > 0.0
-            and reduce_only_terminal_min_notional_usd > 0.0
-            and (float(reduce_only_size_cap) * float(intent.price) + 1e-9) >= reduce_only_terminal_min_notional_usd
-        )
         order_capacity = self.risk.order_capacity_state(self.order_rate_soft_limit_pct)
-        soft_remaining_for_intent = int(
-            order_capacity.get(
-                "orders_soft_remaining" if reduce_only_recovery_priority else "orders_soft_remaining_non_recovery",
-                0,
-            )
-        )
+        soft_remaining_for_intent = int(order_capacity.get("orders_soft_remaining", 0))
         if soft_remaining_for_intent <= 0:
-            if reduce_only_recovery_priority:
-                self.telemetry.incr("order_soft_throttle_bypass_reduce_only_recovery")
-                self.events.log_event(
-                    "order_soft_throttle_bypass",
-                    {
-                        "ts_utc": utc_iso(),
-                        "token_id": intent.token_id,
-                        "side": intent.side,
-                        "price": intent.price,
-                        "size": intent.size,
-                        "submission_lane": lane,
-                        "bypass_reason": "reduce_only_recovery_priority",
-                        "soft_throttle_decision_basis": {
-                            "pool": "shared_order_rate_pool",
-                            "threshold_basis": "order_rate_soft_limit_pct",
-                            "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
-                            "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
-                            "orders_soft_limit_non_recovery_60s": int(
-                                order_capacity.get("orders_soft_limit_non_recovery", 0)
-                            ),
-                            "orders_hard_limit_non_recovery_60s": int(
-                                order_capacity.get("orders_hard_limit_non_recovery", 0)
-                            ),
-                            "orders_recovery_reserved_slots_60s": int(
-                                order_capacity.get("orders_recovery_reserved_slots", 0)
-                            ),
-                            "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
-                            "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
-                            "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
-                            "orders_transport_attempted_60s": int(
-                                order_capacity.get("orders_transport_attempted_recent", 0)
-                            ),
-                            "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
-                            "orders_soft_remaining_non_recovery_60s": int(
-                                order_capacity.get("orders_soft_remaining_non_recovery", 0)
-                            ),
-                            "lane_attribution": "shared_pool_maker_and_taker",
-                        },
-                        "reduce_only_recovery_active": True,
-                        "reduce_only_recovery_reason": str(risk_context_payload.get("reduce_only_recovery_reason") or ""),
+            self.telemetry.incr("order_soft_throttle_skips")
+            self.events.log_event(
+                "order_soft_throttle",
+                {
+                    "ts_utc": utc_iso(),
+                    "token_id": intent.token_id,
+                    "side": intent.side,
+                    "price": intent.price,
+                    "size": intent.size,
+                    "submission_lane": lane,
+                    "soft_throttle_decision_basis": {
+                        "pool": "shared_order_rate_pool",
+                        "threshold_basis": "order_rate_soft_limit_pct",
+                        "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
+                        "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
+                        "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
+                        "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
+                        "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
+                        "orders_transport_attempted_60s": int(
+                            order_capacity.get("orders_transport_attempted_recent", 0)
+                        ),
+                        "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
+                        "lane_attribution": "shared_pool_maker_and_taker",
                     },
-                )
-            else:
-                self.telemetry.incr("order_soft_throttle_skips")
-                self.events.log_event(
-                    "order_soft_throttle",
-                    {
-                        "ts_utc": utc_iso(),
-                        "token_id": intent.token_id,
-                        "side": intent.side,
-                        "price": intent.price,
-                        "size": intent.size,
-                        "submission_lane": lane,
-                        "soft_throttle_decision_basis": {
-                            "pool": "shared_order_rate_pool",
-                            "threshold_basis": "order_rate_soft_limit_pct",
-                            "orders_limit_60s": int(order_capacity.get("orders_limit", 0)),
-                            "orders_soft_limit_60s": int(order_capacity.get("orders_soft_limit", 0)),
-                            "orders_soft_limit_non_recovery_60s": int(
-                                order_capacity.get("orders_soft_limit_non_recovery", 0)
-                            ),
-                            "orders_hard_limit_non_recovery_60s": int(
-                                order_capacity.get("orders_hard_limit_non_recovery", 0)
-                            ),
-                            "orders_recovery_reserved_slots_60s": int(
-                                order_capacity.get("orders_recovery_reserved_slots", 0)
-                            ),
-                            "orders_soft_effective_used_60s": int(order_capacity.get("orders_soft_effective_used", 0)),
-                            "orders_used_accepted_60s": int(order_capacity.get("orders_used_accepted", 0)),
-                            "orders_reserved_outstanding_60s": int(order_capacity.get("orders_reserved_outstanding", 0)),
-                            "orders_transport_attempted_60s": int(
-                                order_capacity.get("orders_transport_attempted_recent", 0)
-                            ),
-                            "orders_soft_remaining_60s": int(order_capacity.get("orders_soft_remaining", 0)),
-                            "orders_soft_remaining_non_recovery_60s": int(
-                                order_capacity.get("orders_soft_remaining_non_recovery", 0)
-                            ),
-                            "lane_attribution": "shared_pool_maker_and_taker",
-                        },
-                    },
-                )
-                return _local_reject(
-                    "order_soft_throttle",
-                    extra={
-                        "reduce_only_recovery_active": bool(reduce_only_recovery_active),
-                        "reduce_only_recovery_priority": bool(reduce_only_recovery_priority),
-                        "reduce_only_recovery_reason": str(risk_context_payload.get("reduce_only_recovery_reason") or ""),
-                    },
-                )
-
-        if reduce_only_recovery_active and (
-            not isinstance(reduce_only_size_cap, (int, float)) or float(reduce_only_size_cap) <= 1e-9
-        ):
-            return _local_reject(
-                "reduce_only_recovery_size_cap_unavailable",
-                detail=f"net_shares={float(net_shares_for_priority):.9f}:side={intent_side_upper}",
-                extra={
-                    "financial_posture_class": str(financial_posture_class),
-                    "reduce_only_recovery_active": True,
-                    "reduce_only_size_cap_shares": float(reduce_only_size_cap or 0.0),
-                    "reduce_only_net_shares_live": float(net_shares_for_priority),
-                    "reduce_only_dynamic_size_cap_source": str(reduce_only_dynamic_size_cap_source or ""),
                 },
+            )
+            return _local_reject(
+                "order_soft_throttle",
             )
 
         resolved_size, size_resolution = self._resolve_order_size_shares_with_details(
@@ -1598,77 +1463,14 @@ class OrderManager:
             top,
             notional_target_usd=notional_target_usd,
         )
-        if (
-            resolved_size is None
-            and reduce_only_recovery_active
-            and isinstance(reduce_only_size_cap, (int, float))
-            and float(reduce_only_size_cap) > 0.0
-        ):
-            fallback_size = min(
-                float(reduce_only_size_cap),
-                float(self._round_shares(float(reduce_only_size_cap))),
-                float(self.strategy_max_order_size),
-            )
-            min_size_floor = (
-                float(reduce_only_min_order_size_shares)
-                if isinstance(reduce_only_min_order_size_shares, (int, float))
-                else 0.0
-            )
-            terminal_min_notional_floor_bypass = bool(
-                reduce_only_size_cap_below_min_order_size and reduce_only_terminal_notional_exemption_eligible
-            )
-            if (
-                fallback_size > 1e-9
-                and (
-                    (not reduce_only_size_cap_below_min_order_size)
-                    or terminal_min_notional_floor_bypass
-                )
-                and (
-                    min_size_floor <= 0.0
-                    or fallback_size + 1e-9 >= min_size_floor
-                    or terminal_min_notional_floor_bypass
-                )
-            ):
-                resolved_size = float(fallback_size)
-                if not isinstance(size_resolution, dict):
-                    size_resolution = {}
-                resolution_reasons = size_resolution.get("size_decision_reasons")
-                if not isinstance(resolution_reasons, list):
-                    resolution_reasons = []
-                if terminal_min_notional_floor_bypass:
-                    resolution_reasons.append("reduce_only_terminal_notional_fallback")
-                else:
-                    resolution_reasons.append("reduce_only_recovery_size_cap_fallback")
-                size_resolution["size_decision_reasons"] = resolution_reasons
-                size_resolution["reduce_only_recovery_active"] = True
-                size_resolution["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
-                size_resolution["resolved_shares"] = float(resolved_size)
-                size_resolution["financial_posture_class"] = str(financial_posture_class or "UNKNOWN")
-                size_resolution["terminal_reduce_only_posture"] = bool(terminal_reduce_only_posture)
-                size_resolution["reduce_only_terminal_min_notional_usd"] = float(reduce_only_terminal_min_notional_usd)
-                size_resolution["terminal_min_notional_floor_bypass"] = bool(terminal_min_notional_floor_bypass)
-                fallback_price = self._sizing_price(top, intent.side)
-                size_resolution["resolved_notional_usd"] = (
-                    float(resolved_size) * float(fallback_price)
-                    if isinstance(fallback_price, (int, float)) and float(fallback_price) > 0.0
-                    else None
-                )
-                if min_size_floor > 0.0:
-                    size_resolution["reduce_only_min_order_size_shares"] = float(min_size_floor)
 
         if resolved_size is None:
             self.telemetry.incr("sizing_rejects")
             risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
-            event_stage_raw = str(intent.stage or "").strip().upper()
-            stage_source = "intent" if event_stage_raw else "unknown"
-            stage_unknown_reason = None if event_stage_raw else "missing_intent_and_risk_context_stage"
-            if not event_stage_raw and isinstance(risk_context, dict):
-                context_stage_raw = str((risk_context or {}).get("stage") or "").strip().upper()
-                if context_stage_raw:
-                    event_stage_raw = context_stage_raw
-                    stage_source = "risk_context"
-                    stage_unknown_reason = None
-            event_stage = event_stage_raw or "UNKNOWN"
+            event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
+                intent_stage=intent.stage,
+                risk_context=risk_context_payload,
+            )
             event_financial_posture_class = str(
                 risk_context_payload.get("financial_posture_class") or "UNKNOWN"
             ).strip().upper()
@@ -1686,9 +1488,9 @@ class OrderManager:
                     "price": intent.price,
                     "size": intent.size,
                     "submission_lane": lane,
-                    "stage": event_stage,
-                    "stage_source": stage_source,
-                    "stage_unknown_reason": stage_unknown_reason,
+                    EDGE_LIFECYCLE_PHASE_FIELD: event_lifecycle_phase,
+                    "lifecycle_phase_source": lifecycle_phase_source,
+                    "lifecycle_phase_unknown_reason": lifecycle_phase_unknown_reason,
                     "financial_posture_class": event_financial_posture_class,
                     "sec_to_expiry": event_sec_to_expiry,
                     "reason": "size_notional_bounds",
@@ -1696,7 +1498,7 @@ class OrderManager:
                     "risk_decision_basis": {
                         "risk_authority": "sizing_pre_risk",
                         "submission_lane": lane,
-                        "stage": event_stage,
+                        EDGE_LIFECYCLE_PHASE_FIELD: event_lifecycle_phase,
                         "financial_posture_class": event_financial_posture_class,
                         "sec_to_expiry": event_sec_to_expiry,
                         "lifecycle_context_present": bool(event_sec_to_expiry is not None),
@@ -1709,19 +1511,6 @@ class OrderManager:
                 detail=f"mode={self.sizing_mode}",
                 extra={"size_resolution": size_resolution},
             )
-        if (
-            isinstance(reduce_only_size_cap, (int, float))
-            and float(reduce_only_size_cap) > 0.0
-            and float(resolved_size) > (float(reduce_only_size_cap) + 1e-9)
-        ):
-            resolved_size = float(reduce_only_size_cap)
-            resolution_reasons = size_resolution.get("size_decision_reasons")
-            if isinstance(resolution_reasons, list):
-                resolution_reasons.append("reduce_only_size_cap_to_position")
-            size_resolution["reduce_only_size_cap_shares"] = float(reduce_only_size_cap)
-            size_resolution["resolved_shares"] = float(resolved_size)
-            if isinstance(top.midpoint, (int, float)):
-                size_resolution["resolved_notional_usd"] = float(resolved_size) * float(top.midpoint)
         intent_ts = utc_iso()
         default_execution_pref = (
             "taker_only"
@@ -1809,6 +1598,12 @@ class OrderManager:
 
         risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", lane)
+        risk_context_payload.setdefault(
+            EDGE_LIFECYCLE_PHASE_FIELD,
+            _canonical_lifecycle_phase_from_payload(risk_context_payload)
+            or _canonical_lifecycle_phase_from_stage(intent_sized.stage)
+            or "scan",
+        )
         decision = self.risk.validate_order(
             intent_sized,
             top,
@@ -1820,24 +1615,11 @@ class OrderManager:
         )
         if not decision.allowed:
             risk_basis = decision.basis if isinstance(decision.basis, dict) else None
-            intent_stage = str(intent_sized.stage or "").strip().upper()
-            basis_stage = (
-                str((risk_basis or {}).get("stage") or "").strip().upper()
-                if isinstance(risk_basis, dict)
-                else ""
+            event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
+                intent_stage=intent_sized.stage,
+                risk_context=risk_context_payload,
+                risk_basis=risk_basis,
             )
-            if intent_stage:
-                event_stage = intent_stage
-                stage_source = "intent"
-                stage_unknown_reason = None
-            elif basis_stage:
-                event_stage = basis_stage
-                stage_source = "risk_decision_basis"
-                stage_unknown_reason = None
-            else:
-                event_stage = "UNKNOWN"
-                stage_source = "unknown"
-                stage_unknown_reason = "missing_intent_and_basis_stage"
             self.telemetry.incr("risk_rejects")
             self.telemetry.incr(f"risk_reject_{decision.reason}")
             self.events.log_event(
@@ -1849,9 +1631,9 @@ class OrderManager:
                     "price": intent_sized.price,
                     "size": intent_sized.size,
                     "submission_lane": lane,
-                    "stage": event_stage,
-                    "stage_source": stage_source,
-                    "stage_unknown_reason": stage_unknown_reason,
+                    EDGE_LIFECYCLE_PHASE_FIELD: event_lifecycle_phase,
+                    "lifecycle_phase_source": lifecycle_phase_source,
+                    "lifecycle_phase_unknown_reason": lifecycle_phase_unknown_reason,
                     "reason": decision.reason,
                     "detail": decision.detail,
                     "risk_decision_basis": risk_basis,
@@ -1870,8 +1652,6 @@ class OrderManager:
             default_max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
             effective_min_expected_fill_prob = float(default_min_expected_fill_prob)
             effective_max_queue_ahead_size = float(default_max_queue_ahead_size)
-            reduce_only_recovery_active = bool(risk_context_payload.get("reduce_only_recovery_active", False))
-            reduce_only_recovery_reason = str(risk_context_payload.get("reduce_only_recovery_reason") or "")
             pos = self.risk.positions.get(intent_sized.token_id)
             net_shares = float(getattr(pos, "net_shares", 0.0) or 0.0)
             is_pure_risk_reducing = RiskEngine._is_pure_risk_reducing_intent(
@@ -1879,15 +1659,6 @@ class OrderManager:
                 side=intent_sized.side,
                 size=float(intent_sized.size),
             )
-            quality_relaxation_active = bool(reduce_only_recovery_active and is_pure_risk_reducing)
-            if quality_relaxation_active:
-                effective_min_expected_fill_prob = min(
-                    float(default_min_expected_fill_prob),
-                    float(self.reduce_only_recovery_min_expected_fill_prob_floor),
-                )
-                effective_max_queue_ahead_size = float(default_max_queue_ahead_size) * float(
-                    self.reduce_only_recovery_max_queue_ahead_size_multiplier
-                )
             quality_fields = {
                 "expected_fill_prob": quality.expected_fill_prob,
                 "quality_score": quality.expected_quality_score,
@@ -1919,8 +1690,6 @@ class OrderManager:
                         "expected_fill_prob": quality.expected_fill_prob,
                         "quality_score": quality.expected_quality_score,
                         "distance_to_touch": quality.distance_to_touch,
-                        "reduce_only_recovery_active": bool(quality_relaxation_active),
-                        "reduce_only_recovery_reason": str(reduce_only_recovery_reason),
                         "default_min_expected_fill_prob": float(default_min_expected_fill_prob),
                         "default_max_queue_ahead_size": float(default_max_queue_ahead_size),
                         "effective_min_expected_fill_prob": float(effective_min_expected_fill_prob),
@@ -1947,8 +1716,6 @@ class OrderManager:
                         "quality_score": quality.expected_quality_score,
                         "queue_ahead_size": quality.queue_ahead_size,
                         "distance_to_touch": quality.distance_to_touch,
-                        "reduce_only_recovery_active": bool(quality_relaxation_active),
-                        "reduce_only_recovery_reason": str(reduce_only_recovery_reason),
                         "default_min_expected_fill_prob": float(default_min_expected_fill_prob),
                         "default_max_queue_ahead_size": float(default_max_queue_ahead_size),
                         "effective_min_expected_fill_prob": float(effective_min_expected_fill_prob),
@@ -2044,24 +1811,11 @@ class OrderManager:
                     release_submission_reservation=False,
                 )
                 risk_basis = post_wallet_decision.basis if isinstance(post_wallet_decision.basis, dict) else None
-                intent_stage = str(intent_authorized.stage or "").strip().upper()
-                basis_stage = (
-                    str((risk_basis or {}).get("stage") or "").strip().upper()
-                    if isinstance(risk_basis, dict)
-                    else ""
+                event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
+                    intent_stage=intent_authorized.stage,
+                    risk_context=post_wallet_context,
+                    risk_basis=risk_basis,
                 )
-                if intent_stage:
-                    event_stage = intent_stage
-                    stage_source = "intent"
-                    stage_unknown_reason = None
-                elif basis_stage:
-                    event_stage = basis_stage
-                    stage_source = "risk_decision_basis"
-                    stage_unknown_reason = None
-                else:
-                    event_stage = "UNKNOWN"
-                    stage_source = "unknown"
-                    stage_unknown_reason = "missing_intent_and_basis_stage"
                 self.telemetry.incr("risk_rejects")
                 self.telemetry.incr(f"risk_reject_{post_wallet_decision.reason}")
                 self.events.log_event(
@@ -2074,9 +1828,9 @@ class OrderManager:
                         "size": intent_authorized.size,
                         "requested_size_before_wallet": float(intent_sized.size),
                         "submission_lane": lane,
-                        "stage": event_stage,
-                        "stage_source": stage_source,
-                        "stage_unknown_reason": stage_unknown_reason,
+                        EDGE_LIFECYCLE_PHASE_FIELD: event_lifecycle_phase,
+                        "lifecycle_phase_source": lifecycle_phase_source,
+                        "lifecycle_phase_unknown_reason": lifecycle_phase_unknown_reason,
                         "reason": post_wallet_decision.reason,
                         "detail": post_wallet_decision.detail,
                         "risk_decision_basis": risk_basis,
@@ -2255,20 +2009,11 @@ class OrderManager:
         competitiveness_payload = (
             dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         )
-        intent_stage_raw = str(intent_authorized.stage or "").strip().upper()
-        basis_stage_raw = str(risk_basis_event.get("stage") or "").strip().upper()
-        if intent_stage_raw:
-            event_stage = intent_stage_raw
-            stage_source = "intent"
-            stage_unknown_reason = None
-        elif basis_stage_raw:
-            event_stage = basis_stage_raw
-            stage_source = "risk_decision_basis"
-            stage_unknown_reason = None
-        else:
-            event_stage = "UNKNOWN"
-            stage_source = "unknown"
-            stage_unknown_reason = "missing_intent_and_basis_stage"
+        event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
+            intent_stage=intent_authorized.stage,
+            risk_context=risk_context_payload,
+            risk_basis=risk_basis_event,
+        )
         event_financial_posture_class = str(
             risk_basis_event.get("financial_posture_class") or "UNKNOWN"
         ).strip().upper()
@@ -2314,9 +2059,9 @@ class OrderManager:
                 "tif": intent_authorized.tif,
                 "post_only": intent_authorized.post_only,
                 "reason": intent_authorized.reason,
-                "stage": event_stage,
-                "stage_source": stage_source,
-                "stage_unknown_reason": stage_unknown_reason,
+                EDGE_LIFECYCLE_PHASE_FIELD: event_lifecycle_phase,
+                "lifecycle_phase_source": lifecycle_phase_source,
+                "lifecycle_phase_unknown_reason": lifecycle_phase_unknown_reason,
                 "financial_posture_class": event_financial_posture_class,
                 "sec_to_expiry": event_sec_to_expiry,
                 "market_id": intent_authorized.market_id,
@@ -2417,147 +2162,6 @@ class OrderManager:
         if self.maker_competitive_min_notional_usd <= 0.0 or self.maker_competitive_max_shares <= 0.0:
             return None
         return float(self.maker_competitive_min_notional_usd / self.maker_competitive_max_shares)
-
-    def _maybe_apply_maker_queue_pressure(
-        self,
-        *,
-        desired_intent: OrderIntent,
-        top: BookTop,
-        competitiveness_context: Optional[Dict[str, Any]],
-    ) -> Tuple[OrderIntent, Optional[Dict[str, Any]]]:
-        if not self.maker_queue_pressure_enabled or not self.quality.enabled:
-            return desired_intent, None
-        if not self._is_maker_lane(desired_intent):
-            return desired_intent, None
-        if bool(desired_intent.post_only is False) or str(desired_intent.tif or "GTC").upper() != "GTC":
-            return desired_intent, None
-        if not isinstance(competitiveness_context, dict):
-            return desired_intent, None
-        if bool(competitiveness_context.get("reduce_only_recovery_active", False)):
-            return desired_intent, None
-
-        stage_name = str(
-            desired_intent.stage
-            or competitiveness_context.get("stage")
-            or ""
-        ).strip().upper()
-        if stage_name not in self.maker_queue_pressure_allowed_stages:
-            return desired_intent, None
-
-        edge_signed = parse_float(competitiveness_context.get("edge_signed"))
-        if edge_signed is None:
-            return desired_intent, None
-        edge_signed = float(edge_signed)
-        edge_abs = abs(edge_signed)
-        if edge_abs + 1e-12 < float(self.maker_queue_pressure_min_edge_abs):
-            return desired_intent, None
-
-        favored_side = "BUY" if edge_signed >= 0.0 else "SELL"
-        desired_side = str(desired_intent.side or "").strip().upper()
-        if self.maker_queue_pressure_favored_side_only and desired_side != favored_side:
-            return desired_intent, None
-
-        touch_price = top.best_bid_price if desired_side == "BUY" else top.best_ask_price
-        if not isinstance(touch_price, (int, float)):
-            return desired_intent, None
-        price_tolerance = max(1e-9, float(self.tick_size) * 0.5)
-        if abs(float(desired_intent.price) - float(touch_price)) > price_tolerance:
-            return desired_intent, None
-
-        spread = top.spread
-        if self.maker_queue_pressure_tight_spread_only:
-            if not isinstance(spread, (int, float)):
-                return desired_intent, None
-            if float(spread) > float(self.strategy_min_spread) + price_tolerance:
-                return desired_intent, None
-
-        geometry_floor_price = self._maker_geometry_floor_price()
-        sizing_price_used = self._sizing_price(top, desired_intent.side)
-        if self.maker_queue_pressure_skip_below_geometry_floor and geometry_floor_price is not None:
-            if not isinstance(sizing_price_used, (int, float)):
-                return desired_intent, None
-            if float(sizing_price_used) <= float(geometry_floor_price) + 1e-9:
-                return desired_intent, None
-
-        tick_distance = max(1e-9, float(self.tick_size)) * float(self.maker_queue_pressure_inside_price_ticks)
-        adjusted_price = (
-            float(desired_intent.price) + tick_distance
-            if desired_side == "BUY"
-            else float(desired_intent.price) - tick_distance
-        )
-        adjusted_intent = OrderIntent(
-            token_id=desired_intent.token_id,
-            side=desired_intent.side,
-            price=adjusted_price,
-            size=desired_intent.size,
-            tif=desired_intent.tif,
-            post_only=desired_intent.post_only,
-            reason=desired_intent.reason,
-            market_id=desired_intent.market_id,
-            window_id=desired_intent.window_id,
-            stage=desired_intent.stage,
-            reason_code=desired_intent.reason_code,
-            timestamp_utc=desired_intent.timestamp_utc,
-            execution_preference=desired_intent.execution_preference,
-            target_ref=desired_intent.target_ref,
-            decision_reference_midpoint=desired_intent.decision_reference_midpoint,
-            decision_reference_source=desired_intent.decision_reference_source,
-            decision_reference_lookup_key=desired_intent.decision_reference_lookup_key,
-            decision_reference_ts_utc=desired_intent.decision_reference_ts_utc,
-            token_median_lag_ms=desired_intent.token_median_lag_ms,
-            oracle_tick_age_sec=desired_intent.oracle_tick_age_sec,
-        )
-        if self._would_post_only_cross_touch(adjusted_intent, top):
-            return desired_intent, None
-
-        base_quality = self.quality.assess_quote(intent=desired_intent, top=top)
-        adjusted_quality = self.quality.assess_quote(intent=adjusted_intent, top=top)
-        min_expected_fill_prob = float(self.quality.min_expected_fill_prob)
-        max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
-        base_queue_fail = float(base_quality.queue_ahead_size) > max_queue_ahead_size
-        base_fill_fail = float(base_quality.expected_fill_prob) < min_expected_fill_prob
-        if (not base_queue_fail) or base_fill_fail:
-            return desired_intent, None
-
-        adjusted_queue_fail = float(adjusted_quality.queue_ahead_size) > max_queue_ahead_size
-        adjusted_fill_fail = float(adjusted_quality.expected_fill_prob) < min_expected_fill_prob
-        adopted = not adjusted_queue_fail and not adjusted_fill_fail
-        event_payload: Dict[str, Any] = {
-            "ts_utc": utc_iso(),
-            "token_id": desired_intent.token_id,
-            "side": desired_side,
-            "stage": stage_name,
-            "edge_signed": float(edge_signed),
-            "edge_abs": float(edge_abs),
-            "favored_side": favored_side,
-            "inside_price_ticks": int(self.maker_queue_pressure_inside_price_ticks),
-            "base_price": float(desired_intent.price),
-            "adjusted_price": float(adjusted_intent.price),
-            "base_queue_ahead_size": float(base_quality.queue_ahead_size),
-            "adjusted_queue_ahead_size": float(adjusted_quality.queue_ahead_size),
-            "base_expected_fill_prob": float(base_quality.expected_fill_prob),
-            "adjusted_expected_fill_prob": float(adjusted_quality.expected_fill_prob),
-            "base_quality_score": float(base_quality.expected_quality_score),
-            "adjusted_quality_score": float(adjusted_quality.expected_quality_score),
-            "max_queue_ahead_size": float(max_queue_ahead_size),
-            "min_expected_fill_prob": float(min_expected_fill_prob),
-            "geometry_floor_price": (
-                float(geometry_floor_price)
-                if isinstance(geometry_floor_price, (int, float))
-                else None
-            ),
-            "sizing_price_used": (
-                float(sizing_price_used)
-                if isinstance(sizing_price_used, (int, float))
-                else None
-            ),
-            "adopted": bool(adopted),
-            "gate_conversion": bool(adopted),
-            "replace_guard_blocked": False,
-        }
-        if adopted:
-            return adjusted_intent, event_payload
-        return desired_intent, event_payload
 
     @staticmethod
     def _is_maker_lane(intent: OrderIntent) -> bool:
@@ -3025,12 +2629,8 @@ class OrderManager:
         base_size = float(size) if size is not None else float(self.base_order_size)
         competitiveness_stage = None
         if isinstance(competitiveness_context, dict):
-            effective_stage = str(
-                competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
-                or competitiveness_context.get("stage")
-                or ""
-            ).strip()
-            competitiveness_stage = effective_stage.upper() if effective_stage else None
+            compat_stage = str(_compat_lineage_stage_from_payload(competitiveness_context) or "").strip()
+            competitiveness_stage = compat_stage.upper() if compat_stage else None
         explicit_stage = str(stage or "").strip()
         resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
         intent = OrderIntent(
@@ -3078,6 +2678,22 @@ class OrderManager:
         token_orders = [o for o in open_orders if o.token_id == token_id]
         risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", "taker")
+        risk_context_payload.setdefault(
+            EDGE_LIFECYCLE_PHASE_FIELD,
+            _canonical_lifecycle_phase_from_payload(risk_context_payload)
+            or _canonical_lifecycle_phase_from_stage(resolved_stage)
+            or "scan",
+        )
+        risk_context_payload.setdefault(
+            "lineage_stage",
+            str(
+                risk_context_payload.get("lineage_stage")
+                or lineage_stage_from_payload(risk_context_payload)
+                or resolved_stage
+                or "UNKNOWN"
+            ).strip().upper()
+            or "UNKNOWN",
+        )
         risk_context_payload.setdefault("stage", str(intent.stage or "").strip().upper() or "UNKNOWN")
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
@@ -3146,12 +2762,8 @@ class OrderManager:
         explicit_stage = str(stage or "").strip()
         competitiveness_stage = None
         if isinstance(competitiveness_context, dict):
-            effective_stage = str(
-                competitiveness_context.get(EDGE_STAGE_EFFECTIVE_FIELD)
-                or competitiveness_context.get("stage")
-                or ""
-            ).strip()
-            competitiveness_stage = effective_stage.upper() if effective_stage else None
+            compat_stage = str(_compat_lineage_stage_from_payload(competitiveness_context) or "").strip()
+            competitiveness_stage = compat_stage.upper() if compat_stage else None
         resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
         base_intent = OrderIntent(
             token_id=token_id,
@@ -3167,6 +2779,22 @@ class OrderManager:
         token_orders = [o for o in open_orders if o.token_id == token_id]
         risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         risk_context_payload.setdefault("submission_lane", "taker")
+        risk_context_payload.setdefault(
+            EDGE_LIFECYCLE_PHASE_FIELD,
+            _canonical_lifecycle_phase_from_payload(risk_context_payload)
+            or _canonical_lifecycle_phase_from_stage(resolved_stage)
+            or "scan",
+        )
+        risk_context_payload.setdefault(
+            "lineage_stage",
+            str(
+                risk_context_payload.get("lineage_stage")
+                or lineage_stage_from_payload(risk_context_payload)
+                or resolved_stage
+                or "UNKNOWN"
+            ).strip().upper()
+            or "UNKNOWN",
+        )
         risk_context_payload.setdefault("stage", str(base_intent.stage or "").strip().upper() or "UNKNOWN")
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
@@ -3328,8 +2956,10 @@ class OrderManager:
             "quote_quality_skip_fill_probability": 2,
             "quote_quality_skip_queue_depth": 2,
             "risk_reject": 2,
-            "reduce_only_recovery_size_cap_below_min_order_size": 2,
+            "open_order_cleanup_required": 2,
+            "settlement_hold_required": 2,
             "replace_guard_min_rest": 3,
+            "maker_commitment_hold_active": 3,
             "no_desired_quote": 4,
             "quote_unchanged": 5,
             "unspecified": 99,
@@ -3452,23 +3082,38 @@ class OrderManager:
                 if isinstance(competitiveness_context_by_token, dict)
                 else None
             )
-            reduce_only_recovery_active = bool(
-                isinstance(token_competitiveness_context, dict)
-                and token_competitiveness_context.get("reduce_only_recovery_active", False)
-            )
-            reduce_only_side = (
-                str(token_competitiveness_context.get("reduce_only_side") or "").strip().upper()
-                if isinstance(token_competitiveness_context, dict)
-                else ""
-            )
-            reduce_only_size_cap_below_min_order_size = bool(
-                isinstance(token_competitiveness_context, dict)
-                and token_competitiveness_context.get("reduce_only_size_cap_below_min_order_size", False)
-            )
             if actions >= max_actions:
                 _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
                 continue
             token_orders = by_token.get(token_id, [])
+            committed_token_orders = [order for order in token_orders if self._active_committed_maker_order(order)]
+            committed_token_orders.sort(key=lambda order: order.created_ts_utc or "")
+            if committed_token_orders:
+                _record_maker_no_submission_reason(token_id, "maker_commitment_hold_active")
+                primary_committed_order = committed_token_orders[0]
+                non_committed_extras = [
+                    order
+                    for order in token_orders
+                    if order is not primary_committed_order and not self._active_committed_maker_order(order)
+                ]
+                for order in non_committed_extras:
+                    if actions >= max_actions:
+                        _record_maker_no_submission_reason(token_id, "action_budget_exhausted")
+                        break
+                    result = self._request_cancel_order(
+                        order,
+                        "maker_commitment_hold_active",
+                        request_origin="maker_commitment_token_lock",
+                    )
+                    if bool(result.get("executed", False)):
+                        actions += 1
+                        open_orders_total = max(0, open_orders_total - 1)
+                        self._remove_token_order_if_present(
+                            token_orders,
+                            order,
+                            remove_reason="maker_commitment_hold_active",
+                        )
+                continue
             position = self.risk.positions.setdefault(token_id, Position(token_id=token_id))
             fair_prob = None if fair_probability_by_token is None else fair_probability_by_token.get(token_id)
             realized_vol = None if realized_volatility_by_token is None else realized_volatility_by_token.get(token_id)
@@ -3563,11 +3208,7 @@ class OrderManager:
                             )
                     continue
 
-                desired_effective, queue_pressure_event = self._maybe_apply_maker_queue_pressure(
-                    desired_intent=desired_intent,
-                    top=top,
-                    competitiveness_context=token_competitiveness_context,
-                )
+                desired_effective = desired_intent
                 shadow_effective, shadow_cross_guard_preview = self._maybe_clamp_post_only_intent(
                     desired_effective,
                     top,
@@ -3760,37 +3401,6 @@ class OrderManager:
                 effective_competitiveness_context["target_side_ref"] = str(
                     shadow_event.get("target_side_ref") or ""
                 )
-                if queue_pressure_event is not None:
-                    effective_competitiveness_context["queue_pressure_enabled"] = True
-                    effective_competitiveness_context["queue_pressure_candidate"] = True
-                    effective_competitiveness_context["queue_pressure_adopted"] = bool(
-                        queue_pressure_event.get("adopted", False)
-                    )
-                    effective_competitiveness_context["queue_pressure_gate_conversion"] = bool(
-                        queue_pressure_event.get("gate_conversion", False)
-                    )
-                    effective_competitiveness_context["queue_pressure_inside_price_ticks"] = int(
-                        queue_pressure_event.get("inside_price_ticks", self.maker_queue_pressure_inside_price_ticks)
-                    )
-                    if bool(queue_pressure_event.get("adopted", False)):
-                        effective_competitiveness_context["queue_pressure_adjusted_price"] = float(
-                            queue_pressure_event.get("adjusted_price", desired_effective.price)
-                        )
-                        effective_competitiveness_context["queue_pressure_base_price"] = float(
-                            queue_pressure_event.get("base_price", desired_intent.price)
-                        )
-                        effective_competitiveness_context["queue_pressure_base_queue_ahead_size"] = float(
-                            queue_pressure_event.get("base_queue_ahead_size", 0.0)
-                        )
-                        effective_competitiveness_context["queue_pressure_adjusted_queue_ahead_size"] = float(
-                            queue_pressure_event.get("adjusted_queue_ahead_size", 0.0)
-                        )
-                        effective_competitiveness_context["queue_pressure_base_expected_fill_prob"] = float(
-                            queue_pressure_event.get("base_expected_fill_prob", 0.0)
-                        )
-                        effective_competitiveness_context["queue_pressure_adjusted_expected_fill_prob"] = float(
-                            queue_pressure_event.get("adjusted_expected_fill_prob", 0.0)
-                        )
                 if bool(selection_gate.get("applied", False)) and not bool(selection_gate.get("passed", False)):
                     primary_reject_reason = str(
                         selection_gate.get("primary_reject_reason") or "selection_gate_reject"
@@ -3827,18 +3437,8 @@ class OrderManager:
                     )
                     continue
 
-                force_replace_queue_pressure = False
-                if (
-                    primary is not None
-                    and bool(self.maker_queue_pressure_force_replace_on_adjustment)
-                    and isinstance(queue_pressure_event, dict)
-                    and bool(queue_pressure_event.get("adopted", False))
-                    and abs(float(primary.price) - float(desired_effective.price)) >= (float(self.tick_size) - 1e-12)
-                ):
-                    force_replace_queue_pressure = True
                 replace_needed = (
                     primary is None
-                    or force_replace_queue_pressure
                     or self._needs_replace(primary, desired_effective, requote_delta=token_requote_delta)
                 )
 
@@ -3846,12 +3446,6 @@ class OrderManager:
                     if primary is not None and self.maker_replace_min_rest_sec > 0.0:
                         age_sec = self._order_age_sec(primary)
                         if age_sec is not None and age_sec < self.maker_replace_min_rest_sec:
-                            if isinstance(queue_pressure_event, dict):
-                                queue_pressure_event["replace_guard_blocked"] = bool(force_replace_queue_pressure)
-                                self.events.log_event(
-                                    "maker_queue_pressure_adjustment",
-                                    queue_pressure_event,
-                                )
                             self._log_maker_fight_admission_shadow_event(
                                 shadow_event,
                                 decision_result="replace_guard_blocked",
@@ -3859,12 +3453,6 @@ class OrderManager:
                             )
                             _record_maker_no_submission_reason(token_id, "replace_guard_min_rest")
                             continue
-
-                    if isinstance(queue_pressure_event, dict):
-                        self.events.log_event(
-                            "maker_queue_pressure_adjustment",
-                            queue_pressure_event,
-                        )
 
                     cancel_failed = False
                     # Cancel old side orders first to keep behavior deterministic.
@@ -3945,11 +3533,6 @@ class OrderManager:
                             ),
                         )
                 else:
-                    if isinstance(queue_pressure_event, dict):
-                        self.events.log_event(
-                            "maker_queue_pressure_adjustment",
-                            queue_pressure_event,
-                        )
                     self._log_maker_fight_admission_shadow_event(
                         shadow_event,
                         decision_result="quote_unchanged",

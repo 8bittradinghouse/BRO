@@ -40,10 +40,10 @@ Downstream BRO-Specific Policy Surfaces
 - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
   - BRO-local maker pathway/reference surface.
   - Design/pathway truth only; not runtime authority by itself.
-- `docs/GALAXY_MEGA_MAKER_CANNON_BLUEPRINT_2026-04-28.md`
+- `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
   - BRO-local intended maker-weapon doctrine anchor.
-  - It defines the intended late-window maker posture (`15-20s`, sweet spot
-    `10-15s`) for doctrine cleanup and support-surface alignment.
+  - It defines the intended late-window maker posture (maker gate at `15s`,
+    taker handoff at `7s`) for doctrine cleanup and support-surface alignment.
   - It is not automatic proof that current runtime already matches that
     posture.
 - `docs/BRO_WEAPON_NOMENCLATURE.md`

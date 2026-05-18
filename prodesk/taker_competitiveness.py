@@ -4,23 +4,7 @@ import dataclasses
 import math
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from prodesk.edge_truth_contract import (
-    STAGE_EXTREME_ONLY,
-    STAGE_MAKER_TAKER_SELECTIVE,
-    STAGE_SNIPER_PRIMARY,
-)
-
-
-CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset(
-    stage_name
-    for stage_name in (
-        STAGE_MAKER_TAKER_SELECTIVE,
-        STAGE_SNIPER_PRIMARY,
-        STAGE_EXTREME_ONLY,
-    )
-    if stage_name == STAGE_EXTREME_ONLY
-)
-
+from .edge_truth_contract import lifecycle_phase_surface_fields, legacy_stage_to_lifecycle_phase
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -37,21 +21,6 @@ def _clamp(value: float, lower: float, upper: float) -> float:
 
 
 @dataclasses.dataclass(frozen=True)
-class StageAggressiveness:
-    size_mult: float = 1.0
-    price_aggress_bps: float = 0.0
-
-    @classmethod
-    def from_mapping(cls, row: Optional[Mapping[str, Any]]) -> "StageAggressiveness":
-        if not isinstance(row, Mapping):
-            return cls()
-        return cls(
-            size_mult=max(0.01, _safe_float(row.get("size_mult"), 1.0)),
-            price_aggress_bps=max(0.0, _safe_float(row.get("price_aggress_bps"), 0.0)),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
 class TakerCompetitivenessConfig:
     enabled: bool = False
     hard_min_target_usd: float = 100.0
@@ -65,10 +34,8 @@ class TakerCompetitivenessConfig:
     latency_score_weight: float = 0.35
     final_window_enabled: bool = True
     final_window_sec: float = 15.0
-    stage_final_window_sec_by_stage: Dict[str, float] = dataclasses.field(default_factory=dict)
     aggressive_window_enabled: bool = False
     aggressive_window_sec: float = 10.0
-    stage_aggressiveness: Dict[str, StageAggressiveness] = dataclasses.field(default_factory=dict)
     price_aggress_bps_max: float = 8.0
     dynamic_preview_enabled: bool = False
     multi_oracle_boost_enabled: bool = False
@@ -76,7 +43,6 @@ class TakerCompetitivenessConfig:
     multi_oracle_edge_threshold_abs: float = 0.20
     multi_oracle_target_usd_cap: float = 350.0
     multi_oracle_capital_pct_cap: float = 0.18
-    stage_priority_enabled: bool = False
     normal_side_policy: str = "buy_expected_winner_only"
     allow_complement_buy_route: bool = True
     min_visible_fill_ratio: float = 0.0
@@ -85,33 +51,6 @@ class TakerCompetitivenessConfig:
     def from_mapping(cls, row: Optional[Mapping[str, Any]], *, strict: bool = False) -> "TakerCompetitivenessConfig":
         if not isinstance(row, Mapping):
             return cls()
-        stage_rows = row.get("stage_aggressiveness")
-        parsed_stage_rows: Dict[str, StageAggressiveness] = {}
-        if isinstance(stage_rows, Mapping):
-            for stage, payload in stage_rows.items():
-                stage_name = str(stage or "").strip().upper()
-                if not stage_name:
-                    continue
-                if strict and stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-                    raise ValueError(
-                        "taker.competitiveness.stage_aggressiveness keys must be taker-allowed stages"
-                    )
-                parsed_stage_rows[stage_name] = StageAggressiveness.from_mapping(payload)
-        stage_window_rows = row.get("stage_final_window_sec_by_stage")
-        parsed_stage_window_rows: Dict[str, float] = {}
-        if isinstance(stage_window_rows, Mapping):
-            for stage, payload in stage_window_rows.items():
-                stage_name = str(stage or "").strip().upper()
-                if not stage_name:
-                    continue
-                if strict and stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-                    raise ValueError(
-                        "taker.competitiveness.stage_final_window_sec_by_stage keys must be taker-allowed stages"
-                    )
-                stage_window_sec = max(0.0, _safe_float(payload, 0.0))
-                if stage_window_sec <= 0.0:
-                    continue
-                parsed_stage_window_rows[stage_name] = float(stage_window_sec)
         cfg = cls(
             enabled=bool(row.get("enabled", False)),
             hard_min_target_usd=max(0.0, _safe_float(row.get("hard_min_target_usd"), 100.0)),
@@ -127,10 +66,8 @@ class TakerCompetitivenessConfig:
             latency_score_weight=max(0.0, _safe_float(row.get("latency_score_weight"), 0.35)),
             final_window_enabled=bool(row.get("final_window_enabled", True)),
             final_window_sec=max(0.0, _safe_float(row.get("final_window_sec"), 15.0)),
-            stage_final_window_sec_by_stage=parsed_stage_window_rows,
             aggressive_window_enabled=bool(row.get("aggressive_window_enabled", False)),
             aggressive_window_sec=max(0.0, _safe_float(row.get("aggressive_window_sec"), 10.0)),
-            stage_aggressiveness=parsed_stage_rows,
             price_aggress_bps_max=max(0.0, _safe_float(row.get("price_aggress_bps_max"), 8.0)),
             dynamic_preview_enabled=bool(row.get("dynamic_preview_enabled", False)),
             multi_oracle_boost_enabled=bool(row.get("multi_oracle_boost_enabled", False)),
@@ -138,7 +75,6 @@ class TakerCompetitivenessConfig:
             multi_oracle_edge_threshold_abs=max(0.0, _safe_float(row.get("multi_oracle_edge_threshold_abs"), 0.20)),
             multi_oracle_target_usd_cap=max(0.0, _safe_float(row.get("multi_oracle_target_usd_cap"), 350.0)),
             multi_oracle_capital_pct_cap=max(0.0, _safe_float(row.get("multi_oracle_capital_pct_cap"), 0.18)),
-            stage_priority_enabled=bool(row.get("stage_priority_enabled", False)),
             normal_side_policy=str(row.get("normal_side_policy", "buy_expected_winner_only")).strip().lower()
             or "buy_expected_winner_only",
             allow_complement_buy_route=bool(row.get("allow_complement_buy_route", True)),
@@ -162,19 +98,8 @@ class TakerCompetitivenessConfig:
             "latency_score_weight": float(self.latency_score_weight),
             "final_window_enabled": bool(self.final_window_enabled),
             "final_window_sec": float(self.final_window_sec),
-            "stage_final_window_sec_by_stage": {
-                str(stage): float(value)
-                for stage, value in dict(self.stage_final_window_sec_by_stage or {}).items()
-            },
             "aggressive_window_enabled": bool(self.aggressive_window_enabled),
             "aggressive_window_sec": float(self.aggressive_window_sec),
-            "stage_aggressiveness": {
-                str(stage): {
-                    "size_mult": float(profile.size_mult),
-                    "price_aggress_bps": float(profile.price_aggress_bps),
-                }
-                for stage, profile in dict(self.stage_aggressiveness or {}).items()
-            },
             "price_aggress_bps_max": float(self.price_aggress_bps_max),
             "dynamic_preview_enabled": bool(self.dynamic_preview_enabled),
             "multi_oracle_boost_enabled": bool(self.multi_oracle_boost_enabled),
@@ -182,7 +107,6 @@ class TakerCompetitivenessConfig:
             "multi_oracle_edge_threshold_abs": float(self.multi_oracle_edge_threshold_abs),
             "multi_oracle_target_usd_cap": float(self.multi_oracle_target_usd_cap),
             "multi_oracle_capital_pct_cap": float(self.multi_oracle_capital_pct_cap),
-            "stage_priority_enabled": bool(self.stage_priority_enabled),
             "normal_side_policy": str(self.normal_side_policy),
             "allow_complement_buy_route": bool(self.allow_complement_buy_route),
             "min_visible_fill_ratio": float(self.min_visible_fill_ratio),
@@ -259,49 +183,24 @@ def _validate_taker_competitiveness_policy(
     if not (0.0 <= float(cfg.min_visible_fill_ratio) <= 1.0):
         raise ValueError("taker.competitiveness.min_visible_fill_ratio must be within [0, 1]")
 
-    stage_window_rows = source.get("stage_final_window_sec_by_stage", {})
-    if stage_window_rows is not None and not isinstance(stage_window_rows, Mapping):
+    retired_stage_window_rows = source.get("stage_final_window_sec_by_stage", {})
+    if retired_stage_window_rows is not None and not isinstance(retired_stage_window_rows, Mapping):
         raise ValueError("taker.competitiveness.stage_final_window_sec_by_stage must be a mapping")
-    for stage_name, stage_window_sec in dict(cfg.stage_final_window_sec_by_stage or {}).items():
-        if stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-            raise ValueError(
-                "taker.competitiveness.stage_final_window_sec_by_stage keys must be taker-allowed stages"
-            )
-        if float(stage_window_sec) <= 0.0:
-            raise ValueError(
-                f"taker.competitiveness.stage_final_window_sec_by_stage[{stage_name}] must be > 0"
-            )
-        if float(cfg.aggressive_window_sec) > float(stage_window_sec):
-            raise ValueError(
-                "taker.competitiveness.aggressive_window_sec must be <= "
-                + f"stage_final_window_sec_by_stage[{stage_name}]"
-            )
-        if float(cfg.multi_oracle_boost_window_sec) > float(stage_window_sec):
-            raise ValueError(
-                "taker.competitiveness.multi_oracle_boost_window_sec must be <= "
-                + f"stage_final_window_sec_by_stage[{stage_name}]"
-            )
-
-    stage_aggr_rows = source.get("stage_aggressiveness", {})
-    if stage_aggr_rows is not None and not isinstance(stage_aggr_rows, Mapping):
+    if retired_stage_window_rows:
+        raise ValueError(
+            "taker.competitiveness.stage_final_window_sec_by_stage is retired; use lifecycle.phase.taker_window_open_sec"
+        )
+    retired_stage_aggr_rows = source.get("stage_aggressiveness", {})
+    if retired_stage_aggr_rows is not None and not isinstance(retired_stage_aggr_rows, Mapping):
         raise ValueError("taker.competitiveness.stage_aggressiveness must be a mapping")
-    if dict(cfg.stage_aggressiveness or {}):
+    if retired_stage_aggr_rows:
         raise ValueError(
             "taker.competitiveness.stage_aggressiveness is retired for current configs"
         )
-    for stage_name, profile in dict(cfg.stage_aggressiveness or {}).items():
-        if stage_name not in CANONICAL_LIVE_TAKER_STAGE_NAMES:
-            raise ValueError(
-                "taker.competitiveness.stage_aggressiveness keys must be taker-allowed stages"
-            )
-        if float(profile.size_mult) < 1.0:
-            raise ValueError(
-                f"taker.competitiveness.stage_aggressiveness[{stage_name}].size_mult must be >= 1.0"
-            )
-        if float(profile.price_aggress_bps) < 0.0:
-            raise ValueError(
-                f"taker.competitiveness.stage_aggressiveness[{stage_name}].price_aggress_bps must be >= 0"
-            )
+    if bool(source.get("stage_priority_enabled", False)):
+        raise ValueError(
+            "taker.competitiveness.stage_priority_enabled is retired for current configs"
+        )
 
 
 def build_taker_competitiveness_policy(
@@ -370,7 +269,7 @@ class TakerDecision:
     def as_event_payload(self) -> Dict[str, Any]:
         return {
             "token_id": self.token_id,
-            "stage": self.stage,
+            **lifecycle_phase_surface_fields(lifecycle_phase=legacy_stage_to_lifecycle_phase(self.stage)),
             "conviction_score": float(self.conviction_score),
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
@@ -429,6 +328,7 @@ class TakerDecision:
 
     def as_competitiveness_payload(self) -> Dict[str, Any]:
         return {
+            **lifecycle_phase_surface_fields(lifecycle_phase=legacy_stage_to_lifecycle_phase(self.stage)),
             "conviction_score": float(self.conviction_score),
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
@@ -530,14 +430,6 @@ class TakerCompetitivenessEngine:
         if abs(float(final_window_sec) - 15.0) <= 1e-9:
             return "final15"
         return "final_window"
-
-    def _stage_aggressiveness(self, stage: str) -> StageAggressiveness:
-        del stage
-        # Current live taker behavior no longer accepts stage-local
-        # aggressiveness ownership. Compatibility payloads may still carry the
-        # field, but runtime amperage now flows only through canonical
-        # non-stage taker controls.
-        return StageAggressiveness()
 
     def _target_usd(
         self,
@@ -701,8 +593,7 @@ class TakerCompetitivenessEngine:
                 )
                 continue
 
-            stage_profile = self._stage_aggressiveness(stage)
-            aggress_bps = float(stage_profile.price_aggress_bps)
+            aggress_bps = 0.0
             if timing_window_class == "final10" and self.cfg.aggressive_window_enabled:
                 aggress_bps = max(aggress_bps, aggress_bps * 1.25)
             aggress_bps = _clamp(aggress_bps, 0.0, float(self.cfg.price_aggress_bps_max))
@@ -729,7 +620,7 @@ class TakerCompetitivenessEngine:
             target_usd_requested, floor_usd, hard_min_floor_applied = self._target_usd(
                 base_target_usd=float(candidate.base_target_usd),
                 conviction=conviction_score,
-                stage_mult=float(stage_profile.size_mult),
+                stage_mult=1.0,
                 max_dynamic_cap_override=boost_cap_override,
             )
             max_feasible_target = (

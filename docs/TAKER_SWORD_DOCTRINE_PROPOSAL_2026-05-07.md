@@ -1,18 +1,30 @@
-# Taker Sword Blueprint
+# Taker Sword Doctrine Proposal
 
 ## Classification
 `VERIFIED`:
 - this is an external strategy/doctrine input provided by `Robb`, sourced from
   `Grok`, for the taker/sniper lane.
 - it is not yet runtime-proven BRO law.
-- it should be treated as a high-value external blueprint and challenge input,
-  not as automatic canonical authority.
+- it should be treated as a high-value external doctrine proposal and challenge
+  input, not as automatic canonical authority.
 - current taker doctrine and Packet 1 truth should be compared against this
   file; this file must not silently outrank active doctrine without proof.
+- this file is the intended taker-lane doctrine proposal inside the parent market
+  lifecycle blueprint:
+  - `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
 
 Plain-English:
-this is a serious outside blueprint for the taker sword, not a machine-proven
-BRO result yet.
+this is a serious outside doctrine proposal for the taker sword, not a
+machine-proven BRO result yet.
+
+## Parent Lifecycle Boundary
+`VERIFIED`:
+- taker is not its own separate timing sovereign
+- taker is a subordinate execution lane inside:
+  - `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
+- market ownership, market continuity, and parent lifecycle vocabulary belong
+  to the market lifecycle blueprint
+- this file owns intended taker-lane proposal behavior only
 
 ## Exact Grok Text
 Everything below is copied from the user-provided Grok text without wording
