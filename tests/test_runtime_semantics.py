@@ -388,11 +388,11 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(out.get("primary_suppression_cause"), "status_rows_missing")
         self.assertFalse(bool(out.get("ambiguous_suppression_cause", False)))
 
-    def test_classify_runtime_runtime_state_ambiguous_emits_explicit_primary_cause(self):
+    def test_classify_runtime_lifecycle_phase_ambiguous_emits_explicit_primary_cause(self):
         status_rows = [
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
-                "runtime_state": "active",
+                "lifecycle_phase": "active",
                 "active_targets_present": False,
                 "market_truth_required": False,
                 "kill_switch": False,
@@ -401,8 +401,8 @@ class RuntimeSemanticsTests(unittest.TestCase):
         ]
         out = classify_runtime(status_rows=status_rows, events=[])
         self.assertEqual(out["classification"], RUNTIME_CLASS_INVALID_DEADLOCK)
-        self.assertIn("runtime_state_ambiguous", out.get("reasons", []))
-        self.assertEqual(out.get("primary_suppression_cause"), "runtime_state_ambiguous")
+        self.assertIn("lifecycle_phase_ambiguous", out.get("reasons", []))
+        self.assertEqual(out.get("primary_suppression_cause"), "lifecycle_phase_ambiguous")
         self.assertFalse(bool(out.get("ambiguous_suppression_cause", False)))
 
 

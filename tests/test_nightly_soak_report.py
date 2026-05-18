@@ -11,6 +11,11 @@ from scripts.paper_harness_realism_contract import (
     HARNESS_REALISM_GRADE_SEMANTICS,
     normalize_nightly_exercised_harness_realism,
 )
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD as _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD,
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as _HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as _HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from scripts.nightly_soak_report import (
     _maker_probe_rows_with_shadow_truth,
     _maker_phase_allowed_from_row,
@@ -26,10 +31,7 @@ from scripts.nightly_soak_report import (
 
 
 _HISTORICAL_PREEXPIRY_EMERGENCY_EVENT = "preexpiry_emergency_taker_unwind"
-_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
 _HISTORICAL_RECOVERY_REASON = "preexpiry_reduce_only_window_active"
-_HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD = "preexpiry_emergency_taker_window_sec"
 _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON = "reduce_only_recovery_waiting_for_maker_exit"
 _HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE = (
     "reduce_only_recovery_size_cap_below_min_order_size"
@@ -218,7 +220,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "c09c10c6949dcaee",
                 "target_side_ref": "c09c10c6949dcaee|BUY",
                 "side": "BUY",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:29:04.215Z",
                 "decision_result": "submitted",
@@ -231,7 +233,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "466f27bd7f1d3019",
                 "target_side_ref": "466f27bd7f1d3019|SELL",
                 "side": "SELL",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:30:04.215Z",
                 "decision_result": "submitted",
@@ -244,7 +246,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "55847ba47a05dc46",
                 "target_side_ref": "55847ba47a05dc46|SELL",
                 "side": "SELL",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:34:01.754Z",
                 "decision_result": "submitted",
@@ -257,7 +259,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "55847ba47a05dc46",
                 "target_side_ref": "55847ba47a05dc46|BUY",
                 "side": "BUY",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:34:04.765Z",
                 "decision_result": "submitted",
@@ -270,7 +272,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "b446a3128a6a1252",
                 "target_side_ref": "b446a3128a6a1252|SELL",
                 "side": "SELL",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:35:04.215Z",
                 "decision_result": "submitted",
@@ -283,7 +285,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "aa50e402749083c5",
                 "target_side_ref": "aa50e402749083c5|SELL",
                 "side": "SELL",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:36:04.215Z",
                 "decision_result": "submitted",
@@ -296,7 +298,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "target_ref": "aa50e402749083c5",
                 "target_side_ref": "aa50e402749083c5|SELL",
                 "side": "SELL",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "lifecycle_phase": "maker_window",
                 "ts_decision_utc": "2026-04-29T11:36:07.215Z",
                 "decision_result": "submitted",
@@ -546,7 +548,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertIn("breakdown", exercised)
             self.assertIn("semantics", exercised)
             self.assertIn("authority", exercised)
-            self.assertIn("taker_stage_net_breakout", report)
+            self.assertIn("taker_lineage_stage_net_breakout", report)
             self.assertIn("mode_transitions", report)
             self.assertIn("pickoff_indicator", report)
             self.assertIn("runtime_classification", report)
@@ -846,7 +848,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertAlmostEqual(float(resources.get("process_rss_mb_max", 0.0)), 260.0, places=6)
             self.assertAlmostEqual(float(resources.get("system_load1_max", 0.0)), 0.9, places=6)
 
-    def test_build_report_includes_taker_stage_net_breakout(self):
+    def test_build_report_includes_taker_lineage_stage_net_breakout(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             events_path = root / "events_2026-01-01.jsonl"
@@ -863,7 +865,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "order_submit",
                     "order_id": "o-stage",
                     "reason": "taker_chainlink",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "ts_utc": "2026-01-01T00:00:01Z",
                 },
                 {
@@ -882,7 +884,7 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path.write_text("", encoding="utf-8")
 
             report = build_report(root)
-            breakout = report.get("taker_stage_net_breakout", {})
+            breakout = report.get("taker_lineage_stage_net_breakout", {})
             self.assertIn("MAKER_TAKER_SELECTIVE", breakout)
             row = breakout["MAKER_TAKER_SELECTIVE"]
             self.assertEqual(float(row.get("fills_scored", 0.0)), 1.0)
@@ -899,7 +901,7 @@ class NightlySoakReportTests(unittest.TestCase):
             events = [
                 {
                     "event_type": "taker_decision",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "edge_abs": 0.22,
                     "conviction_score": 0.7,
                     "timing_window_class": "outside_window",
@@ -911,7 +913,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 },
                 {
                     "event_type": "taker_decision",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "edge_abs": 0.44,
                     "conviction_score": 0.9,
                     "timing_window_class": "final_window",
@@ -925,9 +927,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "order_submit",
                     "order_id": "o-stage-1",
                     "reason": "taker_chainlink",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.44,
                         "conviction_score": 0.9,
                         "timing_window_class": "final_window",
@@ -950,12 +952,12 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root)
             taker = report.get("taker_competitiveness", {})
-            self.assertIsInstance(taker.get("stage_reduction_primary_cause_counters"), dict)
-            self.assertIsInstance(taker.get("stage_reduction_delta_accounting"), dict)
-            self.assertIsInstance(taker.get("stage_first_claim_guard"), dict)
-            self.assertTrue(bool(taker.get("stage_first_claim_guard", {}).get("stage_evidence_required_before_aggregate_claim")))
+            self.assertIsInstance(taker.get("lineage_stage_reduction_primary_cause_counters"), dict)
+            self.assertIsInstance(taker.get("lineage_stage_reduction_delta_accounting"), dict)
+            self.assertIsInstance(taker.get("lineage_stage_first_claim_guard"), dict)
+            self.assertTrue(bool(taker.get("lineage_stage_first_claim_guard", {}).get("lineage_stage_evidence_required_before_aggregate_claim")))
 
-            mts_delta = (taker.get("stage_reduction_delta_accounting") or {}).get("MAKER_TAKER_SELECTIVE") or {}
+            mts_delta = (taker.get("lineage_stage_reduction_delta_accounting") or {}).get("MAKER_TAKER_SELECTIVE") or {}
             self.assertEqual(float(mts_delta.get("decision_to_submit_delta", 0.0)), 1.0)
             self.assertEqual(float(mts_delta.get("primary_reduction_cause_total", 0.0)), 1.0)
             self.assertTrue(bool(mts_delta.get("primary_reduction_cause_total_matches_delta", False)))
@@ -969,7 +971,7 @@ class NightlySoakReportTests(unittest.TestCase):
             events = [
                 {
                     "event_type": "taker_decision",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "edge_abs": 0.44,
                     "conviction_score": 0.9,
                     "timing_window_class": "final_window",
@@ -982,7 +984,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 {
                     "event_type": "edge_evaluation",
                     "evaluation_scope": "taker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "size_notional_bounds",
@@ -990,7 +992,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 {
                     "event_type": "edge_evaluation",
                     "evaluation_scope": "taker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "size_notional_bounds",
@@ -1003,7 +1005,7 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root)
             mts_delta = (
-                (report.get("taker_competitiveness", {}).get("stage_reduction_delta_accounting") or {})
+                (report.get("taker_competitiveness", {}).get("lineage_stage_reduction_delta_accounting") or {})
                 .get("MAKER_TAKER_SELECTIVE")
                 or {}
             )
@@ -2050,7 +2052,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-a",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 59.0,
                     "market_probability": 0.10,
                     "action_taken": "none",
@@ -2061,7 +2063,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-a",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 58.0,
                     "market_probability": 0.11,
                     "action_taken": "none",
@@ -2073,7 +2075,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-a",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 55.0,
                     "market_probability": 0.12,
                     "action_taken": "none",
@@ -2084,7 +2086,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-b",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 57.0,
                     "market_probability": 0.02,
                     "action_taken": "none",
@@ -2096,7 +2098,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-c",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 56.0,
                     "market_probability": 0.02,
                     "action_taken": "none",
@@ -2108,7 +2110,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-d",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 54.0,
                     "market_probability": 0.015,
                     "action_taken": "none",
@@ -2120,7 +2122,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
                     "target_ref": "target-c",
-                    "stage": "MAKER_POSITION",
+                    "lineage_stage": "MAKER_POSITION",
                     "time_remaining_sec": 61.0,
                     "action_taken": "none",
                     "block_reason": "maker_timing_gate_closed",
@@ -2539,7 +2541,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "market_probability": 0.55,
                         "edge_signed": -0.10,
                         "financial_posture_class": "NORMAL",
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         **_historical_recovery_lineage(active=False),
                     },
                     "size_resolution": {
@@ -2690,7 +2692,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-clean",
                     "ts_decision_utc": "2026-01-01T12:00:05Z",
                     "time_remaining_sec": 12.0,
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "maker_phase_allowed": False,
                     "fair_probability": 0.62,
                     "market_probability": 0.55,
@@ -2715,7 +2717,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-trash",
                     "ts_decision_utc": "2026-01-01T12:00:07Z",
                     "time_remaining_sec": 18.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.12,
                     "market_probability": 0.03,
@@ -2740,7 +2742,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-external",
                     "ts_decision_utc": "2026-01-01T12:00:08Z",
                     "time_remaining_sec": 9.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.58,
                     "market_probability": 0.52,
@@ -2765,7 +2767,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-thin",
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
                     "time_remaining_sec": 16.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.60,
                     "market_probability": 0.57,
@@ -2808,7 +2810,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-backfill",
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
                     "time_remaining_sec": 11.0,
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "maker_phase_allowed": False,
                     "fair_probability": 0.70,
                     "market_probability": None,
@@ -2833,7 +2835,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-old",
                     "ts_decision_utc": "2026-01-01T12:00:10Z",
                     "time_remaining_sec": 35.0,
-                    "stage": "MAKER_POSITION",
+                    "lineage_stage": "MAKER_POSITION",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.54,
                     "market_probability": 0.50,
@@ -3043,7 +3045,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-late",
                     "ts_decision_utc": "2026-01-01T12:00:10Z",
                     "time_remaining_sec": 10.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.63,
                     "market_probability": None,
@@ -3069,7 +3071,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-mid",
                     "ts_decision_utc": "2026-01-01T12:00:30Z",
                     "time_remaining_sec": 30.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.37,
                     "market_probability": None,
@@ -3152,7 +3154,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-prereq",
                     "ts_decision_utc": "2026-01-01T12:00:01Z",
                     "time_remaining_sec": 35.0,
-                    "stage": "MAKER_POSITION",
+                    "lineage_stage": "MAKER_POSITION",
                     "maker_phase_allowed": False,
                     "action_taken": "none",
                     "block_reason": "phase_disallow_maker",
@@ -3179,7 +3181,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-starve",
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
                     "time_remaining_sec": 12.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
@@ -3208,7 +3210,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-reject",
                     "ts_decision_utc": "2026-01-01T12:00:11.500000Z",
                     "time_remaining_sec": 11.5,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
@@ -3237,7 +3239,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-offband",
                     "ts_decision_utc": "2026-01-01T12:00:18Z",
                     "time_remaining_sec": 18.0,
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "maker_phase_allowed": False,
                     "action_taken": "none",
                     "block_reason": "phase_disallow_maker",
@@ -3264,7 +3266,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-reject",
                     "target_side_ref": "target-reject|BUY",
                     "side": "BUY",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "ts_decision_utc": "2026-01-01T12:00:11.450000Z",
                     "sec_to_expiry": 11.5,
                     "financial_posture_class": "NORMAL",
@@ -3474,7 +3476,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "58b3014fd8bd6ce7",
                     "target_side_ref": "58b3014fd8bd6ce7|SELL",
                     "side": "SELL",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "raw_stage": "EXTREME_ONLY",
                     "ts_decision_utc": "2026-04-29T07:04:48.115Z",
                     "ts_event_utc": "2026-04-29T07:04:48.215Z",
@@ -3557,7 +3559,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-04-29T07:04:48.227Z",
                     "ts_event_utc": "2026-04-29T07:04:48.227Z",
                     "time_remaining_sec": 11.811867,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "maker",
                     "block_reason": None,
@@ -3584,7 +3586,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "58b3014fd8bd6ce7",
                     "target_side_ref": "58b3014fd8bd6ce7|SELL",
                     "side": "SELL",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "raw_stage": "EXTREME_ONLY",
                     "ts_decision_utc": "2026-04-29T07:04:49.164Z",
                     "ts_event_utc": "2026-04-29T07:04:49.220Z",
@@ -3632,7 +3634,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "ts_decision_utc": "2026-04-29T07:04:49.224Z",
                     "ts_event_utc": "2026-04-29T07:04:49.224Z",
                     "time_remaining_sec": 10.802218,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
@@ -3802,7 +3804,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-starve",
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
                     "time_remaining_sec": 12.0,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
@@ -3888,7 +3890,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": run_id,
                     "token_id": "t-mid-clean",
                     "target_ref": "target-mid-clean",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 25.0,
                     "ts_decision_utc": "2026-01-01T13:00:25Z",
                     "fair_probability": 0.60,
@@ -3912,7 +3914,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": run_id,
                     "token_id": "t-mid-trash",
                     "target_ref": "target-mid-trash",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 35.0,
                     "ts_decision_utc": "2026-01-01T13:00:35Z",
                     "fair_probability": 0.70,
@@ -3936,7 +3938,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": run_id,
                     "token_id": "t-mid-external",
                     "target_ref": "target-mid-external",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "time_remaining_sec": 40.0,
                     "ts_decision_utc": "2026-01-01T02:00:40Z",
                     "fair_probability": 0.48,
@@ -3960,7 +3962,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": run_id,
                     "token_id": "t-ignored",
                     "target_ref": "target-ignored",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "time_remaining_sec": 15.0,
                     "ts_decision_utc": "2026-01-01T13:00:15Z",
                     "fair_probability": 0.55,
@@ -4083,7 +4085,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-maker-sizing",
                     "submission_lane": "maker",
                     "reason": "size_notional_bounds",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "HALT_NEW_RISK",
                     "size_resolution": {
                         "size_decision_reasons": [
@@ -4137,7 +4139,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(
-                int((maker_sizing.get("maker_sizing_reject_stage_distribution") or {}).get("MAKER_TAKER_SELECTIVE", 0)),
+                int((maker_sizing.get("maker_sizing_reject_lineage_stage_distribution") or {}).get("MAKER_TAKER_SELECTIVE", 0)),
                 1,
             )
             self.assertEqual(
@@ -4166,7 +4168,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": "rid-recovery",
                     "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     **_historical_recovery_lineage(),
                 },
                 {
@@ -4233,7 +4235,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "price": 0.44,
                     "size": 10.0,
                     "decision_reference_midpoint": 0.50,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "HALT_NEW_RISK",
                     "sec_to_expiry": 31.0,
                     "risk_decision_basis": {
@@ -4241,7 +4243,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "reduce_only_terminal_min_notional_usd": 2.0,
                     },
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "financial_posture_class": "HALT_NEW_RISK",
                         "sec_to_expiry": 31.0,
                         "reduce_only_size_cap_shares": 10.0,
@@ -4269,7 +4271,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "price": 0.56,
                     "size": 0.5,
                     "decision_reference_midpoint": 0.50,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "PREEXPIRY_REDUCE_ONLY",
                     "sec_to_expiry": 18.0,
                     "risk_decision_basis": {
@@ -4277,7 +4279,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "reduce_only_terminal_min_notional_usd": 2.0,
                     },
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "financial_posture_class": "PREEXPIRY_REDUCE_ONLY",
                         "sec_to_expiry": 18.0,
                         "reduce_only_size_cap_shares": 0.5,
@@ -4316,7 +4318,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": "rid-recovery-cost",
                     "evaluation_scope": "taker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
                     "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                     "maker_phase_allowed": True,
@@ -4328,7 +4330,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": "rid-recovery-cost",
                     "evaluation_scope": "taker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "submitted",
                     "block_reason": None,
                     "maker_phase_allowed": True,
@@ -4368,7 +4370,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "taker_outside_final_window",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                 },
                 {
                     "event_type": "edge_evaluation",
@@ -4377,13 +4379,13 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "risk_reject_notional_cap",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                 },
                 {
                     "event_type": "taker_decision",
                     "run_id": "rid-taker-competitiveness",
                     "token_id": "t1",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": False,
                     "timing_window_class": "outside_window",
                     "edge_abs": 0.08,
@@ -4400,7 +4402,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "taker_decision",
                     "run_id": "rid-taker-competitiveness",
                     "token_id": "t2",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": True,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
@@ -4418,10 +4420,10 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-competitiveness",
                     "order_id": "taker-1",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "decision_to_submit_latency_ms": 187.5,
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.24,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -4518,31 +4520,31 @@ class NightlySoakReportTests(unittest.TestCase):
             aggressiveness = taker_comp.get("aggressiveness_application_counts", {})
             self.assertEqual(int(aggressiveness.get("price_aggressed", 0)), 1)
             self.assertEqual(int(aggressiveness.get("hard_min_floor_applied", 0)), 1)
-            submit_stage = taker_comp.get("submit_stage_distribution", {})
+            submit_stage = taker_comp.get("submit_lineage_stage_distribution", {})
             self.assertEqual(int(submit_stage.get("SNIPER_PRIMARY", 0)), 1)
-            fill_stage = taker_comp.get("fill_stage_distribution", {})
+            fill_stage = taker_comp.get("fill_lineage_stage_distribution", {})
             self.assertEqual(int(fill_stage.get("SNIPER_PRIMARY", 0)), 1)
-            self.assertEqual(float(taker_comp.get("submit_unknown_stage_count") or 0.0), 0.0)
-            self.assertEqual(float(taker_comp.get("fill_without_submit_stage_count") or 0.0), 0.0)
-            stage_funnel = taker_comp.get("stage_funnel_metrics", {})
+            self.assertEqual(float(taker_comp.get("submit_unknown_lineage_stage_count") or 0.0), 0.0)
+            self.assertEqual(float(taker_comp.get("fill_without_submit_lineage_stage_count") or 0.0), 0.0)
+            stage_funnel = taker_comp.get("lineage_stage_funnel_metrics", {})
             sniper_stage = stage_funnel.get("SNIPER_PRIMARY", {})
             self.assertEqual(float(sniper_stage.get("decision_count") or 0.0), 2.0)
             self.assertEqual(float(sniper_stage.get("submit_capable_static_count") or 0.0), 1.0)
             self.assertEqual(float(sniper_stage.get("submit_capable_dynamic_predicted_count") or 0.0), 0.0)
             self.assertEqual(float(sniper_stage.get("actual_submit_count") or 0.0), 1.0)
             self.assertEqual(float(sniper_stage.get("fill_count") or 0.0), 1.0)
-            stage_reduction = taker_comp.get("stage_reduction_cause_counters", {})
+            stage_reduction = taker_comp.get("lineage_stage_reduction_cause_counters", {})
             sniper_reduction = stage_reduction.get("SNIPER_PRIMARY", {})
             self.assertEqual(int(sniper_reduction.get("reduction_due_to_timing_gate", 0)), 1)
             self.assertEqual(int(sniper_reduction.get("reduction_due_to_final_risk_reject", 0)), 1)
-            hidden = taker_comp.get("stage_hidden_blockage_detector", {})
+            hidden = taker_comp.get("lineage_stage_hidden_blockage_detector", {})
             sniper_hidden = hidden.get("SNIPER_PRIMARY", {})
             self.assertEqual(float(sniper_hidden.get("decision_to_dynamic_predicted_delta") or 0.0), 2.0)
             self.assertEqual(float(sniper_hidden.get("dynamic_predicted_to_submit_delta") or 0.0), 0.0)
             self.assertEqual(float(sniper_hidden.get("submit_to_fill_delta") or 0.0), 0.0)
             overall_hidden = taker_comp.get("hidden_blockage_detector", {})
             self.assertEqual(float(overall_hidden.get("decision_to_dynamic_predicted_delta") or 0.0), 2.0)
-            stage_rejects = taker_comp.get("stage_final_risk_reject_reason_distribution", {})
+            stage_rejects = taker_comp.get("lineage_stage_final_risk_reject_reason_distribution", {})
             self.assertEqual(
                 int(((stage_rejects.get("SNIPER_PRIMARY") or {}).get("risk_reject_notional_cap") or 0)),
                 1,
@@ -4569,7 +4571,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "taker_decision",
                     "run_id": "rid-taker-side-policy",
                     "token_id": "t-neg",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": False,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
@@ -4583,7 +4585,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "taker_decision",
                     "run_id": "rid-taker-side-policy",
                     "token_id": "t-pos",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": True,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
@@ -4598,9 +4600,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-side-policy",
                     "order_id": "ord-buy",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.24,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -4652,7 +4654,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "normal_taker_authority_closed",
-                    "stage": "OBSERVE",
+                    "lineage_stage": "OBSERVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.79,
@@ -4666,7 +4668,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "edge_below_min",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.55,
@@ -4680,7 +4682,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "market_probability_missing",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.55,
@@ -4695,7 +4697,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "action_taken": "none",
                     "block_reason": "taker_submit_rejected",
                     "taker_submit_reject_reason": "risk_reject_notional_cap",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.90,
@@ -4709,7 +4711,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "taker",
                     "block_reason": "",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "edge_abs": 0.40,
@@ -4724,7 +4726,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.95,
@@ -4740,7 +4742,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": _HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE,
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.99,
@@ -4813,7 +4815,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "settlement_hold_required",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.95,
@@ -4828,7 +4830,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "taker",
                     "action_taken": "none",
                     "block_reason": "open_order_cleanup_required",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
                     "latency_state": "armed",
                     "fair_probability": 0.90,
@@ -4870,7 +4872,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "submit_token_id": "t-no",
                     "complement_token_id": "t-no",
                     "complement_route_applied": True,
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": True,
                     "timing_window_class": "final15",
                     "edge_abs": 0.15,
@@ -4887,7 +4889,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "source_token_id": "t-missing",
                     "submit_token_id": "t-missing",
                     "complement_route_applied": False,
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": False,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
@@ -4902,9 +4904,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-complement",
                     "order_id": "ord-complement",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.15,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -4958,7 +4960,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "taker_decision",
                     "run_id": "rid-taker-recovery-taxonomy",
                     "token_id": "normal-token",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": True,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
@@ -4975,9 +4977,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-recovery-taxonomy",
                     "order_id": "normal-submit",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.24,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -5000,9 +5002,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-taker-recovery-taxonomy",
                     "order_id": "recovery-submit",
                     "reason": "taker_chainlink",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.74,
                         "reduce_only_side": "SELL",
                         **_historical_recovery_lineage(),
@@ -5100,7 +5102,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-gate-posture",
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-1",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "edge_abs": 0.35,
                     "required_min_edge": 0.30,
                     "timing_window_class": "final_window",
@@ -5114,7 +5116,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-gate-posture",
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-1",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "edge_abs": 0.35,
                     "required_min_edge": 0.30,
                     "timing_window_class": "final_window",
@@ -5129,9 +5131,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "order_id": "normal",
                     "submission_lane": "taker",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.35,
                         "required_min_edge": 0.30,
                         "timing_window_class": "final_window",
@@ -5149,7 +5151,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-gate-posture",
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-1",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "edge_abs": 0.10,
                     "required_min_edge": 0.20,
                     **_historical_recovery_lineage(),
@@ -5162,9 +5164,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "order_id": "recovery",
                     "submission_lane": "taker",
                     "reason": "taker_chainlink",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.10,
                         **_historical_recovery_lineage(),
                     },
@@ -5203,7 +5205,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 float((stage_windows.get("MAKER_TAKER_SELECTIVE") or {}).get("effective_final_window_sec") or 0.0),
                 60.0,
             )
-            required_min_edge = matrix.get("required_min_edge_by_intent_stage", {})
+            required_min_edge = matrix.get("required_min_edge_by_intent_lineage_stage", {})
             normal_sniper = (required_min_edge.get("normal_competitiveness") or {}).get("SNIPER_PRIMARY", {})
             recovery_mts = (required_min_edge.get("lifecycle_residue_override") or {}).get("MAKER_TAKER_SELECTIVE", {})
             self.assertEqual(float(normal_sniper.get("min") or 0.0), 0.30)
@@ -5225,7 +5227,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "profile_name": "paper_universal",
                     "config_fingerprint_sha256": "cfg-gate-only",
                     "evaluation_scope": "taker",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "effective_stage": "EXTREME_ONLY",
                     "stage_bucket": "EXTREME_ONLY",
                     "raw_stage": "EXTREME_ONLY",
@@ -5258,7 +5260,7 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(matrix.get("submit_event_distribution"), {})
             self.assertEqual(float(matrix.get("normal_below_required_min_edge_count") or 0.0), 1.0)
-            required_min_edge = matrix.get("required_min_edge_by_intent_stage", {})
+            required_min_edge = matrix.get("required_min_edge_by_intent_lineage_stage", {})
             normal_extreme = (required_min_edge.get("normal_competitiveness") or {}).get("EXTREME_ONLY", {})
             self.assertEqual(float(normal_extreme.get("min") or 0.0), 0.11)
             self.assertEqual(float(normal_extreme.get("max") or 0.0), 0.11)
@@ -5300,7 +5302,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "profile_name": "paper_universal",
                         "config_fingerprint_sha256": "cfg-tail",
                         "evaluation_scope": "taker",
-                        "stage": "OBSERVE",
+                        "lineage_stage": "OBSERVE",
                         "effective_stage": "OBSERVE",
                         "stage_bucket": "OBSERVE",
                         "raw_stage": "OBSERVE",
@@ -5355,7 +5357,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": run_id,
                     "evaluation_scope": "taker",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "action_taken": "none",
                     "block_reason": "normal_taker_authority_closed",
                 },
@@ -5363,7 +5365,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": run_id,
                     "evaluation_scope": "taker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "action_taken": "none",
                     "block_reason": _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED,
                 },
@@ -5371,7 +5373,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": run_id,
                     "evaluation_scope": "taker",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "action_taken": "none",
                     "block_reason": "taker_recovery_disabled_in_taker_scope",
                 },
@@ -5381,9 +5383,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "order_id": "ord-hard-window",
                     "submission_lane": "taker",
                     "reason": "taker_chainlink",
-                    "stage": "EXTREME_ONLY",
+                    "lineage_stage": "EXTREME_ONLY",
                     "taker_competitiveness": {
-                        "stage": "EXTREME_ONLY",
+                        "lineage_stage": "EXTREME_ONLY",
                         "conviction_score": 0.9,
                         "timing_window_class": "final_window",
                         "multi_oracle_status": "confirmed",
@@ -5791,7 +5793,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "event_type": "edge_evaluation",
                                 "run_id": run_id,
                                 "evaluation_scope": "taker",
-                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "none",
                                 "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                                 "maker_phase_allowed": True,
@@ -5805,7 +5807,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "event_type": "edge_evaluation",
                                 "run_id": run_id,
                                 "evaluation_scope": "taker",
-                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "none",
                                 "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                                 "maker_phase_allowed": True,
@@ -5819,7 +5821,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 "event_type": "edge_evaluation",
                                 "run_id": run_id,
                                 "evaluation_scope": "taker",
-                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                                 "action_taken": "taker",
                                 "block_reason": None,
                                 "maker_phase_allowed": True,
@@ -5889,7 +5891,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-lane-attribution",
                     "order_id": "maker-order",
                     "reason": "mm_quote:high_vol",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "decision_reference_midpoint": 0.50,
                     "ts_utc": "2026-01-01T00:00:01Z",
                 },
@@ -5922,10 +5924,10 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-lane-attribution",
                     "order_id": "normal-order",
                     "reason": "taker_chainlink",
-                    "stage": "SNIPER_PRIMARY",
+                    "lineage_stage": "SNIPER_PRIMARY",
                     "decision_reference_midpoint": 0.50,
                     "taker_competitiveness": {
-                        "stage": "SNIPER_PRIMARY",
+                        "lineage_stage": "SNIPER_PRIMARY",
                         "edge_abs": 0.24,
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
@@ -5970,10 +5972,10 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-lane-attribution",
                     "order_id": "recovery-order",
                     "reason": "taker_chainlink",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "decision_reference_midpoint": 0.50,
                     "taker_competitiveness": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "edge_abs": 0.74,
                         "sec_to_expiry": 54.5,
                         "held_preexpiry_reduce_only_sec": 90.0,
@@ -6035,9 +6037,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(maker.get("horizon_adverse_after_fill_count") or 0.0), 1.0)
             self.assertEqual(float(normal.get("horizon_adverse_after_fill_count") or 0.0), 1.0)
             self.assertEqual(float(recovery.get("horizon_adverse_after_fill_count") or 0.0), 0.0)
-            self.assertEqual(int((normal.get("submit_stage_distribution") or {}).get("SNIPER_PRIMARY", 0)), 1)
+            self.assertEqual(int((normal.get("submit_lineage_stage_distribution") or {}).get("SNIPER_PRIMARY", 0)), 1)
             self.assertEqual(
-                int((recovery.get("submit_stage_distribution") or {}).get("MAKER_TAKER_SELECTIVE", 0)),
+                int((recovery.get("submit_lineage_stage_distribution") or {}).get("MAKER_TAKER_SELECTIVE", 0)),
                 1,
             )
             self.assertNotIn("preexpiry_recovery_churn", report)
@@ -6255,7 +6257,7 @@ class NightlySoakReportTests(unittest.TestCase):
             (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
             status = [
                 {
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,
@@ -6289,7 +6291,7 @@ class NightlySoakReportTests(unittest.TestCase):
             (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
             status = [
                 {
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,
@@ -6336,7 +6338,7 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,
@@ -6369,7 +6371,7 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,
@@ -6416,7 +6418,7 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,
@@ -6463,7 +6465,7 @@ class NightlySoakReportTests(unittest.TestCase):
             status = [
                 {
                     "ts_utc": "2099-01-01T00:00:00Z",
-                    "runtime_state": "prepare",
+                    "lifecycle_phase": "prepare",
                     "lifecycle_phase": "prepare",
                     "active_targets_present": True,
                     "market_truth_required": True,

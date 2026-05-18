@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from prodesk.edge_truth_contract import legacy_stage_to_lifecycle_phase
+from prodesk.edge_truth_legacy_replay_compat import legacy_stage_to_lifecycle_phase
 from prodesk.canonical_authority import CAPABILITY_VALIDATE_POSTRUN
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
 from prodesk.run_contract import build_run_contract, write_run_contract
@@ -28,7 +28,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
 
     def _write_rows(self, path: Path, rows: list[dict]) -> None:
         normalized_rows: list[dict] = []
-        runtime_state_to_phase = {
+        lifecycle_phase_to_phase = {
             "active": "prepare",
             "prepare": "prepare",
             "scan": "scan",
@@ -40,19 +40,19 @@ class OrderLifecycleAuditTests(unittest.TestCase):
         for raw_row in rows:
             row = dict(raw_row)
             event_type = str(row.get("event_type") or "").strip()
-            if event_type == "runtime_state_transition":
-                runtime_state = str(row.get("runtime_state") or "").strip().lower()
-                previous_runtime_state = str(row.get("previous_runtime_state") or "").strip().lower()
+            if event_type == "lifecycle_phase_transition":
+                lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
+                previous_lifecycle_phase = str(row.get("previous_lifecycle_phase") or "").strip().lower()
                 lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
                 if not lifecycle_phase:
-                    lifecycle_phase = runtime_state_to_phase.get(runtime_state, runtime_state or "prepare")
+                    lifecycle_phase = lifecycle_phase_to_phase.get(lifecycle_phase, lifecycle_phase or "prepare")
                     row["lifecycle_phase"] = lifecycle_phase
                 if "scan_phase" not in row:
                     row["scan_phase"] = lifecycle_phase == "scan"
-                if runtime_state in runtime_state_to_phase:
-                    row["runtime_state"] = runtime_state_to_phase[runtime_state]
-                if previous_runtime_state in runtime_state_to_phase:
-                    row["previous_runtime_state"] = runtime_state_to_phase[previous_runtime_state]
+                if lifecycle_phase in lifecycle_phase_to_phase:
+                    row["lifecycle_phase"] = lifecycle_phase_to_phase[lifecycle_phase]
+                if previous_lifecycle_phase in lifecycle_phase_to_phase:
+                    row["previous_lifecycle_phase"] = lifecycle_phase_to_phase[previous_lifecycle_phase]
             elif event_type == "order_submit" and "lifecycle_phase" not in row:
                 stage_name = str(row.get("stage") or "").strip()
                 lifecycle_phase = legacy_stage_to_lifecycle_phase(stage_name)
@@ -108,18 +108,18 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "scan",
-                        "runtime_state": "active",
+                        "previous_lifecycle_phase": "scan",
+                        "lifecycle_phase": "prepare",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": False,
                         "market_truth_required": True,
                         "kill_switch": False,
-                        "transition_reason_code": "targets_activated",
+                        "transition_reason_code": "owned_market_prepare",
                         "transition_reason_detail": "details",
                     },
                     {
@@ -169,7 +169,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                         "execution_preference": "maker_preferred",
                         "market_id": "m-1",
                         "window_id": "2026-03-22T00:00",
-                        "stage": None,
+                        "lifecycle_phase": "maker_window",
                     },
                     {
                         "event_type": "fill",
@@ -209,7 +209,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -306,7 +306,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -389,7 +389,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:11Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -483,7 +483,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -507,6 +507,67 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             self.assertEqual(int(payload.get("events_max_lines_per_file", -1)), 0)
             self.assertEqual(payload.get("cancel_without_submit_order_ids"), [])
 
+    def test_order_lifecycle_audit_ignores_token_lifecycle_phase_transition_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            cfg_path = self._write_config(root, log_dir)
+            run_id = "rid-token-lifecycle-transition"
+            events_path = log_dir / "events_2026-03-22.jsonl"
+            status_path = log_dir / "status_2026-03-22.jsonl"
+            self._write_rows(
+                events_path,
+                [
+                    {
+                        "event_type": "lifecycle_phase_transition",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:00Z",
+                        "ts_event_utc": "2026-03-22T00:00:00Z",
+                        "previous_lifecycle_phase": "scan",
+                        "lifecycle_phase": "prepare",
+                        "active_targets_present": True,
+                        "scan_phase": False,
+                        "previous_market_truth_required": False,
+                        "market_truth_required": True,
+                        "kill_switch": False,
+                        "transition_reason_code": "owned_market_prepare",
+                        "transition_reason_detail": "details",
+                    },
+                    {
+                        "event_type": "token_lifecycle_phase_transition",
+                        "run_id": run_id,
+                        "ts_utc": "2026-03-22T00:00:01Z",
+                        "ts_event_utc": "2026-03-22T00:00:01Z",
+                        "token_id": "tok-1",
+                        "market_key": "mk|expiry|strike|YES",
+                        "from_lifecycle_phase": "prepare",
+                        "to_lifecycle_phase": "maker_window",
+                        "lifecycle_phase": "maker_window",
+                    },
+                ],
+            )
+            self._write_rows(
+                status_path,
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
+            )
+            contract_path = self._write_contract(
+                root=root,
+                log_dir=log_dir,
+                run_id=run_id,
+                events_path=events_path,
+                status_path=status_path,
+            )
+            payload = run_audit(
+                config_path=cfg_path,
+                log_dir=log_dir,
+                run_contract_path=contract_path,
+                session_phase="validate_postrun",
+                max_lines_per_file=0,
+            )
+            self.assertTrue(bool(payload.get("ok")), msg=payload.get("findings"))
+            self.assertEqual(int(payload.get("finding_count", -1)), 0)
+
     def test_order_lifecycle_audit_fails_when_transition_fields_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -520,24 +581,24 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "prepare",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": False,
                         "market_truth_required": True,
                         "kill_switch": False,
-                        "transition_reason_code": "targets_activated",
+                        "transition_reason_code": "owned_market_prepare",
                         "transition_reason_detail": "details",
                     }
                 ],
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -555,7 +616,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self.assertFalse(bool(payload.get("ok")))
             self.assertIn(
-                "runtime_state_transition:missing_required_field:previous_runtime_state",
+                "lifecycle_phase_transition:missing_required_field:previous_lifecycle_phase",
                 "\n".join(str(x) for x in payload.get("findings", [])),
             )
 
@@ -572,18 +633,18 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "scan",
-                        "runtime_state": "active",
+                        "previous_lifecycle_phase": "scan",
+                        "lifecycle_phase": "prepare",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": False,
                         "market_truth_required": True,
                         "kill_switch": False,
-                        "transition_reason_code": "targets_activated",
+                        "transition_reason_code": "owned_market_prepare",
                         "transition_reason_detail": "details",
                     },
                     {
@@ -603,7 +664,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -625,7 +686,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 "\n".join(str(x) for x in payload.get("findings", [])),
             )
 
-    def test_order_lifecycle_audit_fails_on_kill_switch_runtime_state_mismatch(self) -> None:
+    def test_order_lifecycle_audit_fails_on_kill_switch_lifecycle_phase_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log_dir = root / "logs"
@@ -638,12 +699,12 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "active",
-                        "runtime_state": "active",
+                        "previous_lifecycle_phase": "prepare",
+                        "lifecycle_phase": "prepare",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": True,
@@ -656,7 +717,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -674,7 +735,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self.assertFalse(bool(payload.get("ok")))
             self.assertIn(
-                "runtime_state_transition:kill_switch_runtime_state_mismatch:prepare",
+                "lifecycle_phase_transition:kill_switch_lifecycle_phase_mismatch:prepare",
                 "\n".join(str(x) for x in payload.get("findings", [])),
             )
 
@@ -691,12 +752,12 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "active",
-                        "runtime_state": "safety_halt",
+                        "previous_lifecycle_phase": "prepare",
+                        "lifecycle_phase": "safety_halt",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": True,
@@ -709,7 +770,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "safety_halt"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "safety_halt"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -741,18 +802,18 @@ class OrderLifecycleAuditTests(unittest.TestCase):
                 events_path,
                 [
                     {
-                        "event_type": "runtime_state_transition",
+                        "event_type": "lifecycle_phase_transition",
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:00Z",
                         "ts_event_utc": "2026-03-22T00:00:00Z",
-                        "previous_runtime_state": "scan",
-                        "runtime_state": "active",
+                        "previous_lifecycle_phase": "scan",
+                        "lifecycle_phase": "prepare",
                         "active_targets_present": True,
                         "scan_phase": False,
                         "previous_market_truth_required": False,
                         "market_truth_required": True,
                         "kill_switch": False,
-                        "transition_reason_code": "targets_activated",
+                        "transition_reason_code": "owned_market_prepare",
                         "transition_reason_detail": "details",
                     },
                     {
@@ -775,7 +836,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,
@@ -850,7 +911,7 @@ class OrderLifecycleAuditTests(unittest.TestCase):
             )
             self._write_rows(
                 status_path,
-                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "runtime_state": "active"}],
+                [{"run_id": run_id, "ts_utc": "2026-03-22T00:00:07Z", "lifecycle_phase": "prepare"}],
             )
             contract_path = self._write_contract(
                 root=root,

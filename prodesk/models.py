@@ -60,7 +60,7 @@ class OrderIntent:
     reason: Optional[str] = None
     market_id: Optional[str] = None
     window_id: Optional[str] = None
-    stage: Optional[str] = None
+    lineage_stage: Optional[str] = None
     reason_code: Optional[str] = None
     timestamp_utc: Optional[str] = None
     execution_preference: Optional[str] = None

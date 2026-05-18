@@ -50,6 +50,54 @@ class DoctrineGatingTests(unittest.TestCase):
         cfg["storage"]["state_path"] = str(Path(td.name) / "state.json")
         return ExecutionRunner(cfg)
 
+    def _maker_info(
+        self,
+        *,
+        lineage_stage: str = STAGE_MAKER_TAKER_SELECTIVE,
+        sec_to_expiry: float = 12.0,
+        lifecycle_phase: str = "maker_window",
+        maker_phase_allowed: bool = True,
+        taker_phase_allowed: bool = False,
+        maker_gate_open: bool = True,
+        taker_gate_open: bool = False,
+        **extra: object,
+    ) -> dict:
+        info = {
+            "lineage_stage": lineage_stage,
+            "lifecycle_phase": lifecycle_phase,
+            "maker_phase_allowed": maker_phase_allowed,
+            "taker_phase_allowed": taker_phase_allowed,
+            "maker_gate_open": maker_gate_open,
+            "taker_gate_open": taker_gate_open,
+            "sec_to_expiry": sec_to_expiry,
+        }
+        info.update(extra)
+        return info
+
+    def _taker_info(
+        self,
+        *,
+        lineage_stage: str = STAGE_EXTREME_ONLY,
+        sec_to_expiry: float = 6.0,
+        lifecycle_phase: str = "taker_window",
+        maker_phase_allowed: bool = False,
+        taker_phase_allowed: bool = True,
+        maker_gate_open: bool = False,
+        taker_gate_open: bool = True,
+        **extra: object,
+    ) -> dict:
+        info = {
+            "lineage_stage": lineage_stage,
+            "lifecycle_phase": lifecycle_phase,
+            "maker_phase_allowed": maker_phase_allowed,
+            "taker_phase_allowed": taker_phase_allowed,
+            "maker_gate_open": maker_gate_open,
+            "taker_gate_open": taker_gate_open,
+            "sec_to_expiry": sec_to_expiry,
+        }
+        info.update(extra)
+        return info
+
     def test_phase_policy_prepare_is_not_live_action_window(self):
         allow_maker, allow_taker = phase_policy("prepare")
         self.assertFalse(allow_maker)
@@ -206,7 +254,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books=books,
                 fair_probability_by_token=fair,
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -226,7 +274,7 @@ class DoctrineGatingTests(unittest.TestCase):
             row
             for row in event_rows
             if str(row.get("lifecycle_phase") or "") == "taker_window"
-            and str(row.get("lineage_stage") or "") == STAGE_EXTREME_ONLY
+            and str(row.get("lineage_stage") or "") == STAGE_TAKER_COMMITMENT
             and str(row.get("action_taken") or "") == "none"
         ]
         self.assertFalse(bool(blocked))
@@ -234,7 +282,7 @@ class DoctrineGatingTests(unittest.TestCase):
             row
             for row in event_rows
             if str(row.get("lifecycle_phase") or "") == "taker_window"
-            and str(row.get("lineage_stage") or "") == STAGE_EXTREME_ONLY
+            and str(row.get("lineage_stage") or "") == STAGE_TAKER_COMMITMENT
             and str(row.get("action_taken") or "") == "taker"
         ]
         self.assertTrue(bool(submitted_rows))
@@ -268,7 +316,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books=books,
                 fair_probability_by_token=fair,
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -277,7 +325,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books=books,
                 fair_probability_by_token=fair,
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -307,15 +355,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.53},
                 token_ids=["t1"],
-                stage_info_by_token={
-                    "t1": {
-                        "lifecycle_phase": "taker_window",
-                        "lineage_stage": STAGE_EXTREME_ONLY,
-                        "taker_phase_allowed": True,
-                        "taker_gate_open": True,
-                        "sec_to_expiry": 6.0,
-                    }
-                },
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
             )
@@ -335,22 +375,17 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertTrue(isinstance(submit_rows[-1].get("edge_abs"), (int, float)))
         self.assertEqual(str(submit_rows[-1].get("edge_bucket") or ""), "le_0p10")
         self.assertEqual(str(submit_rows[-1].get("lifecycle_phase") or ""), "taker_window")
-        self.assertEqual(str(submit_rows[-1].get("lineage_stage") or ""), STAGE_EXTREME_ONLY)
+        self.assertEqual(str(submit_rows[-1].get("lineage_stage") or ""), STAGE_TAKER_COMMITMENT)
         self.assertNotIn("stage", submit_rows[-1])
 
     def test_maker_edge_evaluation_emits_block_reason_when_not_submitted(self):
         runner = self._runner()
         stage_info = {
-            "t1": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._maker_info(),
         }
         runner._emit_maker_edge_evaluations(
             books={},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids=set(),
             maker_submitted_order_ids_by_token={},
@@ -389,22 +424,12 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            },
-            "t2": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            },
+            "t1": self._maker_info(),
+            "t2": self._maker_info(),
         }
         runner._emit_maker_edge_evaluations(
             books={"t2": top},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1", "t2"},
             maker_submitted_token_ids={"t2"},
             maker_submitted_order_ids_by_token={"t2": ["ord-maker-1"]},
@@ -451,21 +476,14 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_EXTREME_ONLY,
-                "lineage_stage": STAGE_EXTREME_ONLY,
-                "effective_stage": STAGE_MAKER_LATE_WINDOW,
-                "lifecycle_phase": "maker_window",
-                "maker_phase_allowed": True,
-                "taker_phase_allowed": False,
-                "sec_to_expiry": 14.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._maker_info(
+                lineage_stage=STAGE_EXTREME_ONLY,
+                sec_to_expiry=14.0,
+            ),
         }
         runner._emit_maker_edge_evaluations(
             books={"t1": top},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids=set(),
             maker_submitted_order_ids_by_token={},
@@ -541,7 +559,7 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertNotIn("stage", row)
         self.assertNotIn("raw_stage", row)
 
-    def test_lifecycle_phase_transition_emits_lifecycle_truth_without_stage_family_fields(self):
+    def test_token_lifecycle_phase_transition_emits_lifecycle_truth_without_stage_family_fields(self):
         runner = self._runner()
         initial = {
             "t1": {
@@ -582,7 +600,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 if not line.strip():
                     continue
                 payload = json.loads(line)
-                if str(payload.get("event_type") or "") == "lifecycle_phase_transition":
+                if str(payload.get("event_type") or "") == "token_lifecycle_phase_transition":
                     rows.append(payload)
         self.assertTrue(bool(rows))
         row = rows[-1]
@@ -606,16 +624,11 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._maker_info(),
         }
         runner._emit_maker_edge_evaluations(
             books={"t1": top},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids=set(),
             maker_submitted_order_ids_by_token={},
@@ -656,16 +669,11 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._maker_info(),
         }
         runner._emit_maker_edge_evaluations(
             books={"t1": top},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids={"t1"},
             maker_submitted_order_ids_by_token={"t1": ["ord-maker-1"]},
@@ -752,11 +760,13 @@ class DoctrineGatingTests(unittest.TestCase):
             secondary_oracle_status="available",
             chainlink_spot_price=65000.0,
             secondary_oracle_spot_price=65001.0,
-            stage=STAGE_MAKER_TAKER_SELECTIVE,
+            lifecycle_phase="maker_window",
+            lineage_stage=STAGE_MAKER_TAKER_SELECTIVE,
             sec_to_expiry=12.0,
             base_size_multiplier=1.0,
             base_spread_multiplier=1.0,
             timing_gate_open=True,
+            maker_phase_allowed=True,
         )
         context = dict(profile.get("context") or {})
         self.assertEqual(str(context.get("market_reference_mode") or ""), "backfilled_paired_touch")
@@ -795,14 +805,7 @@ class DoctrineGatingTests(unittest.TestCase):
         )
         runner._emit_maker_edge_evaluations(
             books=resolved_books,
-            stage_info_by_token={
-                "t1": {
-                    "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                    "sec_to_expiry": 12.0,
-                    "maker_gate_open": True,
-                    "taker_gate_open": True,
-                }
-            },
+            lifecycle_info_by_token={"t1": self._maker_info()},
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids=set(),
             maker_submitted_order_ids_by_token={},
@@ -885,16 +888,11 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=None,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_MAKER_TAKER_SELECTIVE,
-                "sec_to_expiry": 50.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._maker_info(),
         }
         runner._emit_maker_edge_evaluations(
             books={"t1": top},
-            stage_info_by_token=stage_info,
+            lifecycle_info_by_token=stage_info,
             maker_eval_token_ids={"t1"},
             maker_submitted_token_ids=set(),
             maker_submitted_order_ids_by_token={},
@@ -967,7 +965,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.72},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=6,
@@ -1020,8 +1018,8 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0},
-            "t2": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0},
+            "t1": self._taker_info(),
+            "t2": self._taker_info(),
         }
         with mock.patch.object(
             runner.manager,
@@ -1032,7 +1030,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top1, "t2": top2},
                 fair_probability_by_token={"t1": 0.50, "t2": 0.70},
                 token_ids=["t1", "t2"],
-                stage_info_by_token=stage_info,
+                lifecycle_info_by_token=stage_info,
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1", "t2"],
                 cycle_index=3,
@@ -1078,17 +1076,9 @@ class DoctrineGatingTests(unittest.TestCase):
             best_ask_size=100.0,
         )
         stage_info = {
-            "t1": {
-                "stage": STAGE_EXTREME_ONLY,
-                "lineage_stage": STAGE_EXTREME_ONLY,
-                "effective_stage": STAGE_TAKER_COMMITMENT,
-                "lifecycle_phase": "taker_window",
-                "maker_phase_allowed": False,
-                "taker_phase_allowed": True,
-                "sec_to_expiry": 6.0,
-                "maker_gate_open": True,
-                "taker_gate_open": True,
-            }
+            "t1": self._taker_info(
+                lineage_stage=STAGE_EXTREME_ONLY,
+            ),
         }
         with mock.patch.object(
             runner.manager,
@@ -1099,7 +1089,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token=stage_info,
+                lifecycle_info_by_token=stage_info,
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=8,
@@ -1146,7 +1136,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=4,
@@ -1189,7 +1179,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 oracle_fresh=False,
                 lag_verified_token_ids=["t1"],
@@ -1243,7 +1233,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=6,
@@ -1309,7 +1299,7 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                stage_info_by_token={"t1": {"stage": STAGE_TAKER_COMMITMENT, "lineage_stage": STAGE_EXTREME_ONLY, "sec_to_expiry": 6.0}},
+                lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 lag_verified_token_ids=["t1"],
                 cycle_index=7,

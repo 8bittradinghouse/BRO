@@ -1,1337 +1,259 @@
-BRO CANONICAL DOCTRINE AND WORKFLOW SPECIFICATION
+BRO CANONICAL DOCTRINE
+
+Classification
+
+- `current owner`
+- lifecycle-first root doctrine for active BRO runtime, handoff models, reports,
+  audits, and operator truth
+- old stage-machine doctrine is historical lineage only and is no longer a live
+  semantic owner
 
 Purpose
 
-BRO is a professional-grade automated execution system for Polymarket short-window markets. Its purpose is to participate only when doctrine, wallet safety, and market quality all align. BRO is not designed to force trades. It is designed to seek valid execution and skip poor conditions.
+BRO is a fail-closed execution system for short-window Polymarket markets.
+BRO exists to express valid execution only when doctrine, wallet safety, market
+truth, and timing truth all align. BRO must skip rather than improvise.
 
-BRO treats each 5-minute market window as a completely new market. No carryover directional bias, conviction, or state from previous windows is allowed to influence the next one except for persistent system-health state such as wallet condition, connectivity, and operator safety controls.
+Core mission:
 
-The system must remain fail-closed. When uncertain, stale, degraded, inconsistent, or unsafe, BRO must skip or halt rather than improvise.
+- restore one truthful runtime body
+- keep one canonical execution pathway
+- preserve one operational language from doctrine to runtime to reports
+- protect capital and trust before opportunity capture
 
-1. Core System Doctrine
+Canonical authority stack:
 
-1.1 Primary Philosophy
+1. this doctrine root
+2. lifecycle runtime contract in `docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md`
+3. fighter/runtime policy in `docs/DOCTRINE_RUNBOOK.md`
+4. edge measurement contract in `BRO_EDGE_DOCTRINE.txt` and
+   `docs/EDGE_TRUTH_RUNBOOK.md`
+5. outcome interpretation in `BRO_OUTCOME_TRUTH_DOCTRINE.txt`
+6. wallet authority in `docs/BRO_WALLET_DOCTRINE.md`
 
-BRO follows these core principles:
+Core domains
 
-- execution-seeking, not execution-forcing
-- doctrine over impulse
-- capital protection before opportunity capture
-- skip bad markets without hesitation
-- safety systems override PnL opportunity
-- every market window is independent
-- strategy may express intent, but never control funds
-- all execution must pass three gates
-- fail closed on ambiguity, inconsistency, or degraded trust
+BRO keeps distinct owners for:
 
-1.2 Canonical Domains
+- market lifecycle and ownership truth
+- lane permission and lane-gate truth
+- wallet and capital authority
+- edge measurement
+- outcome interpretation
 
-BRO is governed by three canonical domains. These must remain distinct in code and in responsibility.
+No lower layer may silently rename or reinterpret higher-layer truth into a
+second dialect.
 
-A. Strategy / Execution Doctrine
+Timing authority law
 
-Responsible for observing the current market window, determining stage, evaluating whether an edge exists, and producing trade intents.
+Combat-locked sub-second synchronized timing is father-frame steel.
+Combat-locked sub-second synchronized timing is required for honest maker/taker
+readiness claims.
 
-It may:
-
-- observe oracle, orderbook, threshold, time remaining, internal derived metrics
-- determine current stage
-- decide whether conditions justify maker participation, taker participation, or no action
-- produce a trade intent
-
-It may not:
-
-- read raw wallet balances as authority for capital use
-- sign orders
-- move funds
-- manage nonce
-- bypass quality gates
-- self-authorize execution
-
-B. Wallet Doctrine Module
-
-Responsible for all capital authority and wallet safety decisions for the single Polygon trading wallet.
-
-It may:
-
-- determine deployable capital
-- reserve POL gas
-- verify allowance
-- reconcile chain truth vs internal state
-- approve, reduce, or reject requested trade size
-- manage pending capital locks
-- manage nonce and transaction lifecycle truth
-- halt system on wallet anomaly
-
-It may not:
-
-- decide market direction
-- invent strategy
-- override strategy side selection except by rejection or size reduction based on safety rules
-
-1.2.1 Timing Authority Law
-
-BRO is a timing-sensitive combat system. Combat-locked sub-second synchronized
-timing is foundational system steel, not convenience telemetry.
-
-Maker and taker are both timing-dependent weapons. If timing truth is weak,
-late, degraded, or only coarsely inferred, BRO must not overclaim readiness,
-execution realism, or weapon health.
-
-Three timing truths must remain distinct and authoritative:
-
-- host clock discipline
-- event/source-receive cross-domain skew
-- decision-to-submit timing
-
-Authoritative execution evidence requires:
+Authoritative timing truth requires:
 
 - millisecond-class host clock synchronization
-- explicit sub-second timing truth across feed, decision, and submit domains
-- explicit timing artifacts rather than logger/default backfill standing in as
-  critical proof
+- explicit decision-to-submit evidence
+- event/source-receive cross-domain skew visibility
+- explicit separation between clock-health and latency-chain diagnosis
 
-Coarse fallback checks may expose gross drift, but they must never certify
-combat readiness or timing health.
+If timing truth is coarse, missing, degraded, or contradictory:
 
-When timing truth is missing, degraded, or contradictory, BRO must fail closed,
-skip, downgrade the claim, or halt rather than infer timing health.
+- BRO must fail closed, downgrade the claim, or halt
+- coarse fallback timing must not certify combat readiness
 
-1.3 Single Semantic Language Law
+Single semantic language law
 
-BRO must speak one operational language from doctrine to runtime to reports.
+One concept, one term.
+One term, one meaning.
+One decision boundary, one owner.
 
-Required semantic laws:
+Forbidden:
 
-- one concept, one term
-- one term, one meaning
-- one decision boundary, one owner
-- one blocker lane, one authoritative report owner
-- one bot, one profile, one fingerprint, one truth, one authoritative target
-  pair
-- downstream surfaces consume upstream truth; they do not reinterpret it into a
-  second dialect
+- runtime/report parallel dialects
+- legacy aliases surviving as live owners
+- backfill/translation layers inside active runtime
+- descriptive-only surfaces impersonating runtime authority
 
-Target-pair authority law:
+If a behavior problem is really a language problem, fix the highest-authority
+semantic break first.
 
-- only one actionable pair may be authoritative for runtime truth at a time
-- pending/prewarm candidates may exist for controlled warm-up, but they have
-  zero decision authority and zero runtime health authority
-- held/open-order lifecycle watch may persist for cleanup and settlement, but
-  lifecycle watch truth must not impersonate active target-pair truth
+Lifecycle and ownership doctrine
 
-Forbidden semantic failure modes:
+Active runtime truth is organized around one market lifecycle:
 
-- using multiple near-synonyms for the same operational state
-- using the same term to mean different things at different layers
-- allowing runtime and reporting to maintain parallel meanings for the same row
-- adding shadow/backfill/translation layers to compensate for preventable
-  language drift instead of fixing the upstream contract
-- letting descriptive-only or reconstructed surfaces masquerade as runtime
-  authority
+- `scan`
+- `prepare`
+- `maker_window`
+- `taker_window`
+- `resolve`
 
-Operational rule:
+Lifecycle truth owns:
 
-- if a behavior problem is actually a language/contract problem, fix the
-  highest-authority semantic break first
-- do not build compensator machinery for a vocabulary split unless the system
-  has first proven that the existing canonical path cannot express the truth
-  directly
+- `lifecycle_phase`
+- `previous_lifecycle_phase`
+- `owned_market_ref`
+- `challenger_market_ref`
+- `ownership_drop_reason`
+- `ownership_replacement_reason`
+- `market_truth_required`
+- `maker_phase_allowed`
+- `taker_phase_allowed`
+- `maker_gate_open`
+- `taker_gate_open`
+- `open_order_cleanup_required`
+- `settlement_hold_required`
+- `unresolved_lifecycle_obligation`
+- `cancel_fail_closed`
 
-1.3.1 Semantic Precedence Law
+Current emitted lifecycle vocabulary:
 
-If surfaces disagree about the meaning of the same row or state, semantic
-precedence is:
-
-1. core doctrine
-2. runtime-emitted live contract truth
-3. wallet authority domain truth
-4. edge truth contract
-5. gate/readiness consumers
-6. report/aggregation surfaces
-7. descriptive-only and historical surfaces
-
-Lower-precedence surfaces may summarize, classify, or count higher-precedence
-truth.
-
-They may not:
-
-- silently rename it
-- silently upgrade its authority class
-- silently reinterpret it into a second dialect
-
-1.3.2 Live Contract Registry
-
-If a live-emitted contract name already exists and is consumed downstream,
-doctrine must use that name rather than inventing a cleaner parallel label.
-
-| Live contract name | Doctrine meaning | Primary owner | Must not mean |
-| --- | --- | --- | --- |
-| `maker_allowed` | maker-lane stage permission only | runtime stage policy | maker actionability or quoteability |
-| `taker_allowed` | taker-lane stage permission only | runtime stage policy | taker actionability or submit permission |
-| `secondary_oracle_confirmation` | selection/confirmation truth only | selection/oracle gate | quoteability, readiness, or wallet permission |
-| `secondary_oracle_status` | emitted secondary-oracle status paired with confirmation | selection/oracle gate | confirmation truth or submit permission by itself |
-| `market_reference_mode` | market truth mechanism/path kind | runtime reference resolution | blocker ownership |
-| `market_reference_basis` | emitted basis label for how market reference was formed | runtime reference resolution | authority class by itself |
-| `market_reference_confidence` | emitted confidence tier for the market-reference path | runtime reference resolution | submit permission or outcome truth |
-| `market_reference_fallback_used` | explicit marker that a fallback/reference rescue path was used | runtime reference resolution | automatic degradation verdict by itself |
-| `market_reference_source_side` | emitted source-side label for the reference path (`bid|ask|paired|none`) | runtime reference resolution | trade side or authority by itself |
-| `market_reference_class` | authority class of the market reference | runtime reference resolution | report-only opinion |
-| `runtime_state` | runtime posture state | runtime status emitter | market actionability |
-| `active_targets_present` | emitted runtime target-presence posture fact | runtime status emitter | promotion proof or market authority by itself |
-| `no_target_standdown` | emitted runtime standdown posture fact | runtime status emitter | runtime_state replacement or actionability by itself |
-| `book_feed_required` | emitted runtime requirement fact for live book connectivity | runtime status emitter | actual connectivity or market truth by itself |
-| `promotion_eligibility_hint` | emitted live runtime posture hint that participation conditions are present | runtime status emitter | final `promotion_eligible` classification output |
-| `runtime_classification` | runtime-semantics/readiness classification container | runtime semantics / readiness classifier | direct strategy-quality proof by itself |
-| `promotion_eligible` | runtime/readiness promotion classification output | runtime semantics / readiness classifier | proof of strategy quality or execution realism by itself |
-| `primary_suppression_cause` | emitted dominant suppression cause when runtime classification is non-promotable or constrained | runtime semantics / readiness classifier | blocker-lane owner for a single edge row |
-| `contributing_suppression_causes` | emitted list of additional suppression contributors | runtime semantics / readiness classifier | ordered root-cause proof by itself |
-| `ambiguous_suppression_cause` | explicit marker that suppression ownership was not uniquely resolved | runtime semantics / readiness classifier | safe license to invent a synthetic primary cause |
-| `authority_status_class` | wallet/startup authority state | wallet authority | market truth class |
-| `startup_authority_ready` | emitted wallet/startup readiness fact before full health-contract packaging | wallet authority | market truth or edge validity |
-| `authoritative_refresh_completed` | emitted wallet/startup proof that authoritative refresh completed successfully | wallet authority | order permission by itself |
-| `order_capable_live` | live-wallet capability switch | wallet authority | market permission |
-| `order_submit_eligible` | wallet/readiness submit-readiness term only | wallet authority | quoteability or edge validity |
-| `canonical_live_nonce_available` | emitted wallet/live nonce availability fact | wallet authority | generic wallet health by itself |
-| `canonical_live_pending_wallet_tx_available` | emitted wallet/live pending-tx availability fact | wallet authority | generic wallet health by itself |
-| `canonical_live_nonce_source` | emitted source label for nonce authority truth | wallet authority | truth-domain class by itself |
-| `canonical_live_nonce_detail` | emitted detail string for nonce authority truth | wallet authority | canonical authority verdict by itself |
-| `canonical_live_pending_wallet_tx_source` | emitted source label for pending-wallet-tx authority truth | wallet authority | truth-domain class by itself |
-| `canonical_live_pending_wallet_tx_detail` | emitted detail string for pending-wallet-tx authority truth | wallet authority | canonical authority verdict by itself |
-| `live_truth_gap_reasons` | emitted wallet live-truth gap reason list | wallet authority | canonical blocker-lane owner outside wallet domain |
-| `target_ref` | deterministic decision-lineage identity | runtime lineage / tx / audits | pricing, side, or authority class |
-| `source_target_ref` | deterministic lineage identity for the source-side or complement-side decision context | runtime lineage / tx / audits | primary target identity or authority class |
-| `block_reason` | emitted local stop reason inside the owning contract | emitting contract owner | cross-system blocker-lane owner by itself |
-| `decision_block_reason` | emitted submit-path/local order-manager block reason after decision handoff | order manager / submit gate | edge `block_reason` or canonical blocker-lane owner by itself |
-| `decision_result` | emitted submit-path/local order-manager decision outcome after selection, replace, and submit work | order manager / submit gate | edge `action_taken` or global blocker ownership by itself |
-| `action_taken` | emitted action choice for the row | emitting contract owner | quality grade |
-| `submitted` | emitted decision-path submit fact for the row | quote/order path | fill or full lifecycle completion |
-| `filled` | emitted observed fill fact for the row | execution/outcome handoff | outcome completeness |
-| `result` | reserved edge-outcome field pending explicit outcome-linkage doctrine | edge truth contract | current authoritative outcome truth |
-| `evaluation_scope` | emitted lane family for the row | edge truth contract | authority class |
-| `decision_input_source` | source string for decision input provenance | emitting contract owner | execution realism grade |
-| `decision_input_type` | emitted decision-input provenance type | emitting contract owner | authority class |
-| `decision_input_emulated` | explicit emulation disclosure | emitting contract owner | optional hint |
-| `decision_input_data_class` | emitted data-class disclosure for decision input | emitting contract owner | global truth class |
-| `financial_posture_class` | emitted lifecycle/risk posture class for the decision context | risk / lifecycle context | runtime_state or actionability by itself |
-| `execution_realism_class` | emitted paper-harness execution-realism classification | paper harness / execution simulator | market reference authority or outcome completeness |
-| `claim_boundary_class` | emitted outcome-truth claim-boundary classification | outcome truth layer | runtime authority class |
-| `outcome_truth_status` | emitted outcome completeness/status label | outcome truth layer | runtime blocker ownership or actionability |
-| `record_claim_boundary_class` | emitted record-level completeness boundary derived from outcome status | outcome truth layer | runtime authority class or claim boundary rewrite |
-| `canonical_live_wallet_truth` | authoritative live wallet-truth container | wallet authority | local tx state or derived order state |
-| `local_tx_lifecycle_state` | local tx-manager lifecycle-truth container | tx lifecycle owner | canonical live wallet truth |
-| `open_order_state` | derived open-order state container | wallet/order derived surface | canonical live wallet truth |
-| `integrity_tripwire_reconcile_state` | reconcile/integrity derived-truth container | reconcile/integrity surface | canonical accounting truth by itself |
-| `previous_runtime_state` | emitted previous runtime posture for a runtime transition event | runtime transition emitter | current runtime posture |
-| `previous_book_feed_required` | emitted previous runtime requirement fact for live book connectivity | runtime transition emitter | actual connectivity history by itself |
-| `transition_reason_code` | emitted compact runtime-transition reason code | runtime transition emitter | blocker-lane owner or descriptive essay |
-| `transition_reason_detail` | emitted human-readable runtime-transition detail | runtime transition emitter | canonical code or steady-state classification |
-
-Runtime-classification value vocabulary:
-
-| `runtime_classification.classification` value | Meaning |
-| --- | --- |
-| `VALID_ACTIVE` | targets were present and the runtime showed meaningful participation |
-| `VALID_STANDDOWN` | no-target standdown was active and remained doctrinal/healthy for the window |
-| `NON_PROMOTABLE_NO_PARTICIPATION` | runtime was not invalid, but the window did not earn promotable participation proof |
-| `INVALID_DEADLOCK` | runtime violated expected participation/transition posture strongly enough to fail closed |
-| `INVALID_SAFETY` | runtime violated a safety condition strongly enough to fail closed |
-
-Additional deployed value vocabulary:
-
-| Field | Current deployed values | Meaning / boundary |
+| Field | Allowed values | Meaning |
 | --- | --- | --- |
-| `runtime_state` | `active`, `no_target_standdown`, `safety_halt` | current runtime posture only |
-| `active_targets_present` | `true`, `false` | emitted target-presence posture only |
-| `no_target_standdown` | `true`, `false` | emitted standdown posture flag only |
-| `book_feed_required` | `true`, `false` | emitted requirement flag only; not connectivity proof |
-| `previous_book_feed_required` | `true`, `false` | emitted transition-only prior requirement flag |
-| `promotion_eligibility_hint` | `true`, `false` | live runtime posture hint only; not final promotion classification |
-| `transition_reason_code` | `runtime_state_changed`, `book_requirement_changed`, `kill_switch_engaged`, `targets_activated`, `targets_absent` | runtime-transition explanation only |
-| `secondary_oracle_status` | `confirmed`, `direction_mismatch`, `disabled`, `unknown` | emitted selection/oracle status only; compatibility input `available` must normalize to `unknown` before emission |
-| `market_reference_basis` | `direct_book_midpoint`, `ws_recent_paired_touch`, `missing` | emitted reference-formation basis only; report-only `report_book_top_pair_backfill` remains a downstream reconstructed basis label |
-| `market_reference_confidence` | `authoritative`, `none` | emitted confidence tier for reference formation only |
-| `decision_input_source` | `ws`, `rest`, `chainlink`, `replay`, `replayed`, `paper`, `simulated`, `synthetic`, `emulated`, `unknown` | emitted decision-input source only; type/class carry the normalized doctrine meaning |
-| `decision_input_type` | `observed_live`, `observed_other`, `replayed`, `emulated`, `unknown` | emitted decision-input provenance only |
-| `decision_input_data_class` | `observed_live`, `observed_other`, `emulated`, `unknown` | emitted input data-class disclosure only |
-| `authority_status_class` | `authoritative`, `bootstrap_non_authoritative` | live wallet/startup authority vocabulary; `legacy_fallback_non_authoritative` is report/readout fallback only |
-| `startup_authority_ready` | `true`, `false` | wallet/startup readiness fact only |
-| `authoritative_refresh_completed` | `true`, `false` | wallet/startup authoritative-refresh fact only |
-| `canonical_live_nonce_available` | `true`, `false` | wallet live nonce-availability fact only |
-| `canonical_live_pending_wallet_tx_available` | `true`, `false` | wallet live pending-wallet-tx availability fact only |
-| `financial_posture_class` | `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, `HALT_NEW_RISK` | lifecycle/risk posture only |
-| `decision_result` | `submitted`, `submit_rejected`, `selection_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged` | submit-path/local order-manager outcome only |
-| `execution_realism_class` | `not_modeled` | emitted paper-realism classification only |
-| `claim_boundary_class` | `not_provable_missing_inputs`, `not_modeled_incomplete_lifecycle` | outcome-layer claim boundary only |
-| `record_claim_boundary_class` | `complete`, `partial_missing_data`, `incomplete_lifecycle`, `missing_decision_reference`, `missing_eval_reference`, `unknown` | record-level outcome completeness boundary only |
-| `outcome_truth_status` | `complete`, `unknown_missing_data`, `unknown_incomplete_lifecycle`, `unknown_missing_decision_reference`, `unknown_missing_eval_reference`, `unknown_missing_linkage` | outcome completeness/status only |
-
-1.3.3 Naming Morphology Law
-
-Future names must preserve meaning through shape, not just prose.
-
-| Name shape | Required meaning |
-| --- | --- |
-| `*_allowed` | stage permission only |
-| `*_confirmation` | confirmation truth only |
-| `*_mode` | mechanism/path kind |
-| `*_class` | semantic classification |
-| `*_state` | posture or lifecycle state |
-| `*_reason` | local explanatory cause, not cross-system owner by itself |
-| `*_result` | local finalized outcome within the owning surface, not cross-system authority by itself |
-| `*_truth` | authoritative truth-domain container only |
-| `*_eligible` | forbidden unless domain-qualified |
-| `*_ref` | lineage or reference identity, not authority by itself |
-
-Additional rules:
-
-- bare `eligible` is forbidden
-- domain-qualified `*_eligible` is allowed only when the domain is explicit
-- if a live-emitted name already follows a different shape, doctrine must define
-  its exact meaning rather than silently generalizing it
-
-1.3.4 Cross-System Classes and Doctrine Boundary Concepts
-
-Cross-system truth/surface classes:
-
-| Class | Meaning |
-| --- | --- |
-| `authoritative` | direct truth that may drive or close a decision boundary |
-| `not_available` | emitted fail-closed reference-absence class when required truth is unavailable |
-| `descriptive_only` | research/support surface only |
-| `historical` | archive or lineage surface from prior runs/states |
-| `bootstrap_non_authoritative` | startup/readiness provisional class only |
-
-Rules:
-
-- `missing` and `unknown` are completeness states, not authority classes
-- `not_available` remains a valid emitted reference-absence class where live
-  contracts already use it (for example `market_reference_class`)
-- `descriptive_only` may explain behavior but may not outrank emitted runtime
-  truth
-
-Doctrine-only boundary concepts:
-
-| Doctrine boundary concept | Meaning | Expected live expression |
-| --- | --- | --- |
-| `truth_reference_sufficient` | truth is strong enough for live quote action | `market_reference_class` + `market_reference_mode` |
-| `quote_constructible` | quote engine has enough valid inputs to build the quote | quote/no-submit path |
-| `submit_authorized` | all gates permit live submission | wallet/risk/order authority outcome |
-| `outcome_unresolved` | lifecycle/outcome truth is not yet final | outcome layer only |
-
-These doctrine concepts explain decision boundaries.
-
-They do not authorize inventing competing emitted field names.
-
-1.3.5 Canonical Blocker-Lane Map
-
-| Canonical blocker lane | Meaning | Primary owner |
-| --- | --- | --- |
-| `stage_timing_blocked` | doctrine/stage window does not permit the action | stage policy |
-| `selection_confirmation_blocked` | selection or confirmation failed | selection/oracle gate |
-| `truth_reference_insufficient` | truth is not strong enough for live quote action | runtime reference resolution |
-| `quote_construction_failed` | truth was sufficient but the quote still could not be built | quote engine / manager boundary |
-| `submit_rejected` | quote/action existed but a submit gate rejected it | wallet/risk/order authority |
-| `outcome_unresolved` | lifecycle/outcome truth is not final | lifecycle/outcome layer |
-
-Granular live `block_reason` strings remain valid emitted contract terms.
-
-Downstream surfaces may map them into these blocker lanes.
-
-They may not:
-
-- change the owner
-- collapse unlike failures into one lane
-- use a downstream lane label to rewrite the emitted reason retroactively
+| `lifecycle_phase` | `scan`, `prepare`, `maker_window`, `taker_window`, `resolve` | current lifecycle posture only |
+| `previous_lifecycle_phase` | same set as above | prior lifecycle posture for transition events only |
+| `maker_phase_allowed` | `true`, `false` | maker-lane permission fact for the current row |
+| `taker_phase_allowed` | `true`, `false` | taker-lane permission fact for the current row |
+| `maker_gate_open` | `true`, `false` | maker gate verdict beneath lifecycle posture |
+| `taker_gate_open` | `true`, `false` | taker gate verdict beneath lifecycle posture |
+| `market_truth_required` | `true`, `false` | whether runtime truth requires live market reference integrity |
+
+Ownership law
+
+BRO may carry exactly one authoritative target pair at a time.
+
+- one authoritative target is the runtime owner
+- pending/prewarm candidates may exist for controlled warm-up
+- pending/prewarm candidates have zero decision authority
+- lifecycle watch truth must not impersonate active target-pair truth
+
+Maker and taker are subordinate lanes inside the owned market, not separate
+market lifecycles.
+
+Lineage-stage law
+
+`lineage_stage` is ancestry only.
+It may be preserved for diagnostics, historical replay, and audit lineage.
+It is not a live owner of market actionability.
+
+Current lineage values may still include:
+
+- `OBSERVE`
+- `EVALUATE`
+- `MAKER_POSITION`
+- `MAKER_TAKER_SELECTIVE`
+- `SNIPER_PRIMARY`
+- `LATE_DIAGNOSTIC`
+- `MAKER_LATE_WINDOW`
+- `TAKER_COMMITMENT`
+- `EXTREME_ONLY`
+- `EXPIRED`
+- `UNKNOWN`
 
-1.3.6 Live Receiving-End Semantic Contract
+Lineage-stage constraints:
 
-| Receiver family | Example surfaces | Reads | Truth role | Forbidden reinterpretation |
-| --- | --- | --- | --- | --- |
-| Runtime status consumers | status rows, `runtime_semantics`, gauges | `runtime_state`, `active_targets_present`, `no_target_standdown`, `book_feed_required`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, suppression-cause terms | truth owner | treating posture or hint/classification output as trade actionability |
-| Runtime transition consumers | `runtime_state_transition`, lifecycle audits | `previous_runtime_state`, `runtime_state`, `previous_book_feed_required`, `book_feed_required`, `transition_reason_code`, `transition_reason_detail` | truth owner within transition domain | treating transition detail as steady-state doctrine or promotion proof |
-| Edge truth consumers | `edge_evaluation`, edge audit/runbook | `maker_allowed`, `taker_allowed`, `action_taken`, `block_reason`, `submitted`, `filled`, `result`, `evaluation_scope`, `decision_input_*`, `target_ref`, `source_target_ref`, market-reference qualifiers, `secondary_oracle_status`, `secondary_oracle_confirmation`, `financial_posture_class` | truth owner | treating stage permission as quoteability or submit authority |
-| Wallet authority consumers | wallet status, wallet health, readiness gates | `canonical_live_wallet_truth`, domain truth containers, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, canonical-live availability/detail fields, `live_truth_gap_reasons` | truth owner within wallet domain | treating wallet/startup authority as market-truth language |
-| Quote/order consumers | competitiveness context, order-manager handoff | `market_reference_class`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `target_ref`, `block_reason`, `decision_block_reason`, `decision_result`, `financial_posture_class` | truth owner for quote/submit path decisions | upgrading missing or non-authoritative truth into authoritative truth by report logic |
-| Paper-harness / realism consumers | canonical paper validation, fill artifacts, audit recipes | `execution_realism_class`, `decision_input_*`, `target_ref` | truth owner within paper-realism domain | treating realism grade as market authority or outcome completeness |
-| Outcome truth consumers | outcome truth audit and attribution layers | `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status`, linked upstream live contract names | truth owner within outcome domain | rewriting upstream runtime meaning or collapsing unlike ownership layers |
-| Report/gate consumers | reports, audits, readiness/soak/promotion gates | emitted live contract names, `promotion_eligible`, canonical blocker-lane map, linked outcome-truth terms | truth consumer | renaming, upgrading, or re-owning upstream meaning |
-| Operator/control consumers | comparison tables, diagnostic templates, metric atlases | canonical live names and mapped doctrine boundary concepts | truth consumer | using aliases that outrank canonical names |
-| Deployment/container pass-through consumers | docker/session/validation launch surfaces, artifact packaging | session/context identity terms such as `BRO_CANONICAL_SESSION_*`, `BRO_RUN_ID`, `BRO_GIT_COMMIT`, `BRO_DOCKER_IMAGE_HASH`, plus canonical live names when transported in artifacts | pass-through consumer | minting competing semantics or treating transport identity as row-level truth ownership |
+- lineage may explain ancestry
+- lineage may support historical replay
+- lineage may not override lifecycle posture
+- lineage may not recreate a second actionability owner
 
-Deployment/container surfaces are semantic pass-through layers, not semantic
-owners.
+Canonical live taker authority
 
-1.3.7 Compatibility Policy
+Taker authority is lifecycle-owned.
+Canonical live taker authority lives in `taker_window` plus current taker
+gates, not in old stage-family law.
 
-This packet does not:
+Important historical boundary:
 
-- rename emitted code fields
-- rewrite report schemas
-- delete aliases
-- replace a deployed live name with a cleaner abstract doctrine label
+- `SNIPER_PRIMARY` is diagnostic-only in canonical live doctrine
+- lineage-stage-local final-window overrides are reserved for explicit diagnostic or
+  historical replay interpretation only
+- `taker_decision` with conviction may still surface lineage for analysis, but
+  the live submit path is owned by lifecycle and lane gates
+- Canonical live taker authority is not active in this lineage stage.
 
-Current mirrors such as `runtime_*` report duplicates are allowed downstream for
-now, but they are classified as mirrors, not doctrine roots.
+Runtime/readiness vocabulary
 
-Distribution/readout names such as `*_distribution`, prefixed mirrors such as
-`runtime_*`, and report/container helper names such as `wallet_*` or `record_*`
-are descriptive/report-layer or mirror surfaces unless explicitly declared as
-live contracts.
+These are current owner terms:
 
-Mirror cleanup and alias collapse belong to later runtime/report packets.
+- `promotion_eligibility_hint`
+- `runtime_classification`
+- `promotion_eligible`
+- `primary_suppression_cause`
+- `contributing_suppression_causes`
+- `ambiguous_suppression_cause`
 
-C. Canonical Paper Harness
+These are not market-actionability aliases:
 
-Responsible for simulation realism, auditability, replayability, order lifecycle fidelity, and integrity checking.
+- runtime classification is not lifecycle phase
+- suppression cause is not blocker-owner rewrite
+- promotion eligibility is not strategy-quality proof by itself
 
-It must simulate:
+Edge contract vocabulary
 
-- order submission and acknowledgement
-- open / partial / fill / cancel / expire / reject lifecycle
-- capital locking and release
-- queue position effects for maker orders
-- latency and timing realism
-- stale order behavior
-- invalid transition detection
-- duplicate fill detection
-- reconciliation consistency
+Current active edge truth uses:
 
-2. High-Level Architecture
+- `action_taken`
+- `block_reason`
+- `submitted`
+- `filled`
+- `evaluation_scope`
+- `financial_posture_class`
+- `target_ref`
+- `source_target_ref`
+- `decision_input_source`
+- `decision_input_type`
+- `decision_input_emulated`
+- `decision_input_data_class`
+- `secondary_oracle_status`
+- `secondary_oracle_confirmation`
+- `market_reference_basis`
+- `market_reference_confidence`
+- `market_reference_fallback_used`
+- `market_reference_source_side`
+- `market_reference_class`
 
-The required architecture is:
+Retired live vocabulary
 
-Strategy Doctrine
--> Execution Controller
--> Wallet Doctrine Module
--> Transaction Manager
--> Polymarket / Polygon
--> Settlement / Fill Handling
--> Reconciliation
+Stage-family authority names and old runtime-posture aliases are retired.
+They must not re-enter active runtime, reports, or current-owner docs.
+Historical examples live in the archive surface, not here.
 
-The architecture must preserve the following separation rules:
+Allowed residue quarantine only:
 
-- Strategy produces only intents.
-- Execution Controller coordinates but does not own capital truth.
-- Wallet Doctrine is sole authority for capital truth and capital authorization.
-- Transaction Manager is sole authority for signing/submission mechanics.
-- Reconciliation determines post-trade state truth.
-- No module may bypass wallet doctrine.
-- No module may bypass reconciliation.
-- Wallet veto and risk veto are independent and non-overridable.
-- Final order permission requires both wallet and risk to allow.
+- explicit historical replay compat
+- retired-config rejectors
+- negative tests
+- clearly marked historical-only docs
 
-3. Three-Gate Execution Model
+Wallet doctrine boundary
 
-Every trade must pass three independent gates. Execution is authorized only if all three pass in the same decision cycle.
+Wallet authority owns capital truth, nonce truth, pending-tx truth, and submit
+eligibility. Runtime lifecycle and edge truth must never self-authorize around
+wallet doctrine.
 
-3.1 Strategy Gate
+Maker design anchors
 
-Confirms that doctrine permits the action.
+Current intended maker/taker design anchors:
 
-Questions answered here:
+- `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+  - maker gate opens at `15s`
+  - taker handoff opens at `7s`
+- `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
 
-- Is the current stage known and valid?
-- Is the requested action allowed in this stage?
-- Does the observed setup meet doctrine requirements?
-- Is the side selection supported by fair-value logic?
-- Is the edge strong enough for the current stage?
-- Is this action valid for canonical mode vs degraded mode?
+These proposal surfaces are design anchors beneath the lifecycle blueprint, not
+permission to create a second semantic system.
 
-If any answer fails, the action is rejected.
+Historical archive boundary
 
-3.2 Wallet Gate
+The pre-lifecycle stage-machine body is historical-only.
+It may be referenced for replay or archaeology, but it is not active doctrine.
 
-Confirms that capital and wallet health permit the action.
+See:
 
-Questions answered here:
+- `docs/BRO_CANONICAL_DOCTRINE_STAGE_MACHINE_ARCHIVE_2026-05-18.md`
 
-- Is wallet state healthy and reconciled?
-- Is POL gas reserve above minimum?
-- Is deployable USDC.e sufficient?
-- Is allowance valid?
-- Is there a nonce conflict or pending tx anomaly?
-- Would this action violate capital allocation or exposure rules?
-- Is the requested size safe and permitted?
+Closure rule
 
-If any answer fails, the action is rejected or reduced. If the failure is severe, the system halts.
-
-3.3 Market Quality Gate
-
-Confirms the market is safe and suitable for execution.
-
-Questions answered here:
-
-- Is oracle data fresh enough?
-- Is orderbook data fresh enough?
-- Is threshold distance meaningful enough?
-- Is latency acceptable?
-- Is spread / microstructure acceptable?
-- Is there sufficient size / depth?
-- Are there quality problems indicating poor execution conditions?
-
-If any answer fails, the market is skipped.
-
-3.4 Gate Bundle Rule
-
-The gates must be evaluated as a bundled authorization, not as partially mutating sequential steps.
-
-Execution authorization must behave logically as:
-
-authorized = strategy_ok AND wallet_ok AND market_ok
-
-No order may be created, submitted, or capital-locked unless all three gates pass.
-
-3.5 Risk Competitiveness and Global Exposure Doctrine
-
-Risk controls must be fail-closed, bounded, and auditable. They must protect capital without silently choking valid high-conviction opportunities.
-
-Required semantics:
-
-- dynamic risk scaling is additive and bounded:
-  - uses realized volatility, time-of-day liquidity window, and edge strength
-  - adjusts effective risk caps, not kill-switch, readiness, or stage authority
-- unknown inputs are fail-closed for aggression:
-  - unknown context may never increase aggressiveness beyond baseline
-  - conservative or neutral behavior is allowed; inferred uplift is forbidden
-- global exposure guard is explicit and authoritative:
-  - combines active position exposure, resting open-order exposure, and incoming intent exposure
-  - rejects when projected combined exposure exceeds effective global cap
-
-Required truth surfaces:
-
-- risk decisions must emit machine-readable `risk_decision_basis` on both reject and accept paths
-- nightly reporting must include `risk_competitiveness` with:
-  - decision/reject counts by lane
-  - scaling class distribution
-  - reject reason distribution including `global_exposure_cap`
-  - exposure utilization distribution and near-cap counts
-
-4. Single-Wallet Doctrine
-
-BRO uses a single Polygon trading wallet. Because only one wallet exists, the wallet doctrine must logically partition the wallet into protected subdomains even though the address is physically one address.
-
-4.1 Logical Capital Partitions
-
-The single wallet balance must be modeled internally as:
-
-- POL gas reserve
-- minimum protected USDC.e reserve, if configured
-- deployable USDC.e capital
-- locked capital in active or pending orders
-- settled free capital
-- reconciliation adjustment buffer, if needed for bookkeeping
-
-The strategy layer must never directly read or assume these partitions. It receives only wallet-authorized results.
-
-4.2 Wallet Doctrine Responsibilities
-
-The Wallet Doctrine Module is the sole authority over:
-
-- chain verification
-- wallet address verification
-- POL balance health
-- USDC.e balance truth
-- allowance status
-- deployable-capital computation
-- pending capital locks
-- nonce authority
-- tx lifecycle truth
-- post-settlement reconciliation
-- fail-closed halts on anomaly
-
-4.3 Wallet Doctrine Failure Conditions
-
-The system must halt immediately if any of the following occur:
-
-- wallet balance mismatch beyond tolerance
-- nonce conflict or unexpected nonce jump
-- insufficient POL gas reserve
-- insufficient allowance where allowance is required
-- unexpected balance movement not attributable to known settlement or tx flow
-- transaction lifecycle contradiction
-- repeated reconciliation failure
-- chain identity mismatch
-- wallet address mismatch
-- corrupted or unknown pending-order lock state
-
-4.4 Wallet Authority Rule
-
-Strategy may request:
-
-- side
-- requested size
-- reason
-- stage
-- optional price intent if maker logic requires it
-
-Wallet Doctrine may respond with:
-
-- approve as requested
-- approve with reduced size
-- reject
-- halt system
-
-Strategy must not override wallet response.
-Risk must not override wallet veto.
-Wallet must not override risk veto.
-No downstream path may convert either veto into a reduction-success.
-
-5. Trade Intent Contract
-
-The strategy layer produces a trade intent, not an executable order.
-
-A canonical intent should include fields like:
-
-- market identifier
-- window identifier
-- side
-- requested size
-- stage
-- reason code
-- fair-value context
-- timestamp
-- mode
-- urgency type
-- execution preference
-
-5.1 Intent Example
-
-A valid conceptual intent is:
-
-- side = YES
-- requested_size = 25 USDC.e
-- reason = sniper_edge
-- stage = EXTREME_ONLY
-- execution_preference = taker_only
-- mode = canonical
-
-This is only a request. It has no execution authority by itself.
-
-6. Strategy Doctrine Workflow
-
-This section defines the operational workflow of BRO's strategy engine.
-
-6.1 Workflow: Window Initialization
-
-At the start of each 5-minute market window, BRO must initialize a clean window state.
-
-Required behavior:
-
-- identify current market window
-- reset all window-local bias and directional memory
-- clear previous window's strategy conviction state
-- initialize fresh observation state
-- mark window as active
-- begin observation loop
-
-Persisted system-health state such as wallet condition, connectivity state, and operator kill-switch state may remain. Market bias may not remain.
-
-6.2 Workflow: Observation Loop
-
-During an active window, BRO continuously observes:
-
-- Chainlink / oracle-derived price inputs
-- Polymarket threshold relation
-- orderbook state
-- spread and depth
-- time remaining in current window
-- market microstructure
-- latency and freshness metrics
-- internal execution state
-- doctrine mode state
-
-Observation must be timestamped and freshness-aware. Stale observations cannot be silently reused as fresh truth.
-
-6.3 Workflow: Fair-Value Derivation
-
-BRO must derive fair-value context from trusted oracle input and current threshold structure.
-
-Fair value is required. If oracle-derived fair-value context is unavailable, stale, or degraded beyond doctrine allowance, execution must fail closed.
-
-BRO may not trade based solely on orderbook appearance or momentum feel. Oracle-derived context is a prerequisite.
-
-6.4 Workflow: Stage Determination
-
-BRO uses a stage machine. Current stage must be derived from time remaining, edge strength, doctrine mode, and execution conditions.
-
-Canonical stages are:
-
-- OBSERVE
-- EVALUATE
-- MAKER_POSITION
-- MAKER_TAKER_SELECTIVE
-- SNIPER_PRIMARY
-- EXTREME_ONLY
-- EXPIRED
-- UNKNOWN
-
-Stage meanings
-
-OBSERVE
-
-Early or uncertain phase. BRO gathers information and does not execute.
-
-EVALUATE
-
-BRO has enough information to begin judging edge and market quality but is not yet authorized to act unless specific doctrine rules permit transition.
-
-MAKER_POSITION
-
-Earlier stage where maker placement may be allowed if doctrine conditions support passive positioning.
-
-MAKER_TAKER_SELECTIVE
-
-Intermediate stage where maker logic may still be allowed under doctrine
-conditions. Canonical live taker authority is not active in this stage.
-
-SNIPER_PRIMARY
-
-Late diagnostic staging band. In canonical live doctrine, maker and taker
-entry are both forbidden in this stage.
-
-EXTREME_ONLY
-
-Very late or very strict stage where only unusually strong edge and clean conditions justify execution.
-
-EXPIRED
-
-The market window is effectively no longer tradeable by doctrine.
-
-UNKNOWN
-
-Stage derivation failed or state is inconsistent. Must fail closed.
-
-6.5 Workflow: Stage Transition Rules
-
-Stage transitions must be deterministic and auditable.
-
-Required stage doctrines:
-
-- prerequisites fail closed
-- unknown stage fails closed
-- oracle-derived fair value is required
-- maker participation is restricted to earlier stages
-- SNIPER_PRIMARY is diagnostic-only in canonical live doctrine
-- EXTREME_ONLY requires stronger edge than earlier stages
-- degraded and canonical modes must remain explicitly separated
-- expired stage forbids new trade entry
-- mode downgrade must not silently preserve prior stage permissions
-
-7. Execution Workflows
-
-7.1 Workflow: No-Trade Decision
-
-BRO must be able to do nothing cleanly and intentionally.
-
-This is not a failure state. It is normal doctrine behavior.
-
-BRO should skip when:
-
-- no meaningful edge exists
-- fair value is stale or uncertain
-- market quality is poor
-- spread / depth is unattractive
-- wallet gate fails
-- stage does not authorize the action
-- time remaining is unsuitable
-- doctrine mode is degraded beyond acceptable limits
-
-A skipped market is a valid output.
-
-7.2 Workflow: Maker Workflow
-
-Maker workflow is allowed only in maker-permitted stages.
-
-Maker flow:
-
-1. Strategy derives edge and current stage permits maker participation.
-2. Strategy emits trade intent with maker preference.
-3. Three-gate bundle is evaluated.
-4. Wallet doctrine approves capital and locks size if appropriate.
-5. Execution controller generates order request.
-6. Transaction manager submits maker order.
-7. Order enters open state.
-8. System monitors queue position, fill progress, remaining time, and market drift.
-
-Order may:
-
-- fill fully
-- fill partially
-- remain open
-- be cancelled
-- expire
-
-Capital and state are reconciled after any transition.
-
-Maker order logic must include explicit rules for:
-
-- cancellation on deteriorating edge
-- cancellation on time decay
-- cancellation on stage transition to taker-only zone
-- stale-order invalidation
-- lock release on cancel / expire
-
-7.2.1 Maker Competitiveness Gate (Deterministic, Bounded)
-
-Maker competitiveness overlays are additive and must not bypass risk/control gates.
-
-Required semantics:
-
-- timing gate may be enabled to allow maker submission only inside a configured expiry window
-- when timing gate is enabled, missing or non-numeric expiry is fail-closed
-- timing-gate block reason must be explicit (`maker_timing_gate_closed`)
-- maker hard size floor must be explicit and non-negotiable when configured:
-  - notional floor/cap and share floor/cap are enforced in sizing resolution
-  - impossible floor/cap configurations fail at config validation time
-- edge-strength scaling must be bounded and deterministic:
-  - size can scale up only within configured max multiplier
-  - spread can tighten only within configured min multiplier
-  - requote delta can tighten only within configured min multiplier
-- maker depth scaling must be bounded and deterministic:
-  - target notional can floor to configured visible-depth ratio (e.g., 15-30%)
-  - depth target uses current top-of-book visible depth with configured TOD multiplier
-- one-sided maker mode may be enabled only:
-  - above configured absolute edge threshold
-  - in explicitly allowed stages
-  - with explicit side-policy emission (`BUY_ONLY` / `SELL_ONLY`)
-- one-sided suppression of disallowed side must be explicit (`one_sided_mode_disallow_side`)
-
-Truth and audit surfaces must include:
-
-- timing gate state and bounds
-- edge magnitude and normalized strength
-- applied size/spread/requote multipliers
-- one-sided mode state and selected side
-- maker size-resolution rationale:
-  - hard-floor/hard-cap reason flags
-  - depth-target reason flags
-  - visible/effective depth and target ratio fields
-
-7.3 Workflow: Taker Workflow
-
-Taker workflow is used when doctrine authorizes immediate execution, especially in later stages.
-
-Taker flow:
-
-1. Strategy derives a valid near-term edge.
-2. Strategy emits taker-oriented trade intent.
-3. Three-gate bundle is evaluated.
-4. Wallet doctrine approves deployable size.
-5. Transaction manager submits executable order.
-6. Order is monitored through submission and fill lifecycle.
-7. Settlement is captured.
-8. Reconciliation updates free vs locked capital.
-9. Window state records execution outcome.
-
-SNIPER_PRIMARY is diagnostic-only in canonical live doctrine. It must not be
-treated as live taker authority, and no passive maker logic is allowed there
-either.
-
-7.3.1 Taker Competitiveness Gate (Deterministic, Bounded)
-
-Taker competitiveness overlays are additive and must not bypass risk/control gates.
-
-Required semantics:
-
-- hard minimum taker notional floor is explicit and non-negotiable when enabled:
-  - if floor is infeasible under current caps/price, skip with explicit reason (`taker_hard_min_notional_unachievable`)
-  - no under-floor submit path is permitted
-- final execution window is explicit and deterministic:
-  - final window may be enabled globally and overridden per stage
-  - stage-local final-window overrides are reserved for explicit diagnostic or
-    non-production investigation and must not create canonical live taker
-    authority outside `EXTREME_ONLY <=7s`
-  - optional final-10s aggressive sub-window may be enabled
-  - outside-window attempts are blocked with explicit reason (`taker_outside_final_window`)
-- dynamic feasibility preview is advisory-only when enabled:
-  - preview computes read-only predicted dynamic feasibility/headroom
-  - preview must not reserve size, mutate exposure, or replace final `RiskEngine.validate_order` authority
-  - preview output is for truth/prioritization surfaces only (`predicted_dynamic_feasible*`)
-- dynamic sizing is bounded and conviction-based:
-  - edge/latency-weighted conviction scales target size within configured caps
-  - risk/cap clipping remains authoritative and must be surfaced (`dynamic_size_capped_by_risk`)
-- stage-aware aggressiveness is bounded:
-  - stage profile may increase size multiplier and taker price aggressiveness within configured max bps
-  - aggressiveness must never disable existing safety or risk gates
-- multi-oracle boost is optional and explicit:
-  - boost may apply only when enabled, edge threshold passes, direction confirms, and numeric boost window is open (`sec_to_expiry <= multi_oracle_boost_window_sec`)
-  - unknown/missing secondary-oracle state must never infer confirmation or boost
-
-Truth and audit surfaces must include:
-
-- `taker_decision` with conviction, edge, timing window class, aggressiveness level, and block reason
-- explicit static vs dynamic predicted executability fields (`submit_capable_static`, `submit_capable_dynamic_predicted`)
-- submit-level competitiveness payload (`taker_competitiveness`) on accepted taker orders
-- report-level distributions: edge buckets, conviction buckets, timing windows, lag classes, aggressiveness counters, multi-oracle status/confirmation/boost counts, and stage-level net breakout
-- stage-separated anti-suppression funnel counters with explicit reduction-cause attribution:
-  - `reduction_due_to_dynamic_preview`
-  - `reduction_due_to_timing_gate`
-  - `reduction_due_to_cooldown`
-  - `reduction_due_to_final_risk_reject`
-
-7.4 Workflow: Selective Maker/Taker Decision
-
-In stages where either maker or taker may be valid, BRO must explicitly choose based on doctrine and not blur the two.
-
-The selection logic should consider:
-
-- time remaining
-- spread
-- depth
-- probability of passive fill
-- queue disadvantage
-- edge decay risk
-- urgency of capture
-- slippage risk
-
-The system must record why maker or taker was chosen.
-
-7.5 Workflow: Extreme-Only Execution
-
-EXTREME_ONLY is the strictest tradeable stage.
-
-Execution is allowed only when:
-
-- fair-value edge is unusually strong
-- market quality is still acceptable
-- latency and freshness are good
-- wallet health is clean
-- doctrine explicitly authorizes the action
-
-This stage should produce many skips and very few trades. If it does not, thresholds are too loose.
-
-8. Transaction and Order Lifecycle Workflow
-
-BRO must model all order states canonically.
-
-Required states:
-
-- created
-- submitted
-- open
-- partial
-- filled
-- cancelled
-- expired
-- rejected
-
-8.1 Valid Lifecycle Principles
-
-- An order cannot move from filled back to open.
-- A cancelled order cannot later fill without explicit contradiction handling.
-- Partial fill must preserve remaining open quantity truth.
-- Expired and rejected must release capital correctly.
-- Duplicate fills must be detected as integrity violations.
-- Unknown state transitions must fail closed and alert.
-
-8.2 Submission Workflow
-
-Submission flow:
-
-1. execution request created
-2. wallet capital lock confirmed
-3. transaction request formed
-4. transaction manager signs/submits
-5. submission acknowledgement captured
-6. order state becomes submitted or rejected
-7. downstream market / tx events move state forward
-
-8.3 Settlement Workflow
-
-Settlement flow:
-
-1. fills or outcome events are received
-2. order state updated
-3. locked capital adjusted
-4. actual fill amount recorded
-5. wallet reconciliation performed
-6. internal ledger aligned with observed truth
-
-Settlement must not rely on optimistic assumptions.
-
-9. Reconciliation Workflow
-
-Reconciliation is one of the most important workflows in BRO.
-
-9.1 When Reconciliation Must Run
-
-Reconciliation must run:
-
-- at startup
-- before execution authorization
-- after submission when relevant
-- after any fill / partial / cancel / expiry event
-- at window close
-- at shutdown
-- after any detected anomaly
-- periodically during runtime
-
-9.2 Reconciliation Purpose
-
-It confirms:
-
-- wallet balances match expected state
-- pending locks are valid
-- allowance truth matches expectation
-- nonce progression is consistent
-- tx and order state match observed reality
-- no unexplained capital movement occurred
-
-9.3 Reconciliation Outcomes
-
-Possible outcomes:
-
-- healthy: continue
-- warning: skip current action and monitor
-- reject: deny execution
-- halt: enter fail-closed safety state
-
-Severe mismatch must halt immediately.
-
-10. Wallet and Capital Workflows
-
-10.1 Deployable Capital Computation
-
-For a single wallet, deployable capital must be derived after subtracting protected reserves and existing obligations.
-
-Conceptually:
-
-deployable USDC.e =
-free USDC.e
-minus locked USDC.e
-minus protected reserves
-subject to max per-trade / per-window / per-exposure rules
-
-POL gas reserve must always remain protected and outside strategy control.
-
-10.2 Capital Lock Workflow
-
-Before an order is submitted:
-
-- requested size is reviewed
-- approved size is computed
-- approved capital is locked
-- submission proceeds only after lock success
-
-If submission fails, the lock must be released or transitioned deterministically.
-
-10.3 Gas Safety Workflow
-
-Wallet doctrine must maintain:
-
-- minimum POL operational reserve
-- preferred POL reserve threshold
-- halt threshold below which execution is forbidden
-
-Gas health must be checked before execution authorization, not after.
-
-10.4 Nonce Workflow
-
-Only wallet / tx authority may control nonce.
-
-Nonce workflow:
-
-1. determine current usable nonce
-2. verify pending tx map
-3. reserve nonce for outgoing tx if needed
-4. submit tx
-5. observe resulting lifecycle
-6. reconcile nonce progression
-
-Unexpected nonce movement must be treated as a potential safety event.
-
-11. Market Quality Workflow
-
-This workflow determines whether the market is worth participating in.
-
-Inputs may include:
-
-- oracle freshness
-- orderbook freshness
-- latency gap
-- spread
-- visible depth
-- threshold proximity
-- quote quality
-- time remaining
-- stale-book symptoms
-- degraded feed conditions
-
-Possible outputs:
-
-- acceptable
-- poor quality, skip
-- degraded, skip
-- severe quality anomaly, halt or stand down
-
-Market quality is not optional. A valid edge in a poor-quality market is still a no-trade.
-
-12. Degraded Mode Workflow
-
-BRO must explicitly distinguish canonical mode from degraded mode.
-
-Degraded mode may occur due to:
-
-- stale oracle
-- partial feed degradation
-- delayed book
-- missing observations
-- external service instability
-
-Rules:
-
-- degraded mode must be explicit in state
-- degraded mode must not silently inherit canonical permissions
-- degraded mode must have narrower or zero execution authority
-- transitions between modes must be logged and auditable
-
-If degradation undermines trust in fair-value or market quality, the correct action is skip or halt.
-
-13. Startup Workflow
-
-At startup, BRO must not begin trading immediately without system-health validation.
-
-Startup flow:
-
-1. verify environment and config integrity
-2. verify chain / network identity
-3. verify wallet address
-4. verify POL and USDC.e visibility
-5. verify allowance state if relevant
-6. reconcile wallet truth
-7. verify data feed connectivity
-8. verify oracle visibility
-9. initialize doctrine mode
-10. initialize active market discovery
-11. enter observe state
-
-Startup must fail closed if core prerequisites are not satisfied.
-
-14. Shutdown Workflow
-
-Shutdown must be orderly and safe.
-
-Shutdown flow:
-
-1. stop new execution authorization
-2. cancel or stand down open maker logic if appropriate
-3. reconcile wallet and order state
-4. flush logs / audits
-5. persist runtime state needed for restart integrity
-6. exit cleanly
-
-Shutdown must not leave ambiguous lock state if avoidable.
-
-15. Paper Harness Doctrine
-
-The canonical paper harness must not be a toy fill engine. It is part of system truth testing.
-
-15.1 Required Simulation Features
-
-The harness must simulate:
-
-- order lifecycle states
-- queue effects for maker orders
-- partial fills
-- cancellation logic
-- expiry behavior
-- capital locking and release
-- latency realism
-- stale data effects where applicable
-- replayable state transitions
-- audit trace output
-
-15.2 Harness Integrity Checks
-
-The harness must detect:
-
-- duplicate fills
-- invalid state transitions
-- capital inconsistencies
-- stale orders not cleaned up
-- impossible settlement outcomes
-- lock release errors
-- contradictory lifecycle updates
-
-15.3 Replayability Rule
-
-A paper run must be auditable and replayable enough to reconstruct:
-
-- what the system saw
-- what doctrine decided
-- what it tried to do
-- what the simulated exchange did
-- how wallet state changed
-
-15.4 Scientific Proving-Lane Discipline
-
-Paper and testing must follow scientific principle, not convenience.
-
-Required proving-lane rules:
-
-- one canonical proving path per evidence claim
-- one controlled variable at a time unless the packet explicitly declares a
-  multi-variable investigation
-- lineage tuple is mandatory for evidence claims:
-  - `run_id`
-  - `git_commit`
-  - `config_fingerprint`
-  - `code_fingerprint`
-- proving-lane changes must be called out explicitly
-- if the proving lane changes, comparison claims must be downgraded unless the
-  change is part of the declared test design
-
-BRO must not:
-
-- compare runs as if they were equivalent when the proving lane changed
-- mix runtime, harness, validator, and policy changes into one evidence claim
-- treat wrapper convenience as stronger than proving-lane consistency
-
-16. Audit and Logging Workflow
-
-BRO must produce logs suitable for engineering review, not just operator reassurance.
-
-Logs should make it possible to answer:
-
-- why a trade was skipped
-- why a trade was allowed
-- what stage the system believed it was in
-- which gate failed
-- what wallet approved or denied
-- what market quality conditions existed
-- what happened to the order lifecycle
-- what reconciliation concluded
-
-At minimum, decision records should include:
-
-- timestamp
-- market/window id
-- current stage
-- doctrine mode
-- fair-value summary
-- threshold relation
-- gate outcomes
-- action taken: skip / maker / taker / cancel / halt
-- reason codes
-- wallet approval result
-- reconciliation result
-
-17. Canonical Non-Negotiable Rules
-
-These are hard doctrine rules and should be encoded as invariants where possible.
-
-- Every 5-minute window is a new market.
-- No carryover directional bias is allowed.
-- Strategy may not move funds.
-- Strategy may not sign orders.
-- Strategy may only emit intents.
-- Wallet doctrine is sole capital authority.
-- Oracle-derived fair-value context is required.
-- Unknown or inconsistent stage fails closed.
-- All trades must pass all three gates.
-- SNIPER_PRIMARY is diagnostic-only in canonical live doctrine.
-- Maker participation is limited to earlier permitted stages.
-- EXTREME_ONLY requires stronger edge than normal stages.
-- Poor market quality means skip.
-- Reconciliation mismatch means reject or halt.
-- Gas safety overrides trade opportunity.
-- Degraded mode must be explicit and narrower than canonical mode.
-- The system must prefer skipping over forcing.
-
-18. Current Engineering Priority Order
-
-BRO priorities remain:
-
-1. Wallet Doctrine Module completion
-2. Canonical Paper Harness hardening
-3. Security and operational hardening maintenance
-4. Long-duration paper runs, including 12-hour run
-5. Strategy tuning only after system stability is proven
-
-This order must not be reversed.
-
-19. Implementation Guidance for Codex
-
-Codex should treat this doctrine as the authority source and should avoid architectural drift.
-
-Implementation expectations:
-
-- keep canonical domains separate
-- do not let strategy access wallet authority directly
-- do not collapse execution controller and wallet doctrine into one layer
-- implement gate bundle logic explicitly
-- model single-wallet logical partitions internally
-- encode failure conditions as real rejects/halts, not comments
-- keep stage machine explicit and auditable
-- preserve canonical vs degraded distinction in code and state
-- implement reconciliation as a first-class workflow, not an afterthought
-- make paper harness realistic enough to expose lifecycle and capital bugs
-
-When uncertain, Codex should choose the more conservative and more explicit design.
-
-20. One-Line Canonical Summary
-
-BRO is a fail-closed, doctrine-driven Polymarket execution system in which strategy produces intents, wallet doctrine controls capital, market quality filters execution, and every 5-minute market is treated as a fresh opportunity that may be traded only when all gates pass.
-
-21. Protection-Path Semantic Clarity
-
-Control-authoritative safety behavior must remain explicit.
-
-- `alerts.enabled` is notification transport only.
-- Disabling transport must not be interpreted as disabling auto-stop / kill-switch authority.
-- Canonical semantics label:
-  - transport disabled
-  - control authority unchanged
-- If transport/control status fields are missing, emitted semantics must remain explicit unknown (not false default).
-- Artifacts must emit:
-  - `primary_suppression_cause`
-  - `contributing_suppression_causes`
-  - `ambiguous_suppression_cause`
-  - `suppression_dominated_run`
-  - `execution_starvation_mode`
-  - `protected_no_trade_explanation`
-  - `trigger_chain_interpretation`
-
-If primary suppression cause cannot be uniquely determined, the system must emit explicit ambiguity and must not invent a synthetic primary cause.
-
-22. Wallet Execution Module Surfaces
-
-Wallet authority must be explicit, machine-readable, and operator-auditable.
-
-- Truth-domain naming must be explicit:
-  - `canonical_live_wallet_truth`
-  - `local_tx_lifecycle_state`
-  - `open_order_state`
-  - `integrity_tripwire_reconcile_state`
-- Bootstrap status is non-authoritative and must be labeled `bootstrap_non_authoritative`.
-- Bootstrap surfaces may not be consumed as final readiness truth.
-- Reconcile scope must be explicitly represented as integrity tripwire unless a full ledger model is implemented.
-
-- Wallet status contract must expose:
-  - gas balance and minimum reserve verdict
-  - stable balance total
-  - protected reserve
-  - open reserved capital
-  - deployable capital
-  - approval health
-  - nonce health
-  - reconciliation health
-  - wallet health verdict + reasons
-- Wallet events must be first-class:
-  - `wallet_state_refresh`
-  - `wallet_health_gate`
-  - `wallet_reservation_created`
-  - `wallet_reservation_released`
-  - `wallet_reservation_settled`
-  - `wallet_approval_check`
-  - `wallet_approval_submitted`
-  - `wallet_nonce_state`
-  - `wallet_reconcile_result`
-  - `wallet_integrity_warning`
-  - `wallet_integrity_fail_closed`
-  - `wallet_startup_authority_refresh`
-  - `wallet_health_gate_veto`
-  - `wallet_local_tx_lifecycle_state`
-  - `wallet_open_order_state`
-- Unknown wallet identity, approval target identity, nonce state, or reconciliation truth must fail closed for live authorization.
+No packet is closed if active code, current-owner docs, reports, audits, and
+operator truth disagree about the meaning of the same state.

@@ -329,7 +329,6 @@ def evaluate_guard(
         require_book_feed_connected_config=bool(require_book_feed_connected),
     )
     details["lifecycle_phase"] = str(guard_requirements.get("lifecycle_phase") or "")
-    details["runtime_state"] = str(guard_requirements.get("runtime_state") or "")
     details["active_targets_present"] = bool(guard_requirements.get("active_targets_present", False))
     details["scan_phase"] = bool(guard_requirements.get("scan_phase", False))
     details["market_truth_required"] = bool(guard_requirements.get("market_truth_required", False))

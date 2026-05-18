@@ -1,5 +1,10 @@
 # BRO Active Sweep Ledger (2026-04-20)
 
+## Classification
+- `historical-only`
+- this ledger preserves a pre-lifecycle-era sweep snapshot
+- any old runtime-posture or stage-family wording here is retained as historical evidence only
+
 Instantiated from `docs/BRO_DIAGNOSTIC_TEMPLATE.md` for the unified v14 multi-harness sweep.
 
 ## 1) Lineage Lock (Required)

@@ -13,11 +13,9 @@ from .common import parse_float, parse_ts, utc_iso, utc_now
 from .edge_truth_contract import (
     EDGE_LIFECYCLE_PHASE_FIELD,
     EDGE_MAKER_PHASE_ALLOWED_FIELD,
-    EDGE_STAGE_BUCKET_FIELD,
     lineage_stage_from_payload,
     lifecycle_phase_from_payload,
     lifecycle_phase_surface_fields,
-    legacy_stage_to_lifecycle_phase,
     lineage_stage_surface_fields,
     normalize_block_reason,
 )
@@ -99,57 +97,38 @@ def _normalize_soft_limit_pct(value: object, default: float) -> float:
     return min(parsed, 1.0)
 
 
-def _canonical_lifecycle_phase_from_stage(stage: Any) -> str:
-    return str(legacy_stage_to_lifecycle_phase(stage) or "").strip().lower()
-
-
 def _canonical_lifecycle_phase_from_payload(payload: Optional[Dict[str, Any]]) -> str:
     if not isinstance(payload, dict):
         return ""
     return str(lifecycle_phase_from_payload(payload) or "").strip().lower()
 
 
-def _compat_lineage_stage_from_payload(payload: Optional[Dict[str, Any]]) -> str:
+def _resolved_lineage_stage_from_payload(payload: Optional[Dict[str, Any]]) -> str:
     if not isinstance(payload, dict):
         return ""
     lineage_stage = str(payload.get("lineage_stage") or "").strip().upper()
     if lineage_stage:
         return lineage_stage
     lineage_stage = str(lineage_stage_from_payload(payload) or "").strip().upper()
-    if lineage_stage:
-        return lineage_stage
-    lifecycle_phase = _canonical_lifecycle_phase_from_payload(payload)
-    if lifecycle_phase == "maker_window":
-        return "MAKER_LATE_WINDOW"
-    if lifecycle_phase == "taker_window":
-        return "TAKER_COMMITMENT"
-    if lifecycle_phase == "resolve":
-        return "EXPIRED"
-    if lifecycle_phase == "prepare":
-        return "SNIPER_PRIMARY"
-    if lifecycle_phase == "scan":
-        return "OBSERVE"
-    return ""
+    return lineage_stage
 
 
 def _resolve_event_lifecycle_phase(
     *,
-    intent_stage: Any = None,
+    intent_lifecycle_phase: Any = None,
     risk_context: Optional[Dict[str, Any]] = None,
     risk_basis: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, str, Optional[str]]:
-    intent_phase = _canonical_lifecycle_phase_from_stage(intent_stage)
+    intent_phase = str(intent_lifecycle_phase or "").strip().lower()
     if intent_phase:
-        return intent_phase, "intent_stage_compat", None
+        return intent_phase, "intent_lifecycle_phase", None
     basis_phase = _canonical_lifecycle_phase_from_payload(risk_basis)
     if basis_phase:
-        basis_has_direct_field = isinstance(risk_basis, dict) and bool(risk_basis.get(EDGE_LIFECYCLE_PHASE_FIELD))
-        return basis_phase, ("risk_decision_basis" if basis_has_direct_field else "risk_decision_basis_stage_compat"), None
+        return basis_phase, "risk_decision_basis", None
     context_phase = _canonical_lifecycle_phase_from_payload(risk_context)
     if context_phase:
-        context_has_direct_field = isinstance(risk_context, dict) and bool(risk_context.get(EDGE_LIFECYCLE_PHASE_FIELD))
-        return context_phase, ("risk_context" if context_has_direct_field else "risk_context_stage_compat"), None
-    return "scan", "unknown", "missing_intent_and_lifecycle_context"
+        return context_phase, "risk_context", None
+    return "scan", "unknown", "missing_lifecycle_context"
 
 
 class OrderManager:
@@ -567,10 +546,6 @@ class OrderManager:
             shadow_event.get(EDGE_LIFECYCLE_PHASE_FIELD)
             or competitiveness_context.get(EDGE_LIFECYCLE_PHASE_FIELD)
             or competitiveness_context.get("lifecycle_phase")
-                    or legacy_stage_to_lifecycle_phase(
-                        shadow_event.get("stage")
-                        or _compat_lineage_stage_from_payload(competitiveness_context)
-                    )
         ).strip().lower()
         maker_phase_allowed = bool(
             shadow_event.get(
@@ -850,17 +825,14 @@ class OrderManager:
                 lifecycle_phase=(
                     competitiveness_context.get(EDGE_LIFECYCLE_PHASE_FIELD)
                     or competitiveness_context.get("lifecycle_phase")
-                    or legacy_stage_to_lifecycle_phase(
-                        desired_intent.stage
-                        or _compat_lineage_stage_from_payload(competitiveness_context)
-                    )
+                    or "scan"
                 )
             ),
             **lineage_stage_surface_fields(
                 lineage_stage=(
                     competitiveness_context.get("lineage_stage")
-                    or competitiveness_context.get(EDGE_STAGE_BUCKET_FIELD)
-                    or competitiveness_context.get("lineage_stage")
+                    or _resolved_lineage_stage_from_payload(competitiveness_context)
+                    or desired_intent.lineage_stage
                 )
             ),
             "cycle_index": int(cycle_index) if isinstance(cycle_index, int) else None,
@@ -1468,7 +1440,7 @@ class OrderManager:
             self.telemetry.incr("sizing_rejects")
             risk_context_payload = dict(risk_context) if isinstance(risk_context, dict) else {}
             event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
-                intent_stage=intent.stage,
+                intent_lifecycle_phase=_canonical_lifecycle_phase_from_payload(risk_context_payload),
                 risk_context=risk_context_payload,
             )
             event_financial_posture_class = str(
@@ -1527,7 +1499,7 @@ class OrderManager:
             reason=intent.reason,
             market_id=intent.market_id or intent.token_id,
             window_id=intent.window_id or intent_ts[:16],
-            stage=intent.stage,
+            lineage_stage=intent.lineage_stage,
             reason_code=intent.reason_code or intent.reason,
             timestamp_utc=intent.timestamp_utc or intent_ts,
             execution_preference=intent.execution_preference or default_execution_pref,
@@ -1601,7 +1573,6 @@ class OrderManager:
         risk_context_payload.setdefault(
             EDGE_LIFECYCLE_PHASE_FIELD,
             _canonical_lifecycle_phase_from_payload(risk_context_payload)
-            or _canonical_lifecycle_phase_from_stage(intent_sized.stage)
             or "scan",
         )
         decision = self.risk.validate_order(
@@ -1616,7 +1587,7 @@ class OrderManager:
         if not decision.allowed:
             risk_basis = decision.basis if isinstance(decision.basis, dict) else None
             event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
-                intent_stage=intent_sized.stage,
+                intent_lifecycle_phase=_canonical_lifecycle_phase_from_payload(risk_context_payload),
                 risk_context=risk_context_payload,
                 risk_basis=risk_basis,
             )
@@ -1760,7 +1731,7 @@ class OrderManager:
                 reason=intent_sized.reason,
                 market_id=intent_sized.market_id,
                 window_id=intent_sized.window_id,
-                stage=intent_sized.stage,
+                lineage_stage=intent_sized.lineage_stage,
                 reason_code=intent_sized.reason_code,
                 timestamp_utc=intent_sized.timestamp_utc,
                 execution_preference=intent_sized.execution_preference,
@@ -1812,7 +1783,7 @@ class OrderManager:
                 )
                 risk_basis = post_wallet_decision.basis if isinstance(post_wallet_decision.basis, dict) else None
                 event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
-                    intent_stage=intent_authorized.stage,
+                    intent_lifecycle_phase=_canonical_lifecycle_phase_from_payload(post_wallet_context),
                     risk_context=post_wallet_context,
                     risk_basis=risk_basis,
                 )
@@ -2010,7 +1981,7 @@ class OrderManager:
             dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
         )
         event_lifecycle_phase, lifecycle_phase_source, lifecycle_phase_unknown_reason = _resolve_event_lifecycle_phase(
-            intent_stage=intent_authorized.stage,
+            intent_lifecycle_phase=_canonical_lifecycle_phase_from_payload(risk_context_payload),
             risk_context=risk_context_payload,
             risk_basis=risk_basis_event,
         )
@@ -2581,7 +2552,8 @@ class OrderManager:
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
         realized_volatility: Optional[float] = None,
-        stage: Optional[str] = None,
+        lifecycle_phase: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         outcome = self.place_taker_order_with_outcome(
@@ -2600,7 +2572,8 @@ class OrderManager:
             token_median_lag_ms=token_median_lag_ms,
             oracle_tick_age_sec=oracle_tick_age_sec,
             realized_volatility=realized_volatility,
-            stage=stage,
+            lifecycle_phase=lifecycle_phase,
+            lineage_stage=lineage_stage,
             competitiveness_context=competitiveness_context,
         )
         return bool(outcome.get("submitted", False))
@@ -2623,16 +2596,16 @@ class OrderManager:
         token_median_lag_ms: Optional[float] = None,
         oracle_tick_age_sec: Optional[float] = None,
         realized_volatility: Optional[float] = None,
-        stage: Optional[str] = None,
+        lifecycle_phase: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         base_size = float(size) if size is not None else float(self.base_order_size)
-        competitiveness_stage = None
-        if isinstance(competitiveness_context, dict):
-            compat_stage = str(_compat_lineage_stage_from_payload(competitiveness_context) or "").strip()
-            competitiveness_stage = compat_stage.upper() if compat_stage else None
-        explicit_stage = str(stage or "").strip()
-        resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
+        context_lifecycle_phase = _canonical_lifecycle_phase_from_payload(competitiveness_context)
+        resolved_lifecycle_phase = str(lifecycle_phase or context_lifecycle_phase or "").strip().lower() or "scan"
+        context_lineage_stage = _resolved_lineage_stage_from_payload(competitiveness_context)
+        explicit_lineage_stage = str(lineage_stage or "").strip().upper()
+        resolved_lineage_stage = explicit_lineage_stage if explicit_lineage_stage else context_lineage_stage
         intent = OrderIntent(
             token_id=token_id,
             side=side,
@@ -2641,7 +2614,7 @@ class OrderManager:
             tif="IOC",
             post_only=False,
             reason=reason,
-            stage=resolved_stage,
+            lineage_stage=resolved_lineage_stage,
             target_ref=(str(target_ref).strip() if str(target_ref or "").strip() else None),
             decision_reference_midpoint=(
                 float(decision_reference_midpoint)
@@ -2680,21 +2653,22 @@ class OrderManager:
         risk_context_payload.setdefault("submission_lane", "taker")
         risk_context_payload.setdefault(
             EDGE_LIFECYCLE_PHASE_FIELD,
-            _canonical_lifecycle_phase_from_payload(risk_context_payload)
-            or _canonical_lifecycle_phase_from_stage(resolved_stage)
-            or "scan",
+            resolved_lifecycle_phase,
         )
         risk_context_payload.setdefault(
             "lineage_stage",
             str(
                 risk_context_payload.get("lineage_stage")
                 or lineage_stage_from_payload(risk_context_payload)
-                or resolved_stage
+                or resolved_lineage_stage
                 or "UNKNOWN"
             ).strip().upper()
             or "UNKNOWN",
         )
-        risk_context_payload.setdefault("stage", str(intent.stage or "").strip().upper() or "UNKNOWN")
+        risk_context_payload.setdefault(
+            "lineage_stage",
+            str(intent.lineage_stage or "").strip().upper() or "UNKNOWN",
+        )
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
@@ -2738,7 +2712,8 @@ class OrderManager:
         target_usd_cap: Optional[float],
         top: BookTop,
         reason: str,
-        stage: Optional[str] = None,
+        lifecycle_phase: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
         realized_volatility: Optional[float] = None,
         competitiveness_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -2759,12 +2734,11 @@ class OrderManager:
                 "preview_authority": "advisory_read_only",
             }
 
-        explicit_stage = str(stage or "").strip()
-        competitiveness_stage = None
-        if isinstance(competitiveness_context, dict):
-            compat_stage = str(_compat_lineage_stage_from_payload(competitiveness_context) or "").strip()
-            competitiveness_stage = compat_stage.upper() if compat_stage else None
-        resolved_stage = explicit_stage.upper() if explicit_stage else competitiveness_stage
+        context_lifecycle_phase = _canonical_lifecycle_phase_from_payload(competitiveness_context)
+        resolved_lifecycle_phase = str(lifecycle_phase or context_lifecycle_phase or "").strip().lower() or "scan"
+        context_lineage_stage = _resolved_lineage_stage_from_payload(competitiveness_context)
+        explicit_lineage_stage = str(lineage_stage or "").strip().upper()
+        resolved_lineage_stage = explicit_lineage_stage if explicit_lineage_stage else context_lineage_stage
         base_intent = OrderIntent(
             token_id=token_id,
             side=side,
@@ -2773,7 +2747,7 @@ class OrderManager:
             tif="IOC",
             post_only=False,
             reason=reason,
-            stage=resolved_stage,
+            lineage_stage=resolved_lineage_stage,
         )
         open_orders = self.tx_manager.get_open_orders()
         token_orders = [o for o in open_orders if o.token_id == token_id]
@@ -2781,21 +2755,22 @@ class OrderManager:
         risk_context_payload.setdefault("submission_lane", "taker")
         risk_context_payload.setdefault(
             EDGE_LIFECYCLE_PHASE_FIELD,
-            _canonical_lifecycle_phase_from_payload(risk_context_payload)
-            or _canonical_lifecycle_phase_from_stage(resolved_stage)
-            or "scan",
+            resolved_lifecycle_phase,
         )
         risk_context_payload.setdefault(
             "lineage_stage",
             str(
                 risk_context_payload.get("lineage_stage")
                 or lineage_stage_from_payload(risk_context_payload)
-                or resolved_stage
+                or resolved_lineage_stage
                 or "UNKNOWN"
             ).strip().upper()
             or "UNKNOWN",
         )
-        risk_context_payload.setdefault("stage", str(base_intent.stage or "").strip().upper() or "UNKNOWN")
+        risk_context_payload.setdefault(
+            "lineage_stage",
+            str(base_intent.lineage_stage or "").strip().upper() or "UNKNOWN",
+        )
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
@@ -2820,7 +2795,7 @@ class OrderManager:
                 tif=base_intent.tif,
                 post_only=base_intent.post_only,
                 reason=base_intent.reason,
-                stage=base_intent.stage,
+                lineage_stage=base_intent.lineage_stage,
             )
             decision = self.risk.preview_order_feasibility(
                 probe_intent,
@@ -3485,8 +3460,8 @@ class OrderManager:
                     risk_context_payload = dict(effective_competitiveness_context)
                     risk_context_payload.setdefault("submission_lane", "maker")
                     risk_context_payload.setdefault(
-                        "stage",
-                        str(desired_effective.stage or "").strip().upper() or "UNKNOWN",
+                        "lineage_stage",
+                        str(desired_effective.lineage_stage or "").strip().upper() or "UNKNOWN",
                     )
                     risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
                     if isinstance(realized_vol, (int, float)):

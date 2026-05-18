@@ -39,6 +39,11 @@ from prodesk.edge_truth_contract import (
     phase_policy,
     validate_edge_inputs,
 )
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD as HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.run_contract import (
     apply_contract_bounds,
@@ -87,10 +92,6 @@ AUDIT_RULE_SET = (
     "edge_value_consistency",
     "opportunity_identity_and_uniqueness",
 )
-HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
-HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
-
 def _sha256_json_payload(payload: Any) -> str:
     rendered = json.dumps(
         payload,
@@ -298,15 +299,10 @@ def _status_indicates_scan_phase(
         if not isinstance(row, dict):
             continue
         lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
-        runtime_state = str(
-            row.get("runtime_state")
-            or row.get("runtime_mode")
-            or ""
-        ).strip().lower()
         if lifecycle_phase:
             if lifecycle_phase != "scan":
                 return False
-        elif runtime_state != "scan":
+        else:
             return False
         saw_scan_phase = True
         target_count = _coerce_int(row.get("target_count"))

@@ -7,13 +7,13 @@ from typing import Any, Dict, List, Optional, Sequence
 from .common import parse_float, parse_ts
 from .edge_truth_contract import is_taker_submit_event_type
 
-RUNTIME_STATE_SCAN = "scan"
-RUNTIME_STATE_PREPARE = "prepare"
-RUNTIME_STATE_MAKER_WINDOW = "maker_window"
-RUNTIME_STATE_TAKER_WINDOW = "taker_window"
-RUNTIME_STATE_RESOLVE = "resolve"
-RUNTIME_STATE_ACTIVE = RUNTIME_STATE_PREPARE
-RUNTIME_STATE_SAFETY_HALT = RUNTIME_STATE_RESOLVE
+LIFECYCLE_PHASE_SCAN = "scan"
+LIFECYCLE_PHASE_PREPARE = "prepare"
+LIFECYCLE_PHASE_MAKER_WINDOW = "maker_window"
+LIFECYCLE_PHASE_TAKER_WINDOW = "taker_window"
+LIFECYCLE_PHASE_RESOLVE = "resolve"
+LIFECYCLE_PHASE_ACTIVE = LIFECYCLE_PHASE_PREPARE
+LIFECYCLE_PHASE_SAFETY_HALT = LIFECYCLE_PHASE_RESOLVE
 
 RUNTIME_CLASS_VALID_ACTIVE = "VALID_ACTIVE"
 RUNTIME_CLASS_VALID_SCAN = "VALID_SCAN"
@@ -32,7 +32,7 @@ SUPPRESSION_CAUSE_ACTIVE_TARGET_SAFETY_VIOLATION = "active_target_safety_violati
 SUPPRESSION_CAUSE_ACTIVE_TARGETS_WITHOUT_MEANINGFUL_PARTICIPATION = "active_targets_without_meaningful_participation"
 SUPPRESSION_CAUSE_SCAN_DURATION_NON_PROMOTABLE = "scan_duration_non_promotable"
 SUPPRESSION_CAUSE_STATUS_ROWS_MISSING = "status_rows_missing"
-SUPPRESSION_CAUSE_RUNTIME_STATE_AMBIGUOUS = "runtime_state_ambiguous"
+SUPPRESSION_CAUSE_LIFECYCLE_PHASE_AMBIGUOUS = "lifecycle_phase_ambiguous"
 
 
 def _resolve_suppression_causes(candidates: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -151,28 +151,22 @@ def _status_active_targets_present(status_row: Dict[str, Any]) -> bool:
     return False
 
 
-def _status_runtime_state(status_row: Dict[str, Any]) -> str:
+def _status_lifecycle_phase(status_row: Dict[str, Any]) -> str:
     phase = _as_nonempty_text(status_row.get("lifecycle_phase")).lower()
     if phase:
         return phase
-    text = _as_nonempty_text(status_row.get("runtime_state")).lower()
-    if text:
-        return text
     if _as_bool(status_row.get("kill_switch")):
-        return RUNTIME_STATE_SAFETY_HALT
+        return LIFECYCLE_PHASE_SAFETY_HALT
     if _status_active_targets_present(status_row):
-        return RUNTIME_STATE_ACTIVE
-    return RUNTIME_STATE_SCAN
+        return LIFECYCLE_PHASE_ACTIVE
+    return LIFECYCLE_PHASE_SCAN
 
 
 def _status_scan_phase(status_row: Dict[str, Any]) -> bool:
     lifecycle_phase = _as_nonempty_text(status_row.get("lifecycle_phase")).lower()
     if lifecycle_phase:
-        return lifecycle_phase == RUNTIME_STATE_SCAN
-    runtime_state = _as_nonempty_text(status_row.get("runtime_state")).lower()
-    if runtime_state:
-        return runtime_state == RUNTIME_STATE_SCAN
-    return _status_runtime_state(status_row) == RUNTIME_STATE_SCAN
+        return lifecycle_phase == LIFECYCLE_PHASE_SCAN
+    return _status_lifecycle_phase(status_row) == LIFECYCLE_PHASE_SCAN
 
 
 def _status_market_truth_required(
@@ -190,23 +184,23 @@ def _status_market_truth_required(
     return _status_active_targets_present(status_row)
 
 
-def runtime_state_from_cycle(*, has_targets: bool, kill_switch: bool) -> str:
+def lifecycle_phase_from_cycle(*, has_targets: bool, kill_switch: bool) -> str:
     if bool(kill_switch) and bool(has_targets):
-        return RUNTIME_STATE_RESOLVE
+        return LIFECYCLE_PHASE_RESOLVE
     if bool(has_targets):
-        return RUNTIME_STATE_PREPARE
-    return RUNTIME_STATE_SCAN
+        return LIFECYCLE_PHASE_PREPARE
+    return LIFECYCLE_PHASE_SCAN
 
 
-def runtime_state_to_gauge(runtime_state: str) -> float:
+def lifecycle_phase_to_gauge(lifecycle_phase: str) -> float:
     mapping = {
-        RUNTIME_STATE_SCAN: 1.0,
-        RUNTIME_STATE_PREPARE: 2.0,
-        RUNTIME_STATE_MAKER_WINDOW: 3.0,
-        RUNTIME_STATE_TAKER_WINDOW: 4.0,
-        RUNTIME_STATE_RESOLVE: 5.0,
+        LIFECYCLE_PHASE_SCAN: 1.0,
+        LIFECYCLE_PHASE_PREPARE: 2.0,
+        LIFECYCLE_PHASE_MAKER_WINDOW: 3.0,
+        LIFECYCLE_PHASE_TAKER_WINDOW: 4.0,
+        LIFECYCLE_PHASE_RESOLVE: 5.0,
     }
-    return float(mapping.get(str(runtime_state).strip().lower(), 0.0))
+    return float(mapping.get(str(lifecycle_phase).strip().lower(), 0.0))
 
 
 def resolve_guard_connectivity_requirements(
@@ -217,12 +211,11 @@ def resolve_guard_connectivity_requirements(
     if status_row is None:
         return {
             "lifecycle_phase": "",
-            "runtime_state": "",
             "active_targets_present": False,
             "scan_phase": False,
             "market_truth_required": bool(require_book_feed_connected_config),
         }
-    runtime_state = _status_runtime_state(status_row)
+    lifecycle_phase = _status_lifecycle_phase(status_row)
     active_targets_present = _status_active_targets_present(status_row)
     scan_phase = _status_scan_phase(status_row)
     market_truth_required = _status_market_truth_required(
@@ -230,8 +223,7 @@ def resolve_guard_connectivity_requirements(
         configured_default_required=bool(require_book_feed_connected_config),
     )
     return {
-        "lifecycle_phase": runtime_state,
-        "runtime_state": runtime_state,
+        "lifecycle_phase": lifecycle_phase,
         "active_targets_present": bool(active_targets_present),
         "scan_phase": bool(scan_phase),
         "market_truth_required": bool(market_truth_required),
@@ -363,7 +355,7 @@ def classify_runtime(
     active_target_required_feed_disconnected_rows = 0
 
     for row in rows:
-        runtime_state = _status_runtime_state(row)
+        lifecycle_phase = _status_lifecycle_phase(row)
         has_targets = _status_active_targets_present(row)
         is_scan_phase = _status_scan_phase(row)
         kill_switch = bool(_as_bool(row.get("kill_switch")))
@@ -520,7 +512,7 @@ def classify_runtime(
             classification = RUNTIME_CLASS_VALID_SCAN
             promotion_eligible = False
     else:
-        reasons.append("runtime_state_ambiguous")
+        reasons.append("lifecycle_phase_ambiguous")
         classification = RUNTIME_CLASS_INVALID_DEADLOCK
         promotion_eligible = False
 
@@ -561,10 +553,10 @@ def classify_runtime(
                 "priority": 50,
             }
         )
-    if "runtime_state_ambiguous" in reasons:
+    if "lifecycle_phase_ambiguous" in reasons:
         suppression_candidates.append(
             {
-                "cause": SUPPRESSION_CAUSE_RUNTIME_STATE_AMBIGUOUS,
+                "cause": SUPPRESSION_CAUSE_LIFECYCLE_PHASE_AMBIGUOUS,
                 "priority": 60,
             }
         )
@@ -608,7 +600,6 @@ def classify_runtime(
 @dataclass(frozen=True)
 class RuntimeCycleSemantics:
     lifecycle_phase: str
-    runtime_state: str
     active_targets_present: bool
     scan_phase: bool
     market_truth_required: bool
@@ -616,13 +607,12 @@ class RuntimeCycleSemantics:
 
 
 def cycle_semantics(*, has_targets: bool, kill_switch: bool) -> RuntimeCycleSemantics:
-    runtime_state = runtime_state_from_cycle(has_targets=has_targets, kill_switch=kill_switch)
-    scan_phase = runtime_state == RUNTIME_STATE_SCAN
+    lifecycle_phase = lifecycle_phase_from_cycle(has_targets=has_targets, kill_switch=kill_switch)
+    scan_phase = lifecycle_phase == LIFECYCLE_PHASE_SCAN
     active_targets_present = bool(has_targets)
     promotion_eligibility_hint = bool(active_targets_present and not bool(kill_switch))
     return RuntimeCycleSemantics(
-        lifecycle_phase=runtime_state,
-        runtime_state=runtime_state,
+        lifecycle_phase=lifecycle_phase,
         active_targets_present=active_targets_present,
         scan_phase=scan_phase,
         market_truth_required=bool(active_targets_present),

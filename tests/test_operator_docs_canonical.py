@@ -59,6 +59,8 @@ ACTIVE_LIVE_TRUST_AUTHORITY_DOCS = [
     REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
 ]
 LEGACY_STAGE_FAMILY_QUARANTINE_DOCS = [
+    REPO_ROOT / "docs" / "BRO_CANONICAL_DOCTRINE_STAGE_MACHINE_ARCHIVE_2026-05-18.md",
+    REPO_ROOT / "docs" / "BRO_MARKET_LIFECYCLE_CUTOVER_PLAN_2026-05-16.md",
     REPO_ROOT / "docs" / "BRO_PILOT_LIVE_CRASH_RELOCK_BRIDGE_2026-05-08.md",
     REPO_ROOT / "docs" / "BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md",
     REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md",
@@ -71,6 +73,29 @@ LEGACY_STAGE_FAMILY_QUARANTINE_DOCS = [
 
 
 class OperatorDocsCanonicalTests(unittest.TestCase):
+    def test_active_live_trust_authority_docs_do_not_use_retired_stage_or_runtime_vocabulary(self):
+        banned_terms = (
+            "effective_stage",
+            "stage_bucket",
+            "raw_stage",
+            "maker_allowed",
+            "taker_allowed",
+            "runtime_state",
+            "previous_runtime_state",
+            "runtime_state_transition",
+            "book_feed_required",
+            "previous_book_feed_required",
+            "no_target_standdown",
+            "submission_stage",
+        )
+        offenders: dict[str, list[str]] = {}
+        for path in ACTIVE_LIVE_TRUST_AUTHORITY_DOCS:
+            text = path.read_text(encoding="utf-8")
+            hits = [term for term in banned_terms if term in text]
+            if hits:
+                offenders[str(path.relative_to(REPO_ROOT))] = hits
+        self.assertEqual(offenders, {})
+
     def test_legacy_stage_family_docs_are_explicitly_quarantined(self):
         for path in LEGACY_STAGE_FAMILY_QUARANTINE_DOCS:
             head = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12]).lower()
@@ -805,7 +830,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("raw `EXTREME_ONLY` stage policy is no longer the live owner", sink_text)
         self.assertIn("Packet 1 removed taker-driven shared `OrderManager` soft-rate budget", sink_text)
         self.assertIn("maker-side `tracked_token_cleanup` / orphan cleanup still runs", sink_text)
-        self.assertIn("keep-now explicit two-surface contract", sink_text)
+        self.assertIn("one lifecycle contract for live authority", sink_text)
         self.assertIn("Historical Packet 1 closeout handoff:", packet_text)
         self.assertIn("Current pickup note:", packet_text)
         self.assertIn("historical closeout truth only", packet_text)
@@ -968,14 +993,14 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_bro_canonical_doctrine_matches_current_taker_stage_authority(self):
         doctrine_text = (REPO_ROOT / "BRO_CANONICAL_DOCTRINE.txt").read_text(encoding="utf-8")
 
-        self.assertIn("SNIPER_PRIMARY is diagnostic-only in canonical live doctrine", doctrine_text)
+        self.assertIn("`SNIPER_PRIMARY` is diagnostic-only in canonical live doctrine", doctrine_text)
         self.assertIn(
-            "stage-local final-window overrides are reserved for explicit diagnostic or",
+            "lineage-stage-local final-window overrides are reserved for explicit diagnostic or",
             doctrine_text,
         )
         self.assertIn("`taker_decision` with conviction", doctrine_text)
         self.assertIn(
-            "Canonical live taker authority is not active in this stage.",
+            "Canonical live taker authority is not active in this lineage stage.",
             doctrine_text,
         )
         self.assertNotIn("SNIPER_PRIMARY is taker-only", doctrine_text)
@@ -1031,16 +1056,16 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         runbook_text = (REPO_ROOT / "docs" / "DOCTRINE_RUNBOOK.md").read_text(encoding="utf-8")
         edge_text = (REPO_ROOT / "docs" / "EDGE_TRUTH_RUNBOOK.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Stage-Family Compatibility Note", runbook_text)
-        self.assertIn("old stage-family names may still appear", runbook_text)
-        self.assertIn("compatibility lineage only", runbook_text)
+        self.assertIn("## Historical Lineage Boundary", runbook_text)
+        self.assertIn("lineage-stage ancestry may still appear", runbook_text)
+        self.assertIn("it is never a second live", runbook_text)
         self.assertIn("owned-market continuity", runbook_text)
         self.assertIn("lane-local maker/taker gates", runbook_text)
         self.assertIn("`open_order_cleanup_required`", runbook_text)
         self.assertIn("`settlement_hold_required`", runbook_text)
         self.assertIn("`open_order_cleanup_required` (bool)", edge_text)
         self.assertIn("`settlement_hold_required` (bool)", edge_text)
-        self.assertNotIn("## Stage Policy (Canonical)", runbook_text)
+        self.assertNotIn("## Stage-Family Compatibility Note", runbook_text)
         self.assertNotIn("`reduce_only_recovery_allowed` (bool", edge_text)
         self.assertNotIn("`preexpiry_emergency_taker_allowed` (bool)", edge_text)
         self.assertNotIn("legacy `sniper_taker_decision` remains a compatibility alias", runbook_text)

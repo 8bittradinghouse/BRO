@@ -685,7 +685,7 @@ class WalletDoctrineBase(ABC):
                 "ts_utc": utc_iso(),
                 "lock_id": str(lock_id),
                 "notional_usd": float(lock_notional),
-                "submission_stage": str(intent.stage or ""),
+                "submission_lineage_stage": str(intent.lineage_stage or ""),
                 "token_id": str(intent.token_id or ""),
                 "side": str(intent.side or ""),
             },

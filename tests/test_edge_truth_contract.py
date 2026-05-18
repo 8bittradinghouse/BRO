@@ -41,16 +41,36 @@ class EdgeTruthContractTests(unittest.TestCase):
             "stage_transition",
             "_taker_stage_window_token_ids",
         )
-        allowed_path = repo_root / "prodesk" / "edge_truth_contract.py"
+        allowed_paths = {
+            repo_root / "prodesk" / "edge_truth_legacy_replay_compat.py",
+        }
         offenders: dict[str, list[str]] = {}
         for target in scan_targets:
             files = [target] if target.is_file() else list(target.rglob("*.py"))
             for path in files:
                 text = path.read_text(encoding="utf-8")
                 hits = [term for term in legacy_terms if term in text]
-                if hits and path != allowed_path:
+                if hits and path not in allowed_paths:
                     offenders[str(path.relative_to(repo_root))] = hits
         self.assertEqual(offenders, {})
+
+    def test_legacy_replay_compat_imports_are_whitelisted(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        allowed_importers = {
+            repo_root / "scripts" / "nightly_soak_report.py",
+            repo_root / "tests" / "test_order_lifecycle_audit.py",
+        }
+        offenders: list[str] = []
+        this_file = Path(__file__).resolve()
+        for path in list((repo_root / "scripts").rglob("*.py")) + list((repo_root / "tests").rglob("*.py")):
+            if path.resolve() == this_file:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if "prodesk.edge_truth_legacy_replay_compat" not in text:
+                continue
+            if path not in allowed_importers:
+                offenders.append(str(path.relative_to(repo_root)))
+        self.assertEqual(offenders, [])
 
     def test_validate_edge_inputs_passes_with_complete_snapshot(self) -> None:
         out = validate_edge_inputs(
@@ -133,10 +153,11 @@ class EdgeTruthContractTests(unittest.TestCase):
         payload = lifecycle_phase_surface_fields(lifecycle_phase="maker_window")
         self.assertEqual(payload[EDGE_LIFECYCLE_PHASE_FIELD], "maker_window")
 
-    def test_lifecycle_phase_from_payload_upgrades_extreme_only_authority_rows(self) -> None:
+    def test_lifecycle_phase_from_payload_is_lifecycle_only_for_active_rows(self) -> None:
         self.assertEqual(
             lifecycle_phase_from_payload(
                 {
+                    "lifecycle_phase": "maker_window",
                     "lineage_stage": "EXTREME_ONLY",
                     "time_remaining_sec": 12.0,
                 }
@@ -146,6 +167,7 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertEqual(
             lifecycle_phase_from_payload(
                 {
+                    "lifecycle_phase": "taker_window",
                     "lineage_stage": "EXTREME_ONLY",
                     "time_remaining_sec": 6.0,
                 }
@@ -153,7 +175,7 @@ class EdgeTruthContractTests(unittest.TestCase):
             "taker_window",
         )
 
-    def test_lifecycle_phase_from_payload_ignores_retired_authority_aliases(self) -> None:
+    def test_lifecycle_phase_from_payload_fails_closed_on_legacy_only_active_rows(self) -> None:
         self.assertEqual(
             lifecycle_phase_from_payload(
                 {
@@ -163,7 +185,7 @@ class EdgeTruthContractTests(unittest.TestCase):
                     "late_window_authority_class": "maker_new_risk_only",
                 }
             ),
-            "prepare",
+            "",
         )
 
     def test_market_truth_required_from_payload_prefers_canonical_field(self) -> None:
@@ -207,8 +229,8 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("settlement_hold_required"))
         self.assertTrue(is_canonical_block_reason("phase_disallow_maker"))
         self.assertTrue(is_canonical_block_reason("phase_disallow_taker"))
-        self.assertTrue(is_canonical_block_reason("stage_disallow_maker"))
-        self.assertTrue(is_canonical_block_reason("stage_disallow_taker"))
+        self.assertFalse(is_canonical_block_reason("stage_disallow_maker"))
+        self.assertFalse(is_canonical_block_reason("stage_disallow_taker"))
         self.assertFalse(is_canonical_block_reason("unspecified_no_action"))
         self.assertFalse(is_canonical_block_reason("some_random_reason"))
 

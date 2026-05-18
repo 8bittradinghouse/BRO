@@ -35,7 +35,7 @@ class RampControllerTests(unittest.TestCase):
         )
         self.assertTrue(snap_b.changed)
         self.assertEqual(snap_b.target_usd, 2.0)
-        self.assertTrue(snap_b.taker_allowed)
+        self.assertTrue(snap_b.taker_ramp_enabled)
 
     def test_downshift_and_disable_taker_on_breach(self):
         ctrl = SizeRampController(
@@ -66,7 +66,7 @@ class RampControllerTests(unittest.TestCase):
             reconcile_mismatch_ratio=0.0,
         )
         self.assertEqual(snap.target_usd, 3.0)
-        self.assertFalse(snap.taker_allowed)
+        self.assertFalse(snap.taker_ramp_enabled)
         self.assertTrue(snap.changed)
 
     def test_target_clamped_at_start_floor(self):
@@ -92,7 +92,7 @@ class RampControllerTests(unittest.TestCase):
             reconcile_mismatch_ratio=1.0,
         )
         self.assertEqual(snap.target_usd, 1.0)
-        self.assertFalse(snap.taker_allowed)
+        self.assertFalse(snap.taker_ramp_enabled)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from typing import Any, Dict
 class RampSnapshot:
     enabled: bool
     target_usd: float
-    taker_allowed: bool
+    taker_ramp_enabled: bool
     changed: bool
     reason: str
 
@@ -29,7 +29,7 @@ class SizeRampController:
         self.disable_taker_on_breach = bool(cfg.get("disable_taker_on_breach", True))
 
         self.target_usd = max(self.start_usd, min(float(base_target_usd), self.max_usd))
-        self.taker_allowed = True
+        self.taker_ramp_enabled = True
         self._cycles = 0
         self._reject_sum = 0.0
         self._stale_oracle_sum = 0.0
@@ -48,7 +48,7 @@ class SizeRampController:
             return RampSnapshot(
                 enabled=False,
                 target_usd=self.target_usd,
-                taker_allowed=True,
+                taker_ramp_enabled=True,
                 changed=False,
                 reason="disabled",
             )
@@ -62,7 +62,7 @@ class SizeRampController:
             return RampSnapshot(
                 enabled=True,
                 target_usd=self.target_usd,
-                taker_allowed=self.taker_allowed,
+                taker_ramp_enabled=self.taker_ramp_enabled,
                 changed=False,
                 reason="collecting_window",
             )
@@ -78,7 +78,7 @@ class SizeRampController:
             or avg_reconcile_mismatch >= self.downshift_reconcile_mismatch_ratio
         )
         old_target = self.target_usd
-        old_taker_allowed = self.taker_allowed
+        old_taker_ramp_enabled = self.taker_ramp_enabled
         reason = "window_healthy"
 
         if breached:
@@ -91,10 +91,10 @@ class SizeRampController:
                 + f"reconcile={avg_reconcile_mismatch:.3f}"
             )
             if self.disable_taker_on_breach:
-                self.taker_allowed = False
+                self.taker_ramp_enabled = False
         else:
             self.target_usd = min(self.max_usd, self.target_usd + self.step_usd)
-            self.taker_allowed = True
+            self.taker_ramp_enabled = True
             reason = (
                 "upshift:"
                 + f"reject={avg_reject:.3f},"
@@ -108,11 +108,11 @@ class SizeRampController:
         self._stale_oracle_sum = 0.0
         self._disarmed_sum = 0.0
         self._reconcile_mismatch_sum = 0.0
-        changed = (self.target_usd != old_target) or (self.taker_allowed != old_taker_allowed)
+        changed = (self.target_usd != old_target) or (self.taker_ramp_enabled != old_taker_ramp_enabled)
         return RampSnapshot(
             enabled=True,
             target_usd=self.target_usd,
-            taker_allowed=self.taker_allowed,
+            taker_ramp_enabled=self.taker_ramp_enabled,
             changed=changed,
             reason=reason,
         )

@@ -24,7 +24,7 @@
     - canonical top-level market lifecycle and ownership contract
     - owns the clean parent lifecycle vocabulary for market selection,
       ownership, and maker/taker phase containment
-    - canonical build-law target even when runtime still drifts
+    - current runtime doctrine anchor
   - `docs/BRO_MARKET_LIFECYCLE_CUTOVER_PLAN_2026-05-16.md`
     - implementation-planning companion for cutting the current timing-family
       stack down to the canonical lifecycle system
@@ -77,8 +77,8 @@ Restoration rule:
 
 | Contract family | Live contract names | Runtime meaning |
 | --- | --- | --- |
-| Runtime posture / readiness | `runtime_state`, `lifecycle_phase`, `scan_phase`, `market_truth_required`, `owned_market_ref`, `challenger_market_ref`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, `primary_suppression_cause`, `contributing_suppression_causes`, `ambiguous_suppression_cause` | posture and runtime/readiness classification only; not market actionability or execution realism |
-| Runtime transition | `previous_runtime_state`, `previous_market_truth_required`, `transition_reason_code`, `transition_reason_detail`, `ownership_drop_reason`, `ownership_replacement_reason` | transition-domain truth only; not steady-state runtime classification |
+| Runtime posture / readiness | `lifecycle_phase`, `lifecycle_phase`, `scan_phase`, `market_truth_required`, `owned_market_ref`, `challenger_market_ref`, `promotion_eligibility_hint`, `runtime_classification`, `promotion_eligible`, `primary_suppression_cause`, `contributing_suppression_causes`, `ambiguous_suppression_cause` | posture and runtime/readiness classification only; not market actionability or execution realism |
+| Runtime transition | `previous_lifecycle_phase`, `previous_market_truth_required`, `transition_reason_code`, `transition_reason_detail`, `ownership_drop_reason`, `ownership_replacement_reason` | transition-domain truth only; not steady-state runtime classification |
 | Market truth / selection | `maker_phase_allowed`, `taker_phase_allowed`, `maker_gate_open`, `taker_gate_open`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | emitted lifecycle/lane-permission plus market-truth/reference semantics for the lane; not wallet authority |
 | Lifecycle / settlement residue | `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, `cancel_fail_closed` | emitted lifecycle residue / settlement / cancel semantics only; never late-window submit authority |
 | Quote / submit path | `block_reason`, `decision_block_reason`, `decision_result`, `action_taken`, `submitted`, `filled`, `result`, `evaluation_scope`, `financial_posture_class` | local emitted stop/action/submit semantics for the lane or submit path; not cross-system owner by themselves |
@@ -90,7 +90,7 @@ Required distinctions:
 - `maker_phase_allowed` / `taker_phase_allowed` are lifecycle-phase permission facts for the current row
 - `maker_gate_open` / `taker_gate_open` are lane-gate verdicts layered beneath lifecycle phase
 - `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, and `cancel_fail_closed` are lifecycle residue terms only; they do not authorize maker or taker submits
-- `runtime_state`, `runtime_classification`, `promotion_eligibility_hint`, and `promotion_eligible` are runtime posture/readiness terms only
+- `lifecycle_phase`, `runtime_classification`, `promotion_eligibility_hint`, and `promotion_eligible` are runtime posture/readiness terms only
 - `promotion_eligibility_hint` is a live posture hint only; it is not the final `promotion_eligible` classification verdict
 - `secondary_oracle_status` is emitted selection/oracle status only; it does not replace confirmation
 - `market_reference_class` may legitimately be `authoritative` or `not_available`
@@ -98,7 +98,7 @@ Required distinctions:
   authority terms only
 - `startup_authority_ready` and `authoritative_refresh_completed` are wallet/startup readiness facts only; they do not create market actionability by themselves
 - `decision_block_reason` is submit-path local stop semantics only
-- `financial_posture_class` is lifecycle/risk posture only; it is not `runtime_state`
+- `financial_posture_class` is lifecycle/risk posture only; it is not `lifecycle_phase`
 - `submitted` is not `filled`
 - `result` stays reserved/null in the current edge-truth packet
 - `execution_realism_class`, `claim_boundary_class`, and `outcome_truth_status`
@@ -107,7 +107,7 @@ Required distinctions:
 - downstream `runtime_*` mirrors in reports are not runtime doctrine terms
 
 Runtime-classification value vocabulary:
-- `runtime_state`: `scan`, `prepare`, `maker_window`, `taker_window`, `resolve`
+- `lifecycle_phase`: `scan`, `prepare`, `maker_window`, `taker_window`, `resolve`
 - `lifecycle_phase`: `scan|prepare|maker_window|taker_window|resolve`
 - `scan_phase`: `true|false`
 - `market_truth_required`: `true|false`
@@ -118,7 +118,7 @@ Runtime-classification value vocabulary:
 - `NON_PROMOTABLE_NO_PARTICIPATION`: not invalid, but not promotable
 - `INVALID_DEADLOCK`: fail-closed runtime deadlock/participation violation
 - `INVALID_SAFETY`: fail-closed runtime safety violation
-- `transition_reason_code`: `runtime_state_changed`, `market_truth_requirement_changed`, `kill_switch_engaged`, `owned_market_absent`, `owned_market_prepare`, `maker_window_open`, `taker_window_open`, `resolve_required`
+- `transition_reason_code`: `lifecycle_phase_changed`, `market_truth_requirement_changed`, `kill_switch_engaged`, `owned_market_absent`, `owned_market_prepare`, `maker_window_open`, `taker_window_open`, `resolve_required`
 - `secondary_oracle_status`: `confirmed`, `direction_mismatch`, `disabled`, `unknown`
   - compatibility input `available` must normalize to `unknown` before emission
 - `market_reference_basis`: `direct_book_midpoint`, `ws_recent_paired_touch`, `missing`
@@ -147,7 +147,7 @@ Runtime-classification value vocabulary:
   that intended posture.
 - When they do, describe them as runtime posture / implementation history, not
   as lifecycle doctrine.
-- Drifted runtime windows, old stage buckets, and compatibility timing labels
+- Drifted runtime windows, old lineage-stage buckets, and compatibility timing labels
   must not silently outrank the intended lifecycle contract in support or
   control docs.
 
@@ -237,19 +237,17 @@ Runtime-classification value vocabulary:
   - every timing change packet must be proven with a monitored short canonical run before it is trusted
   - green tests or wrapper completion alone do not close timing work
 
-## Stage-Family Compatibility Note
-- old stage-family names may still appear in current runtime, config, report,
-  and packet-history surfaces during migration
-- those names are compatibility lineage only; they are not canonical lifecycle
-  doctrine
-- canonical live authority now belongs to:
+## Historical Lineage Boundary
+- lineage-stage ancestry may still appear in replay, archaeology, and
+  historical packet surfaces
+- canonical live authority belongs to:
   - the market lifecycle blueprint
   - owned-market continuity
   - lifecycle phase
   - shared safety precedence
   - lane-local maker/taker gates
-- if runtime still emits stage-family residue, describe it as implementation
-  drift or migration compatibility, not as canonical doctrine
+- historical lineage is allowed only as ancestry; it is never a second live
+  actionability owner
 
 ## Taker Competitiveness Semantics (Canonical)
 - hard floor:
@@ -328,7 +326,7 @@ Required observability surfaces:
 - `order_submit.taker_competitiveness` payload for accepted taker submits.
 - report surfaces:
   - `taker_competitiveness.*` bucket distributions/counters
-  - `taker_stage_net_breakout`
+  - `taker_lineage_stage_net_breakout`
 - commitment-doctrine report surfaces:
   - normal taker side-class distribution (`buy_expected_winner`, `same_token_sell_blocked`, `complement_buy`, `unknown`)
   - normal taker same-token risk-increasing `SELL` count
@@ -546,7 +544,8 @@ Required wallet events:
   - `doctrine_gate_verdict` (`pass|fail`)
   - `reason`
 - `doctrine_prereq_failure` event explicitly marks unknown-stage prerequisite failures.
-- `lifecycle_phase_transition` emits lifecycle-phase changes with market key.
+- `lifecycle_phase_transition` emits runtime lifecycle-phase changes.
+- `token_lifecycle_phase_transition` emits per-token doctrine lifecycle-phase changes with market key.
 - `degraded_path_status` emits degraded fallback activation/deactivation.
 - maker reference observability surfaces (run/report):
   - `maker_market_reference_missing_count`

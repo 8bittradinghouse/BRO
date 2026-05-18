@@ -17,8 +17,6 @@ from prodesk.artifact_identity import build_artifact_identity
 from prodesk.edge_truth_contract import (
     EDGE_ACTION_MAKER,
     EDGE_ACTION_TAKER,
-    LEGACY_EDGE_AUTHORITY_FIELD_NAMES,
-    LEGACY_EDGE_LINEAGE_FIELD_NAMES,
     EDGE_MAKER_PHASE_ALLOWED_FIELD,
     EDGE_TAKER_PHASE_ALLOWED_FIELD,
     is_taker_decision_event_type,
@@ -31,7 +29,21 @@ from prodesk.edge_truth_contract import (
     phase_allows_action,
     taker_phase_allowed_from_payload,
 )
+from prodesk.edge_truth_legacy_replay_compat import (
+    LEGACY_EDGE_AUTHORITY_FIELD_NAMES,
+    LEGACY_EDGE_LINEAGE_FIELD_NAMES,
+    lifecycle_phase_from_legacy_payload,
+    lineage_stage_from_legacy_payload,
+)
 from prodesk.execution_quality import ExecutionQualityModel
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_EMERGENCY_UNWIND_ALLOWED_FIELD as _HISTORICAL_EMERGENCY_ALLOWED_FIELD,
+    HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD as _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD,
+    HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD as _HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as _HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_ALLOWED_FIELD as _HISTORICAL_RECOVERY_ALLOWED_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as _HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.models import BookTop, OrderIntent
 from prodesk.run_contract import (
@@ -412,13 +424,7 @@ def _as_bool(value: Any) -> Optional[bool]:
     return None
 
 
-_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-_HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
-_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
-_HISTORICAL_RECOVERY_ALLOWED_FIELD = "reduce_only_recovery_allowed"
-_HISTORICAL_EMERGENCY_ALLOWED_FIELD = "preexpiry_emergency_taker_allowed"
 _HISTORICAL_HANDOFF_DISABLED_BLOCK_REASON = "maker_to_taker_recovery_handoff_disabled"
-_HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD = "preexpiry_emergency_taker_window_sec"
 
 
 def _has_lifecycle_residue_truth(payload: Dict[str, Any]) -> bool:
@@ -496,7 +502,7 @@ def _is_scan_phase_row(row: Dict[str, Any]) -> bool:
     lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
     if lifecycle_phase:
         return lifecycle_phase == "scan"
-    state = str(row.get("runtime_state") or "").strip().lower()
+    state = str(row.get("lifecycle_phase") or "").strip().lower()
     if state == "scan":
         return True
     return False
@@ -926,12 +932,12 @@ def _fill_capture_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+def _taker_lineage_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
     latest_mid_by_token: Dict[str, float] = {}
-    taker_stage_by_order_id: Dict[str, str] = {}
-    stage_capture: Counter[str] = Counter()
-    stage_adverse: Counter[str] = Counter()
-    stage_fills: Counter[str] = Counter()
+    taker_lineage_stage_by_order_id: Dict[str, str] = {}
+    lineage_stage_capture: Counter[str] = Counter()
+    lineage_stage_adverse: Counter[str] = Counter()
+    lineage_stage_fills: Counter[str] = Counter()
 
     for evt in events:
         event_type = str(evt.get("event_type") or "")
@@ -948,21 +954,21 @@ def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[st
             order_id = str(evt.get("order_id") or "").strip()
             if not order_id:
                 continue
-            stage = str(evt.get("stage") or "").strip().upper()
+            lineage_stage = str(evt.get("lineage_stage") or "").strip().upper()
             comp = evt.get("taker_competitiveness")
-            if not stage and isinstance(comp, dict):
-                stage = str(comp.get("stage") or "").strip().upper()
-            if not stage:
-                stage = "UNKNOWN"
-            taker_stage_by_order_id[order_id] = stage
+            if not lineage_stage and isinstance(comp, dict):
+                lineage_stage = str(comp.get("lineage_stage") or "").strip().upper()
+            if not lineage_stage:
+                lineage_stage = "UNKNOWN"
+            taker_lineage_stage_by_order_id[order_id] = lineage_stage
             continue
         if event_type != "fill":
             continue
         order_id = str(evt.get("order_id") or "").strip()
         if not order_id:
             continue
-        stage = taker_stage_by_order_id.get(order_id)
-        if not stage:
+        lineage_stage = taker_lineage_stage_by_order_id.get(order_id)
+        if not lineage_stage:
             continue
         token_id = str(evt.get("token_id") or "").strip()
         side = str(evt.get("side") or "").strip().upper()
@@ -979,17 +985,19 @@ def _taker_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str, Dict[st
         else:
             continue
         if delta >= 0.0:
-            stage_capture[stage] += float(delta)
+            lineage_stage_capture[lineage_stage] += float(delta)
         else:
-            stage_adverse[stage] += abs(float(delta))
-        stage_fills[stage] += 1
+            lineage_stage_adverse[lineage_stage] += abs(float(delta))
+        lineage_stage_fills[lineage_stage] += 1
 
     out: Dict[str, Dict[str, float]] = {}
-    for stage in sorted(set(stage_fills.keys()) | set(stage_capture.keys()) | set(stage_adverse.keys())):
-        capture = float(stage_capture.get(stage, 0.0))
-        adverse = float(stage_adverse.get(stage, 0.0))
-        out[stage] = {
-            "fills_scored": float(stage_fills.get(stage, 0)),
+    for lineage_stage in sorted(
+        set(lineage_stage_fills.keys()) | set(lineage_stage_capture.keys()) | set(lineage_stage_adverse.keys())
+    ):
+        capture = float(lineage_stage_capture.get(lineage_stage, 0.0))
+        adverse = float(lineage_stage_adverse.get(lineage_stage, 0.0))
+        out[lineage_stage] = {
+            "fills_scored": float(lineage_stage_fills.get(lineage_stage, 0)),
             "capture": capture,
             "adverse_selection": adverse,
             "net": capture - adverse,
@@ -3415,16 +3423,16 @@ def _execution_quality_lane_attribution(
     adverse_threshold: float = 0.003,
 ) -> Dict[str, Any]:
     order_lane_by_id: Dict[str, str] = {}
-    order_stage_by_id: Dict[str, str] = {}
+    order_lineage_stage_by_id: Dict[str, str] = {}
     order_edge_bucket_by_id: Dict[str, str] = {}
     latest_mid_by_token: Dict[str, float] = {}
 
     def _payload_dict(value: Any) -> Dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
-    def _normalize_stage(value: Any) -> str:
-        stage = str(value or "").strip().upper()
-        return stage or "UNKNOWN"
+    def _normalize_lineage_stage(value: Any) -> str:
+        lineage_stage = str(value or "").strip().upper()
+        return lineage_stage or "UNKNOWN"
 
     def _is_lifecycle_residue_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         candidate_payloads = [
@@ -3455,15 +3463,15 @@ def _execution_quality_lane_attribution(
     def _classify_submit(evt: Dict[str, Any]) -> Tuple[str, str, str]:
         reason = str(evt.get("reason") or "").strip().lower()
         comp = _payload_dict(evt.get("taker_competitiveness"))
-        stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
+        lineage_stage = _normalize_lineage_stage(comp.get("lineage_stage") or evt.get("lineage_stage"))
         edge_bucket = _taker_edge_bucket(comp.get("edge_abs") if comp else evt.get("edge_abs"))
         if _is_taker_submit_reason(reason):
             if _is_lifecycle_residue_override_submit(evt, comp):
-                return "lifecycle_residue_taker", stage, edge_bucket
+                return "lifecycle_residue_taker", lineage_stage, edge_bucket
             if _has_normal_competitiveness_payload(comp):
-                return "normal_taker", stage, edge_bucket
-            return "unknown_taker", stage, edge_bucket
-        return "maker", stage, edge_bucket
+                return "normal_taker", lineage_stage, edge_bucket
+            return "unknown_taker", lineage_stage, edge_bucket
+        return "maker", lineage_stage, edge_bucket
 
     def _lane_row() -> Dict[str, Any]:
         return {
@@ -3479,9 +3487,9 @@ def _execution_quality_lane_attribution(
             "immediate_adverse_selection": 0.0,
             "horizon_fills_scored": 0.0,
             "horizon_adverse_after_fill_count": 0.0,
-            "submit_stage_distribution": Counter(),
+            "submit_lineage_stage_distribution": Counter(),
             "submit_edge_bucket_distribution": Counter(),
-            "fill_stage_distribution": Counter(),
+            "fill_lineage_stage_distribution": Counter(),
             "fill_edge_bucket_distribution": Counter(),
         }
 
@@ -3499,14 +3507,14 @@ def _execution_quality_lane_attribution(
         event_type = str(evt.get("event_type") or "").strip()
         if event_type == "order_submit":
             order_id = str(evt.get("order_id") or "").strip()
-            lane, stage, edge_bucket = _classify_submit(evt)
+            lane, lineage_stage, edge_bucket = _classify_submit(evt)
             row = _row(lane)
             row["submit_count"] += 1.0
-            row["submit_stage_distribution"][stage] += 1
+            row["submit_lineage_stage_distribution"][lineage_stage] += 1
             row["submit_edge_bucket_distribution"][edge_bucket] += 1
             if order_id:
                 order_lane_by_id[order_id] = lane
-                order_stage_by_id[order_id] = stage
+                order_lineage_stage_by_id[order_id] = lineage_stage
                 order_edge_bucket_by_id[order_id] = edge_bucket
             continue
         if event_type == "book_top":
@@ -3524,9 +3532,9 @@ def _execution_quality_lane_attribution(
         row["fill_event_count"] += 1.0
         if order_id:
             row["filled_order_ids"].add(order_id)
-        stage = order_stage_by_id.get(order_id, "UNKNOWN")
+        lineage_stage = order_lineage_stage_by_id.get(order_id, "UNKNOWN")
         edge_bucket = order_edge_bucket_by_id.get(order_id, "unknown")
-        row["fill_stage_distribution"][stage] += 1
+        row["fill_lineage_stage_distribution"][lineage_stage] += 1
         row["fill_edge_bucket_distribution"][edge_bucket] += 1
 
         price = evt.get("price")
@@ -3629,14 +3637,14 @@ def _execution_quality_lane_attribution(
             "horizon_fills_scored": float(row["horizon_fills_scored"]),
             "horizon_adverse_after_fill_count": float(row["horizon_adverse_after_fill_count"]),
             "horizon_adverse_after_fill_ratio": float(row["horizon_adverse_after_fill_ratio"]),
-            "submit_stage_distribution": dict(
-                sorted(row["submit_stage_distribution"].items(), key=lambda item: item[0])
+            "submit_lineage_stage_distribution": dict(
+                sorted(row["submit_lineage_stage_distribution"].items(), key=lambda item: item[0])
             ),
             "submit_edge_bucket_distribution": dict(
                 sorted(row["submit_edge_bucket_distribution"].items(), key=lambda item: item[0])
             ),
-            "fill_stage_distribution": dict(
-                sorted(row["fill_stage_distribution"].items(), key=lambda item: item[0])
+            "fill_lineage_stage_distribution": dict(
+                sorted(row["fill_lineage_stage_distribution"].items(), key=lambda item: item[0])
             ),
             "fill_edge_bucket_distribution": dict(
                 sorted(row["fill_edge_bucket_distribution"].items(), key=lambda item: item[0])
@@ -3723,9 +3731,9 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
     def _payload_dict(value: Any) -> Dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
-    def _normalize_stage(value: Any) -> str:
-        stage = str(value or "").strip().upper()
-        return stage or "UNKNOWN"
+    def _normalize_lineage_stage(value: Any) -> str:
+        lineage_stage = str(value or "").strip().upper()
+        return lineage_stage or "UNKNOWN"
 
     def _is_lifecycle_residue_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         for payload in (
@@ -3758,14 +3766,14 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         comp = _payload_dict(evt.get("taker_competitiveness"))
         if not comp:
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
-        stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
+        lineage_stage = _normalize_lineage_stage(comp.get("lineage_stage") or evt.get("lineage_stage"))
         if _is_taker_submit_reason(reason) or lane == "taker":
             if _is_lifecycle_residue_submit(evt, comp):
-                return "lifecycle_residue_taker", stage
+                return "lifecycle_residue_taker", lineage_stage
             if _has_normal_competitiveness_payload(comp):
-                return "normal_taker", stage
-            return "unknown_taker", stage
-        return "maker", stage
+                return "normal_taker", lineage_stage
+            return "unknown_taker", lineage_stage
+        return "maker", lineage_stage
 
     def _lane_row() -> Dict[str, Any]:
         return {
@@ -3777,8 +3785,8 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
             "immediate_unscored_fill_count": 0.0,
             "immediate_capture": 0.0,
             "immediate_adverse_selection": 0.0,
-            "submit_stage_distribution": Counter(),
-            "fill_stage_distribution": Counter(),
+            "submit_lineage_stage_distribution": Counter(),
+            "fill_lineage_stage_distribution": Counter(),
         }
 
     def _row(lane: str) -> Dict[str, Any]:
@@ -3795,13 +3803,13 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         order_id = str(evt.get("order_id") or "").strip()
         if not order_id:
             continue
-        lane, stage = _classify_submit(evt)
+        lane, lineage_stage = _classify_submit(evt)
         row = _row(lane)
         row["submit_count"] += 1.0
-        row["submit_stage_distribution"][stage] += 1
+        row["submit_lineage_stage_distribution"][lineage_stage] += 1
         orders_by_id[order_id] = {
             "lane": lane,
-            "stage": stage,
+            "lineage_stage": lineage_stage,
             "decision_reference_midpoint": _safe_float(
                 evt.get("decision_reference_midpoint", evt.get("midpoint")),
                 default=-1.0,
@@ -3820,8 +3828,8 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         row["fill_event_count"] += 1.0
         if order_id:
             row["filled_order_ids"].add(order_id)
-        stage = str(order.get("stage") or "UNKNOWN")
-        row["fill_stage_distribution"][stage] += 1
+        lineage_stage = str(order.get("lineage_stage") or "UNKNOWN")
+        row["fill_lineage_stage_distribution"][lineage_stage] += 1
         price = evt.get("price")
         size = evt.get("size")
         if isinstance(price, (int, float)) and isinstance(size, (int, float)):
@@ -3867,11 +3875,11 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
             "immediate_net_to_notional_ratio": (
                 float(net / row["notional"]) if row["notional"] > 0.0 else 0.0
             ),
-            "submit_stage_distribution": dict(
-                sorted(row["submit_stage_distribution"].items(), key=lambda item: item[0])
+            "submit_lineage_stage_distribution": dict(
+                sorted(row["submit_lineage_stage_distribution"].items(), key=lambda item: item[0])
             ),
-            "fill_stage_distribution": dict(
-                sorted(row["fill_stage_distribution"].items(), key=lambda item: item[0])
+            "fill_lineage_stage_distribution": dict(
+                sorted(row["fill_lineage_stage_distribution"].items(), key=lambda item: item[0])
             ),
         }
         for key in (
@@ -3923,7 +3931,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
     required_min_edge_by_intent: Dict[str, Dict[str, List[float]]] = {}
     min_new_exposure_sec_by_intent: Dict[str, Dict[str, List[float]]] = {}
     timing_window_by_intent: Dict[str, Counter[str]] = {}
-    stage_distribution_by_intent: Dict[str, Counter[str]] = {}
+    lineage_stage_distribution_by_intent: Dict[str, Counter[str]] = {}
     stage_window_checks = 0.0
     latest_stage_window_semantics: Dict[str, Any] = {}
     latest_stage_window_ts: str = ""
@@ -3934,9 +3942,9 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
     def _payload_dict(value: Any) -> Dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
-    def _normalize_stage(value: Any) -> str:
-        stage = str(value or "").strip().upper()
-        return stage or "UNKNOWN"
+    def _normalize_lineage_stage(value: Any) -> str:
+        lineage_stage = str(value or "").strip().upper()
+        return lineage_stage or "UNKNOWN"
 
     def _counter_for(mapping: Dict[str, Counter[str]], key: str) -> Counter[str]:
         counter = mapping.get(key)
@@ -3950,14 +3958,14 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         mapping: Dict[str, Dict[str, List[float]]],
         *,
         intent: str,
-        stage: str,
+        lineage_stage: str,
         value: Any,
     ) -> None:
         parsed = _safe_float(value, default=-1.0)
         if parsed < 0.0:
             return
-        by_stage = mapping.setdefault(intent, {})
-        by_stage.setdefault(stage, []).append(float(parsed))
+        by_lineage_stage = mapping.setdefault(intent, {})
+        by_lineage_stage.setdefault(lineage_stage, []).append(float(parsed))
 
     def _summarize_values(values: List[float]) -> Dict[str, Any]:
         clean = sorted(float(value) for value in values if isinstance(value, (int, float)))
@@ -3979,8 +3987,8 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
     def _summarize_nested(mapping: Dict[str, Dict[str, List[float]]]) -> Dict[str, Dict[str, Any]]:
         return {
             intent: {
-                stage: _summarize_values(values)
-                for stage, values in sorted(by_stage.items(), key=lambda item: item[0])
+                lineage_stage: _summarize_values(values)
+                for lineage_stage, values in sorted(by_stage.items(), key=lambda item: item[0])
             }
             for intent, by_stage in sorted(mapping.items(), key=lambda item: item[0])
         }
@@ -4062,8 +4070,10 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         if event_type == "order_submit" or is_taker_submit_event_type(event_type):
             submit_events_by_intent[intent] += 1
 
-        stage = _normalize_stage(comp.get("stage") or evt.get("stage"))
-        _counter_for(stage_distribution_by_intent, intent)[stage] += 1
+        lineage_stage = _normalize_lineage_stage(
+            comp.get("lineage_stage") or evt.get("lineage_stage")
+        )
+        _counter_for(lineage_stage_distribution_by_intent, intent)[lineage_stage] += 1
         timing_window = str(comp.get("timing_window_class") or evt.get("timing_window_class") or "").strip().lower()
         if timing_window:
             _counter_for(timing_window_by_intent, intent)[timing_window] += 1
@@ -4076,14 +4086,14 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         _append_metric(
             required_min_edge_by_intent,
             intent=intent,
-            stage=stage,
+            lineage_stage=lineage_stage,
             value=required_min_edge,
         )
         risk_basis = _payload_dict(evt.get("risk_decision_basis"))
         _append_metric(
             min_new_exposure_sec_by_intent,
             intent=intent,
-            stage=stage,
+            lineage_stage=lineage_stage,
             value=risk_basis.get("min_sec_to_expiry_for_new_exposure"),
         )
 
@@ -4143,16 +4153,16 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
             intent: dict(sorted(counter.items(), key=lambda item: item[0]))
             for intent, counter in sorted(event_type_distribution_by_intent.items(), key=lambda item: item[0])
         },
-        "stage_distribution_by_intent": {
+        "lineage_stage_distribution_by_intent": {
             intent: dict(sorted(counter.items(), key=lambda item: item[0]))
-            for intent, counter in sorted(stage_distribution_by_intent.items(), key=lambda item: item[0])
+            for intent, counter in sorted(lineage_stage_distribution_by_intent.items(), key=lambda item: item[0])
         },
         "timing_window_distribution_by_intent": {
             intent: dict(sorted(counter.items(), key=lambda item: item[0]))
             for intent, counter in sorted(timing_window_by_intent.items(), key=lambda item: item[0])
         },
-        "required_min_edge_by_intent_stage": _summarize_nested(required_min_edge_by_intent),
-        "min_new_exposure_sec_by_intent_stage": _summarize_nested(min_new_exposure_sec_by_intent),
+        "required_min_edge_by_intent_lineage_stage": _summarize_nested(required_min_edge_by_intent),
+        "min_new_exposure_sec_by_intent_lineage_stage": _summarize_nested(min_new_exposure_sec_by_intent),
         "normal_below_required_min_edge_count": float(normal_below_required_min_edge_count),
         "lifecycle_residue_override_below_required_min_edge_count": float(recovery_below_required_min_edge_count),
         "lifecycle_residue_override_crossed_normal_edge_gate_observed": bool(
@@ -5927,6 +5937,7 @@ def _legacy_edge_entries(events: List[Dict[str, Any]]) -> Tuple[List[Dict[str, A
             continue
         ts = parse_ts(evt.get("ts_decision_utc") or evt.get("ts_event_utc") or evt.get("ts_utc"))
         target_ref = str(evt.get("target_ref") or "").strip() or None
+        legacy_lineage_stage = evt.get(LEGACY_EDGE_LINEAGE_FIELD_NAMES[2])
         entry = {
             "ts": ts,
             "target_ref": target_ref,
@@ -5938,6 +5949,7 @@ def _legacy_edge_entries(events: List[Dict[str, Any]]) -> Tuple[List[Dict[str, A
             "market_reference_class": evt.get("market_reference_class"),
             "cycle_index": evt.get("cycle_index"),
             "sec_to_expiry": evt.get("time_remaining_sec"),
+            "legacy_lineage_stage": legacy_lineage_stage,
             "lifecycle_phase": _maker_lifecycle_phase_for_report(evt),
             "lineage_stage": _maker_lineage_stage_for_report(evt),
             "maker_phase_allowed": bool(
@@ -5948,6 +5960,8 @@ def _legacy_edge_entries(events: List[Dict[str, Any]]) -> Tuple[List[Dict[str, A
             "submitted": bool(evt.get("submitted")),
         }
         entry = _canonicalize_maker_report_row(entry)
+        if legacy_lineage_stage is not None and str(legacy_lineage_stage).strip():
+            entry["legacy_lineage_stage"] = legacy_lineage_stage
         entries.append(entry)
         order_id = str(evt.get("order_id") or "").strip()
         if order_id:
@@ -6131,11 +6145,10 @@ def _legacy_maker_fight_admission_rows(
             lineage_source.update(matched_edge)
         if isinstance(maker_ctx, dict):
             lineage_source.update(maker_ctx)
-        lineage_stage = _maker_lineage_stage_for_report(
-            {
-                "lineage_stage": lineage_source.get("lineage_stage"),
-                "stage": lineage_source.get("stage"),
-            }
+        lineage_stage = (
+            str(lineage_source.get("legacy_lineage_stage") or "").strip().upper()
+            or lineage_stage_from_legacy_payload(lineage_source)
+            or _maker_lineage_stage_for_report({"lineage_stage": lineage_source.get("lineage_stage")})
         )
         row_lifecycle_phase = _maker_lifecycle_phase_for_report(
             {
@@ -6899,6 +6912,14 @@ def _maker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
             return "maker_window"
         if sec_value >= 0.0:
             return "prepare"
+    lineage_stage = str(row.get("lineage_stage") or "").strip().upper()
+    if not lineage_stage:
+        lineage_stage = lineage_stage_from_legacy_payload(row)
+    inferred_phase = lifecycle_phase_from_legacy_payload(
+        {"lineage_stage": lineage_stage, "sec_to_expiry": row.get("sec_to_expiry")}
+    )
+    if inferred_phase:
+        return inferred_phase
     lifecycle_phase = lifecycle_phase_from_payload(row)
     if lifecycle_phase:
         return lifecycle_phase
@@ -6906,9 +6927,9 @@ def _maker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
 
 
 def _maker_lineage_stage_for_report(row: Dict[str, Any]) -> str:
-    lineage_value = str(row.get("lineage_stage") or "").strip().upper()
-    if lineage_value:
-        return lineage_value
+    legacy_lineage_value = lineage_stage_from_legacy_payload(row)
+    if legacy_lineage_value:
+        return legacy_lineage_value
     return lineage_stage_from_payload(row)
 
 
@@ -8347,7 +8368,7 @@ def _maker_zero_submit_root_cause_bundle(
     off_band_examples = [
         {
             "target_side_ref": str(row.get("target_side_ref") or ""),
-            "stage": str(row.get("stage") or ""),
+            "lineage_stage": str(row.get("lineage_stage") or ""),
             "sec_to_expiry": row.get("sec_to_expiry"),
             "market_reference_class": row.get("market_reference_class"),
             "secondary_oracle_status": row.get("secondary_oracle_status"),
@@ -8650,21 +8671,21 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     submit_normal_side_policy = Counter()
     submit_class_distribution = Counter()
     submit_lifecycle_residue_override_edge_bucket = Counter()
-    submit_lifecycle_residue_override_stage_distribution = Counter()
+    submit_lifecycle_residue_override_lineage_stage_distribution = Counter()
     submit_lifecycle_residue_override_reason_distribution = Counter()
-    submit_true_unknown_stage_distribution = Counter()
+    submit_true_unknown_lineage_stage_distribution = Counter()
     submit_decision_to_submit_latency_ms: List[float] = []
     submit_decision_to_submit_latency_ms_normal: List[float] = []
     fill_edge_bucket = Counter()
-    fill_stage_distribution = Counter()
+    fill_lineage_stage_distribution = Counter()
     fill_class_distribution = Counter()
     lag_class_distribution = Counter()
     aggressiveness_application_counts = Counter()
     order_edge_bucket_by_id: Dict[str, str] = {}
     order_is_taker_by_id: Dict[str, bool] = {}
-    order_stage_by_id: Dict[str, str] = {}
+    order_lineage_stage_by_id: Dict[str, str] = {}
     order_submit_class_by_id: Dict[str, str] = {}
-    submit_stage_distribution = Counter()
+    submit_lineage_stage_distribution = Counter()
     hard_min_unachievable_count = 0.0
     dynamic_size_capped_by_risk_count = 0.0
     multi_oracle_available_count = 0.0
@@ -8675,8 +8696,8 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     complement_token_mapping_failure_count = 0.0
     outside_window_blocked_count_edge_eval = 0.0
     submit_without_competitiveness_payload_count = 0.0
-    submit_unknown_stage_count = 0.0
-    fill_without_submit_stage_count = 0.0
+    submit_unknown_lineage_stage_count = 0.0
+    fill_without_submit_lineage_stage_count = 0.0
     risk_reject_after_capable_count = 0.0
     decision_predicted_reject_reason = Counter()
     normal_competitiveness_submit_count = 0.0
@@ -8685,19 +8706,19 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     partial_competitiveness_payload_count = 0.0
     lifecycle_residue_override_without_normal_payload_count = 0.0
 
-    stage_funnel: Dict[str, Dict[str, float]] = {}
-    stage_reduction_causes: Dict[str, Counter[str]] = {}
-    stage_reduction_primary_causes: Dict[str, Counter[str]] = {}
-    stage_final_risk_reject_reasons: Dict[str, Counter[str]] = {}
-    stage_last_submit_ts: Dict[str, dt.datetime] = {}
-    stage_submit_inter_submit_deltas: Dict[str, List[float]] = {}
+    lineage_stage_funnel: Dict[str, Dict[str, float]] = {}
+    lineage_stage_reduction_causes: Dict[str, Counter[str]] = {}
+    lineage_stage_reduction_primary_causes: Dict[str, Counter[str]] = {}
+    lineage_stage_final_risk_reject_reasons: Dict[str, Counter[str]] = {}
+    lineage_stage_last_submit_ts: Dict[str, dt.datetime] = {}
+    lineage_stage_inter_submit_deltas: Dict[str, List[float]] = {}
 
-    def _normalize_stage(stage_value: Any) -> str:
+    def _normalize_lineage_stage(stage_value: Any) -> str:
         stage = str(stage_value or "").strip().upper()
         return stage or "UNKNOWN"
 
-    def _stage_row(stage_name: str) -> Dict[str, float]:
-        row = stage_funnel.get(stage_name)
+    def _lineage_stage_row(stage_name: str) -> Dict[str, float]:
+        row = lineage_stage_funnel.get(stage_name)
         if isinstance(row, dict):
             return row
         row = {
@@ -8719,31 +8740,31 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             "multi_oracle_boost_eligible_count": 0.0,
             "multi_oracle_boost_applied_count": 0.0,
         }
-        stage_funnel[stage_name] = row
+        lineage_stage_funnel[stage_name] = row
         return row
 
-    def _stage_reduction_counter(stage_name: str) -> Counter[str]:
-        counter = stage_reduction_causes.get(stage_name)
+    def _lineage_stage_reduction_counter(stage_name: str) -> Counter[str]:
+        counter = lineage_stage_reduction_causes.get(stage_name)
         if isinstance(counter, Counter):
             return counter
         counter = Counter()
-        stage_reduction_causes[stage_name] = counter
+        lineage_stage_reduction_causes[stage_name] = counter
         return counter
 
-    def _stage_reject_counter(stage_name: str) -> Counter[str]:
-        counter = stage_final_risk_reject_reasons.get(stage_name)
+    def _lineage_stage_reject_counter(stage_name: str) -> Counter[str]:
+        counter = lineage_stage_final_risk_reject_reasons.get(stage_name)
         if isinstance(counter, Counter):
             return counter
         counter = Counter()
-        stage_final_risk_reject_reasons[stage_name] = counter
+        lineage_stage_final_risk_reject_reasons[stage_name] = counter
         return counter
 
-    def _stage_primary_reduction_counter(stage_name: str) -> Counter[str]:
-        counter = stage_reduction_primary_causes.get(stage_name)
+    def _lineage_stage_primary_reduction_counter(stage_name: str) -> Counter[str]:
+        counter = lineage_stage_reduction_primary_causes.get(stage_name)
         if isinstance(counter, Counter):
             return counter
         counter = Counter()
-        stage_reduction_primary_causes[stage_name] = counter
+        lineage_stage_reduction_primary_causes[stage_name] = counter
         return counter
 
     def _is_multi_oracle_available(status_value: Any) -> bool:
@@ -8809,9 +8830,9 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         if event_type == "edge_evaluation":
             if str(evt.get("evaluation_scope") or "").strip().lower() != "taker":
                 continue
-            stage = _normalize_stage(evt.get("stage"))
-            stage_row = _stage_row(stage)
-            stage_reductions = _stage_reduction_counter(stage)
+            lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage"))
+            lineage_stage_row = _lineage_stage_row(lineage_stage)
+            lineage_stage_reductions = _lineage_stage_reduction_counter(lineage_stage)
             block_reason = str(evt.get("block_reason") or "").strip().lower()
             if (
                 str(evt.get("action_taken") or "").strip().lower() == "none"
@@ -8822,30 +8843,30 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 str(evt.get("action_taken") or "").strip().lower() == "none"
                 and block_reason == "taker_token_cooldown"
             ):
-                stage_row["reduction_due_to_cooldown"] += 1.0
-                stage_reductions["reduction_due_to_cooldown"] += 1
+                lineage_stage_row["reduction_due_to_cooldown"] += 1.0
+                lineage_stage_reductions["reduction_due_to_cooldown"] += 1
             if (
                 str(evt.get("action_taken") or "").strip().lower() == "none"
                 and block_reason == "taker_submit_rejected"
             ):
-                stage_row["reduction_due_to_final_risk_reject"] += 1.0
-                stage_row["risk_reject_after_capable_count"] += 1.0
-                stage_reductions["reduction_due_to_final_risk_reject"] += 1
+                lineage_stage_row["reduction_due_to_final_risk_reject"] += 1.0
+                lineage_stage_row["risk_reject_after_capable_count"] += 1.0
+                lineage_stage_reductions["reduction_due_to_final_risk_reject"] += 1
                 risk_reject_after_capable_count += 1.0
                 reject_reason = str(evt.get("taker_submit_reject_reason") or "unknown").strip().lower() or "unknown"
-                _stage_reject_counter(stage)[reject_reason] += 1
+                _lineage_stage_reject_counter(lineage_stage)[reject_reason] += 1
                 edge_eval_submit_reject_reason[
                     reject_reason
                 ] += 1
-                _stage_primary_reduction_counter(stage)["reduction_due_to_final_risk_reject"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_final_risk_reject"] += 1
             continue
 
         if is_taker_decision_event_type(event_type):
-            stage = _normalize_stage(evt.get("stage"))
-            stage_row = _stage_row(stage)
-            stage_reductions = _stage_reduction_counter(stage)
+            lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage"))
+            lineage_stage_row = _lineage_stage_row(lineage_stage)
+            lineage_stage_reductions = _lineage_stage_reduction_counter(lineage_stage)
             decision_count += 1.0
-            stage_row["decision_count"] += 1.0
+            lineage_stage_row["decision_count"] += 1.0
             timing_window = str(evt.get("timing_window_class") or "unknown").strip().lower() or "unknown"
             decision_timing_window[timing_window] += 1
             edge_bucket = _taker_edge_bucket(evt.get("edge_abs"))
@@ -8856,19 +8877,19 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             submit_capable_static = bool(evt.get("submit_capable_static", evt.get("should_submit", False)))
             if submit_capable_static:
                 submit_capable_static_decision_count += 1.0
-                stage_row["submit_capable_static_count"] += 1.0
+                lineage_stage_row["submit_capable_static_count"] += 1.0
 
             submit_capable_dynamic_predicted = _as_bool(evt.get("submit_capable_dynamic_predicted"))
             if submit_capable_dynamic_predicted is True:
                 submit_capable_dynamic_predicted_count += 1.0
-                stage_row["submit_capable_dynamic_predicted_count"] += 1.0
+                lineage_stage_row["submit_capable_dynamic_predicted_count"] += 1.0
             elif submit_capable_dynamic_predicted is None:
                 submit_capable_dynamic_predicted_unknown_count += 1.0
-                stage_row["submit_capable_dynamic_predicted_unknown_count"] += 1.0
+                lineage_stage_row["submit_capable_dynamic_predicted_unknown_count"] += 1.0
 
             if submit_capable_static and submit_capable_dynamic_predicted is False:
-                stage_row["reduction_due_to_dynamic_preview"] += 1.0
-                stage_reductions["reduction_due_to_dynamic_preview"] += 1
+                lineage_stage_row["reduction_due_to_dynamic_preview"] += 1.0
+                lineage_stage_reductions["reduction_due_to_dynamic_preview"] += 1
                 predicted_reason = str(evt.get("predicted_reject_reason") or "").strip().lower()
                 if predicted_reason:
                     decision_predicted_reject_reason[predicted_reason] += 1
@@ -8876,25 +8897,25 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             should_submit = bool(evt.get("should_submit", False))
             if should_submit:
                 submit_capable_decision_count += 1.0
-                stage_row["submit_capable_decision_count"] += 1.0
+                lineage_stage_row["submit_capable_decision_count"] += 1.0
             else:
                 blocked_decision_count += 1.0
-                stage_row["blocked_decision_count"] += 1.0
+                lineage_stage_row["blocked_decision_count"] += 1.0
             block_reason = str(evt.get("block_reason") or "").strip().lower()
             if block_reason:
                 decision_block_reason[block_reason] += 1
             if block_reason == "taker_outside_final_window":
-                stage_row["reduction_due_to_timing_gate"] += 1.0
-                stage_reductions["reduction_due_to_timing_gate"] += 1
-                _stage_primary_reduction_counter(stage)["reduction_due_to_timing_gate"] += 1
+                lineage_stage_row["reduction_due_to_timing_gate"] += 1.0
+                lineage_stage_reductions["reduction_due_to_timing_gate"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_timing_gate"] += 1
             elif block_reason == "taker_token_cooldown":
-                _stage_primary_reduction_counter(stage)["reduction_due_to_cooldown"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_cooldown"] += 1
             elif block_reason == "taker_hard_min_notional_unachievable":
-                _stage_primary_reduction_counter(stage)["reduction_due_to_hard_min_unachievable"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_hard_min_unachievable"] += 1
             elif block_reason == "taker_order_budget_exhausted":
-                _stage_primary_reduction_counter(stage)["reduction_due_to_order_budget"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_order_budget"] += 1
             elif (not should_submit) and block_reason:
-                _stage_primary_reduction_counter(stage)["reduction_due_to_other_block"] += 1
+                _lineage_stage_primary_reduction_counter(lineage_stage)["reduction_due_to_other_block"] += 1
             aggressiveness_level = str(evt.get("aggressiveness_level") or "unknown").strip().lower() or "unknown"
             decision_aggressiveness[aggressiveness_level] += 1
             multi_oracle_status = str(evt.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
@@ -8909,20 +8930,20 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 complement_token_mapping_failure_count += 1.0
             if _is_multi_oracle_available(multi_oracle_status):
                 multi_oracle_available_count += 1.0
-                stage_row["multi_oracle_available_count"] += 1.0
+                lineage_stage_row["multi_oracle_available_count"] += 1.0
             if bool(evt.get("hard_min_unachievable", False)):
                 hard_min_unachievable_count += 1.0
             if bool(evt.get("dynamic_size_capped_by_risk", False)):
                 dynamic_size_capped_by_risk_count += 1.0
             if bool(evt.get("multi_oracle_confirmation", False)):
                 multi_oracle_confirmation_count += 1.0
-                stage_row["multi_oracle_confirmation_count"] += 1.0
+                lineage_stage_row["multi_oracle_confirmation_count"] += 1.0
             if bool(evt.get("multi_oracle_boost_eligible", False)):
                 multi_oracle_boost_eligible_count += 1.0
-                stage_row["multi_oracle_boost_eligible_count"] += 1.0
+                lineage_stage_row["multi_oracle_boost_eligible_count"] += 1.0
             if bool(evt.get("multi_oracle_boost_applied", False)):
                 multi_oracle_boost_applied_count += 1.0
-                stage_row["multi_oracle_boost_applied_count"] += 1.0
+                lineage_stage_row["multi_oracle_boost_applied_count"] += 1.0
             continue
 
         if event_type == "order_submit":
@@ -8957,14 +8978,14 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             if order_id:
                 order_submit_class_by_id[order_id] = submit_class
 
-            stage = _normalize_stage(comp_dict.get("stage") or evt.get("stage"))
-            if stage == "UNKNOWN":
-                submit_unknown_stage_count += 1.0
-            stage_row = _stage_row(stage)
-            stage_row["actual_submit_count"] += 1.0
-            submit_stage_distribution[stage] += 1
+            lineage_stage = _normalize_lineage_stage(comp_dict.get("lineage_stage") or evt.get("lineage_stage"))
+            if lineage_stage == "UNKNOWN":
+                submit_unknown_lineage_stage_count += 1.0
+            lineage_stage_row = _lineage_stage_row(lineage_stage)
+            lineage_stage_row["actual_submit_count"] += 1.0
+            submit_lineage_stage_distribution[lineage_stage] += 1
             if order_id:
-                order_stage_by_id[order_id] = stage
+                order_lineage_stage_by_id[order_id] = lineage_stage
             edge_bucket = _taker_edge_bucket(comp_dict.get("edge_abs"))
             if order_id:
                 order_edge_bucket_by_id[order_id] = edge_bucket
@@ -8977,13 +8998,13 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
 
             if submit_class == "lifecycle_residue_override":
                 submit_lifecycle_residue_override_edge_bucket[edge_bucket] += 1
-                submit_lifecycle_residue_override_stage_distribution[stage] += 1
+                submit_lifecycle_residue_override_lineage_stage_distribution[lineage_stage] += 1
                 reason_value = _historical_recovery_lineage_reason(comp_dict)
                 submit_lifecycle_residue_override_reason_distribution[reason_value] += 1
                 continue
 
             if submit_class == "true_unknown":
-                submit_true_unknown_stage_distribution[stage] += 1
+                submit_true_unknown_lineage_stage_distribution[lineage_stage] += 1
                 continue
 
             conviction_bucket = _conviction_bucket(comp_dict.get("conviction_score"))
@@ -9002,12 +9023,12 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             ] += 1
             ts_submit = parse_ts(evt.get("ts_utc") or evt.get("timestamp_utc"))
             if ts_submit is not None:
-                prev_submit_ts = stage_last_submit_ts.get(stage)
+                prev_submit_ts = lineage_stage_last_submit_ts.get(lineage_stage)
                 if prev_submit_ts is not None:
                     delta_sec = float((ts_submit - prev_submit_ts).total_seconds())
                     if delta_sec >= 0.0:
-                        stage_submit_inter_submit_deltas.setdefault(stage, []).append(delta_sec)
-                stage_last_submit_ts[stage] = ts_submit
+                        lineage_stage_inter_submit_deltas.setdefault(lineage_stage, []).append(delta_sec)
+                lineage_stage_last_submit_ts[lineage_stage] = ts_submit
             if _safe_float(comp_dict.get("price_aggress_bps_applied"), 0.0) > 0.0:
                 aggressiveness_application_counts["price_aggressed"] += 1
             if bool(comp_dict.get("hard_min_floor_applied", False)):
@@ -9028,12 +9049,12 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         fill_count += 1.0
         edge_bucket = order_edge_bucket_by_id.get(order_id, "unknown")
         fill_edge_bucket[edge_bucket] += 1
-        stage = _normalize_stage(order_stage_by_id.get(order_id))
-        if stage == "UNKNOWN":
-            fill_without_submit_stage_count += 1.0
-        stage_row = _stage_row(stage)
-        stage_row["fill_count"] += 1.0
-        fill_stage_distribution[stage] += 1
+        lineage_stage = _normalize_lineage_stage(order_lineage_stage_by_id.get(order_id))
+        if lineage_stage == "UNKNOWN":
+            fill_without_submit_lineage_stage_count += 1.0
+        lineage_stage_row = _lineage_stage_row(lineage_stage)
+        lineage_stage_row["fill_count"] += 1.0
+        fill_lineage_stage_distribution[lineage_stage] += 1
         fill_class_distribution[order_submit_class_by_id.get(order_id, "true_unknown")] += 1
         lag_class = str(evt.get("paper_chainlink_lag_class") or "unknown").strip().lower() or "unknown"
         lag_class_distribution[lag_class] += 1
@@ -9051,15 +9072,15 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     )
     fill_rate_from_submits = (fill_count / actual_submit_count) if actual_submit_count > 0.0 else 0.0
 
-    stage_hidden_blockage_detector: Dict[str, Dict[str, Any]] = {}
-    stage_funnel_sorted: Dict[str, Dict[str, float]] = {}
-    stage_reduction_sorted: Dict[str, Dict[str, int]] = {}
-    stage_primary_reduction_sorted: Dict[str, Dict[str, int]] = {}
-    stage_risk_reject_reasons_sorted: Dict[str, Dict[str, int]] = {}
-    stage_reduction_delta_accounting: Dict[str, Dict[str, Any]] = {}
-    stage_inter_submit_delta_summary: Dict[str, Dict[str, float]] = {}
-    for stage in sorted(stage_funnel.keys()):
-        stage_row = stage_funnel.get(stage, {})
+    lineage_stage_hidden_blockage_detector: Dict[str, Dict[str, Any]] = {}
+    lineage_stage_funnel_sorted: Dict[str, Dict[str, float]] = {}
+    lineage_stage_reduction_sorted: Dict[str, Dict[str, int]] = {}
+    lineage_stage_primary_reduction_sorted: Dict[str, Dict[str, int]] = {}
+    lineage_stage_risk_reject_reasons_sorted: Dict[str, Dict[str, int]] = {}
+    lineage_stage_reduction_delta_accounting: Dict[str, Dict[str, Any]] = {}
+    lineage_stage_inter_submit_delta_summary: Dict[str, Dict[str, float]] = {}
+    for stage in sorted(lineage_stage_funnel.keys()):
+        stage_row = lineage_stage_funnel.get(stage, {})
         static_count = float(stage_row.get("submit_capable_static_count", 0.0))
         dynamic_count = float(stage_row.get("submit_capable_dynamic_predicted_count", 0.0))
         submit_count = float(stage_row.get("actual_submit_count", 0.0))
@@ -9067,17 +9088,17 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         decision_count_stage = float(stage_row.get("decision_count", 0.0))
         decision_to_submit_delta_stage = float(max(0.0, decision_count_stage - submit_count))
 
-        stage_hidden_blockage_detector[stage] = {
+        lineage_stage_hidden_blockage_detector[stage] = {
             "decision_to_dynamic_predicted_delta": float(
                 max(0.0, decision_count_stage - dynamic_count)
             ),
             "dynamic_predicted_to_submit_delta": float(max(0.0, dynamic_count - submit_count)),
             "submit_to_fill_delta": float(max(0.0, submit_count - fills)),
             "reduction_reason_counters": dict(
-                sorted(_stage_reduction_counter(stage).items(), key=lambda item: item[0])
+                sorted(_lineage_stage_reduction_counter(stage).items(), key=lambda item: item[0])
             ),
         }
-        stage_funnel_sorted[stage] = {
+        lineage_stage_funnel_sorted[stage] = {
             **{key: float(value) for key, value in stage_row.items()},
             "submit_capable_static_to_submit_rate": (
                 float(submit_count / static_count) if static_count > 0.0 else 0.0
@@ -9087,18 +9108,18 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             ),
             "fill_rate_from_submits": (float(fills / submit_count) if submit_count > 0.0 else 0.0),
         }
-        stage_reduction_sorted[stage] = dict(sorted(_stage_reduction_counter(stage).items(), key=lambda item: item[0]))
-        stage_primary_reduction_sorted[stage] = dict(
-            sorted(_stage_primary_reduction_counter(stage).items(), key=lambda item: item[0])
+        lineage_stage_reduction_sorted[stage] = dict(sorted(_lineage_stage_reduction_counter(stage).items(), key=lambda item: item[0]))
+        lineage_stage_primary_reduction_sorted[stage] = dict(
+            sorted(_lineage_stage_primary_reduction_counter(stage).items(), key=lambda item: item[0])
         )
-        stage_risk_reject_reasons_sorted[stage] = dict(
-            sorted(_stage_reject_counter(stage).items(), key=lambda item: item[0])
+        lineage_stage_risk_reject_reasons_sorted[stage] = dict(
+            sorted(_lineage_stage_reject_counter(stage).items(), key=lambda item: item[0])
         )
-        primary_total = int(sum(stage_primary_reduction_sorted[stage].values()))
+        primary_total = int(sum(lineage_stage_primary_reduction_sorted[stage].values()))
         primary_delta_difference = float(primary_total) - decision_to_submit_delta_stage
         primary_total_matches_delta = abs(primary_delta_difference) <= 1e-9
         primary_overlap_possible = primary_delta_difference > 1e-9
-        stage_reduction_delta_accounting[stage] = {
+        lineage_stage_reduction_delta_accounting[stage] = {
             "decision_to_submit_delta": float(decision_to_submit_delta_stage),
             "primary_reduction_cause_total": float(primary_total),
             "primary_reduction_cause_total_matches_delta": bool(primary_total_matches_delta),
@@ -9110,7 +9131,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 if primary_overlap_possible
                 else "primary counters match or undercount net decision-to-submit delta"
             ),
-            "primary_reduction_cause_counters": stage_primary_reduction_sorted[stage],
+            "primary_reduction_cause_counters": lineage_stage_primary_reduction_sorted[stage],
         }
 
     def _summarize_deltas(values: List[float]) -> Dict[str, float]:
@@ -9135,8 +9156,8 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             "max_sec": float(ordered[-1]),
         }
 
-    for stage, deltas in sorted(stage_submit_inter_submit_deltas.items(), key=lambda item: item[0]):
-        stage_inter_submit_delta_summary[stage] = _summarize_deltas(deltas)
+    for stage, deltas in sorted(lineage_stage_inter_submit_deltas.items(), key=lambda item: item[0]):
+        lineage_stage_inter_submit_delta_summary[stage] = _summarize_deltas(deltas)
 
     hidden_blockage_detector = {
         "decision_to_dynamic_predicted_delta": float(max(0.0, decision_count - submit_capable_dynamic_predicted_count)),
@@ -9146,22 +9167,22 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "submit_to_fill_delta": float(max(0.0, actual_submit_count - fill_count)),
         "reduction_reason_counters": {
             "reduction_due_to_dynamic_preview": int(
-                sum(counter.get("reduction_due_to_dynamic_preview", 0) for counter in stage_reduction_causes.values())
+                sum(counter.get("reduction_due_to_dynamic_preview", 0) for counter in lineage_stage_reduction_causes.values())
             ),
             "reduction_due_to_timing_gate": int(
-                sum(counter.get("reduction_due_to_timing_gate", 0) for counter in stage_reduction_causes.values())
+                sum(counter.get("reduction_due_to_timing_gate", 0) for counter in lineage_stage_reduction_causes.values())
             ),
             "reduction_due_to_cooldown": int(
-                sum(counter.get("reduction_due_to_cooldown", 0) for counter in stage_reduction_causes.values())
+                sum(counter.get("reduction_due_to_cooldown", 0) for counter in lineage_stage_reduction_causes.values())
             ),
             "reduction_due_to_final_risk_reject": int(
-                sum(counter.get("reduction_due_to_final_risk_reject", 0) for counter in stage_reduction_causes.values())
+                sum(counter.get("reduction_due_to_final_risk_reject", 0) for counter in lineage_stage_reduction_causes.values())
             ),
         },
     }
-    stage_first_claim_guard = {
-        "stage_evidence_required_before_aggregate_claim": True,
-        "stage_reduction_delta_accounting": stage_reduction_delta_accounting,
+    lineage_stage_first_claim_guard = {
+        "lineage_stage_evidence_required_before_aggregate_claim": True,
+        "lineage_stage_reduction_delta_accounting": lineage_stage_reduction_delta_accounting,
     }
 
     return {
@@ -9245,8 +9266,8 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "submit_lifecycle_residue_override_edge_bucket_distribution": dict(
             sorted(submit_lifecycle_residue_override_edge_bucket.items(), key=lambda item: item[0])
         ),
-        "submit_lifecycle_residue_override_stage_distribution": dict(
-            sorted(submit_lifecycle_residue_override_stage_distribution.items(), key=lambda item: item[0])
+        "submit_lifecycle_residue_override_lineage_stage_distribution": dict(
+            sorted(submit_lifecycle_residue_override_lineage_stage_distribution.items(), key=lambda item: item[0])
         ),
         "submit_lifecycle_residue_override_reason_distribution": dict(
             sorted(submit_lifecycle_residue_override_reason_distribution.items(), key=lambda item: item[0])
@@ -9255,15 +9276,15 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "normal_competitiveness_decision_to_submit_latency_ms_summary": _latency_summary(
             submit_decision_to_submit_latency_ms_normal
         ),
-        "submit_true_unknown_stage_distribution": dict(
-            sorted(submit_true_unknown_stage_distribution.items(), key=lambda item: item[0])
+        "submit_true_unknown_lineage_stage_distribution": dict(
+            sorted(submit_true_unknown_lineage_stage_distribution.items(), key=lambda item: item[0])
         ),
-        "submit_stage_distribution": dict(sorted(submit_stage_distribution.items(), key=lambda item: item[0])),
+        "submit_lineage_stage_distribution": dict(sorted(submit_lineage_stage_distribution.items(), key=lambda item: item[0])),
         "fill_edge_bucket_distribution": dict(sorted(fill_edge_bucket.items(), key=lambda item: item[0])),
-        "fill_stage_distribution": dict(sorted(fill_stage_distribution.items(), key=lambda item: item[0])),
+        "fill_lineage_stage_distribution": dict(sorted(fill_lineage_stage_distribution.items(), key=lambda item: item[0])),
         "fill_class_distribution": dict(sorted(fill_class_distribution.items(), key=lambda item: item[0])),
-        "submit_unknown_stage_count": float(submit_unknown_stage_count),
-        "fill_without_submit_stage_count": float(fill_without_submit_stage_count),
+        "submit_unknown_lineage_stage_count": float(submit_unknown_lineage_stage_count),
+        "fill_without_submit_lineage_stage_count": float(fill_without_submit_lineage_stage_count),
         "lag_class_distribution": dict(sorted(lag_class_distribution.items(), key=lambda item: item[0])),
         "aggressiveness_application_counts": dict(
             sorted(aggressiveness_application_counts.items(), key=lambda item: item[0])
@@ -9279,15 +9300,15 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "multi_oracle_boost_applied_count_decision": float(multi_oracle_boost_applied_count),
         "normal_taker_same_token_sell_blocked_count_decision": float(normal_taker_same_token_sell_blocked_count),
         "complement_token_mapping_failure_count_decision": float(complement_token_mapping_failure_count),
-        "stage_funnel_metrics": stage_funnel_sorted,
-        "stage_reduction_cause_counters": stage_reduction_sorted,
-        "stage_reduction_primary_cause_counters": stage_primary_reduction_sorted,
-        "stage_reduction_delta_accounting": stage_reduction_delta_accounting,
-        "stage_final_risk_reject_reason_distribution": stage_risk_reject_reasons_sorted,
-        "stage_hidden_blockage_detector": stage_hidden_blockage_detector,
+        "lineage_stage_funnel_metrics": lineage_stage_funnel_sorted,
+        "lineage_stage_reduction_cause_counters": lineage_stage_reduction_sorted,
+        "lineage_stage_reduction_primary_cause_counters": lineage_stage_primary_reduction_sorted,
+        "lineage_stage_reduction_delta_accounting": lineage_stage_reduction_delta_accounting,
+        "lineage_stage_final_risk_reject_reason_distribution": lineage_stage_risk_reject_reasons_sorted,
+        "lineage_stage_hidden_blockage_detector": lineage_stage_hidden_blockage_detector,
         "hidden_blockage_detector": hidden_blockage_detector,
-        "stage_submit_inter_submit_delta_sec": stage_inter_submit_delta_summary,
-        "stage_first_claim_guard": stage_first_claim_guard,
+        "lineage_stage_inter_submit_delta_sec": lineage_stage_inter_submit_delta_summary,
+        "lineage_stage_first_claim_guard": lineage_stage_first_claim_guard,
     }
 
 
@@ -9416,7 +9437,7 @@ def _maker_sizing_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[st
     hard_floor_active_rows = 0
     depth_scaling_active_rows = 0
     reject_reason_distribution: Counter[str] = Counter()
-    reject_stage_distribution: Counter[str] = Counter()
+    reject_lineage_stage_distribution: Counter[str] = Counter()
     reject_financial_posture_distribution: Counter[str] = Counter()
     resolved_notional_values: List[float] = []
     reject_price_values: List[float] = []
@@ -9446,8 +9467,8 @@ def _maker_sizing_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[st
                 reasons = ["unknown"]
             for reason in reasons:
                 reject_reason_distribution[reason] += 1
-            stage = str(evt.get("stage") or "UNKNOWN").strip().upper() or "UNKNOWN"
-            reject_stage_distribution[stage] += 1
+            lineage_stage = str(evt.get("lineage_stage") or "UNKNOWN").strip().upper() or "UNKNOWN"
+            reject_lineage_stage_distribution[lineage_stage] += 1
             posture = str(evt.get("financial_posture_class") or "UNKNOWN").strip().upper() or "UNKNOWN"
             reject_financial_posture_distribution[posture] += 1
             price_used = _safe_float(size_resolution.get("price_used"), 0.0)
@@ -9532,8 +9553,8 @@ def _maker_sizing_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[st
         "maker_sizing_reject_reason_distribution": dict(
             sorted(reject_reason_distribution.items(), key=lambda item: item[0])
         ),
-        "maker_sizing_reject_stage_distribution": dict(
-            sorted(reject_stage_distribution.items(), key=lambda item: item[0])
+        "maker_sizing_reject_lineage_stage_distribution": dict(
+            sorted(reject_lineage_stage_distribution.items(), key=lambda item: item[0])
         ),
         "maker_sizing_reject_financial_posture_distribution": dict(
             sorted(reject_financial_posture_distribution.items(), key=lambda item: item[0])
@@ -9648,7 +9669,7 @@ def build_report(
     quote_diagnostics = _status_activity_diagnostics(status)
     by_component = Counter(str(err.get("component") or "unknown") for err in errors)
     capture_stats = _fill_capture_stats(events)
-    taker_stage_net_breakout = _taker_stage_net_breakout(events)
+    taker_lineage_stage_net_breakout = _taker_lineage_stage_net_breakout(events)
     edge_quality = _edge_quality_by_regime(events)
     maker_competitiveness = _maker_competitiveness_stats(events)
     maker_complete_outcomes = _maker_complete_outcome_rates(outcome_truth_records)
@@ -9915,7 +9936,7 @@ def build_report(
         ),
         "market_data_source": market_data_source,
         "execution_quality": capture_stats,
-        "taker_stage_net_breakout": taker_stage_net_breakout,
+        "taker_lineage_stage_net_breakout": taker_lineage_stage_net_breakout,
         "edge_activation_quality_by_regime": edge_quality,
         "runtime_classification": runtime_classification,
         "runtime_resource": runtime_resource,
@@ -10024,7 +10045,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         if isinstance(report.get("lifecycle_residue"), dict)
         else {}
     )
-    taker_stage_net = report.get("taker_stage_net_breakout", {}) if isinstance(report.get("taker_stage_net_breakout"), dict) else {}
+    taker_stage_net = report.get("taker_lineage_stage_net_breakout", {}) if isinstance(report.get("taker_lineage_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
     maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
     maker_selection = (
@@ -10061,14 +10082,14 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         if isinstance(taker_suppression.get("lifecycle_residue"), dict)
         else {}
     )
-    taker_stage_funnel = (
-        taker_comp.get("stage_funnel_metrics", {})
-        if isinstance(taker_comp.get("stage_funnel_metrics"), dict)
+    taker_lineage_stage_funnel = (
+        taker_comp.get("lineage_stage_funnel_metrics", {})
+        if isinstance(taker_comp.get("lineage_stage_funnel_metrics"), dict)
         else {}
     )
-    taker_stage_delta_accounting = (
-        taker_comp.get("stage_reduction_delta_accounting", {})
-        if isinstance(taker_comp.get("stage_reduction_delta_accounting"), dict)
+    taker_lineage_stage_delta_accounting = (
+        taker_comp.get("lineage_stage_reduction_delta_accounting", {})
+        if isinstance(taker_comp.get("lineage_stage_reduction_delta_accounting"), dict)
         else {}
     )
     risk_comp = report.get("risk_competitiveness", {}) if isinstance(report.get("risk_competitiveness"), dict) else {}
@@ -10176,9 +10197,9 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{json.dumps(maker_selection.get('blocked_count_by_canonical_reject_reason', {}), sort_keys=True)}"
         ),
         (
-            "taker_stage_first_evidence="
-            + f"funnel={json.dumps(taker_stage_funnel, sort_keys=True)},"
-            + f"delta_accounting={json.dumps(taker_stage_delta_accounting, sort_keys=True)}"
+            "taker_lineage_stage_first_evidence="
+            + f"funnel={json.dumps(taker_lineage_stage_funnel, sort_keys=True)},"
+            + f"delta_accounting={json.dumps(taker_lineage_stage_delta_accounting, sort_keys=True)}"
         ),
         (
             "taker_competitiveness="
@@ -10213,7 +10234,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + "classes="
             + f"{json.dumps(taker_gate_posture.get('event_class_distribution', {}), sort_keys=True)},"
             + "required_min_edge="
-            + f"{json.dumps(taker_gate_posture.get('required_min_edge_by_intent_stage', {}), sort_keys=True)},"
+            + f"{json.dumps(taker_gate_posture.get('required_min_edge_by_intent_lineage_stage', {}), sort_keys=True)},"
             + "stage_windows="
             + f"{json.dumps((taker_gate_posture.get('latest_stage_window_semantics') or {}).get('stage_rows', {}), sort_keys=True)},"
             + "lifecycle_residue_below_required_min_edge="
@@ -10386,7 +10407,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"source_counts_degraded_rows={json.dumps(valuation_truth.get('valuation_source_counts_degraded_rows', {}), sort_keys=True)},"
             + f"source_counts_run={json.dumps(valuation_truth.get('valuation_source_counts_run', {}), sort_keys=True)}"
         ),
-        f"taker_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",
+        f"taker_lineage_stage_net_breakout={json.dumps(taker_stage_net, sort_keys=True)}",
         f"runtime_classification={runtime_class_name or 'UNKNOWN'}",
         f"runtime_promotion_eligible={1 if runtime_promotable else 0}",
         f"primary_suppression_cause={primary_suppression_cause}",

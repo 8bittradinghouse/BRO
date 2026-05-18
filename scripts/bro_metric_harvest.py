@@ -12,6 +12,9 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from prodesk.edge_truth_contract import lifecycle_phase_from_payload, maker_phase_allowed_from_payload
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as HISTORICAL_LIFECYCLE_RESIDUE_ACTIVE_FIELD,
+)
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -149,7 +152,6 @@ CSV_FIELDS = [
     "runtime_primary_suppression_cause",
 ]
 MISSING = object()
-HISTORICAL_LIFECYCLE_RESIDUE_ACTIVE_FIELD = "reduce_only_recovery_active"
 
 _LEGACY_STAGE_TO_LIFECYCLE_PHASE = {
     "OBSERVE": "prepare",

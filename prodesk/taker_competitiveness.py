@@ -4,7 +4,10 @@ import dataclasses
 import math
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from .edge_truth_contract import lifecycle_phase_surface_fields, legacy_stage_to_lifecycle_phase
+from .edge_truth_contract import (
+    lifecycle_phase_surface_fields,
+    lineage_stage_surface_fields,
+)
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -214,7 +217,8 @@ def build_taker_competitiveness_policy(
 @dataclasses.dataclass(frozen=True)
 class TakerCandidate:
     token_id: str
-    stage: str
+    lifecycle_phase: str
+    lineage_stage: str
     sec_to_expiry: Optional[float]
     edge_value: float
     required_min_edge: float
@@ -234,7 +238,8 @@ class TakerCandidate:
 @dataclasses.dataclass(frozen=True)
 class TakerDecision:
     token_id: str
-    stage: str
+    lifecycle_phase: str
+    lineage_stage: str
     should_submit: bool
     block_reason: Optional[str]
     side: Optional[str]
@@ -269,7 +274,8 @@ class TakerDecision:
     def as_event_payload(self) -> Dict[str, Any]:
         return {
             "token_id": self.token_id,
-            **lifecycle_phase_surface_fields(lifecycle_phase=legacy_stage_to_lifecycle_phase(self.stage)),
+            **lifecycle_phase_surface_fields(lifecycle_phase=self.lifecycle_phase),
+            **lineage_stage_surface_fields(lineage_stage=self.lineage_stage),
             "conviction_score": float(self.conviction_score),
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
@@ -328,7 +334,8 @@ class TakerDecision:
 
     def as_competitiveness_payload(self) -> Dict[str, Any]:
         return {
-            **lifecycle_phase_surface_fields(lifecycle_phase=legacy_stage_to_lifecycle_phase(self.stage)),
+            **lifecycle_phase_surface_fields(lifecycle_phase=self.lifecycle_phase),
+            **lineage_stage_surface_fields(lineage_stage=self.lineage_stage),
             "conviction_score": float(self.conviction_score),
             "edge_abs": float(self.edge_abs),
             "required_min_edge": float(self.required_min_edge),
@@ -413,12 +420,12 @@ class TakerCompetitivenessEngine:
             return edge_norm
         return _clamp(((edge_weight * edge_norm) + (score_weight * score_norm)) / total, 0.0, 1.0)
 
-    def _effective_final_window_sec(self, stage: str) -> float:
-        del stage
+    def _effective_final_window_sec(self, lifecycle_phase: str) -> float:
+        del lifecycle_phase
         return float(self.cfg.final_window_sec)
 
-    def _timing_window_class(self, stage: str, sec_to_expiry: Optional[float]) -> str:
-        del stage
+    def _timing_window_class(self, lifecycle_phase: str, sec_to_expiry: Optional[float]) -> str:
+        del lifecycle_phase
         if not self.cfg.final_window_enabled:
             return "window_disabled"
         if not isinstance(sec_to_expiry, (int, float)):
@@ -475,7 +482,8 @@ class TakerCompetitivenessEngine:
                 decisions.append(
                     TakerDecision(
                         token_id=str(candidate.token_id),
-                        stage=str(candidate.stage),
+                        lifecycle_phase=str(candidate.lifecycle_phase or "").strip().lower() or "scan",
+                        lineage_stage=str(candidate.lineage_stage or "").strip().upper() or "UNKNOWN",
                         should_submit=False,
                         block_reason="taker_competitiveness_disabled",
                         side=None,
@@ -509,7 +517,8 @@ class TakerCompetitivenessEngine:
         normal_side_policy = str(self.cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
         for candidate in candidates:
             token_id = str(candidate.token_id)
-            stage = str(candidate.stage or "").strip().upper() or "UNKNOWN"
+            lifecycle_phase = str(candidate.lifecycle_phase or "").strip().lower() or "scan"
+            lineage_stage = str(candidate.lineage_stage or "").strip().upper() or "UNKNOWN"
             sec_to_expiry_value = (
                 float(candidate.sec_to_expiry) if isinstance(candidate.sec_to_expiry, (int, float)) else None
             )
@@ -517,7 +526,7 @@ class TakerCompetitivenessEngine:
             edge_abs = abs(edge_signed)
             required_min_edge = max(0.0, float(candidate.required_min_edge))
             conviction_score = self._conviction(edge_abs=edge_abs, token_score=candidate.token_score)
-            timing_window_class = self._timing_window_class(stage, candidate.sec_to_expiry)
+            timing_window_class = self._timing_window_class(lifecycle_phase, candidate.sec_to_expiry)
             multi_oracle_status = str(candidate.multi_oracle_status or "unknown").strip().lower() or "unknown"
             multi_oracle_confirmation = bool(candidate.multi_oracle_confirmation)
             if multi_oracle_status == "unknown":
@@ -527,7 +536,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="edge_below_min",
                         side=None,
@@ -562,7 +572,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="taker_outside_final_window",
                         side=None,
@@ -661,7 +672,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="taker_hard_min_notional_unachievable",
                         side=None,
@@ -696,7 +708,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="normal_taker_same_token_sell_forbidden",
                         side="SELL",
@@ -741,7 +754,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="taker_price_unavailable",
                         side=side,
@@ -780,7 +794,8 @@ class TakerCompetitivenessEngine:
                 provisional.append(
                     TakerDecision(
                         token_id=token_id,
-                        stage=stage,
+                        lifecycle_phase=lifecycle_phase,
+                        lineage_stage=lineage_stage,
                         should_submit=False,
                         block_reason="taker_price_unavailable",
                         side=side,
@@ -814,7 +829,8 @@ class TakerCompetitivenessEngine:
             provisional.append(
                 TakerDecision(
                     token_id=token_id,
-                    stage=stage,
+                    lifecycle_phase=lifecycle_phase,
+                    lineage_stage=lineage_stage,
                     should_submit=True,
                     block_reason=None,
                     side=side,

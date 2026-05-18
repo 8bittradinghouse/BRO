@@ -13,6 +13,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.error_codes import summarize_error_codes
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD as HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.jsonl_utils import DEFAULT_MAX_LINES_PER_FILE, load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
 from prodesk.session_phase import enforce_validation_phase
@@ -21,9 +26,6 @@ EDGE_EVALUATION = "edge_evaluation"
 ORDER_SUBMIT = "order_submit"
 FILL = "fill"
 BOOK_TOP = "book_top"
-HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-HISTORICAL_PREEXPIRY_REDUCE_ONLY_ACTIVE_FIELD = "preexpiry_reduce_only_active"
-HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
 CANONICAL_EVALUATION_HORIZON_MS = 5000
 REDACTED_TOKEN_ID = "[REDACTED]"
 

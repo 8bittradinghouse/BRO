@@ -54,8 +54,8 @@
   - `5` rows emitted `block_reason=maker_timing_gate_closed`
   - raw `edge_evaluation` rows for those same rows still preserved
     `late_window_authority_class=reduce_only_recovery_only`
-  - the changed label came from `reduce_only_recovery_active=true`, which kept
-    `maker_allowed=true` even while `maker_new_risk_allowed=false`
+  - the changed label came from historical recovery-lineage truth, which kept
+    maker phase permission open while historical new-exposure authority stayed closed
 - `VERIFIED`: no current watched maker row emitted
   `new_exposure_expiry_gate_blocked`.
   - the exact `15.0s` split remains a code/doctrine seam

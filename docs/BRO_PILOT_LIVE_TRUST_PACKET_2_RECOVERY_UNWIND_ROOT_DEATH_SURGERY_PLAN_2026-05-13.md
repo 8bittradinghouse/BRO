@@ -67,7 +67,7 @@ The runtime family to remove is:
    - posture promotion into `PREEXPIRY_REDUCE_ONLY` / `HALT_NEW_RISK`
 3. runtime authority leaves
    - `reduce_only_recovery_allowed`
-   - `preexpiry_emergency_taker_allowed`
+   - historical pre-expiry emergency taker allow field
    - maker-to-taker recovery handoff
    - emergency taker unwind authority
 4. local order-manager recovery behavior

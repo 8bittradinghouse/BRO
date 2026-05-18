@@ -1,39 +1,40 @@
 # BRO Market Lifecycle Cutover Plan
 
 ## Classification
-`support-only`:
-- this file is the implementation-planning companion for the lifecycle blueprint
+`historical-only`:
+- this file was the implementation-planning companion for the lifecycle
+  blueprint surgery
 - it is not a live runtime owner
-- legacy stage-family terms appear here only as cut-list targets or bounded
-  compatibility references
+- legacy stage-family terms appear here only as archived cut-list targets or
+  bounded compatibility references
 
 `VERIFIED`:
-- this is the implementation-planning companion to [BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md](/home/odah/bro/base/docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md).
+- this was the implementation-planning companion to [BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md](/home/odah/bro/base/docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md).
 - it does not create a second doctrine system.
-- it exists to map the currently-wired timing/authority family into:
+- it exists as the archived map of the formerly-wired timing/authority family into:
   - `KEEP AND REPURPOSE`
   - `COMPATIBILITY SEAM ONLY`
   - `CUT COMPLETELY`
 - it is explicitly biased toward `no build` unless reuse is honestly insufficient.
 
 Plain-English:
-this is the cut list and reuse map for turning the current timing-family stack into the one clean market lifecycle system.
+this was the cut list and reuse map for turning the old timing-family stack into the one clean market lifecycle system.
 
 ## Canonical Parent
 Higher authority for the target system is:
 - [BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md](/home/odah/bro/base/docs/BRO_MARKET_LIFECYCLE_BLUEPRINT_2026-05-16.md)
 
-This file answers a different question:
+This file answered a different question during the lifecycle surgery:
 - not "what should the final lifecycle mean?"
-- but "how do we get there from the code we already have without building extra fat?"
+- but "how did we get there from the code we already had without building extra fat?"
 
-## Current Five-Layer Family
+## Archived Five-Layer Family
 ### Layer 1. Raw expiry clock and raw bucket vocabulary
-Current root surfaces:
+Historical root surfaces:
 - [executor.py](/home/odah/bro/base/executor.py:3217)
 - [edge_truth_contract.py](/home/odah/bro/base/prodesk/edge_truth_contract.py:119)
 
-Current behavior:
+Historical behavior:
 - runtime computes `sec_to_expiry`
 - raw stage names are assigned from that clock:
   - `OBSERVE`
@@ -63,11 +64,11 @@ Replacement shape:
   - `resolve`
 
 ### Layer 2. Effective-stage overlay
-Current root surfaces:
+Historical root surfaces:
 - [executor.py](/home/odah/bro/base/executor.py:3235)
 - [edge_truth_contract.py](/home/odah/bro/base/prodesk/edge_truth_contract.py:130)
 
-Current behavior:
+Historical behavior:
 - raw `EXTREME_ONLY` is reinterpreted into:
   - `LATE_DIAGNOSTIC`
   - `MAKER_LATE_WINDOW`
@@ -92,11 +93,11 @@ Replacement shape:
 - if historical replay needs these names temporarily, emit them only through a bounded compatibility adapter derived from lifecycle truth
 
 ### Layer 3. Canonical stage-authority map
-Current root surfaces:
+Historical root surfaces:
 - [edge_truth_contract.py](/home/odah/bro/base/prodesk/edge_truth_contract.py:141)
 - [executor.py](/home/odah/bro/base/executor.py:3182)
 
-Current behavior:
+Historical behavior:
 - `CANONICAL_EDGE_STAGE_POLICY` grants maker/taker authority from stage names
 - late-window authority then overrides that map with a second authority pass
 
@@ -121,7 +122,7 @@ Replacement shape:
 - not from a stage lookup table
 
 ### Layer 4. Lane timing gates and timing thresholds
-Current root surfaces:
+Historical root surfaces:
 - [paper_universal.yaml](/home/odah/bro/base/configs/profiles/paper_universal.yaml:67)
 - [paper_universal.yaml](/home/odah/bro/base/configs/profiles/paper_universal.yaml:82)
 - [paper_universal.yaml](/home/odah/bro/base/configs/profiles/paper_universal.yaml:123)
@@ -130,7 +131,7 @@ Current root surfaces:
 - [risk.py](/home/odah/bro/base/prodesk/risk.py:156)
 - [taker_competitiveness.py](/home/odah/bro/base/prodesk/taker_competitiveness.py:507)
 
-Current behavior:
+Historical behavior:
 - maker has:
   - timing gates
   - selection gates
@@ -172,14 +173,14 @@ Expected removals from this layer:
 - duplicated timing minima/maxima that say the same thing in different places
 
 ### Layer 5. Actionability-owned market ownership
-Current root surfaces:
+Historical root surfaces:
 - [executor.py](/home/odah/bro/base/executor.py:1060)
 - [executor.py](/home/odah/bro/base/executor.py:1129)
 - [executor.py](/home/odah/bro/base/executor.py:1146)
 - [executor.py](/home/odah/bro/base/executor.py:6553)
 - [runtime_semantics.py](/home/odah/bro/base/prodesk/runtime_semantics.py:612)
 
-Current behavior:
+Historical behavior:
 - a pair is authoritative-active only if some token is currently actionable
 - otherwise it can be demoted to `pending_prewarm`
 - runtime can fall into `no_target_standdown`

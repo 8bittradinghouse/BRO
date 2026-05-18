@@ -1,418 +1,58 @@
-BRO OUTCOME TRUTH DOCTRINE (FOUNDATION, LOCKED)
-
-Governance
-
-Document: BRO_OUTCOME_TRUTH_DOCTRINE.txt
-Version: 1.1
-Last Updated (UTC): 2026-03-30
-Authority: BRO Canonical Control-Plane Doctrine
-
-Purpose and Scope
-
-This layer governs interpretation of outcomes.
-It is observational only.
-It does not change runtime trading behavior.
-
-NON-GOALS OF OUTCOME TRUTH LAYER (MANDATORY)
-
-This layer does NOT:
-
-- prove long-term profitability
-- prove strategy optimality
-- prove live venue equivalence
-- modify trading behavior
-- feed adaptive logic
-- replace execution realism modeling
-- justify decisions based on outcomes
-
-Operationally, this remains strict observational measurement only with no runtime feedback into decisions, execution, eligibility, or control-plane behavior.
-
-Core Rule
-
-This layer is not allowed to make the system look good.
-It is only allowed to make the system tell the truth.
-
-Semantic Language Rule
-
-Outcome truth is not allowed to invent a second dialect for runtime behavior.
-
-Required rules:
-
-- outcome surfaces must consume canonical runtime semantics when they exist
-- reconstructed or descriptive-only surfaces must be labeled explicitly and must
-  not silently outrank emitted runtime truth
-- one blocker lane must keep one owner across runtime and outcome surfaces
-- a report must not rename a runtime state in a way that changes what that state
-  means
-
-If a runtime/report mismatch is discovered, the first question is:
-
-- did the runtime emit ambiguous truth,
-- or did the outcome/report layer reinterpret clear runtime truth into a second
-  language?
-
-Do not answer that mismatch by layering additional compensator language on top
-of unresolved semantic drift.
-
-Semantic precedence and consumption rules:
-
-- outcome surfaces consume the canonical live contract names already emitted by
-  runtime when they exist
-- this includes runtime terms such as:
-  - `maker_allowed`
-  - `taker_allowed`
-  - `secondary_oracle_status`
-  - `secondary_oracle_confirmation`
-  - `market_reference_mode`
-  - `market_reference_basis`
-  - `market_reference_source_side`
-  - `market_reference_class`
-  - `runtime_state`
-  - `runtime_classification`
-  - `promotion_eligible`
-  - `authority_status_class`
-  - `order_submit_eligible`
-  - `target_ref`
-  - `block_reason`
-  - `decision_block_reason`
-- outcome surfaces may group granular emitted `block_reason` values into
-  canonical blocker lanes
-- they may not use that grouping to rename the owner of the failure
-- report-side promotion from non-authoritative or incomplete truth to authoritative
-  truth is forbidden unless runtime already emitted that authority class
-
-Separation rule:
-
-- runtime authority/surface classes remain runtime semantics
-- `claim_boundary_class` remains an outcome-truth claim boundary concept only
-- `record_claim_boundary_class` remains an outcome-truth record completeness
-  concept only
-- `outcome_truth_status` remains an outcome completeness concept only
-- none of those outcome-layer concepts may be used to reinterpret or overwrite
-  runtime-emitted meaning
-
-Outcome-layer value vocabulary:
-
-- `outcome_truth_status` current values:
-  - `complete`
-  - `unknown_missing_data`
-  - `unknown_incomplete_lifecycle`
-  - `unknown_missing_decision_reference`
-  - `unknown_missing_eval_reference`
-  - `unknown_missing_linkage`
-- `claim_boundary_class` current values:
-  - `not_provable_missing_inputs`
-  - `not_modeled_incomplete_lifecycle`
-- `record_claim_boundary_class` current values:
-  - `complete`
-  - `partial_missing_data`
-  - `incomplete_lifecycle`
-  - `missing_decision_reference`
-  - `missing_eval_reference`
-  - `unknown`
-- commitment-lens `commitment_outcome_status` is an outcome-only observational
-  sub-lens with:
-  - `complete`
-  - `unknown_missing_data`
-  - `unknown_missing_expiry_horizon`
-  - `unknown_missing_commitment_reference`
-- none of those value sets may be used to rewrite runtime actionability,
-  blocker ownership, or market-reference authority
-
-OUTCOME REFERENCE AVAILABILITY DOCTRINE (MANDATORY)
-
-Outcome classification is only complete when required references are recoverable
-from authoritative run artifacts.
-
-Reference recovery is deterministic and strict-priority:
-
-1. explicit decision reference fields
-2. target_ref linkage
-3. timestamp-bound artifact lookup
-4. token lookup (non-redacted only)
-5. unknown
-
-This order must not be skipped.
-Unknown is required when references remain unavailable after priority recovery.
-
-Target Reference Contract (Mandatory)
-
-`target_ref` exists only to preserve deterministic decision lineage for attribution.
-
-- origin: decision-stage lineage (edge evaluation context)
-- propagation: passive copy only across submit/fill/audit artifacts
-- mutability: immutable once emitted
-- sensitivity: no redacted/secret identifiers
-- stability: unchanged across export/replay
-
-`target_ref` must not be injected into pure market observation streams unless an event is
-causally tied to an actionable lifecycle.
-`book_top` remains a pure market-observation stream.
-
-Reference availability may improve usability, but never by:
-
-- inference from fill-only data
-- inference from pnl
-- inference from future-only market state
-- suppression of missingness
-
-Non-Negotiable Principles
-
-1. No outcome-driven truth.
-
-- A profitable trade does not imply correct decision, good execution, or valid edge.
-- A losing trade does not imply incorrect decision or poor execution.
-
-2. Causal order is fixed.
-
-- Truth flow is one-way:
-  decision -> execution -> market -> outcome
-- Never:
-  outcome -> reinterpret decision
-
-3. Decomposition is mandatory.
-
-Every emitted record decomposes outcome semantics into:
-
-- decision_component
-- execution_component
-- market_component
-
-4. Observation-only for this phase.
-
-This layer:
-
-- does not modify decisions
-- does not modify execution
-- does not modify control-plane behavior
-
-This layer is strictly:
-
-- measurement
-- attribution
-- classification
-
-5. Explicit claim boundaries.
-
-The system must explicitly state:
-
-- what it can prove
-- what it does not prove
-- non-goals
-
-No implied edge claims are allowed.
-
-Canonical Policy Surface (Packet v1)
-
-Policy file: ops/outcome_truth_policy.json
-
-This doctrine file does not hardcode the current numeric runtime settings.
-
-The policy file is the authoritative lower-layer surface for the current
-fighter/runtime specifics, including:
-
-- evaluation horizon
-- decision/eval reference bases
-- slippage / adverse-selection / realized-edge bases
-- deterministic multi-fill aggregation settings
-- classification tolerances
-
-Doctrine law governs claim boundaries and causal discipline.
-The policy file governs the current runtime measurement settings.
-
-Canonical Record Fields
-
-Per outcome record (minimum required semantics):
-
-- decision_id
-- order_submit_id
-- fill_trade_id
-- ts_decision_utc
-- ts_fill_utc
-- ts_eval_utc
-- mid_price_decision
-- fill_price
-- mid_price_eval
-- edge_expected
-- edge_expected_known
-- slippage
-- adverse_selection
-- edge_realized
-- decision_quality
-- execution_quality
-- combined_outcome_class
-- evaluation_horizon_ms
-- outcome_truth_status
-- missing_fields
-- claim_boundary_class
-
-Canonical Definitions
-
-1. Decision timestamp:
-
-- ts_decision_utc
-
-2. Decision price reference:
-
-- mid_price_decision
-- midpoint derived from best_bid_price and best_ask_price at decision reference selection time
-
-3. Expected edge:
-
-- edge_expected
-- source: linked edge_evaluation.edge_value
-- if unavailable -> edge_expected = null and edge_expected_known = false
-
-4. Fill price:
-
-- fill_price
-- single fill: fill price
-- multi-fill: deterministic VWAP
-
-5. Evaluation horizon:
-
-- ts_eval_utc = ts_decision_utc + policy-defined evaluation horizon
-
-6. Evaluation market reference:
-
-- mid_price_eval
-- midpoint derived from best_bid_price and best_ask_price at evaluation reference selection time
-- when recovered from canonical edge streams rather than direct book replay, basis must be explicitly emitted as reconstructed midpoint reference
-
-7. Slippage (direction-aware):
-
-- slippage = sign(side) * (fill_price - mid_price_decision)
-
-8. Adverse selection (direction-aware):
-
-- adverse_selection = sign(side) * (fill_price - mid_price_eval)
-
-9. Realized edge:
-
-- edge_realized = sign(side) * (mid_price_eval - fill_price)
-
-Reference Basis Semantics (Mandatory)
-
-Each record must explicitly emit:
-
-- decision_reference_basis
-- eval_reference_basis
-
-Allowed basis enums:
-
-- direct_book_midpoint
-- edge_market_midpoint
-- edge_market_midpoint_series
-- other_explicit
-- unknown
-
-Claim boundary interpretation:
-
-- deterministic recovery does not imply direct raw venue-book replay
-- direct and reconstructed midpoint bases must remain explicitly distinguishable in artifacts
-
-Timestamp Anchoring Precedence (Mandatory)
-
-Decision anchoring must prefer:
-
-1. decision_reference_ts_utc
-2. ts_decision_utc
-3. linked edge ts_decision_utc (fallback only)
-
-If none exist:
-
-- keep unknown
-- do not infer from fills or later outcome state
-
-Classification Model (Mandatory)
-
-Decision quality enum:
-
-- correct
-- incorrect
-- neutral
-- unknown
-
-Execution quality enum:
-
-- favorable
-- unfavorable
-- neutral
-- unknown
-
-Combined outcome enum:
-
-- correct_decision_good_execution
-- correct_decision_poor_execution
-- incorrect_decision_good_execution
-- incorrect_decision_poor_execution
-- neutral_decision_neutral_execution
-- unknown
-
-Outcome truth status enum:
-
-- complete
-- unknown_missing_data
-- unknown_incomplete_lifecycle
-- unknown_missing_eval_reference
-- unknown_missing_linkage
-
-Claim boundary class enum:
-
-- not_modeled_incomplete_lifecycle
-- not_provable_missing_inputs
-
-Critical Rules
-
-Rule 1: No hindsight decision rewrite.
-
-- decision_quality uses only side, mid_price_decision, and mid_price_eval
-
-Rule 2: Unknown is valid and mandatory.
-
-- missing required data yields explicit unknown status/classes
-- never inferred, approximated silently, or dropped silently
-
-Rule 3: PnL is not a classification signal.
-
-- PnL may be reported elsewhere
-- PnL cannot determine decision_quality, execution_quality, or combined_outcome_class
-
-Rule 4: Fixed horizon only.
-
-- all records in a given packet must use one explicit policy-defined evaluation
-  horizon; do not silently mix multiple horizons inside the same outcome-truth
-  claim surface
-
-Rule 5: Additive-only integration.
-
-- this layer must not alter runtime decision/execution/control behavior
-
-Required Run-Level Output Surface
-
-Run-level audit artifact: outcome_truth_audit.json
-
-Must include:
-
-- outcome_truth_policy
-- classification_tolerances
-- claim_boundary
-- counts for complete/unknown/incomplete records
-- decision_quality distribution
-- execution_quality distribution
-- combined_outcome distribution
-- slippage/adverse/expected/realized summaries
-- missingness counts
-- deterministic hashes
-
-Failure Conditions
-
-This doctrine layer is invalid if:
-
-- classification depends on PnL
-- horizon is inconsistent or non-canonical
-- required policy surface is missing
-- missing data is silently ignored
-- unknown paths are not counted explicitly
-- claim boundaries are absent
-- runtime behavior is modified by this layer
+BRO OUTCOME TRUTH DOCTRINE
+
+Classification
+
+- `current owner`
+- observational-only interpretation layer
+
+Purpose
+
+Outcome truth measures what happened after decisions and execution.
+It must never rewrite runtime authority or make the system look better than it
+was.
+
+Core rules
+
+- runtime truth flows into outcome truth
+- outcome truth must not reinterpret runtime rows into a second dialect
+- profitability is not proof of correctness
+- loss is not proof of incorrectness
+- outcome truth does not modify runtime behavior
+
+Current owner vocabulary consumed from runtime
+
+- `lifecycle_phase`
+- `lineage_stage`
+- `maker_phase_allowed`
+- `taker_phase_allowed`
+- `maker_gate_open`
+- `taker_gate_open`
+- `block_reason`
+- `decision_block_reason`
+- `action_taken`
+- `submitted`
+- `filled`
+- `secondary_oracle_status`
+- `secondary_oracle_confirmation`
+- `market_reference_basis`
+- `market_reference_source_side`
+- `market_reference_class`
+- `runtime_classification`
+- `promotion_eligible`
+- `target_ref`
+
+Outcome-only concepts
+
+- `claim_boundary_class`
+- `record_claim_boundary_class`
+- `outcome_truth_status`
+- `execution_realism_class`
+
+These may classify completeness or realism.
+They may not rewrite lifecycle posture, blocker ownership, or lane permission.
+
+Retired live vocabulary
+
+Outcome truth must not treat stage-family or old runtime-posture aliases as
+current-owner runtime language. If historical artifacts still contain that
+older vocabulary, it must stay explicitly historical or replay-only.

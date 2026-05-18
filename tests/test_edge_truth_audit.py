@@ -6,11 +6,13 @@ import unittest
 from pathlib import Path
 
 from prodesk.edge_truth_contract import normalize_block_reason
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as _HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as _HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.run_contract import build_run_contract, write_run_contract
 from scripts.edge_truth_audit import run_audit
 
-_HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-_HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
 _HISTORICAL_RECOVERY_REASON = "preexpiry_reduce_only_window_active"
 
 
@@ -213,7 +215,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                         "kill_switch": False,
                         "external_guard_active": False,
@@ -275,7 +277,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -336,7 +338,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -397,7 +399,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -454,7 +456,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -514,7 +516,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -573,7 +575,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -637,7 +639,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -697,7 +699,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -759,7 +761,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -819,7 +821,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -894,7 +896,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -955,7 +957,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": contract_run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -1016,7 +1018,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -1077,7 +1079,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -1142,7 +1144,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -1207,7 +1209,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],
@@ -1271,7 +1273,7 @@ class EdgeTruthAuditTests(unittest.TestCase):
                     {
                         "run_id": run_id,
                         "ts_utc": "2026-03-22T00:00:02Z",
-                        "runtime_state": "active",
+                        "lifecycle_phase": "active",
                         "target_count": 1,
                     }
                 ],

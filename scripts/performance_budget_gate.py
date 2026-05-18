@@ -27,9 +27,6 @@ def _row_is_scan_phase(row: Dict[str, Any]) -> bool:
     lifecycle_phase = str(row.get("lifecycle_phase") or "").strip().lower()
     if lifecycle_phase:
         return lifecycle_phase == "scan"
-    runtime_state = str(row.get("runtime_state") or "").strip().lower()
-    if runtime_state:
-        return runtime_state == "scan"
     return False
 
 

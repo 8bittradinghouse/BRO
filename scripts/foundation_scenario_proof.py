@@ -11,6 +11,10 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 from prodesk.chainlink_feed import ChainlinkFeed
 from prodesk.edge_truth_contract import LEGACY_EDGE_AUTHORITY_FIELD_NAMES
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_RECOVERY_ACTIVE_FIELD as HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD as HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.run_contract import build_run_contract, write_run_contract
 from scripts.order_lifecycle_audit import run_audit as run_lifecycle_audit
 from scripts.paper_harness_audit import run_audit as run_paper_harness_audit
@@ -23,9 +27,6 @@ AUDIT_SURFACE_NAMES = (
     "paper_harness_audit",
     "order_lifecycle_audit",
 )
-HISTORICAL_RECOVERY_ACTIVE_FIELD = "reduce_only_recovery_active"
-HISTORICAL_RECOVERY_REASON_FIELD = "reduce_only_recovery_reason"
-
 
 def _has_historical_lifecycle_lineage(row: Dict[str, Any]) -> bool:
     if bool(row.get(HISTORICAL_RECOVERY_ACTIVE_FIELD, False)):
@@ -94,7 +95,7 @@ def _base_status_row(
         "ts_source_utc": None,
         "ts_decision_utc": ts_utc,
         "time_policy": _time_policy(),
-        "runtime_state": "prepare",
+        "lifecycle_phase": "prepare",
         "lifecycle_phase": "prepare",
         "active_targets_present": True,
         "scan_phase": False,
@@ -148,14 +149,17 @@ def _event(
     }
     row.update(extra)
     normalized_event_type = str(event_type).strip().lower()
-    if normalized_event_type == "runtime_state_transition" and not str(row.get("lifecycle_phase") or "").strip():
-        runtime_state = str(row.get("runtime_state") or "").strip().lower()
+    if normalized_event_type == "lifecycle_phase_transition" and not str(row.get("lifecycle_phase") or "").strip():
+        lifecycle_phase = str(
+            row.get("previous_lifecycle_phase")
+            or ""
+        ).strip().lower()
         row["lifecycle_phase"] = {
             "scan": "scan",
             "prepare": "prepare",
             "active": "prepare",
             "safety_halt": "resolve",
-        }.get(runtime_state, "prepare")
+        }.get(lifecycle_phase, "prepare")
     if normalized_event_type == "order_submit" and not str(row.get("lifecycle_phase") or "").strip():
         execution_preference = str(row.get("execution_preference") or "").strip().lower()
         row["lifecycle_phase"] = (
@@ -240,11 +244,11 @@ def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[s
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "scan",
-                "runtime_state": "prepare",
+                "previous_lifecycle_phase": "scan",
+                "lifecycle_phase": "prepare",
                 "lifecycle_phase": "prepare",
                 "active_targets_present": True,
                 "scan_phase": False,
@@ -309,7 +313,7 @@ def _clean_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dict[s
                 "execution_preference": "maker_preferred",
                 "market_id": "m-clean",
                 "window_id": "2026-03-30T00:00",
-                "stage": "MAKER_POSITION",
+                "lineage_stage": "MAKER_POSITION",
             },
         ),
         _event(
@@ -369,11 +373,11 @@ def _degraded_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "active",
-                "runtime_state": "active",
+                "previous_lifecycle_phase": "active",
+                "lifecycle_phase": "active",
                 "active_targets_present": True,
                 "scan_phase": False,
                 "previous_market_truth_required": True,
@@ -453,17 +457,17 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "active",
-                "runtime_state": "active",
+                "previous_lifecycle_phase": "active",
+                "lifecycle_phase": "active",
                 "active_targets_present": True,
                 "scan_phase": False,
                 "previous_market_truth_required": True,
                 "market_truth_required": True,
                 "kill_switch": False,
-                "transition_reason_code": "runtime_state_changed",
+                "transition_reason_code": "lifecycle_phase_changed",
                 "transition_reason_detail": "scenario_reconnect",
             },
         ),
@@ -521,7 +525,7 @@ def _reconnect_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Di
                 "execution_preference": "taker_only",
                 "market_id": "m-reconnect",
                 "window_id": "2026-03-30T00:01",
-                "stage": "SNIPER_PRIMARY",
+                "lineage_stage": "SNIPER_PRIMARY",
             },
         ),
         _event(
@@ -581,17 +585,17 @@ def _disorder_scenario_rows(run_id: str, base_ts: dt.datetime) -> Tuple[List[Dic
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "active",
-                "runtime_state": "active",
+                "previous_lifecycle_phase": "active",
+                "lifecycle_phase": "active",
                 "active_targets_present": True,
                 "scan_phase": False,
                 "previous_market_truth_required": True,
                 "market_truth_required": True,
                 "kill_switch": False,
-                "transition_reason_code": "runtime_state_changed",
+                "transition_reason_code": "lifecycle_phase_changed",
                 "transition_reason_detail": "scenario_disorder",
             },
         ),
@@ -678,11 +682,11 @@ def _thin_liquidity_partial_fill_scenario_rows(
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "scan",
-                "runtime_state": "active",
+                "previous_lifecycle_phase": "scan",
+                "lifecycle_phase": "active",
                 "active_targets_present": True,
                 "scan_phase": False,
                 "previous_market_truth_required": False,
@@ -735,7 +739,7 @@ def _thin_liquidity_partial_fill_scenario_rows(
                 "execution_preference": "taker_only",
                 "market_id": "m-thin",
                 "window_id": "2026-03-30T00:04",
-                "stage": "SNIPER_PRIMARY",
+                "lineage_stage": "SNIPER_PRIMARY",
             },
         ),
         _event(
@@ -779,7 +783,7 @@ def _poor_truth_standdown_scenario_rows(
                 ws_updates_ws=0.0,
                 ws_updates_rest=2.0,
             ),
-            "runtime_state": "resolve",
+            "lifecycle_phase": "resolve",
             "lifecycle_phase": "resolve",
             "kill_switch": True,
             "active_targets_present": True,
@@ -802,7 +806,7 @@ def _poor_truth_standdown_scenario_rows(
                 ws_updates_ws=0.0,
                 ws_updates_rest=3.0,
             ),
-            "runtime_state": "resolve",
+            "lifecycle_phase": "resolve",
             "lifecycle_phase": "resolve",
             "kill_switch": True,
             "active_targets_present": True,
@@ -813,11 +817,11 @@ def _poor_truth_standdown_scenario_rows(
     events = [
         _event(
             run_id=run_id,
-            event_type="runtime_state_transition",
+            event_type="lifecycle_phase_transition",
             ts_utc=_iso(base_ts + dt.timedelta(seconds=1)),
             extra={
-                "previous_runtime_state": "active",
-                "runtime_state": "resolve",
+                "previous_lifecycle_phase": "active",
+                "lifecycle_phase": "resolve",
                 "active_targets_present": True,
                 "scan_phase": False,
                 "previous_market_truth_required": True,

@@ -21,6 +21,11 @@ from prodesk.config import (
 )
 from prodesk.edge_truth_contract import EVENT_TAKER_DECISION, TAKER_CHAINLINK_REASON
 from prodesk.gateway import PaperGateway, PostOnlyRejectError
+from prodesk.historical_recovery_replay_compat import (
+    HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_FIELD as _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD,
+    HISTORICAL_RECOVERY_ACTIVE_FIELD,
+    HISTORICAL_RECOVERY_REASON_FIELD,
+)
 from prodesk.latency_verifier import LatencySnapshot
 from prodesk.logging_utils import EventLogger
 from prodesk.models import BookTop, FillEvent, LiveOrder, OrderIntent, Position
@@ -36,7 +41,9 @@ from prodesk.wallet_doctrine import WalletAuthorization
 class ExecutionStackTests(unittest.TestCase):
     _HISTORICAL_PREEXPIRY_EMERGENCY_UNWIND_EVENT = "preexpiry_emergency_taker_unwind"
     _HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED = "maker_to_taker_recovery_handoff_disabled"
-    _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD = "preexpiry_emergency_taker_window_sec"
+    _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD = (
+        _HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD
+    )
     _HISTORICAL_RECOVERY_MIN_FILL_PROB_FIELD = (
         "reduce_only_recovery_min_expected_fill_prob_floor"
     )
@@ -70,7 +77,7 @@ class ExecutionStackTests(unittest.TestCase):
     @staticmethod
     def _historical_recovery_lineage_stage_info(
         *,
-        stage: str = "MAKER_TAKER_SELECTIVE",
+        lineage_stage: str = "MAKER_TAKER_SELECTIVE",
         sec_to_expiry: float = 45.0,
         taker_gate_open: bool = True,
         reduce_only_side: str = "SELL",
@@ -79,7 +86,7 @@ class ExecutionStackTests(unittest.TestCase):
         **extra: object,
     ) -> dict:
         info: dict[str, object] = {
-            "stage": stage,
+            "lineage_stage": lineage_stage,
             "sec_to_expiry": sec_to_expiry,
             "maker_phase_allowed": False,
             "taker_phase_allowed": taker_gate_open,
@@ -87,11 +94,38 @@ class ExecutionStackTests(unittest.TestCase):
             "taker_gate_open": taker_gate_open,
             # Historical-only lineage hints kept in one place so they do not sprawl
             # across current execution-stack semantics.
-            "reduce_only_recovery_active": True,
-            "reduce_only_recovery_reason": "preexpiry_reduce_only_window_active",
+            HISTORICAL_RECOVERY_ACTIVE_FIELD: True,
+            HISTORICAL_RECOVERY_REASON_FIELD: "preexpiry_reduce_only_window_active",
             "reduce_only_side": reduce_only_side,
             "reduce_only_size_cap_shares": reduce_only_size_cap_shares,
             "expired_reduce_only_grace_active": expired_reduce_only_grace_active,
+        }
+        info.update(extra)
+        return info
+
+    @staticmethod
+    def _active_lifecycle_info(
+        *,
+        lifecycle_phase: str,
+        lineage_stage: str,
+        sec_to_expiry: float,
+        maker_phase_allowed: bool | None = None,
+        taker_phase_allowed: bool | None = None,
+        maker_gate_open: bool | None = None,
+        taker_gate_open: bool | None = None,
+        **extra: object,
+    ) -> dict:
+        phase = str(lifecycle_phase or "").strip().lower() or "scan"
+        maker_open = phase == "maker_window"
+        taker_open = phase == "taker_window"
+        info: dict[str, object] = {
+            "lifecycle_phase": phase,
+            "lineage_stage": str(lineage_stage or "").strip().upper(),
+            "sec_to_expiry": float(sec_to_expiry),
+            "maker_phase_allowed": maker_open if maker_phase_allowed is None else bool(maker_phase_allowed),
+            "taker_phase_allowed": taker_open if taker_phase_allowed is None else bool(taker_phase_allowed),
+            "maker_gate_open": maker_open if maker_gate_open is None else bool(maker_gate_open),
+            "taker_gate_open": taker_open if taker_gate_open is None else bool(taker_gate_open),
         }
         info.update(extra)
         return info
@@ -163,7 +197,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -194,7 +228,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.60,
@@ -385,7 +419,7 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 15.0, places=9)
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
                 shadow_event={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
                     "same_target_side_submit_count_prior": 0,
@@ -395,7 +429,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "maker_phase_allowed": True,
                     "lifecycle_phase": "maker_window",
                 },
-                competitiveness_context={"stage": "MAKER_TAKER_SELECTIVE", "lifecycle_phase": "maker_window"},
+                competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE", "lifecycle_phase": "maker_window"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
             self.assertEqual(bool(verdict.get("timing_window_met")), True)
@@ -504,7 +538,7 @@ class ExecutionStackTests(unittest.TestCase):
         runner.risk_min_order_size_shares = 1.0
 
         posture = runner._resolve_financial_posture_class(
-            stage_info_by_token={
+            lifecycle_info_by_token={
                 "tok1": {
                     "reduce_only_recovery_active": True,
                     "sec_to_expiry": 5.0,
@@ -517,7 +551,7 @@ class ExecutionStackTests(unittest.TestCase):
 
         runner._valuation_hard_degraded = True
         hard_degraded = runner._resolve_financial_posture_class(
-            stage_info_by_token={
+            lifecycle_info_by_token={
                 "tok1": {
                     "reduce_only_recovery_active": True,
                     "sec_to_expiry": 12.0,
@@ -544,7 +578,8 @@ class ExecutionStackTests(unittest.TestCase):
         context = runner._build_submission_lifecycle_context(
             token_id="tok1",
             info={
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "prepare",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "sec_to_expiry": 5.0,
                 "settlement_hold_required": True,
                 "open_order_cleanup_required": False,
@@ -553,7 +588,7 @@ class ExecutionStackTests(unittest.TestCase):
                 "held_net_shares": 3.0,
             },
             submission_lane="maker",
-            stage="MAKER_TAKER_SELECTIVE",
+            lineage_stage="MAKER_TAKER_SELECTIVE",
         )
         self.assertEqual(str(context.get("lifecycle_phase") or ""), "prepare")
         self.assertTrue(bool(context.get("market_truth_required")))
@@ -594,7 +629,7 @@ class ExecutionStackTests(unittest.TestCase):
         runner._build_submission_lifecycle_context(
             token_id="tok1",
             info={
-                "stage": "MAKER_LATE_WINDOW",
+                "lineage_stage": "MAKER_LATE_WINDOW",
                 "lifecycle_phase": "maker_window",
                 "settlement_hold_required": False,
                 "open_order_cleanup_required": False,
@@ -602,7 +637,7 @@ class ExecutionStackTests(unittest.TestCase):
                 "cancel_fail_closed": False,
             },
             submission_lane="maker",
-            stage="MAKER_LATE_WINDOW",
+            lineage_stage="MAKER_LATE_WINDOW",
         )
 
         missing_rows = [payload for event_type, payload in captured if event_type == "lifecycle_context_missing"]
@@ -1366,7 +1401,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             first = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
             )
             self.assertGreaterEqual(first["actions"], 2)
             self.assertGreaterEqual(first["open_orders"], 2)
@@ -1383,7 +1418,7 @@ class ExecutionStackTests(unittest.TestCase):
             gateway.on_book(cross)
             second = manager.step(
                 {"t1": cross},
-                competitiveness_context_by_token={"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
             )
             self.assertGreaterEqual(second["fills"], 1)
             self.assertGreater(positions["t1"].buy_shares + positions["t1"].sell_shares, 0.0)
@@ -1424,7 +1459,7 @@ class ExecutionStackTests(unittest.TestCase):
                 side_policy_by_token={"t1": "BUY_ONLY"},
                 competitiveness_context_by_token={
                     "t1": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "sec_to_expiry": 45.0,
                         "side_policy": "BUY_ONLY",
                         "one_sided_active": True,
@@ -1482,7 +1517,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -1512,7 +1547,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.60,
@@ -1577,13 +1612,13 @@ class ExecutionStackTests(unittest.TestCase):
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
                 shadow_event={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
                     "same_target_side_submit_count_prior": 0,
                     "secondary_oracle_confirmation": True,
                 },
-                competitiveness_context={"stage": "MAKER_TAKER_SELECTIVE"},
+                competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
             self.assertEqual(bool(verdict.get("passed")), False)
@@ -1617,14 +1652,14 @@ class ExecutionStackTests(unittest.TestCase):
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
                 shadow_event={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
                     "same_target_side_submit_count_prior": 0,
                     "secondary_oracle_confirmation": True,
                     "sec_to_expiry": 16.0,
                 },
-                competitiveness_context={"stage": "MAKER_TAKER_SELECTIVE"},
+                competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
             self.assertEqual(bool(verdict.get("passed")), False)
@@ -1659,14 +1694,14 @@ class ExecutionStackTests(unittest.TestCase):
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
                 shadow_event={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
                     "same_target_side_submit_count_prior": 0,
                     "secondary_oracle_confirmation": True,
                     "sec_to_expiry": 9.0,
                 },
-                competitiveness_context={"stage": "MAKER_TAKER_SELECTIVE"},
+                competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
             self.assertEqual(bool(verdict.get("passed")), False)
@@ -1696,7 +1731,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -1717,7 +1752,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.60,
@@ -1787,7 +1822,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -1817,7 +1852,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.60,
@@ -1873,7 +1908,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
                 shadow_event={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 0.50,
                     "visible_depth_shares": 100.0,
                     "same_target_submit_count_prior": 2,
@@ -1882,7 +1917,7 @@ class ExecutionStackTests(unittest.TestCase):
                     "sec_to_expiry": 55.0,
                 },
                 competitiveness_context={
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "secondary_oracle_confirmation": True,
                     "sec_to_expiry": 55.0,
                 },
@@ -1927,7 +1962,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -1958,7 +1993,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             buy_context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "market_reference_mode": "direct_midpoint",
@@ -1975,7 +2010,7 @@ class ExecutionStackTests(unittest.TestCase):
             }
             sell_context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "market_reference_mode": "direct_midpoint",
@@ -2034,7 +2069,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -2064,7 +2099,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "market_reference_mode": "direct_midpoint",
@@ -2131,7 +2166,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reason = manager._place_order(  # pylint: disable=protected-access
                 intent,
@@ -2140,7 +2175,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                     # Historical recovery-era hint; current runtime must ignore it.
                     "reduce_only_size_cap_shares": 1.25,
@@ -2175,7 +2210,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-alpha",
                         )
                     ]
@@ -2206,7 +2241,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.60,
@@ -2290,7 +2325,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test_cross_guard",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-cross-guard",
                         )
                     ]
@@ -2319,7 +2354,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.61,
@@ -2397,7 +2432,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test_cross_guard_risk",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                             target_ref="target-cross-guard-risk",
                         )
                     ]
@@ -2426,7 +2461,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             context = {
                 "t1": {
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "fair_probability": 0.61,
@@ -2486,7 +2521,7 @@ class ExecutionStackTests(unittest.TestCase):
                             tif="GTC",
                             post_only=True,
                             reason="mm_quote:test",
-                            stage="MAKER_TAKER_SELECTIVE",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
                         )
                     ]
 
@@ -2551,7 +2586,7 @@ class ExecutionStackTests(unittest.TestCase):
                 )
                 runner._emit_maker_edge_evaluations(
                     books={"t1": top},
-                    stage_info_by_token={"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 12.0}},
+                    lifecycle_info_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 12.0}},
                     maker_eval_token_ids={"t1"},
                     maker_submitted_token_ids=set(),
                     maker_submitted_order_ids_by_token={},
@@ -2602,11 +2637,11 @@ class ExecutionStackTests(unittest.TestCase):
         cfg["chainlink"]["enabled"] = False
 
         runner = ExecutionRunner(cfg)
-        stage_info_by_token = {
-            "t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 12.0, "maker_gate_open": False},
-            "t2": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 55.0, "maker_gate_open": True},
-            "t3": {"stage": "EXTREME_ONLY", "sec_to_expiry": 19.5, "maker_gate_open": False},
-            "t4": {"stage": "EXPIRED", "sec_to_expiry": -1.0, "maker_gate_open": False},
+        lifecycle_info_by_token = {
+            "t1": {"lineage_stage": "EXTREME_ONLY", "sec_to_expiry": 12.0, "maker_gate_open": False},
+            "t2": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 55.0, "maker_gate_open": True},
+            "t3": {"lineage_stage": "EXTREME_ONLY", "sec_to_expiry": 19.5, "maker_gate_open": False},
+            "t4": {"lineage_stage": "EXPIRED", "sec_to_expiry": -1.0, "maker_gate_open": False},
         }
         books = {
             "t1": object(),
@@ -2614,7 +2649,7 @@ class ExecutionStackTests(unittest.TestCase):
             "t3": object(),
         }
         token_ids = runner._maker_cannon_probe_token_ids(
-            stage_info_by_token=stage_info_by_token,
+            lifecycle_info_by_token=lifecycle_info_by_token,
             books=books,
         )
         self.assertEqual(token_ids, {"t1", "t3"})
@@ -2656,7 +2691,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reason = manager._place_order(  # pylint: disable=protected-access
                 intent,
@@ -2665,7 +2700,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "HALT_NEW_RISK",
                     "sec_to_expiry": 45.0,
                     # Historical recovery-era hint; current runtime must not let it
@@ -2715,7 +2750,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reason = manager._place_order(  # pylint: disable=protected-access
                 intent,
@@ -2724,7 +2759,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "HALT_NEW_RISK",
                     "sec_to_expiry": 45.0,
                     # Historical recovery-era hint; current runtime must ignore it.
@@ -2796,7 +2831,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed_recovery, reject_recovery = manager._place_order(  # pylint: disable=protected-access
                 recovery_intent,
@@ -2805,7 +2840,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                     "reduce_only_size_cap_shares": 2.0,
                     "reduce_only_min_order_size_shares": 1.0,
@@ -2822,7 +2857,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="maker_quote",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed_non_recovery, reject_non_recovery = manager._place_order(  # pylint: disable=protected-access
                 non_recovery_intent,
@@ -2831,7 +2866,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                 },
             )
@@ -2880,7 +2915,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed_recovery, reject_recovery = manager._place_order(  # pylint: disable=protected-access
                 reduce_only_intent,
@@ -2889,7 +2924,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                     "reduce_only_size_cap_shares": 2.0,
                 },
@@ -2905,7 +2940,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="maker_quote",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed_non_recovery, reject_non_recovery = manager._place_order(  # pylint: disable=protected-access
                 non_recovery_intent,
@@ -2914,7 +2949,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                 },
             )
@@ -2962,7 +2997,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="maker_quote",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reject_reason = manager._place_order(  # pylint: disable=protected-access
                 intent,
@@ -2971,7 +3006,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                 },
             )
@@ -3099,14 +3134,14 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reject_reason = manager._place_order(
                 intent,
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE"},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertIsNone(placed)
             self.assertEqual(reject_reason, "maker_commitment_context_missing")
@@ -3158,7 +3193,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             placed, reject_reason = manager._place_order(
                 intent,
@@ -3167,7 +3202,7 @@ class ExecutionStackTests(unittest.TestCase):
                 open_orders_total=0,
                 risk_context={
                     "submission_lane": "maker",
-                    "stage": "MAKER_TAKER_SELECTIVE",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 12.0,
                 },
             )
@@ -3466,7 +3501,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3513,7 +3548,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3586,7 +3621,7 @@ class ExecutionStackTests(unittest.TestCase):
                 side_policy_by_token={"t1": "SELL_ONLY"},
                 competitiveness_context_by_token={
                     "t1": {
-                        "stage": "MAKER_TAKER_SELECTIVE",
+                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
                         "financial_posture_class": "NORMAL",
                         "sec_to_expiry": 18.0,
                     }
@@ -3631,7 +3666,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3823,7 +3858,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
             self.assertEqual(first_reason, "pre_submit_cross_guarded")
@@ -3846,7 +3881,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
             self.assertIsNone(second_reason)
@@ -3903,7 +3938,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(placed)
             self.assertIsNone(reason)
@@ -3972,7 +4007,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
             self.assertEqual(first_reason, "post_only_reject")
@@ -3986,7 +4021,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
             self.assertIsNone(second_reason)
@@ -4056,7 +4091,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
             self.assertEqual(first_reason, "order_submit_exception")
@@ -4070,7 +4105,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
             self.assertIsNone(second_reason)
@@ -4132,7 +4167,7 @@ class ExecutionStackTests(unittest.TestCase):
                     top,
                     open_orders_for_token=[],
                     open_orders_total=0,
-                    risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                    risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
                 )
             self.assertIsNone(placed)
             self.assertEqual(reason, "wallet_confirm_submission_failed")
@@ -4190,7 +4225,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(order)
             self.assertIsNone(reason)
@@ -4257,7 +4292,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(order)
             self.assertEqual(reason, "order_submit_no_ack")
@@ -4346,7 +4381,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(order)
             self.assertIsNone(reason)
@@ -4412,7 +4447,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(first)
             self.assertIsNone(first_reason)
@@ -4421,7 +4456,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=1,
-                risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
+                risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(second)
             self.assertEqual(second_reason, "order_soft_throttle")
@@ -4490,11 +4525,11 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="legacy_lifecycle_probe",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             recovery_context = {
                 "submission_lane": "maker",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "sec_to_expiry": 45.0,
                 "reduce_only_size_cap_shares": 1.0,
             }
@@ -4666,13 +4701,13 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertNotIn("stage", reject_basis or {})
             self.assertNotIn("stage", submit_basis or {})
             self.assertEqual(str(risk_reject_rows[-1].get("lifecycle_phase") or ""), "prepare")
-            self.assertEqual(str(risk_reject_rows[-1].get("lifecycle_phase_source") or ""), "risk_decision_basis")
+            self.assertEqual(str(risk_reject_rows[-1].get("lifecycle_phase_source") or ""), "intent_lifecycle_phase")
             self.assertIsNone(risk_reject_rows[-1].get("lifecycle_phase_unknown_reason"))
             self.assertNotIn("stage", risk_reject_rows[-1])
             self.assertNotIn("stage_source", risk_reject_rows[-1])
             self.assertNotIn("stage_unknown_reason", risk_reject_rows[-1])
             self.assertEqual(str(order_submit_rows[-1].get("lifecycle_phase") or ""), "prepare")
-            self.assertEqual(str(order_submit_rows[-1].get("lifecycle_phase_source") or ""), "risk_decision_basis")
+            self.assertEqual(str(order_submit_rows[-1].get("lifecycle_phase_source") or ""), "intent_lifecycle_phase")
             self.assertIsNone(order_submit_rows[-1].get("lifecycle_phase_unknown_reason"))
             self.assertNotIn("stage", order_submit_rows[-1])
             self.assertNotIn("stage_source", order_submit_rows[-1])
@@ -4718,14 +4753,20 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage="EXTREME_ONLY",
+                lineage_stage="EXTREME_ONLY",
             )
             with mock.patch.object(
                 manager,
                 "_resolve_order_size_shares_with_details",
                 return_value=(None, {"forced": True}),
             ):
-                placed, reject_reason = manager._place_order(intent, top, open_orders_for_token=[], open_orders_total=0)
+                placed, reject_reason = manager._place_order(
+                    intent,
+                    top,
+                    open_orders_for_token=[],
+                    open_orders_total=0,
+                    risk_context={"submission_lane": "maker", "lifecycle_phase": "prepare", "sec_to_expiry": 45.0},
+                )
             self.assertIsNone(placed)
             self.assertEqual(reject_reason, "sizing_reject")
 
@@ -4746,7 +4787,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             self.assertEqual(str(row.get("submission_lane") or ""), "maker")
             self.assertEqual(str(row.get("lifecycle_phase") or ""), "prepare")
-            self.assertEqual(str(row.get("lifecycle_phase_source") or ""), "intent_stage_compat")
+            self.assertEqual(str(row.get("lifecycle_phase_source") or ""), "intent_lifecycle_phase")
             self.assertIsNone(row.get("lifecycle_phase_unknown_reason"))
             self.assertNotIn("stage", row)
             self.assertNotIn("stage_source", row)
@@ -4792,7 +4833,7 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage=None,
+                lineage_stage=None,
             )
             with mock.patch.object(
                 manager,
@@ -4804,7 +4845,12 @@ class ExecutionStackTests(unittest.TestCase):
                     top,
                     open_orders_for_token=[],
                     open_orders_total=0,
-                    risk_context={"stage": "EXTREME_ONLY", "submission_lane": "maker"},
+                    risk_context={
+                        "lineage_stage": "EXTREME_ONLY",
+                        "submission_lane": "maker",
+                        "lifecycle_phase": "prepare",
+                        "sec_to_expiry": 45.0,
+                    },
                 )
             self.assertIsNone(placed)
             self.assertEqual(reject_reason, "sizing_reject")
@@ -4826,7 +4872,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             self.assertEqual(str(row.get("submission_lane") or ""), "maker")
             self.assertEqual(str(row.get("lifecycle_phase") or ""), "prepare")
-            self.assertEqual(str(row.get("lifecycle_phase_source") or ""), "risk_context_stage_compat")
+            self.assertEqual(str(row.get("lifecycle_phase_source") or ""), "intent_lifecycle_phase")
             self.assertIsNone(row.get("lifecycle_phase_unknown_reason"))
             self.assertNotIn("stage", row)
             self.assertNotIn("stage_source", row)
@@ -4874,11 +4920,11 @@ class ExecutionStackTests(unittest.TestCase):
                 tif="GTC",
                 post_only=True,
                 reason="mm_quote:test",
-                stage="MAKER_TAKER_SELECTIVE",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
             )
             risk_context = {
                 "submission_lane": "maker",
-                "stage": "MAKER_TAKER_SELECTIVE",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                 "financial_posture_class": "HALT_NEW_RISK",
                 "sec_to_expiry": 20.0,
                 "reduce_only_side": "SELL",
@@ -5263,7 +5309,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             summary = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
             )
             self.assertEqual(summary["open_orders"], 1)
             self.assertGreaterEqual(telemetry.counters.get("order_soft_throttle_skips", 0), 1)
@@ -5375,7 +5421,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             summary = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
                 max_actions_override=1,
             )
             self.assertEqual(summary["actions"], 1)
@@ -5505,9 +5551,14 @@ class ExecutionStackTests(unittest.TestCase):
                 target_usd=None,
                 top=top,
                 reason=TAKER_CHAINLINK_REASON,
-                stage="EXTREME_ONLY",
+                lifecycle_phase="taker_window",
+                lineage_stage="EXTREME_ONLY",
                 decision_reference_ts_utc="2026-01-01T00:00:00.000Z",
-                competitiveness_context={"stage": "EXTREME_ONLY"},
+                competitiveness_context=self._active_lifecycle_info(
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
+                    sec_to_expiry=5.0,
+                ),
             )
             self.assertTrue(bool(outcome.get("submitted", False)))
             events.close()
@@ -5527,7 +5578,7 @@ class ExecutionStackTests(unittest.TestCase):
                     stage_values.append(str(row.get("lifecycle_phase") or ""))
                     decision_to_submit_latency_ms.append(float(row.get("decision_to_submit_latency_ms") or 0.0))
 
-            self.assertEqual(stage_values, ["prepare"])
+            self.assertEqual(stage_values, ["taker_window"])
             self.assertEqual(len(decision_to_submit_latency_ms), 1)
             self.assertGreater(decision_to_submit_latency_ms[0], 0.0)
         finally:
@@ -7624,7 +7675,7 @@ class ExecutionStackTests(unittest.TestCase):
                     books=books,
                     fair_probability_by_token=fair,
                     token_ids=["t1"],
-                    stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 18.0}},
+                    lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="prepare", lineage_stage="EXTREME_ONLY", sec_to_expiry=18.0)},
                     oracle_tick_age_sec=0.0,
                     latency_snapshot=latency_snapshot,
                     lag_verified_token_ids=["t1"],
@@ -7634,7 +7685,7 @@ class ExecutionStackTests(unittest.TestCase):
                     books=books,
                     fair_probability_by_token=fair,
                     token_ids=["t1"],
-                    stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                    lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                     oracle_tick_age_sec=0.0,
                     latency_snapshot=latency_snapshot,
                     lag_verified_token_ids=["t1"],
@@ -8033,9 +8084,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1", "t2"],
-                        stage_info_by_token={
-                            "t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t2": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t2": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1", "t2"],
@@ -8089,7 +8140,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.40},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -8164,9 +8215,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8248,7 +8299,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.60},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -8256,7 +8307,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.60},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -8332,9 +8383,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token={"t_yes": 0.60, "t_no": 0.40},
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8410,9 +8461,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token={"t_yes": 0.60, "t_no": 0.40},
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8492,9 +8543,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8580,9 +8631,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8705,9 +8756,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
-                        stage_info_by_token={
-                            "t_yes": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
-                            "t_no": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0},
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t_yes", "t_no"],
@@ -8799,7 +8850,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token={"t1": 0.999},
                         token_ids=["t1"],
-                        stage_info_by_token={"t1": {"stage": "EXTREME_ONLY", "sec_to_expiry": 5.0}},
+                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
                         lag_verified_token_ids=["t1"],
                     )
@@ -8873,7 +8924,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -8936,7 +8987,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -8999,7 +9050,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         mode_state=MODE_CAUTIOUS,
@@ -9058,9 +9109,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": {
-                                "stage": "MAKER_TAKER_SELECTIVE",
+                                "lineage_stage": "MAKER_TAKER_SELECTIVE",
                                 "sec_to_expiry": 45.0,
                                 "taker_gate_open": True,
                                 "reduce_only_recovery_active": False,
@@ -9125,7 +9176,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -9185,7 +9236,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={},
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -9254,7 +9305,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={"t1": 0.8},
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=5.0,
                                 reduce_only_side="BUY",
@@ -9317,7 +9368,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books={"t1": top},
                         fair_probability_by_token={},
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -9412,7 +9463,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -9465,7 +9516,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
@@ -9526,7 +9577,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=25.0,
                                 taker_gate_open=False,
@@ -9595,7 +9646,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=5.0,
                                 reduce_only_size_cap_shares=12.0,
@@ -9664,7 +9715,7 @@ class ExecutionStackTests(unittest.TestCase):
                             books=books,
                             fair_probability_by_token=fair,
                             token_ids=["t1"],
-                            stage_info_by_token={
+                            lifecycle_info_by_token={
                                 "t1": self._historical_recovery_lineage_stage_info(
                                     sec_to_expiry=5.0,
                                     reduce_only_size_cap_shares=12.0,
@@ -9743,7 +9794,7 @@ class ExecutionStackTests(unittest.TestCase):
                             books=books,
                             fair_probability_by_token=fair,
                             token_ids=[token_id],
-                            stage_info_by_token={
+                            lifecycle_info_by_token={
                                 token_id: self._historical_recovery_lineage_stage_info(
                                     sec_to_expiry=5.0,
                                     reduce_only_size_cap_shares=12.0,
@@ -9801,7 +9852,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=5.0,
                                 reduce_only_size_cap_shares=12.0,
@@ -9868,7 +9919,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=49.0,
                                 reduce_only_size_cap_shares=12.0,
@@ -9931,7 +9982,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=49.0,
                                 reduce_only_size_cap_shares=12.0,
@@ -9996,9 +10047,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": {
-                                "stage": "EXTREME_ONLY",
+                                "lineage_stage": "EXTREME_ONLY",
                                 "sec_to_expiry": 5.0,
                                 "taker_gate_open": True,
                             }
@@ -10063,9 +10114,9 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t2"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t2": {
-                                "stage": "EXTREME_ONLY",
+                                "lineage_stage": "EXTREME_ONLY",
                                 "sec_to_expiry": 5.0,
                                 "taker_gate_open": True,
                             }
@@ -10141,7 +10192,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 sec_to_expiry=5.0,
                                 expired_reduce_only_grace_active=False,
@@ -10211,7 +10262,7 @@ class ExecutionStackTests(unittest.TestCase):
                         books=books,
                         fair_probability_by_token=fair,
                         token_ids=["t1"],
-                        stage_info_by_token={
+                        lifecycle_info_by_token={
                             "t1": self._historical_recovery_lineage_stage_info(
                                 reduce_only_size_cap_shares=0.68,
                                 reduce_only_size_cap_below_min_order_size=True,
@@ -10628,7 +10679,6 @@ class ExecutionStackTests(unittest.TestCase):
                     secondary_oracle_status="disabled",
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
-                    stage="MAKER_LATE_WINDOW",
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
                     lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
@@ -10646,7 +10696,6 @@ class ExecutionStackTests(unittest.TestCase):
                     secondary_oracle_status="disabled",
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
-                    stage="MAKER_LATE_WINDOW",
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
                     lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
@@ -10664,7 +10713,6 @@ class ExecutionStackTests(unittest.TestCase):
                     secondary_oracle_status="disabled",
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
-                    stage="MAKER_LATE_WINDOW",
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
                     lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
@@ -11181,7 +11229,7 @@ class ExecutionStackTests(unittest.TestCase):
             runner = ExecutionRunner(cfg)
             try:
                 runner._update_runtime_semantics(has_targets=False)
-                self.assertEqual(runner._runtime_state, "prepare")
+                self.assertEqual(runner._lifecycle_phase, "prepare")
                 self.assertFalse(runner.risk.kill_switch)
                 self.assertTrue(runner._runtime_market_truth_required)
             finally:
@@ -11202,10 +11250,10 @@ class ExecutionStackTests(unittest.TestCase):
             runner = ExecutionRunner(cfg)
             try:
                 runner._update_runtime_semantics(has_targets=False)
-                rows = self._read_event_rows(Path(td), event_type="runtime_state_transition")
+                rows = self._read_event_rows(Path(td), event_type="lifecycle_phase_transition")
                 self.assertTrue(rows)
                 latest = rows[-1]
-                self.assertEqual(str(latest.get("runtime_state") or ""), "prepare")
+                self.assertEqual(str(latest.get("lifecycle_phase") or ""), "prepare")
                 self.assertEqual(str(latest.get("lifecycle_phase") or ""), "prepare")
                 self.assertEqual(str(latest.get("transition_reason_code") or ""), "owned_market_prepare")
                 self.assertTrue(bool(latest.get("market_truth_required")))

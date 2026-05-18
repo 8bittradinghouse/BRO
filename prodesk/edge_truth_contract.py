@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Tuple
 
+from .lineage_stage import normalize_lineage_stage
+
 EDGE_EVAL_SCOPE_MAKER = "maker"
 EDGE_EVAL_SCOPE_TAKER = "taker"
 EDGE_EVAL_SCOPES: Tuple[str, ...] = (
@@ -107,11 +109,6 @@ EDGE_BLOCK_REASONS: Tuple[str, ...] = tuple(
 )
 _EDGE_BLOCK_REASON_SET = {item.lower() for item in EDGE_BLOCK_REASONS}
 
-LEGACY_BLOCK_REASON_ALIASES: Dict[str, str] = {
-    "stage_disallow_maker": "phase_disallow_maker",
-    "stage_disallow_taker": "phase_disallow_taker",
-}
-
 LATENCY_STATE_DISARMED = "disarmed"
 LATENCY_STATE_PROBATION = "probation"
 LATENCY_STATE_ARMED = "armed"
@@ -132,8 +129,6 @@ STAGE_TAKER_COMMITMENT = "TAKER_COMMITMENT"
 STAGE_EXTREME_ONLY = "EXTREME_ONLY"
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
-EDGE_STAGE_EFFECTIVE_FIELD = "effective_stage"
-EDGE_STAGE_BUCKET_FIELD = "stage_bucket"
 EDGE_STAGE_LINEAGE_FIELD = "lineage_stage"
 LIFECYCLE_PHASE_SCAN = "scan"
 LIFECYCLE_PHASE_PREPARE = "prepare"
@@ -161,24 +156,6 @@ EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD = "open_order_cleanup_required"
 EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD = "settlement_hold_required"
 EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD = "unresolved_lifecycle_obligation"
 EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD = "cancel_fail_closed"
-# Historical compatibility boundary:
-# Old stage-family field names are recognized here only so replay/audit readers
-# can ingest legacy artifacts without letting that vocabulary stay live
-# elsewhere in the runtime/report stack.
-LEGACY_EDGE_LINEAGE_FIELD_NAMES: Tuple[str, ...] = (
-    EDGE_STAGE_EFFECTIVE_FIELD,
-    EDGE_STAGE_BUCKET_FIELD,
-    "raw_stage",
-    "stage",
-)
-LEGACY_EDGE_AUTHORITY_FIELD_NAMES: Tuple[str, ...] = (
-    "maker_allowed",
-    "taker_allowed",
-    "maker_new_risk_allowed",
-    "normal_taker_allowed",
-    "late_window_authority_class",
-)
-
 CANONICAL_LIFECYCLE_PHASE_POLICY: Dict[str, Tuple[bool, bool]] = {
     LIFECYCLE_PHASE_SCAN: (False, False),
     LIFECYCLE_PHASE_PREPARE: (False, False),
@@ -187,42 +164,14 @@ CANONICAL_LIFECYCLE_PHASE_POLICY: Dict[str, Tuple[bool, bool]] = {
     LIFECYCLE_PHASE_RESOLVE: (False, False),
 }
 
-def normalize_stage_name(value: Any) -> str:
-    normalized = str(value or "").strip().upper()
-    return normalized or STAGE_UNKNOWN
-
-
 def normalize_lifecycle_phase(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in LIFECYCLE_PHASES else ""
 
 
-def legacy_stage_to_lifecycle_phase(stage: Any) -> str:
-    normalized = normalize_stage_name(stage)
-    if normalized in {STAGE_UNKNOWN}:
-        return ""
-    if normalized in {STAGE_EXPIRED}:
-        return LIFECYCLE_PHASE_RESOLVE
-    if normalized in {STAGE_TAKER_COMMITMENT}:
-        return LIFECYCLE_PHASE_TAKER_WINDOW
-    if normalized in {STAGE_MAKER_LATE_WINDOW}:
-        return LIFECYCLE_PHASE_MAKER_WINDOW
-    if normalized in {
-        STAGE_OBSERVE,
-        STAGE_EVALUATE,
-        STAGE_MAKER_POSITION,
-        STAGE_MAKER_TAKER_SELECTIVE,
-        STAGE_SNIPER_PRIMARY,
-        STAGE_LATE_DIAGNOSTIC,
-        STAGE_EXTREME_ONLY,
-    }:
-        return LIFECYCLE_PHASE_PREPARE
-    return ""
-
-
 def lineage_stage_surface_fields(*, lineage_stage: Any) -> Dict[str, str]:
     return {
-        EDGE_STAGE_LINEAGE_FIELD: normalize_stage_name(lineage_stage),
+        EDGE_STAGE_LINEAGE_FIELD: normalize_lineage_stage(lineage_stage),
     }
 
 
@@ -234,33 +183,7 @@ def lifecycle_phase_surface_fields(*, lifecycle_phase: Any) -> Dict[str, str]:
 
 
 def lifecycle_phase_from_payload(payload: Mapping[str, Any]) -> str:
-    lifecycle_phase = normalize_lifecycle_phase(payload.get(EDGE_LIFECYCLE_PHASE_FIELD))
-    if lifecycle_phase:
-        return lifecycle_phase
-    sec_value = payload.get("time_remaining_sec")
-    if not isinstance(sec_value, (int, float)):
-        sec_value = payload.get("sec_to_expiry")
-    sec = float(sec_value) if isinstance(sec_value, (int, float)) else None
-
-    def _extreme_only_runtime_phase() -> str:
-        if sec is not None and sec >= 0.0:
-            if sec <= 7.0 + 1e-9:
-                return LIFECYCLE_PHASE_TAKER_WINDOW
-            if sec <= 15.0 + 1e-9:
-                return LIFECYCLE_PHASE_MAKER_WINDOW
-        return LIFECYCLE_PHASE_PREPARE
-
-    lineage_stage = lineage_stage_from_payload(payload)
-    if lineage_stage == STAGE_EXTREME_ONLY:
-        return _extreme_only_runtime_phase()
-    if lineage_stage != STAGE_UNKNOWN:
-        return legacy_stage_to_lifecycle_phase(lineage_stage)
-    compat_stage = normalize_stage_name(
-        payload.get(EDGE_STAGE_EFFECTIVE_FIELD) or payload.get("stage")
-    )
-    if compat_stage == STAGE_EXTREME_ONLY:
-        return _extreme_only_runtime_phase()
-    return legacy_stage_to_lifecycle_phase(compat_stage)
+    return normalize_lifecycle_phase(payload.get(EDGE_LIFECYCLE_PHASE_FIELD))
 
 
 def ownership_surface_fields(
@@ -347,18 +270,8 @@ def lifecycle_surface_fields(
 
 
 def lineage_stage_from_payload(payload: Mapping[str, Any]) -> str:
-    lineage_hint = payload.get(EDGE_STAGE_BUCKET_FIELD)
-    if lineage_hint is None or not str(lineage_hint).strip():
-        lineage_hint = payload.get(EDGE_STAGE_LINEAGE_FIELD)
-    if lineage_hint is None or not str(lineage_hint).strip():
-        lineage_hint = payload.get("raw_stage")
-    # Historical artifact rows may still carry only stage/effective-stage ancestry.
-    # This is lineage-only fallback, not active runtime authority.
-    if lineage_hint is None or not str(lineage_hint).strip():
-        lineage_hint = payload.get(EDGE_STAGE_EFFECTIVE_FIELD)
-    if lineage_hint is None or not str(lineage_hint).strip():
-        lineage_hint = payload.get("stage")
-    return normalize_stage_name(lineage_hint)
+    lineage_hint = payload.get(EDGE_STAGE_LINEAGE_FIELD)
+    return normalize_lineage_stage(lineage_hint)
 
 
 def normalize_edge_scope(value: Any) -> str:
@@ -374,8 +287,7 @@ def normalize_edge_action(value: Any) -> str:
 
 
 def normalize_block_reason(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    return LEGACY_BLOCK_REASON_ALIASES.get(normalized, normalized)
+    return str(value or "").strip().lower()
 
 
 def normalize_event_type(value: Any) -> str:
@@ -531,8 +443,6 @@ def validate_edge_inputs(
         return _invalid("edge_scope_invalid", f"scope={scope or 'missing'}")
 
     lifecycle_phase = normalize_lifecycle_phase(snapshot.lifecycle_phase)
-    if not lifecycle_phase:
-        lifecycle_phase = legacy_stage_to_lifecycle_phase(snapshot.lineage_stage)
     if not lifecycle_phase:
         return _invalid("phase_missing")
 

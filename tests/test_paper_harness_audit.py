@@ -165,7 +165,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "lifecycle_phase": "scan",
                                 "active_targets_present": False,
                                 "scan_phase": True,
@@ -177,7 +177,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "scan",
+                                "lifecycle_phase": "scan",
                                 "lifecycle_phase": "scan",
                                 "active_targets_present": False,
                                 "scan_phase": True,
@@ -235,7 +235,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,
@@ -252,7 +252,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,
@@ -337,7 +337,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,
@@ -354,7 +354,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,
@@ -439,7 +439,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:00:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,
@@ -456,7 +456,7 @@ class PaperHarnessAuditTests(unittest.TestCase):
                             {
                                 "run_id": run_id,
                                 "ts_utc": "2099-01-01T00:30:00Z",
-                                "runtime_state": "active",
+                                "lifecycle_phase": "active",
                                 "active_targets_present": True,
                                 "market_truth_required": True,
                                 "kill_switch": False,

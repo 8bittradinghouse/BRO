@@ -15,7 +15,7 @@ from prodesk.config import load_execution_config
 from prodesk.error_codes import summarize_error_codes
 from prodesk.jsonl_utils import DEFAULT_MAX_LINES_PER_FILE, load_jsonl
 from prodesk.run_contract import apply_contract_bounds, resolve_run_contract, run_contract_slice_path
-from prodesk.runtime_semantics import RUNTIME_STATE_SAFETY_HALT
+from prodesk.runtime_semantics import LIFECYCLE_PHASE_SAFETY_HALT
 from prodesk.session_phase import enforce_validation_phase
 
 ORDER_SUBMIT = "order_submit"
@@ -24,10 +24,10 @@ ORDER_CANCEL_SUPPRESSED = "order_cancel_suppressed"
 FILL = "fill"
 KILL_SWITCH_CANCEL_ALL = "kill_switch_cancel_all"
 CANCEL_ALL_ON_EXIT = "cancel_all_on_exit"
-RUNTIME_STATE_TRANSITION = "runtime_state_transition"
+LIFECYCLE_PHASE_TRANSITION = "lifecycle_phase_transition"
 OPERATING_MODE_TRANSITION = "operating_mode_transition"
 WS_SLO_STATE = "ws_slo_state"
-KILL_SWITCH_EXPECTED_RUNTIME_STATE = str(RUNTIME_STATE_SAFETY_HALT)
+KILL_SWITCH_EXPECTED_LIFECYCLE_PHASE = str(LIFECYCLE_PHASE_SAFETY_HALT)
 EDGE_EVALUATION = "edge_evaluation"
 CHAINLINK_TICK = "chainlink_tick"
 ORDER_DECISION_LINK_WINDOW_SEC = 30.0
@@ -41,7 +41,7 @@ LIFECYCLE_EVENT_TYPES = frozenset(
         FILL,
         KILL_SWITCH_CANCEL_ALL,
         CANCEL_ALL_ON_EXIT,
-        RUNTIME_STATE_TRANSITION,
+        LIFECYCLE_PHASE_TRANSITION,
         OPERATING_MODE_TRANSITION,
         WS_SLO_STATE,
     }
@@ -49,12 +49,9 @@ LIFECYCLE_EVENT_TYPES = frozenset(
 
 RUNTIME_TRANSITION_REASON_CODES = frozenset(
     {
-        "runtime_state_changed",
-        "book_requirement_changed",
+        "lifecycle_phase_changed",
         "market_truth_requirement_changed",
         "kill_switch_engaged",
-        "targets_activated",
-        "targets_absent",
         "owned_market_absent",
         "owned_market_prepare",
         "maker_window_open",
@@ -88,10 +85,9 @@ REQUIRED_FIELDS: Dict[str, Tuple[str, ...]] = {
     FILL: ("ts_utc", "trade_id", "order_id", "token_id", "side", "price", "size", "source"),
     KILL_SWITCH_CANCEL_ALL: ("ts_utc", "reason", "canceled_count", "released_lock_count"),
     CANCEL_ALL_ON_EXIT: ("ts_utc", "reason", "canceled_count", "released_lock_count"),
-    RUNTIME_STATE_TRANSITION: (
+    LIFECYCLE_PHASE_TRANSITION: (
         "ts_utc",
-        "previous_runtime_state",
-        "runtime_state",
+        "previous_lifecycle_phase",
         "lifecycle_phase",
         "active_targets_present",
         "scan_phase",
@@ -462,25 +458,25 @@ def run_audit(
             if open_after is not None and open_after > 0:
                 warnings.append(f"{event_type}:open_after_nonzero:{int(open_after)}")
 
-        elif event_type == RUNTIME_STATE_TRANSITION:
-            runtime_state = _non_empty_text(row.get("runtime_state"))
-            previous_runtime_state = _non_empty_text(row.get("previous_runtime_state"))
+        elif event_type == LIFECYCLE_PHASE_TRANSITION:
+            lifecycle_phase = _non_empty_text(row.get("lifecycle_phase"))
+            previous_lifecycle_phase = _non_empty_text(row.get("previous_lifecycle_phase"))
             reason_code = _non_empty_text(row.get("transition_reason_code"))
             reason_detail = _non_empty_text(row.get("transition_reason_detail"))
-            if not previous_runtime_state:
-                findings.append("runtime_state_transition:previous_runtime_state_missing_or_blank")
-            if not runtime_state:
-                findings.append("runtime_state_transition:runtime_state_missing_or_blank")
+            if not previous_lifecycle_phase:
+                findings.append("lifecycle_phase_transition:previous_lifecycle_phase_missing_or_blank")
+            if not lifecycle_phase:
+                findings.append("lifecycle_phase_transition:lifecycle_phase_missing_or_blank")
             if reason_code not in RUNTIME_TRANSITION_REASON_CODES:
-                findings.append(f"runtime_state_transition:transition_reason_code_invalid:{reason_code or '<empty>'}")
+                findings.append(f"lifecycle_phase_transition:transition_reason_code_invalid:{reason_code or '<empty>'}")
             if not reason_detail:
-                findings.append("runtime_state_transition:transition_reason_detail_missing_or_blank")
+                findings.append("lifecycle_phase_transition:transition_reason_detail_missing_or_blank")
             for field in BOOLEAN_FIELDS:
                 if field in row and not isinstance(row.get(field), bool):
-                    findings.append(f"runtime_state_transition:boolean_field_not_bool:{field}")
-            if bool(row.get("kill_switch")) and runtime_state != KILL_SWITCH_EXPECTED_RUNTIME_STATE:
+                    findings.append(f"lifecycle_phase_transition:boolean_field_not_bool:{field}")
+            if bool(row.get("kill_switch")) and lifecycle_phase != KILL_SWITCH_EXPECTED_LIFECYCLE_PHASE:
                 findings.append(
-                    f"runtime_state_transition:kill_switch_runtime_state_mismatch:{runtime_state or '<empty>'}"
+                    f"lifecycle_phase_transition:kill_switch_lifecycle_phase_mismatch:{lifecycle_phase or '<empty>'}"
                 )
 
         elif event_type == OPERATING_MODE_TRANSITION:
@@ -644,7 +640,7 @@ def run_audit(
             "sides": sorted(SIDES),
             "boolean_fields": sorted(BOOLEAN_FIELDS),
             "optional_cancel_all_count_fields": sorted(OPTIONAL_CANCEL_ALL_COUNT_FIELDS),
-            "kill_switch_expected_runtime_state": KILL_SWITCH_EXPECTED_RUNTIME_STATE,
+            "kill_switch_expected_lifecycle_phase": KILL_SWITCH_EXPECTED_LIFECYCLE_PHASE,
         }
     )
 

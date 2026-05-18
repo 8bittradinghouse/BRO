@@ -14,8 +14,8 @@ Authority boundary:
 - current BRO fighter-specific runtime/lifecycle authority lives in
   `docs/DOCTRINE_RUNBOOK.md`
 - active edge truth must follow the lifecycle-owned contract in
-  `prodesk.edge_truth_contract`; legacy stage aliases may exist only as bounded
-  compatibility readouts during migration
+  `prodesk.edge_truth_contract`
+- historical replay aliases are quarantine-only and never active runtime input
 
 Outcome-truth boundary:
 - Outcome interpretation is governed separately by `BRO_OUTCOME_TRUTH_DOCTRINE.txt`.
@@ -156,7 +156,7 @@ Determinism proof in canonical validation:
   - `edge_records_sha256`
   - `replay_edge_records_sha256`
   - `replay_match`
-  - structural consistency hashes for required fields, block-reason taxonomy, stage policy, and audit-rule set
+  - structural consistency hashes for required fields, block-reason taxonomy, lifecycle-phase policy, and audit-rule set
   - `non_edge_determinism.validators.<validator>.primary_sha256`
   - `non_edge_determinism.validators.<validator>.replay_sha256`
   - `non_edge_determinism.validators.<validator>.replay_match`
@@ -166,7 +166,7 @@ Determinism proof in canonical validation:
 Examples:
 - `block_reason_missing_for_no_action`: causality gap, invalid
 - `action_with_invalid_edge_inputs:*`: fail-closed violation, invalid
-- `stage_action_mismatch:*`: doctrine stage-policy violation, invalid
+- `lifecycle_phase_action_mismatch:*`: doctrine lifecycle-phase violation, invalid
 - `edge_non_deterministic_duplicate_key:*`: duplicate opportunity truth rows, invalid
 - `edge_duplicate_opportunity_key:*`: multiple rows for one opportunity key, invalid
 - `run_id_mismatch:*`: run-contamination inside run-scoped audit, invalid

@@ -1,5 +1,10 @@
 # BRO Handoff — Maker/Taker Runtime Forensic + Next-Step Packet
 
+## Classification
+- `historical-only`
+- this handoff captures a pre-lifecycle-era forensic state
+- any old runtime-posture vocabulary here is retained as historical evidence only
+
 ## Session Snapshot
 - Date (UTC): 2026-03-31
 - Last canonical exercised run: `8276b008-856f-41a0-b05e-e0bd38957d12`

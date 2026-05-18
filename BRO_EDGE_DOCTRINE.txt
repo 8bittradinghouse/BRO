@@ -1,343 +1,95 @@
-BRO EDGE DOCTRINE (LOCKED, AUDIT GRADE)
+BRO EDGE DOCTRINE
 
-Governance
+Classification
 
-Document: BRO_EDGE_DOCTRINE.txt
-Version: 1.2
-Last Updated (UTC): 2026-03-23
-Authority: BRO Canonical Control-Plane Doctrine
+- `current owner`
+- measurement and execution-lane doctrine beneath `BRO_CANONICAL_DOCTRINE.txt`
 
-Change Control
-
-Any modification must:
-
-- preserve canonical single-path execution
-- preserve edge-truth determinism
-- be reviewed alongside authority doctrine
-
-No changes may introduce:
-
-- parallel execution logic
-- fabricated metrics
-- runtime decision drift from canonical pathway
-
-Core Principle
+Core rule
 
 BRO has one edge model, one execution pathway, and one truth layer.
-Strategies may express multiple edge-execution arms inside that one pathway.
-Edge truth measures reality; it does not create it.
+Edge truth measures reality; it does not create authority.
 
-Semantic Language Law (Edge Lane)
+Timing authority law
 
-Edge doctrine must use one language all the way through:
+Latency edge is only combat-real when timing truth is also real.
+combat-locked sub-second synchronized timing is required for honest edge timing
+claims.
 
-- stage permission is not actionability
-- observation is not authorization
-- non-authoritative or incomplete truth is not authoritative truth
-- blocked is not the same as not quoteable
-
-Required rule:
-
-- edge runtime, edge telemetry, edge audits, and edge reports must not use
-  different words for the same state or the same word for different states
-- the canonical semantic root lives in `BRO_CANONICAL_DOCTRINE.txt`
-- if a live-emitted edge-contract name already exists, edge doctrine must use
-  that name and define its meaning rather than inventing a second label
-- `maker_allowed` and `taker_allowed` mean stage permission only; they do not
-  mean quoteability, submit authorization, or fill expectancy
-- `block_reason` is the emitted local stop reason for the owning edge row; later
-  surfaces may map it into blocker lanes but may not rewrite its owner
-
-If an edge lane appears buggy because two surfaces disagree about what a row
-means, treat that as a semantic-contract failure first, not as a fresh strategy
-bug by default.
-
-Timing Authority Law (Edge Lane)
-
-Latency edge is only real in combat terms when timing truth is also real.
-
-Maker and taker timing claims require combat-locked sub-second synchronized
-timing across:
+Required timing truths:
 
 - host clock discipline
 - source/receive ordering truth
 - decision-to-submit evidence
 
-If these surfaces are coarse, missing, degraded, or fallback-only, edge may be
-observable but combat-grade expression is not proven.
+If these are weak, missing, degraded, or fallback-only:
 
-Coarse fallback timing may expose gross drift. It must not certify edge
-combat-readiness, maker timing health, or taker timing health.
+- edge may be observable
+- combat-grade maker/taker timing health is not proven
 
-If timing truth is weak, edge doctrine must fail closed or downgrade the claim
-instead of inferring timing health from partial evidence.
+Lifecycle binding
 
-1. Edge Origin (Latency Edge)
+Edge expression is bound to the lifecycle system:
 
-Latency edge is the only source of opportunity.
+- `scan`: maker no, taker no
+- `prepare`: maker no, taker no
+- `maker_window`: maker yes, taker no
+- `taker_window`: maker no, taker yes
+- `resolve`: maker no, taker no
 
-Definition:
+Maker and taker are lifecycle-contained lanes, not separate stage machines.
 
-A measurable mismatch between:
+Current owner vocabulary
 
-- oracle-linked truth (Chainlink)
-- market pricing / threshold expectation
+Active edge/runtime surfaces must use:
 
-This mismatch must be:
+- `lifecycle_phase`
+- `lineage_stage`
+- `maker_phase_allowed`
+- `taker_phase_allowed`
+- `maker_gate_open`
+- `taker_gate_open`
+- `action_taken`
+- `block_reason`
+- `submitted`
+- `filled`
+- `evaluation_scope`
+- `financial_posture_class`
+- `target_ref`
+- `source_target_ref`
 
-- real (not assumed)
-- fresh (not stale)
-- valid for expression through one authorized runtime lane (not noise)
+Retired live edge vocabulary:
 
-Fail-Closed Edge Input Rules
+Stage-policy-as-actionability language is retired.
+Any historical aliasing belongs only in replay, rejectors, or negative tests.
 
-If any required edge input is missing, invalid, or stale:
+Maker doctrine anchors
 
-edge = invalid -> system must stand down
+Current intended maker doctrine anchors remain:
 
-Required edge inputs (minimum):
+- `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+  - maker gate opens at `15s`
+  - taker handoff opens at `7s`
+- `docs/DOCTRINE_RUNBOOK.md`
 
-- fair/oracle-derived price or probability
-- market-implied probability/pricing proxy
-- time remaining in window
-- oracle freshness (tick age/update recency)
-- latency verification state (if used in gating)
+Market-reference asymmetry
 
-Hard fail-closed conditions:
+Maker market-reference uses:
 
-BRO must not trade (maker or taker) if:
+- `direct_midpoint` when both ws sides are present
+- `backfilled_paired_touch` only when midpoint is unavailable and a recent
+  complementary ws side exists within the paired-touch bound
+- otherwise maker fails closed with missing or non-authoritative market truth
 
-- oracle data is missing
-- oracle data is stale beyond defined threshold
-- market pricing cannot be read or is inconsistent
-- time remaining cannot be determined
-- latency state is required but unknown
-- edge magnitude cannot be computed deterministically
+Taker market-reference uses:
 
-No fallback behavior allowed:
+- midpoint-backed `direct_midpoint` only when ws midpoint exists
+- otherwise taker fails closed on missing market probability
+
+Non-fabrication rules
 
 BRO must not:
 
-- substitute default values
-- reuse prior-window values
-- assume edge from partial inputs
-
-2. Edge Expression (Execution Modes)
-
-A strategy may include multiple arms of edge execution.
-
-Examples inside BRO today:
-
-Maker:
-
-- passive execution
-- used when sufficient time remains, edge is stable, and market quality supports passive fill
-
-Sniping Taker:
-
-- aggressive execution
-- used when time is short, edge is still valid, and waiting risks loss of opportunity
-
-Hard Rule:
-
-Edge-execution arms are not separate systems.
-They are branches of one canonical execution pathway.
-
-Multi-Arm Doctrine
-
-- each arm must be independently valid when its own prerequisites are satisfied
-- no arm may require another arm in order to be a valid edge-execution arm
-- all arms must plug into the same canonical control plane, wallet authority,
-  transaction authority, and reconciliation authority
-- arms may be authorized concurrently only when shared wallet safety,
-  market-quality rules, and conflict-prevention doctrine still hold
-- arms must not step on, suppress, contradict, or silently corrupt each other
-
-Weapon-Policy Boundary
-
-This file is peripheral-nervous-system doctrine, not fighter-specific weapon
-runtime policy.
-
-Therefore this file defines:
-
-- how sensory truth is formed
-- how freshness and timing truth govern action
-- how edge becomes stage-allowed and valid for expression
-- how passive vs aggressive branches are selected
-- what no arm is ever allowed to do
-- how arms plug into one shared control plane
-- the requirement that timing truth be strong enough to judge downstream maker
-  and taker timing doctrine honestly
-
-Fighter-specific weapon doctrine must live in downstream surfaces.
-
-For current BRO:
-
-- downstream runtime/runbook surface:
-  - `docs/DOCTRINE_RUNBOOK.md`
-- downstream design-input/reference surfaces:
-  - `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md`
-    - pathway/reference support surface
-  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
-    - intended maker-weapon doctrine anchor for the late-window cannon design
-    - maker gate opens at `15s`
-    - taker handoff opens at `7s`
-- mnemonic alias surface:
-  - `docs/BRO_WEAPON_NOMENCLATURE.md`
-
-If a fighter has edge-execution arms but lacks both a downstream runtime
-runbook surface and downstream proposal/reference surfaces, doctrine is
-incomplete.
-
-3. Lifecycle Binding
-
-Execution behavior must be bound to the canonical market lifecycle and lane-permission model.
-
-Rules:
-
-- lifecycle phase determines which operating window is live
-- lane-permission model determines which actions are authorized
-- edge truth determines whether opportunity is valid
-
-All three must align before execution.
-
-Old stage-family names may survive temporarily as compatibility lineage during
-migration, but they are not the canonical execution owner.
-
-Exact fighter-specific lifecycle bindings and timing windows belong in the
-downstream fighter runtime/runbook surface, not here.
-
-4. Edge Truth Doctrine
-
-Edge truth is measurement only.
-
-It must answer:
-
-- did a real edge exist
-- was it tradeable or blocked
-- which execution path was used
-- what action was taken (outcome linkage is deferred in this packet)
-- which conditions correlate with performance
-
-Edge truth must not:
-
-- influence runtime decisions
-- act as a second control plane
-- override canonical logic
-
-5. Edge Truth Schema (Required)
-
-Edge truth must be testable and structured, not conceptual.
-
-At minimum, each edge evaluation must produce:
-
-Core identity:
-
-- run_id
-- token_id
-- timestamp_utc
-
-Context:
-
-- stage
-- time_remaining_sec
-
-Pricing/edge:
-
-- fair_probability (or equivalent)
-- market_probability (or equivalent)
-- edge_value
-
-Quality signals:
-
-- oracle_tick_age_sec
-- latency_state (`disarmed|probation|armed`)
-
-Decision:
-
-- maker_allowed (bool; stage permission only)
-- taker_allowed (bool; stage permission only)
-- action_taken (maker/taker/none)
-- block_reason (if not taken)
-- decision_input_source (nullable string)
-- decision_input_type (`observed_live|observed_other|replayed|emulated|unknown`)
-- decision_input_emulated (bool)
-- decision_input_data_class (`observed_live|observed_other|emulated|unknown`)
-
-Outcome (if applicable):
-
-- submitted (bool)
-- filled (bool)
-- result (reserved; must be null in this packet)
-
-Schema rules:
-
-- fields must be explicit, deterministic, and derived from real data
-- unknown values must be null/unavailable, never fabricated
-- result must be null-only until explicit outcome linkage is introduced in a future packet
-- emitted edge field names are live contract terms and must retain their
-  canonical meaning across runtime, audits, and reports
-- `block_reason` taxonomy must remain canonical and deterministic across
-  emitting and consuming surfaces
-
-6. No Fabrication Rule
-
-- no inferred values presented as truth
-- no backfill of missing data
-- no smoothing or silent substitution
-- if data is incomplete, report explicitly or omit metric
-
-7. Determinism
-
-Same run artifacts -> same edge report output.
-
-No:
-
-- randomness
-- hidden state
-- dependency on external mutable data
-
-8. Single Truth Source
-
-All edge truth must come from:
-
-- canonical run artifacts
-- structured event logs
-
-No:
-
-- side files
-- spreadsheets
-- external reconstructed truth
-
-9. No Parallel Systems
-
-Do not create:
-
-- separate maker analytics engine
-- separate taker scoring system
-- independent latency analysis pipeline
-
-All analysis must operate through:
-
-canonical event -> canonical report -> canonical interpretation
-
-Relationship Model
-
-Latency edge creates opportunity.
-Maker expresses early/passive edge.
-Sniping taker expresses late/aggressive edge.
-Edge truth measures all of it.
-
-Final Lock-In
-
-BRO operates on one edge model driven by measurable latency-based opportunity.
-
-Execution decisions (maker, taker, or stand-down) are determined by:
-
-- stage-machine eligibility
-- canonical authority + capability
-- verified edge conditions
-
-Edge truth is a deterministic measurement layer derived from canonical artifacts.
-It must never fabricate data, create parallel logic, or influence runtime behavior.
+- infer edge from partial inputs
+- use report-only reconstructions as runtime owner truth
+- let lineage-stage or historical replay aliases recreate a second control plane

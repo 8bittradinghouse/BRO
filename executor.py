@@ -46,8 +46,6 @@ from prodesk.edge_truth_contract import (
     EDGE_OWNED_MARKET_REF_FIELD,
     EDGE_OWNERSHIP_DROP_REASON_FIELD,
     EDGE_OWNERSHIP_REPLACEMENT_REASON_FIELD,
-    EDGE_STAGE_BUCKET_FIELD,
-    EDGE_STAGE_EFFECTIVE_FIELD,
     EDGE_TAKER_GATE_OPEN_FIELD,
     EDGE_TAKER_PHASE_ALLOWED_FIELD,
     EVENT_TAKER_DECISION,
@@ -64,7 +62,6 @@ from prodesk.edge_truth_contract import (
     compute_edge_value,
     is_canonical_block_reason,
     lane_permission_surface_fields,
-    legacy_stage_to_lifecycle_phase,
     lifecycle_phase_from_payload,
     lifecycle_phase_surface_fields,
     lifecycle_surface_fields,
@@ -108,7 +105,7 @@ from prodesk.prometheus_exporter import PrometheusExporter, PrometheusExporterEr
 from prodesk.repo import current_git_commit, current_git_dirty, resolve_repo_root
 from prodesk.ramp_controller import SizeRampController
 from prodesk.risk import RiskEngine
-from prodesk.runtime_semantics import cycle_semantics, runtime_state_to_gauge
+from prodesk.runtime_semantics import cycle_semantics, lifecycle_phase_to_gauge
 from prodesk.state_store import load_state, save_state
 from prodesk.strategy import MarketMakingStrategy
 from prodesk.taker_competitiveness import (
@@ -250,7 +247,7 @@ class ExecutionRunner:
         self._last_external_guard_reason = ""
         self._external_guard_error_log_interval_sec = 30.0
         self._external_guard_last_error_log_mono = 0.0
-        self._runtime_state = "initializing"
+        self._lifecycle_phase = "initializing"
         self._runtime_lifecycle_phase = "scan"
         self._runtime_active_targets_present = bool(self.token_ids)
         self._runtime_promotion_eligibility_hint = False
@@ -574,7 +571,7 @@ class ExecutionRunner:
         ramp_cfg = self.cfg.get("ramp", {})
         self.ramp = SizeRampController(ramp_cfg, base_target_usd=self._active_target_usd)
         self._active_target_usd = float(self.ramp.target_usd)
-        self._taker_ramp_allowed = bool(self.ramp.taker_allowed)
+        self._taker_ramp_allowed = bool(self.ramp.taker_ramp_enabled)
         reconcile_status_path_raw = str(ramp_cfg.get("reconcile_status_path", "")).strip()
         if reconcile_status_path_raw:
             self.ramp_reconcile_status_path: Optional[pathlib.Path] = pathlib.Path(reconcile_status_path_raw).resolve()
@@ -1259,9 +1256,9 @@ class ExecutionRunner:
         taker_phase_allowed = any(bool(info.get(EDGE_TAKER_PHASE_ALLOWED_FIELD, False)) for info in info_by_token.values())
         maker_gate_open = any(bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False)) for info in info_by_token.values())
         taker_gate_open = any(bool(info.get(EDGE_TAKER_GATE_OPEN_FIELD, False)) for info in info_by_token.values())
-        prev_state = self._runtime_state
+        prev_state = self._lifecycle_phase
         prev_market_truth_required = self._runtime_market_truth_required
-        self._runtime_state = lifecycle_phase
+        self._lifecycle_phase = lifecycle_phase
         self._runtime_lifecycle_phase = lifecycle_phase
         self._runtime_active_targets_present = bool(info_by_token)
         self._runtime_promotion_eligibility_hint = bool(
@@ -1277,7 +1274,7 @@ class ExecutionRunner:
         self._runtime_ownership_drop_reason = None
         self._runtime_ownership_replacement_reason = None
 
-        self.telemetry.set_gauge("runtime_state_code", runtime_state_to_gauge(self._runtime_state))
+        self.telemetry.set_gauge("lifecycle_phase_code", lifecycle_phase_to_gauge(self._lifecycle_phase))
         self.telemetry.set_gauge("active_targets_present", 1.0 if self._runtime_active_targets_present else 0.0)
         self.telemetry.set_gauge("market_truth_required", 1.0 if self._runtime_market_truth_required else 0.0)
         self.telemetry.set_gauge("maker_phase_allowed", 1.0 if self._runtime_maker_phase_allowed else 0.0)
@@ -1289,37 +1286,36 @@ class ExecutionRunner:
             1.0 if self._runtime_promotion_eligibility_hint else 0.0,
         )
 
-        if self._runtime_state != prev_state or self._runtime_market_truth_required != prev_market_truth_required:
-            transition_reason_code = "runtime_state_changed"
-            if self._runtime_state == prev_state and self._runtime_market_truth_required != prev_market_truth_required:
+        if self._lifecycle_phase != prev_state or self._runtime_market_truth_required != prev_market_truth_required:
+            transition_reason_code = "lifecycle_phase_changed"
+            if self._lifecycle_phase == prev_state and self._runtime_market_truth_required != prev_market_truth_required:
                 transition_reason_code = "market_truth_requirement_changed"
             elif bool(self.risk.kill_switch):
                 transition_reason_code = "kill_switch_engaged"
-            elif self._runtime_state == "scan":
+            elif self._lifecycle_phase == "scan":
                 transition_reason_code = "owned_market_absent"
-            elif self._runtime_state == "prepare":
+            elif self._lifecycle_phase == "prepare":
                 transition_reason_code = "owned_market_prepare"
-            elif self._runtime_state == "maker_window":
+            elif self._lifecycle_phase == "maker_window":
                 transition_reason_code = "maker_window_open"
-            elif self._runtime_state == "taker_window":
+            elif self._lifecycle_phase == "taker_window":
                 transition_reason_code = "taker_window_open"
-            elif self._runtime_state == "resolve":
+            elif self._lifecycle_phase == "resolve":
                 transition_reason_code = "resolve_required"
             transition_reason_detail = (
-                f"prev_state={prev_state};new_state={self._runtime_state};"
+                f"prev_state={prev_state};new_state={self._lifecycle_phase};"
                 f"previous_market_truth_required={int(bool(prev_market_truth_required))};"
                 f"market_truth_required={int(bool(self._runtime_market_truth_required))};"
                 f"kill_switch={int(bool(self.risk.kill_switch))};"
                 f"has_targets={int(bool(has_targets))}"
             )
             self.events.log_event(
-                "runtime_state_transition",
+                "lifecycle_phase_transition",
                 {
                     "ts_utc": utc_iso(),
                     "run_id": self.run_id,
-                    "previous_runtime_state": prev_state,
-                    "runtime_state": self._runtime_state,
-                    "lifecycle_phase": self._runtime_lifecycle_phase,
+                    "previous_lifecycle_phase": prev_state,
+                    "lifecycle_phase": self._lifecycle_phase,
                     "active_targets_present": self._runtime_active_targets_present,
                     "scan_phase": self._runtime_lifecycle_phase == "scan",
                     "previous_market_truth_required": bool(prev_market_truth_required),
@@ -2558,7 +2554,7 @@ class ExecutionRunner:
         self._held_dust_token_ids = list(held_dust_token_ids)
         self._held_dust_quarantined_token_ids = list(held_dust_quarantined_token_ids)
         self._held_dust_total_notional_upper_bound_usd = float(held_dust_total_notional_upper_bound_usd)
-        self._financial_posture_class = self._resolve_financial_posture_class(stage_info_by_token=None)
+        self._financial_posture_class = self._resolve_financial_posture_class(lifecycle_info_by_token=None)
 
         self.risk.set_valuation_degraded_state(
             hard_degraded=hard_degraded,
@@ -3208,7 +3204,7 @@ class ExecutionRunner:
             sec_to_expiry = (expiry - now).total_seconds()
             if sec_to_expiry < 0:
                 continue
-            # Canonical taker reachability is now owned by stage truth plus the
+            # Canonical taker reachability is now owned by lifecycle truth plus the
             # taker final window, not by the legacy sniper execution-cutoff
             # shell. Keep the broad arming horizon for monitoring/telemetry, but
             # do not let the old cutoff suppress true late-window taker tokens.
@@ -3278,9 +3274,9 @@ class ExecutionRunner:
         """Canonical taker reachability set for runtime evaluation.
 
         Keep the raw near-window shell for diagnostics/telemetry, but only hand
-        stage-eligible window tokens into the taker runtime path. This removes
+        lifecycle-eligible window tokens into the taker runtime path. This removes
         the old activation-vs-execution split without widening taker authority
-        beyond the current stage law.
+        beyond the current lifecycle law.
         """
 
         window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("near_token_ids", [])) if str(token_id).strip()]
@@ -3340,7 +3336,7 @@ class ExecutionRunner:
             return STAGE_SNIPER_PRIMARY
         return STAGE_EXTREME_ONLY
 
-    def _compat_stage_for_runtime(
+    def _lineage_stage_for_runtime_bucket(
         self,
         lineage_stage: str,
         sec_to_expiry: Optional[float],
@@ -3361,31 +3357,23 @@ class ExecutionRunner:
             return STAGE_MAKER_LATE_WINDOW
         return STAGE_LATE_DIAGNOSTIC
 
-    def _compat_stage_from_lifecycle_info(
+    def _lineage_stage_from_lifecycle_info(
         self,
         info: Mapping[str, Any],
         *,
-        fallback_stage: Optional[str] = None,
+        fallback_lineage_stage: Optional[str] = None,
     ) -> str:
-        effective = str(
-            info.get(EDGE_STAGE_EFFECTIVE_FIELD)
-            or info.get("stage")
-            or fallback_stage
-            or STAGE_UNKNOWN
-        ).strip().upper() or STAGE_UNKNOWN
         sec_to_expiry = info.get("sec_to_expiry")
-        if effective != STAGE_UNKNOWN:
-            if effective == STAGE_EXTREME_ONLY:
-                sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
-                return self._compat_stage_for_runtime(STAGE_EXTREME_ONLY, sec)
-            return effective
-
         lifecycle_phase = str(
             info.get(EDGE_LIFECYCLE_PHASE_FIELD)
             or lifecycle_phase_from_payload(info)
             or ""
         ).strip().lower()
-        lineage_stage = lineage_stage_from_payload(info)
+        lineage_stage = (
+            lineage_stage_from_payload(info)
+            or str(fallback_lineage_stage or "").strip().upper()
+            or STAGE_UNKNOWN
+        )
         if lifecycle_phase == "resolve":
             return STAGE_EXPIRED
         if lifecycle_phase == "taker_window":
@@ -3394,23 +3382,29 @@ class ExecutionRunner:
             return STAGE_MAKER_LATE_WINDOW
         if lineage_stage == STAGE_EXTREME_ONLY:
             sec = float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
-            return self._compat_stage_for_runtime(STAGE_EXTREME_ONLY, sec)
+            return self._lineage_stage_for_runtime_bucket(STAGE_EXTREME_ONLY, sec)
         if lineage_stage != STAGE_UNKNOWN:
             return lineage_stage
-        return effective
+        if lifecycle_phase == "prepare":
+            return self._lineage_stage_for_sec_to_expiry(
+                float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None
+            )
+        if lifecycle_phase == "scan":
+            return STAGE_OBSERVE
+        return STAGE_UNKNOWN
 
     def _resolve_taker_required_min_edge(
         self,
-        stage: str,
+        lineage_stage: str,
     ) -> float:
-        del stage
+        del lineage_stage
         # Current live taker threshold authority is top-level taker.min_edge
-        # only. Stage-local threshold leaves and extreme-only fallback
+        # only. Lineage-stage threshold leaves and extreme-only fallback
         # multipliers are retired authority residue and no longer arm taker.
         return float(self.taker_min_edge)
 
-    def _resolve_taker_cooldown_sec(self, stage: str) -> float:
-        del stage
+    def _resolve_taker_cooldown_sec(self, lineage_stage: str) -> float:
+        del lineage_stage
         return max(0.0, float(self.taker_per_token_cooldown_sec))
 
     def _emit_taker_window_semantic_check(self) -> None:
@@ -3676,13 +3670,13 @@ class ExecutionRunner:
     @staticmethod
     def _maker_cannon_probe_token_ids(
         *,
-        stage_info_by_token: Dict[str, Dict[str, Any]],
+        lifecycle_info_by_token: Dict[str, Dict[str, Any]],
         books: Dict[str, Any],
     ) -> set[str]:
         token_ids: set[str] = set()
         if not books:
             return token_ids
-        for token_id, info in stage_info_by_token.items():
+        for token_id, info in lifecycle_info_by_token.items():
             sec_to_expiry = info.get("sec_to_expiry")
             if not isinstance(sec_to_expiry, (int, float)):
                 continue
@@ -3728,7 +3722,6 @@ class ExecutionRunner:
         secondary_oracle_status: str,
         chainlink_spot_price: Optional[float],
         secondary_oracle_spot_price: Optional[float],
-        stage: str,
         lifecycle_phase: Optional[str] = None,
         lineage_stage: Optional[str] = None,
         sec_to_expiry: Optional[float],
@@ -3797,11 +3790,8 @@ class ExecutionRunner:
         spread_multiplier_applied = max(1e-6, float(base_spread_multiplier) * spread_mult_comp)
         requote_delta_applied = max(1e-9, float(self.maker_comp_base_requote_delta) * requote_mult_comp)
 
-        normalized_stage = str(stage or "").strip().upper()
-        normalized_lifecycle_phase = str(
-            lifecycle_phase or legacy_stage_to_lifecycle_phase(normalized_stage) or ""
-        ).strip().lower() or "scan"
-        normalized_lineage_stage = str(lineage_stage or normalized_stage).strip().upper() or STAGE_UNKNOWN
+        normalized_lifecycle_phase = str(lifecycle_phase or "").strip().lower() or "scan"
+        normalized_lineage_stage = str(lineage_stage or "").strip().upper() or STAGE_UNKNOWN
         one_sided_authority_allowed = bool(maker_phase_allowed)
         side_policy = "TWO_SIDED"
         one_sided_active = False
@@ -3817,7 +3807,6 @@ class ExecutionRunner:
         edge_bucket = self._maker_edge_bucket(edge_abs)
         competitiveness_context = {
             "token_id": str(token_id),
-            "stage": normalized_stage,
             **lifecycle_phase_surface_fields(lifecycle_phase=normalized_lifecycle_phase),
             **lineage_stage_surface_fields(lineage_stage=normalized_lineage_stage),
             "sec_to_expiry": (float(sec_to_expiry) if isinstance(sec_to_expiry, (int, float)) else None),
@@ -3995,15 +3984,13 @@ class ExecutionRunner:
 
     def _emit_doctrine_decisions(
         self,
-        stage_info_by_token: Dict[str, Dict[str, Any]],
+        lifecycle_info_by_token: Dict[str, Dict[str, Any]],
         *,
         maker_prereq_failure_by_token: Optional[Dict[str, str]] = None,
     ) -> None:
         maker_prereq_failure_by_token = maker_prereq_failure_by_token or {}
-        for token_id, info in stage_info_by_token.items():
-            lineage_stage = lineage_stage_from_payload(info)
-            if lineage_stage == STAGE_UNKNOWN:
-                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+        for token_id, info in lifecycle_info_by_token.items():
+            lineage_stage = self._lineage_stage_from_lifecycle_info(info)
             doctrine_lifecycle_phase = str(
                 info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                 or lifecycle_phase_from_payload(info)
@@ -4063,7 +4050,7 @@ class ExecutionRunner:
             previous_lifecycle_phase = self._last_lifecycle_phase_by_token.get(token_id)
             if previous_lifecycle_phase != doctrine_lifecycle_phase:
                 self.events.log_event(
-                    "lifecycle_phase_transition",
+                    "token_lifecycle_phase_transition",
                     {
                         "ts_utc": utc_iso(),
                         "run_id": self.run_id,
@@ -4884,7 +4871,7 @@ class ExecutionRunner:
         *,
         books: Dict[str, Any],
         pair_truth_by_base_key: Optional[Dict[str, Dict[str, Any]]] = None,
-        stage_info_by_token: Dict[str, Dict[str, Any]],
+        lifecycle_info_by_token: Dict[str, Dict[str, Any]],
         maker_eval_token_ids: set[str],
         maker_submitted_token_ids: set[str],
         maker_submitted_order_ids_by_token: Dict[str, List[str]],
@@ -4909,10 +4896,8 @@ class ExecutionRunner:
         except ORDER_TRANSPORT_EXCEPTIONS:
             open_maker_orders_total = None
         for token_id in sorted(str(x) for x in maker_eval_token_ids):
-            info = stage_info_by_token.get(token_id, {})
-            lineage_stage = lineage_stage_from_payload(info)
-            if lineage_stage == STAGE_UNKNOWN:
-                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+            info = lifecycle_info_by_token.get(token_id, {})
+            lineage_stage = self._lineage_stage_from_lifecycle_info(info)
             lifecycle_phase = str(
                 info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                 or lifecycle_phase_from_payload(info)
@@ -4991,7 +4976,7 @@ class ExecutionRunner:
                         str(maker_no_submission_category_by_token.get(token_id, "")).strip().lower() or "unknown"
                     )
             financial_posture_class = self._resolve_financial_posture_class(
-                stage_info_by_token={token_id: info}
+                lifecycle_info_by_token={token_id: info}
             )
             probe_favored_side: Optional[str] = None
             if isinstance(edge_value, (int, float)):
@@ -5162,7 +5147,7 @@ class ExecutionRunner:
         secondary_fair_probability_by_token: Optional[Dict[str, float]] = None,
         secondary_oracle_base_status: str = "disabled",
         token_ids: list[str],
-        stage_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
+        lifecycle_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         oracle_tick_age_sec: Optional[float] = None,
         latency_snapshot: Optional[LatencySnapshot] = None,
         mode_state: str = MODE_NORMAL,
@@ -5188,7 +5173,7 @@ class ExecutionRunner:
         submitted_token_ids: set[str] = set()
         filled_token_ids: set[str] = set()
         max_orders = max(0, int(self.taker_max_orders_per_cycle))
-        stage_info_by_token = stage_info_by_token or {}
+        lifecycle_info_by_token = lifecycle_info_by_token or {}
         lag_verified_set = {str(x) for x in (lag_verified_token_ids or [])}
         maker_submitted_token_ids = {str(token_id) for token_id in (maker_submitted_token_ids or set())}
         maker_no_submission_reason_by_token = {
@@ -5236,7 +5221,8 @@ class ExecutionRunner:
         def _build_route_block_decision(
             *,
             decision_token_id: str,
-            decision_stage: str,
+            decision_lifecycle_phase: str,
+            decision_lineage_stage: str,
             decision_sec_to_expiry: Optional[float],
             edge_signed_value: Optional[float],
             required_min_edge_value: float,
@@ -5250,12 +5236,13 @@ class ExecutionRunner:
                 token_score=token_score_value,
             )
             timing_window_class_value = self.taker_competitiveness_engine._timing_window_class(
-                str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                str(decision_lifecycle_phase or "").strip().lower() or "scan",
                 decision_sec_to_expiry,
             )
             return TakerDecision(
                 token_id=str(decision_token_id),
-                stage=str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                lifecycle_phase=str(decision_lifecycle_phase or "").strip().lower() or "scan",
+                lineage_stage=str(decision_lineage_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                 should_submit=False,
                 block_reason=str(block_reason_value or "taker_submit_rejected"),
                 side="BUY",
@@ -5307,7 +5294,6 @@ class ExecutionRunner:
             decision_ts_utc = utc_iso()
             decision_lifecycle_phase = str(
                 decision_info_row.get(EDGE_LIFECYCLE_PHASE_FIELD)
-                or legacy_stage_to_lifecycle_phase(decision_row.stage)
                 or ""
             ).strip().lower() or "scan"
             self.events.log_event(
@@ -5377,16 +5363,13 @@ class ExecutionRunner:
             )
 
         for token_id in token_order:
-            info = stage_info_by_token.get(token_id, {})
-            stage = self._compat_stage_from_lifecycle_info(info)
+            info = lifecycle_info_by_token.get(token_id, {})
             lifecycle_phase = str(
                 info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                 or lifecycle_phase_from_payload(info)
                 or ""
             ).strip().lower() or "scan"
-            lineage_stage = lineage_stage_from_payload(info)
-            if lineage_stage == STAGE_UNKNOWN:
-                lineage_stage = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+            lineage_stage = self._lineage_stage_from_lifecycle_info(info)
             time_remaining_sec = info.get("sec_to_expiry")
             sec_to_expiry = (
                 float(time_remaining_sec)
@@ -5413,7 +5396,8 @@ class ExecutionRunner:
             )
             decision_token_id = str(token_id)
             decision_info = info
-            decision_stage = str(stage or STAGE_UNKNOWN)
+            decision_lifecycle_phase = lifecycle_phase
+            decision_lineage_stage = str(lineage_stage or STAGE_UNKNOWN)
             decision_time_remaining_sec = time_remaining_sec
             decision_sec_to_expiry = sec_to_expiry
             decision_top = top
@@ -5438,7 +5422,8 @@ class ExecutionRunner:
                     time_remaining_sec=time_remaining_sec,
                     oracle_tick_age_sec=oracle_tick_age_sec,
                     latency_state=latency_state,
-                    lineage_stage=stage,
+                    lifecycle_phase=lifecycle_phase,
+                    lineage_stage=lineage_stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
@@ -5452,7 +5437,7 @@ class ExecutionRunner:
             emitted_order_id: Optional[str] = None
             taker_submit_reject_reason: Optional[str] = None
             decision_target_ref = self._target_ref_for_token(token_id)
-            required_min_edge = self._resolve_taker_required_min_edge(stage)
+            required_min_edge = self._resolve_taker_required_min_edge(lineage_stage)
             decision: Optional[TakerDecision] = None
 
             if not self.taker_enabled:
@@ -5512,12 +5497,17 @@ class ExecutionRunner:
                         else:
                             complement_token_id = str(resolved_complement_token_id)
                             decision_token_id = str(resolved_complement_token_id)
-                            decision_info = stage_info_by_token.get(decision_token_id, info) or info
-                            decision_stage = self._compat_stage_from_lifecycle_info(
+                            decision_info = lifecycle_info_by_token.get(decision_token_id, info) or info
+                            decision_lifecycle_phase = str(
+                                decision_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
+                                or lifecycle_phase_from_payload(decision_info)
+                                or ""
+                            ).strip().lower() or "scan"
+                            decision_lineage_stage = self._lineage_stage_from_lifecycle_info(
                                 decision_info,
-                                fallback_stage=stage,
+                                fallback_lineage_stage=lineage_stage,
                             )
-                            required_min_edge = self._resolve_taker_required_min_edge(decision_stage)
+                            required_min_edge = self._resolve_taker_required_min_edge(decision_lineage_stage)
                             decision_time_remaining_sec = decision_info.get("sec_to_expiry", time_remaining_sec)
                             decision_sec_to_expiry = (
                                 float(decision_time_remaining_sec)
@@ -5551,7 +5541,8 @@ class ExecutionRunner:
                                         time_remaining_sec=decision_time_remaining_sec,
                                         oracle_tick_age_sec=oracle_tick_age_sec,
                                         latency_state=latency_state,
-                                        lineage_stage=decision_stage,
+                                        lifecycle_phase=decision_lifecycle_phase,
+                                        lineage_stage=decision_lineage_stage,
                                         evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                                     ),
                                     oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
@@ -5571,7 +5562,7 @@ class ExecutionRunner:
                 taker_window_lock_token_id = decision_source_token_id
                 taker_window_lock_key = self._taker_window_submit_lock_key_for_token(taker_window_lock_token_id)
                 last_submit = self._last_taker_submit_mono_by_token.get(cooldown_token_id)
-                cooldown_sec = self._resolve_taker_cooldown_sec(decision_stage)
+                cooldown_sec = self._resolve_taker_cooldown_sec(decision_lineage_stage)
                 if taker_window_lock_key and taker_window_lock_key in self._taker_window_submit_lock_keys:
                     block_reason = "taker_window_already_submitted"
                 elif (
@@ -5603,7 +5594,8 @@ class ExecutionRunner:
                     ):
                         decision = _build_route_block_decision(
                             decision_token_id=decision_token_id,
-                            decision_stage=decision_stage,
+                            decision_lifecycle_phase=decision_lifecycle_phase,
+                            decision_lineage_stage=decision_lineage_stage,
                             decision_sec_to_expiry=decision_sec_to_expiry,
                             edge_signed_value=decision_edge,
                             required_min_edge_value=float(required_min_edge),
@@ -5719,14 +5711,16 @@ class ExecutionRunner:
                                         target_usd_cap=static_max_feasible_target_usd,
                                         top=decision_top_for_submit,
                                         reason=TAKER_CHAINLINK_REASON,
-                                        stage=decision_stage,
+                                        lifecycle_phase=decision_lifecycle_phase,
+                                        lineage_stage=decision_lineage_stage,
                                         realized_volatility=(
                                             realized_volatility_by_token.get(decision_token_id)
                                             if isinstance(realized_volatility_by_token, dict)
                                             else None
                                         ),
                                         competitiveness_context={
-                                            "stage": str(decision_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
+                                            "lifecycle_phase": str(decision_lifecycle_phase or "").strip().lower() or "scan",
+                                            "lineage_stage": str(decision_lineage_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                                             "sec_to_expiry": (
                                                 float(decision_time_remaining_sec)
                                                 if isinstance(decision_time_remaining_sec, (int, float))
@@ -5739,7 +5733,8 @@ class ExecutionRunner:
                                     candidates=[
                                         TakerCandidate(
                                             token_id=decision_token_id,
-                                            stage=str(decision_stage or STAGE_UNKNOWN),
+                                            lifecycle_phase=str(decision_lifecycle_phase or "").strip().lower() or "scan",
+                                            lineage_stage=str(decision_lineage_stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN,
                                             sec_to_expiry=(
                                                 float(decision_time_remaining_sec)
                                                 if isinstance(decision_time_remaining_sec, (int, float))
@@ -5922,7 +5917,7 @@ class ExecutionRunner:
                                         token_id=decision_token_id,
                                         info=decision_info,
                                         submission_lane="taker",
-                                        stage=decision_stage,
+                                        lineage_stage=decision_lineage_stage,
                                         edge_abs=(
                                             abs(float(decision_edge))
                                             if isinstance(decision_edge, (int, float))
@@ -6001,7 +5996,8 @@ class ExecutionRunner:
                                     target_usd=submit_target_usd,
                                     top=decision_top_for_submit,
                                     reason=TAKER_CHAINLINK_REASON,
-                                    stage=str(decision_stage or STAGE_UNKNOWN),
+                                    lifecycle_phase=decision_lifecycle_phase,
+                                    lineage_stage=str(decision_lineage_stage or STAGE_UNKNOWN),
                                     target_ref=decision_target_ref,
                                     decision_reference_midpoint=(
                                         float(decision_midpoint) if isinstance(decision_midpoint, (int, float)) else None
@@ -6075,13 +6071,9 @@ class ExecutionRunner:
                                             )
                                         ),
                                         **lineage_stage_surface_fields(
-                                            lineage_stage=(
-                                                lineage_stage_from_payload(decision_info)
-                                                if lineage_stage_from_payload(decision_info) != STAGE_UNKNOWN
-                                                else (
-                                                    str(decision_info.get("stage") or "").strip().upper()
-                                                    or decision_stage
-                                                )
+                                            lineage_stage=self._lineage_stage_from_lifecycle_info(
+                                                decision_info,
+                                                fallback_lineage_stage=decision_lineage_stage,
                                             )
                                         ),
                                         "required_min_edge": float(required_min_edge),
@@ -6141,9 +6133,10 @@ class ExecutionRunner:
                 or lifecycle_phase_from_payload(decision_info)
                 or ""
             ).strip().lower() or "scan"
-            decision_lineage_stage = lineage_stage_from_payload(decision_info)
-            if decision_lineage_stage == STAGE_UNKNOWN:
-                decision_lineage_stage = str(decision_stage or "").strip().upper() or STAGE_UNKNOWN
+            decision_lineage_stage = self._lineage_stage_from_lifecycle_info(
+                decision_info,
+                fallback_lineage_stage=decision_lineage_stage,
+            )
 
             self._emit_edge_evaluation(
                 token_id=decision_token_id,
@@ -6275,14 +6268,14 @@ class ExecutionRunner:
         }
         return float(mapping.get(normalized, 0.0))
 
-    def _resolve_financial_posture_class(self, *, stage_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    def _resolve_financial_posture_class(self, *, lifecycle_info_by_token: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         if bool(self.risk.kill_switch):
             return FINANCIAL_POSTURE_HALT_NEW_RISK
         if bool(self._valuation_hard_degraded):
             return FINANCIAL_POSTURE_HARD_DEGRADED_REDUCE_ONLY
         return FINANCIAL_POSTURE_NORMAL
 
-    def _terminal_unwind_halt_new_risk_active(self, stage_info_by_token: Dict[str, Dict[str, Any]]) -> bool:
+    def _terminal_unwind_halt_new_risk_active(self, lifecycle_info_by_token: Dict[str, Dict[str, Any]]) -> bool:
         return False
 
     def _token_terminal_unwind_halt_new_risk_active(self, info: Dict[str, Any]) -> bool:
@@ -6322,15 +6315,15 @@ class ExecutionRunner:
         token_id: str,
         info: Dict[str, Any],
         submission_lane: str,
-        stage: Optional[str] = None,
+        lineage_stage: Optional[str] = None,
         edge_abs: Optional[float] = None,
     ) -> Dict[str, Any]:
         token = str(token_id or "").strip()
         lifecycle_info = dict(info or {})
-        stage_value = (
-            str(stage).strip().upper()
-            if str(stage or "").strip()
-            else self._compat_stage_from_lifecycle_info(lifecycle_info)
+        lineage_stage_value = (
+            str(lineage_stage).strip().upper()
+            if str(lineage_stage or "").strip()
+            else self._lineage_stage_from_lifecycle_info(lifecycle_info)
         ) or STAGE_UNKNOWN
         sec_to_expiry = (
             float(lifecycle_info.get("sec_to_expiry"))
@@ -6344,7 +6337,6 @@ class ExecutionRunner:
         lifecycle_context_missing_reason = ""
         lifecycle_phase_value = str(
             lifecycle_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
-            or legacy_stage_to_lifecycle_phase(stage_value)
             or ""
         ).strip().lower() or "scan"
         if not lifecycle_context_present:
@@ -6367,7 +6359,7 @@ class ExecutionRunner:
             "submission_lane": str(submission_lane or "unknown"),
             **lifecycle_phase_surface_fields(lifecycle_phase=lifecycle_phase_value),
             **lineage_stage_surface_fields(
-                lineage_stage=lineage_stage_from_payload(lifecycle_info) or stage_value
+                lineage_stage=lineage_stage_from_payload(lifecycle_info) or lineage_stage_value
             ),
             **ownership_surface_fields(
                 owned_market_ref=lifecycle_info.get(EDGE_OWNED_MARKET_REF_FIELD),
@@ -7468,7 +7460,7 @@ class ExecutionRunner:
                         missing_or_unusable_tokens.append(token_id)
                         if token_id in held_exposure_tokens:
                             stage_info = self._token_lifecycle_info(token_id)
-                            stage_name = self._compat_stage_from_lifecycle_info(stage_info)
+                            stage_name = self._lineage_stage_from_lifecycle_info(stage_info)
                             sec_to_expiry_val = stage_info.get("sec_to_expiry")
                             sec_to_expiry = (
                                 float(sec_to_expiry_val)
@@ -7800,11 +7792,11 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("edge_confidence_score_avg", avg_score)
                 self.telemetry.set_gauge("edge_confidence_token_count", float(len(confidence_scores_by_token)))
 
-                stage_info_by_token = {
+                lifecycle_info_by_token = {
                     token_id: self._token_lifecycle_info(token_id) for token_id in self.token_ids
                 }
                 self._financial_posture_class = self._resolve_financial_posture_class(
-                    stage_info_by_token=stage_info_by_token
+                    lifecycle_info_by_token=lifecycle_info_by_token
                 )
                 self.telemetry.set_gauge(
                     "financial_posture_class",
@@ -7812,17 +7804,17 @@ class ExecutionRunner:
                 )
                 maker_phase_tokens = {
                     token_id
-                    for token_id, info in stage_info_by_token.items()
+                    for token_id, info in lifecycle_info_by_token.items()
                     if bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False))
                 }
                 maker_cannon_probe_token_ids = self._maker_cannon_probe_token_ids(
-                    stage_info_by_token=stage_info_by_token,
+                    lifecycle_info_by_token=lifecycle_info_by_token,
                     books=books,
                 )
                 maker_observational_token_ids = set(maker_phase_tokens) | set(maker_cannon_probe_token_ids)
                 taker_phase_tokens = {
                     token_id
-                    for token_id, info in stage_info_by_token.items()
+                    for token_id, info in lifecycle_info_by_token.items()
                     if bool(info.get(EDGE_TAKER_GATE_OPEN_FIELD, False))
                 }
                 self.telemetry.set_gauge("doctrine_maker_phase_token_count", float(len(maker_phase_tokens)))
@@ -7857,7 +7849,7 @@ class ExecutionRunner:
                     STAGE_UNKNOWN: 0,
                 }
                 doctrine_gate_fail_count = 0
-                for info in stage_info_by_token.values():
+                for info in lifecycle_info_by_token.values():
                     lifecycle_phase_name = str(
                         info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                         or lifecycle_phase_from_payload(info)
@@ -7866,9 +7858,7 @@ class ExecutionRunner:
                     lifecycle_phase_counts[lifecycle_phase_name] = (
                         lifecycle_phase_counts.get(lifecycle_phase_name, 0) + 1
                     )
-                    lineage_stage_name = lineage_stage_from_payload(info)
-                    if lineage_stage_name == STAGE_UNKNOWN:
-                        lineage_stage_name = str(info.get("stage") or "").strip().upper() or STAGE_UNKNOWN
+                    lineage_stage_name = self._lineage_stage_from_lifecycle_info(info)
                     lineage_stage_counts[lineage_stage_name] = (
                         lineage_stage_counts.get(lineage_stage_name, 0) + 1
                     )
@@ -7890,7 +7880,7 @@ class ExecutionRunner:
                     float(
                         sum(
                             1
-                            for info in stage_info_by_token.values()
+                            for info in lifecycle_info_by_token.values()
                             if str(
                                 info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                                 or lifecycle_phase_from_payload(info)
@@ -7953,7 +7943,7 @@ class ExecutionRunner:
                 maker_preclassified_no_submission_category_by_token: Dict[str, str] = {}
                 maker_timing_gate_open_by_token: Dict[str, bool] = {
                     token_id: self._maker_timing_gate_open(
-                        stage_info_by_token.get(token_id, {}).get("sec_to_expiry")
+                        lifecycle_info_by_token.get(token_id, {}).get("sec_to_expiry")
                     )
                     for token_id in maker_observational_token_ids
                 }
@@ -7976,7 +7966,7 @@ class ExecutionRunner:
                             continue
                         maker_eligible_tokens.add(token_id)
                     for token_id in sorted(maker_observational_token_ids):
-                        info = stage_info_by_token.get(token_id, {})
+                        info = lifecycle_info_by_token.get(token_id, {})
                         if not bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False)):
                             continue
                         if bool(info.get(EDGE_MAKER_GATE_OPEN_FIELD, False)):
@@ -7999,7 +7989,7 @@ class ExecutionRunner:
                     float(len(maker_prereq_failure_by_token)),
                 )
                 self._emit_doctrine_decisions(
-                    stage_info_by_token,
+                    lifecycle_info_by_token,
                     maker_prereq_failure_by_token=maker_prereq_failure_by_token,
                 )
                 if taker_active:
@@ -8105,9 +8095,9 @@ class ExecutionRunner:
                 maker_one_sided_buy_active_count = 0
                 maker_one_sided_sell_active_count = 0
                 for token_id in sorted(maker_observational_token_ids):
-                    info = stage_info_by_token.get(token_id, {})
+                    info = lifecycle_info_by_token.get(token_id, {})
                     sec_to_expiry = info.get("sec_to_expiry")
-                    stage = self._compat_stage_from_lifecycle_info(info)
+                    lineage_stage = self._lineage_stage_from_lifecycle_info(info)
                     top = maker_resolved_books_by_token.get(token_id, books.get(token_id))
                     fair = fair_probability_by_token.get(token_id)
                     base_size_mult = float(size_multiplier_by_token.get(token_id, 1.0))
@@ -8129,18 +8119,13 @@ class ExecutionRunner:
                             if latest_pyth_targets is not None
                             else None
                         ),
-                        stage=stage,
                         lifecycle_phase=str(
                             info.get(EDGE_LIFECYCLE_PHASE_FIELD)
                             or lifecycle_phase_from_payload(info)
                             or "scan"
                         ).strip().lower()
                         or "scan",
-                        lineage_stage=(
-                            lineage_stage_from_payload(info)
-                            if lineage_stage_from_payload(info) != STAGE_UNKNOWN
-                            else str(stage or STAGE_UNKNOWN).strip().upper() or STAGE_UNKNOWN
-                        ),
+                        lineage_stage=lineage_stage,
                         sec_to_expiry=sec_to_expiry,
                         base_size_multiplier=base_size_mult,
                         base_spread_multiplier=base_spread_mult,
@@ -8159,7 +8144,7 @@ class ExecutionRunner:
                                 token_id=token_id,
                                 info=info,
                                 submission_lane="maker",
-                                stage=stage,
+                                lineage_stage=lineage_stage,
                             )
                         )
                         maker_side_policy_by_token[token_id] = side_policy
@@ -8247,7 +8232,7 @@ class ExecutionRunner:
                         self._emit_maker_edge_evaluations(
                             books=maker_books_for_evaluation,
                             maker_market_reference_by_token=maker_market_reference_by_token,
-                            stage_info_by_token=stage_info_by_token,
+                            lifecycle_info_by_token=lifecycle_info_by_token,
                             maker_eval_token_ids=maker_eval_token_ids,
                             maker_submitted_token_ids=maker_submitted_token_ids,
                             maker_submitted_order_ids_by_token=maker_submitted_order_ids_by_token,
@@ -8274,7 +8259,7 @@ class ExecutionRunner:
                             secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                             secondary_oracle_base_status=secondary_oracle_base_status,
                             token_ids=[str(token_id) for token_id in taker_runtime_token_ids],
-                            stage_info_by_token=stage_info_by_token,
+                            lifecycle_info_by_token=lifecycle_info_by_token,
                             oracle_tick_age_sec=oracle_tick_age_sec,
                             oracle_fresh=oracle_fresh,
                             latency_snapshot=latency_snapshot,
@@ -8411,7 +8396,7 @@ class ExecutionRunner:
                                 books=maker_books_for_evaluation,
                                 pair_truth_by_base_key=pair_truth_by_base_key,
                                 maker_market_reference_by_token=maker_market_reference_by_token,
-                                stage_info_by_token=stage_info_by_token,
+                                lifecycle_info_by_token=lifecycle_info_by_token,
                                 maker_eval_token_ids=maker_eval_token_ids,
                                 maker_submitted_token_ids=maker_submitted_token_ids,
                                 maker_submitted_order_ids_by_token=maker_submitted_order_ids_by_token,
@@ -8433,7 +8418,7 @@ class ExecutionRunner:
                                 secondary_fair_probability_by_token=secondary_fair_probability_by_token,
                                 secondary_oracle_base_status=secondary_oracle_base_status,
                                 token_ids=[str(token_id) for token_id in taker_runtime_token_ids],
-                                stage_info_by_token=stage_info_by_token,
+                                lifecycle_info_by_token=lifecycle_info_by_token,
                                 oracle_tick_age_sec=oracle_tick_age_sec,
                                 oracle_fresh=oracle_fresh,
                                 latency_snapshot=latency_snapshot,
@@ -8545,7 +8530,7 @@ class ExecutionRunner:
                             "error": "no_target_order_submission_attempt",
                             "order_submission_attempts_last_cycle": int(self._order_submission_attempts_last_cycle),
                             "target_count": len(self.token_ids),
-                            "runtime_state": self._runtime_state,
+                            "lifecycle_phase": self._lifecycle_phase,
                         }
                     )
                     if not self.risk.kill_switch:
@@ -8640,11 +8625,11 @@ class ExecutionRunner:
                 )
                 self.telemetry.set_gauge("ramp_enabled", 1.0 if ramp_snapshot.enabled else 0.0)
                 self.telemetry.set_gauge("ramp_target_usd", float(ramp_snapshot.target_usd))
-                self.telemetry.set_gauge("ramp_taker_enabled", 1.0 if ramp_snapshot.taker_allowed else 0.0)
+                self.telemetry.set_gauge("ramp_taker_enabled", 1.0 if ramp_snapshot.taker_ramp_enabled else 0.0)
                 self.telemetry.set_gauge("ramp_reconcile_mismatch_ratio", float(reconcile_mismatch_ratio))
                 if ramp_snapshot.enabled:
                     self._active_target_usd = float(ramp_snapshot.target_usd)
-                    self._taker_ramp_allowed = bool(ramp_snapshot.taker_allowed)
+                    self._taker_ramp_allowed = bool(ramp_snapshot.taker_ramp_enabled)
                     self.manager.sizing_target_usd = float(self._active_target_usd)
                     if self.sizing_mode == "notional":
                         self.taker_target_usd = float(self._active_target_usd)
@@ -8655,7 +8640,7 @@ class ExecutionRunner:
                             "ts_utc": utc_iso(),
                             "run_id": self.run_id,
                             "target_usd": float(ramp_snapshot.target_usd),
-                            "ramp_taker_enabled": bool(ramp_snapshot.taker_allowed),
+                            "ramp_taker_enabled": bool(ramp_snapshot.taker_ramp_enabled),
                             "reason": ramp_snapshot.reason,
                             "reconcile_mismatch_ratio": float(reconcile_mismatch_ratio),
                         },
@@ -8723,7 +8708,7 @@ class ExecutionRunner:
                             "run_id": self.run_id,
                             "control": "kill_switch",
                             "reason": self.risk.kill_reason,
-                            "runtime_state": self._runtime_state,
+                            "lifecycle_phase": self._lifecycle_phase,
                             "financial_posture_class": str(self._financial_posture_class),
                             "runtime_resource": runtime_resource_snapshot,
                         },
@@ -8823,7 +8808,7 @@ class ExecutionRunner:
                         "taker_phase_allowed": self._runtime_taker_phase_allowed,
                         "maker_gate_open": self._runtime_maker_gate_open,
                         "taker_gate_open": self._runtime_taker_gate_open,
-                        "runtime_state": self._runtime_state,
+                        "lifecycle_phase": self._lifecycle_phase,
                         "active_targets_present": self._runtime_active_targets_present,
                         "promotion_eligibility_hint": self._runtime_promotion_eligibility_hint,
                         "challenger_token_count": int(len(self._challenger_token_ids)),
@@ -8977,28 +8962,28 @@ class ExecutionRunner:
                         "settlement_hold_required_count": int(
                             sum(
                                 1
-                                for info in stage_info_by_token.values()
+                                for info in lifecycle_info_by_token.values()
                                 if bool(info.get(EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD, False))
                             )
                         ),
                         "open_order_cleanup_required_count": int(
                             sum(
                                 1
-                                for info in stage_info_by_token.values()
+                                for info in lifecycle_info_by_token.values()
                                 if bool(info.get(EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD, False))
                             )
                         ),
                         "unresolved_lifecycle_obligation_count": int(
                             sum(
                                 1
-                                for info in stage_info_by_token.values()
+                                for info in lifecycle_info_by_token.values()
                                 if bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
                             )
                         ),
                         "cancel_fail_closed_count": int(
                             sum(
                                 1
-                                for info in stage_info_by_token.values()
+                                for info in lifecycle_info_by_token.values()
                                 if bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
                             )
                         ),
@@ -9037,7 +9022,7 @@ class ExecutionRunner:
                             "chainlink_connected": 1.0 if bool(chainlink_status.get("connected", False)) else 0.0,
                             "book_feed_connected": 1.0 if bool(book_feed_status.get("connected", False)) else 0.0,
                             "target_count": float(len(self.token_ids)),
-                            "runtime_state_code": runtime_state_to_gauge(self._runtime_state),
+                            "lifecycle_phase_code": lifecycle_phase_to_gauge(self._lifecycle_phase),
                             "market_truth_required": 1.0 if self._runtime_market_truth_required else 0.0,
                             "maker_phase_allowed": 1.0 if self._runtime_maker_phase_allowed else 0.0,
                             "taker_phase_allowed": 1.0 if self._runtime_taker_phase_allowed else 0.0,
@@ -9115,7 +9100,7 @@ class ExecutionRunner:
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._write_run_manifest_end()
             # Emit the semantic self-audit again on shutdown so bounded tail
-            # replays still retain the canonical stage-window owner truth.
+            # replays still retain the canonical lifecycle-window owner truth.
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
                 self._emit_taker_window_semantic_check()
             with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):

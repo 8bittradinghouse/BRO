@@ -566,7 +566,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(blocked.reason, "normal_taker_same_token_sell_forbidden")
         self.assertEqual(str((blocked.basis or {}).get("risk_authority") or ""), "taker_side_policy")
 
-        maker_allowed = risk.validate_order(
+        maker_verdict = risk.validate_order(
             OrderIntent(token_id="t1", side="SELL", price=0.5, size=1.0),
             top=top,
             open_orders_for_token=[],
@@ -578,7 +578,7 @@ class PreflightAndRiskTests(unittest.TestCase):
                 "sec_to_expiry": 90.0,
             },
         )
-        self.assertTrue(maker_allowed.allowed)
+        self.assertTrue(maker_verdict.allowed)
 
         reduce_only_allowed = risk.validate_order(
             OrderIntent(token_id="t2", side="SELL", price=0.5, size=3.0),

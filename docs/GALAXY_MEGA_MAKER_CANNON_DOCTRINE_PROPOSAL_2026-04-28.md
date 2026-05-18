@@ -110,7 +110,7 @@ paper`.
   - `queue_ahead_size`
   - `expected_fill_prob`
   - `financial_posture_class`
-  - `reduce_only_recovery_active`
+  - historical recovery-lineage truth
   - `same_target_side_shadow_count_prior`
 
 Plain-English:

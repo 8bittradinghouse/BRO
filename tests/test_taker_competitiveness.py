@@ -24,7 +24,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-outside",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=25.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -54,7 +55,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-hard-min",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.25,
                     required_min_edge=0.10,
@@ -86,7 +88,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-final-window",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=20.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -123,7 +126,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-submit",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -151,7 +155,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-low",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.13,
                     required_min_edge=0.10,
@@ -163,7 +168,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                 ),
                 TakerCandidate(
                     token_id="tok-high",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -195,7 +201,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-low-size-high",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.14,
                     required_min_edge=0.10,
@@ -208,7 +215,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                 ),
                 TakerCandidate(
                     token_id="tok-high-size-lower",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -244,7 +252,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-boost",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.24,
                     required_min_edge=0.10,
@@ -283,7 +292,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-unknown",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.24,
                     required_min_edge=0.10,
@@ -320,7 +330,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-stage-window",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=25.0,
                     edge_value=0.30,
                     required_min_edge=0.10,
@@ -359,7 +370,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-boost-window",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=18.0,
                     edge_value=0.24,
                     required_min_edge=0.10,
@@ -395,7 +407,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-preview",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -434,7 +447,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-floor",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=0.25,
                     required_min_edge=0.10,
@@ -466,7 +480,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-negative-edge",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=8.0,
                     edge_value=-0.24,
                     required_min_edge=0.10,
@@ -506,7 +521,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-canonical-window",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=10.0,
                     edge_value=0.25,
                     required_min_edge=0.10,
@@ -543,7 +559,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             candidates=[
                 TakerCandidate(
                     token_id="tok-a",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=5.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
@@ -556,7 +573,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                 ),
                 TakerCandidate(
                     token_id="tok-b",
-                    stage="EXTREME_ONLY",
+                    lifecycle_phase="taker_window",
+                    lineage_stage="EXTREME_ONLY",
                     sec_to_expiry=5.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
