@@ -7322,13 +7322,7 @@ def _maker_blocker_ledger_bundle(
         "claim_boundary": (
             "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census"
         ),
-        "closed_family_assertions": {
-            "timing_window_collision": "closed",
-            "selector_owned_one_sided_family": "closed",
-            "websocket_denominator_false_fail": "closed",
-            "maker_submit_opportunity_false_fail": "closed",
-            "historical_small_loss_recovery_bleed_family": "closed_unless_exact_pattern_returns",
-        },
+        "historical_family_labels_retired_from_active_owner_surfaces": True,
         "runtime_reason_distribution": _counter_to_sorted_int_dict(runtime_reason_counts),
         "runtime_bucket_distribution": _counter_to_sorted_int_dict(bucket_counts),
         "dominant_runtime_blocker_reason": (

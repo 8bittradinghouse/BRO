@@ -25,7 +25,7 @@
   - `runtime_classification=VALID_ACTIVE`
   - owned markets stayed inside the final `90s`
   - maker and taker both fired
-  - current-code replay closes the archived websocket and maker-submit false blockers
+  - current-code replay closes the archived gate-accounting false blockers
   - the remaining replay hard fail is real execution-quality pressure only
 - runtime lineage tuple expectation for new closure claims:
   - `run_id`
@@ -124,8 +124,8 @@ Board law:
   - current strongest packet-local provisional reads are:
     - lifecycle ownership-entry law is now active current-code steel at
       `<=90s`
-    - the old small-loss / recovery-bleed family appears cut on current code
-      and reopens only if its repeated tiny-bleed pattern returns
+    - the historical repeated tiny-bleed recovery lineage appears cut on
+      current code and reopens only if that exact pattern returns
     - official WS/CLOB substrate transplant is now materially landed and no
       longer the active maker patient
     - canonical lifecycle surgery is now materially landed and no longer the
@@ -270,8 +270,8 @@ Current board use:
 - Whole fighter still `Needs Work`.
 - `pilot_live` remains the active phase.
 - Packet 2 `Maker-Live` is now active in post-surgery maker runtime reread:
-  - the old small-loss / recovery-bleed family appears cut on current code and
-    reopens only if its exact repeated tiny-bleed pattern returns
+  - the historical repeated tiny-bleed recovery lineage appears cut on current
+    code and reopens only if that exact pattern returns
   - major completed body repairs now carried forward:
     - official Polymarket WS/CLOB substrate transplant
     - canonical lifecycle surgery
@@ -280,7 +280,7 @@ Current board use:
     - transport / oracle / lifecycle / timing = healthy
     - ownership-entry law held inside the final `90s`
     - maker and taker both fired
-    - current-code replay closed the archived websocket and maker-submit false blockers
+    - current-code replay closed the archived gate-accounting false blockers
     - remaining replay hard fail is `soak_execution_quality_capture_minus_adverse_too_low`
   - dominant current maker runtime patient:
     - accessory maker sizing feasibility after selection depth and queue-depth

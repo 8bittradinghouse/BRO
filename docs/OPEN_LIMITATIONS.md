@@ -232,8 +232,8 @@
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
 - the optional later recovery / unwind history/compat extinction artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
-- Historical small-loss / recovery-bleed family is no longer an active Packet 2
-  patient on current proof:
+- Historical repeated tiny-bleed recovery lineage is no longer an active Packet
+  2 patient on current proof:
   - current canon losses are discrete order outcomes under the deliberately
     detuned test profile
   - `outcome_truth_audit.lane_outcome_truth.maker.lifecycle_residue_records=0`

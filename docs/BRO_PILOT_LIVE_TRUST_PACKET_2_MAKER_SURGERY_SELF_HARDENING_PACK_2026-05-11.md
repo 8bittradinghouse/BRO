@@ -123,7 +123,7 @@
   - current posture: contradictory live owner family; planning/prep open
   - working surgery question: how do we cut in-cycle recovery trading and
     emergency unwind authority while preserving cancel-only fail-close?
-- `historical small-loss / recovery-bleed family`
+- `historical repeated tiny-bleed recovery lineage`
   - current posture: historical wound-lineage only unless its exact repeated
     tiny-bleed pattern returns on current code
   - working surgery question: none by default; reopen only from fresh watched
@@ -138,7 +138,7 @@
   broader competitiveness tuning
 - `support-shadow / probe family`: much of this support mass can be fenced or
   reduced once the runtime owner family is cleaner
-- `historical small-loss / recovery-bleed family`: current code appears to
+- `historical repeated tiny-bleed recovery lineage`: current code appears to
   have cut this old patient; do not silently reopen it from ordinary losing
   orders on the deliberately detuned paper profile
 

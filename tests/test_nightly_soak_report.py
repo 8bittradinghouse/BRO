@@ -108,6 +108,8 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertEqual(summary.get("sizing_verdict"), "active_patient")
         self.assertEqual(summary.get("next_packet2_patient"), "accessory_maker_sizing_feasibility")
         self.assertEqual(summary.get("runtime_blocker_family_status"), "open_runtime_patient")
+        self.assertNotIn("closed_family_assertions", summary)
+        self.assertEqual(summary.get("historical_family_labels_retired_from_active_owner_surfaces"), True)
 
     def test_maker_probe_rows_with_shadow_truth_prefers_canonical_lifecycle_window(self):
         rows = _maker_probe_rows_with_shadow_truth(

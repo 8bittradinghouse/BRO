@@ -94,7 +94,7 @@ Severity rules:
     timing-owner fix on live runtime:
     - `runtime_classification=VALID_ACTIVE`
     - maker submitted and filled under the canonical lifecycle window
-    - the old timing collision did not recur
+    - the prior ownership-entry splice did not recur
   - current-code replay on canon specimen
     `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first clean blocker
     ledger cut:
@@ -113,8 +113,8 @@ Severity rules:
     - support-schoolhouse remains subordinate to the blocker ledger
   - the active Packet 2 patient is therefore no longer a generic
     blocker-family mystery; it is support-schoolhouse cleanup plus accessory
-    maker sizing / shaping truth after the timing collision and selector-owned
-    one-sided family were cut
+    maker sizing / shaping truth after the prior duplicate-owner defects were
+    cut
   - Packet 2 still lacks closure-grade final authoritative-only dollar-owner
     proof, final scar-tissue provenance verdicts, and final falsifier closure
     strong enough to support live trust claims without drift
@@ -331,13 +331,14 @@ Failure rule:
     non-actionable rows are removed from maker opportunity accounting
   - the remaining replay hard fail is real execution-quality pressure:
     `soak_execution_quality_capture_minus_adverse_too_low`
-- `VERIFIED`: the old small-loss / recovery-bleed family is not currently an
-  active Packet 2 patient on current proof:
+- `VERIFIED`: the historical repeated tiny-bleed recovery lineage is not
+  currently an active Packet 2 patient on current proof:
   - current canon losses are discrete order outcomes under the deliberately
     detuned paper profile
   - `outcome_truth_audit.lane_outcome_truth.maker.lifecycle_residue_records=0`
   - `outcome_truth_audit.lane_outcome_truth.normal_taker.lifecycle_residue_records=0`
-  - reopen only if the old repeated tiny recovery-style bleed pattern returns
+  - reopen only if that exact repeated tiny recovery-style bleed pattern
+    returns
 - `VERIFIED`: watched current-tree specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
   now belongs to the pre-correction `15-20 / 15` lineage:
   - active `15-20s` band:

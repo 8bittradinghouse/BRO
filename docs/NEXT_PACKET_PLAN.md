@@ -139,7 +139,7 @@ G-frame override:
         active maker patient
       - current canon specimen `4f843da4-16ec-4616-948c-c7b19e7f5aea`
         stayed `VALID_ACTIVE`, fired maker and taker, and current-code replay
-        closed the archived websocket and maker-submit false blockers
+        closed the archived gate-accounting false blockers
       - the only remaining hard-fail on the current-code replay of that
         specimen is real execution-quality pressure:
         - `soak_execution_quality_capture_minus_adverse_too_low`

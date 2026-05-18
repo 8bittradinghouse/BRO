@@ -55,8 +55,8 @@ Program-wide seriousness rules:
   5. existing diagnostic-surface hardening plus websocket / maker-submit false-blocker repair
   6. surviving-blocker runtime tribunal closeout + blocker-ledger owner promotion
 - Packet 2 carry-forward truths this program must preserve:
-  - the old small-loss / recovery-bleed family appears cut on current code and
-    reopens only if its exact pattern recurs
+  - the historical repeated tiny-bleed recovery lineage appears cut on current
+    code and reopens only if that exact pattern recurs
   - queue pressure is cut from current/live authority and preserved only as
     ignored legacy-config compatibility plus historical replay lineage
   - recovery / unwind current-owner cut is materially landed; remaining old
@@ -71,8 +71,7 @@ Program-wide seriousness rules:
     - `runtime_classification=VALID_ACTIVE`
     - maker and taker both fired
     - owned markets stayed inside the final `90s`
-    - current-code replay closes the archived websocket and maker-submit false
-      blockers
+    - current-code replay closes the archived gate-accounting false blockers
     - first blocker-ledger cut:
       - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
       - `quote_quality_skip_queue_depth` = `keep-now steel`
