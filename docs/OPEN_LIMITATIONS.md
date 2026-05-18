@@ -162,11 +162,13 @@
   - they are valid runtime ancestry for that moment, but they do not certify
     current Packet 2 timing doctrine
 - Current Packet 2 timing doctrine is now:
+  - lifecycle ownership-entry ceiling is `lifecycle.selection.max_sec_to_expiry=90.0`
   - maker gate opens at `15.0s`
   - maker risk-increasing authority lives in `(7.0, 15.0]`
   - taker authority opens at `<=7.0s`
 - Current Packet 2 timing collision is explicit in pre-fix Packet 2 lineage:
-  - `lifecycle.selection.min_sec_to_expiry=90.0`
+  - the legacy profile carried the `90s` ownership-entry rule as
+    `lifecycle.selection.min_sec_to_expiry=90.0`
   - `lifecycle.phase.maker_window_open_sec=15.0`
   - pre-fix `prodesk/order_manager.py` reused those as the maker selection
     gate min/max timing window
@@ -214,12 +216,15 @@
   - canonical lifecycle surgery is materially landed
   - both moved the current maker patient away from generic body-breakage and
     toward a narrower maker-local authority wound
-- Latest watched 20-minute current-tree systems-health specimen
-  `98d7f6c5-bec9-4768-bb06-941079c2ac72` now says:
+- Latest canon timing / queue-audit specimen
+  `4f843da4-16ec-4616-948c-c7b19e7f5aea` now says:
   - `runtime_classification=VALID_ACTIVE`
-  - websocket/CLOB/oracle/lifecycle/timing health was clean
-  - policy closeout still failed on maker-only findings:
-    - `soak_maker_submits_too_low`
+  - owned markets stayed inside the final `90s`
+  - maker and taker both fired on the live lane
+  - current-code replay closes the archived:
+    - `websocket_hardening_audit` denominator false fail
+    - `soak_maker_submits_too_low` opportunity-accounting false fail
+  - current-code replay still hard-fails on a real remaining economics signal:
     - `soak_execution_quality_capture_minus_adverse_too_low`
 - the active Packet 2 maker entry artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
@@ -227,11 +232,13 @@
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
 - the optional later recovery / unwind history/compat extinction artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
-- Current strongest Packet 2 small-loss owner is still provisional:
-  - strongest current owner candidate = `complete-outcome truth`
-  - strongest foundation trace = `market-truth substrate`
-  - current disposition = `not trusted steel / surgery-pile candidate`
-  - final authoritative-only dollar-owner verdict remains open
+- Historical small-loss / recovery-bleed family is no longer an active Packet 2
+  patient on current proof:
+  - current canon losses are discrete order outcomes under the deliberately
+    detuned test profile
+  - `outcome_truth_audit.lane_outcome_truth.maker.lifecycle_residue_records=0`
+  - `outcome_truth_audit.lane_outcome_truth.normal_taker.lifecycle_residue_records=0`
+  - reopen only if the old repeated tiny recovery-style bleed pattern returns
 - Queue-pressure current/live authority has now been cut. Only legacy-config
   ignored compatibility and historical replay lineage remain; it no longer
   exists as a live maker behavior/report family.
@@ -241,17 +248,18 @@
   historical lineage/docs. The intended replacement is cancel-only fail-close
   for open unfilled orders plus hold-to-settlement for real accepted exposure.
 - Current explicit Packet 2 surgery queue is:
-  1. `surviving maker blocker family after timing-owner reproval`:
-     - watched rerun `ae3bdf9e-6eee-4c99-8e3b-6e021136125c` is now clean on:
-       - websocket/CLOB/oracle/lifecycle/timing health
-       - canonical maker-window timing legality
-       - real maker participation (`2` maker submits)
-     - the older selector-owned one-sided branch was the leading blocker on the
-       watched rerun and has now been retired from maker selection authority
-     - strongest surviving follow-up question is therefore what the next real
-       maker blocker becomes once timing and selector-owned one-sided drift are
-       both out of the way
-  2. `support-shadow / probe family` truth cleanup:
+  - current-code replay on canon specimen
+    `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first blocker-ledger cut:
+    - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
+    - `quote_quality_skip_queue_depth` = `keep-now steel`
+    - `sizing_reject` = `minor residue` on that replay specimen
+    - `maker_blocker_ledger.json` = current owner artifact for blocker truth
+  - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` narrowed the
+    still-open live patient:
+    - selection depth multiple remains `keep-now steel`
+    - queue-depth quote quality remains `keep-now steel`
+    - `sizing_reject` is now the active runtime patient
+  1. `support-shadow / probe family` truth cleanup:
      - `maker_fight_admission_shadow*`
      - late/mid-window probes
      - zero-submit root-cause
@@ -260,25 +268,24 @@
        - `maker_zero_submit_root_cause_audit.json` must step aside on submit
          runs instead of hallucinating timing-band mismatch
        - `maker_participation_waterfall.json` remains descriptive-only and must
-         redirect to `maker_selection_authority_audit.json` as the canonical
-         current owner for selection truth
+         redirect to `maker_blocker_ledger.json` as the canonical current
+         owner for blocker truth
+  2. `accessory maker sizing scaler bundle` runtime tribunal:
+     - `maker_depth_target_*`
+     - `maker_liquidity_tod_*`
   3. `accessory competitiveness bundle` runtime tribunal:
      - `edge_scale_*`
      - `size_mult_max`
      - `spread_mult_min`
      - `requote_delta_mult_min`
-  4. `accessory maker sizing scaler bundle` runtime tribunal:
-     - `maker_depth_target_*`
-     - `maker_liquidity_tod_*`
-  5. `small-loss wound family` remeasurement after earlier family cuts
-  6. optional historical extinction packet only if we explicitly choose full
+  4. `final trust / falsifier proof` after the blocker queue is honest
+  5. optional historical extinction packet only if we explicitly choose full
      repo extinction beyond current active-owner surfaces:
      - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
 - A clean current-code release anchor now exists on
   `7bbde42c-003a-4f57-b59a-7ce138224075`, but that does not remove the
   `pilot_live` frontier or promote whole-fighter closure by itself.
-- Pilot-live readiness still remains unproven, but paper-stage readiness is no
-  longer blocked on the latest current-code doctrinal proof set.
+- Pilot-live readiness still remains unproven.
 - Maker/taker remain diagnostic-only for tuning/aggression work, but
   maker and taker live-trust qualification are now active diagnostic
   proof work inside the `pilot_live` lane.

@@ -603,15 +603,6 @@ def _timing_watchboard(
 ) -> Dict[str, Any]:
     preflight_cfg = cfg.get("preflight", {}) if isinstance(cfg.get("preflight"), dict) else {}
     operating_mode_cfg = cfg.get("operating_mode", {}) if isinstance(cfg.get("operating_mode"), dict) else {}
-    strategy_cfg = cfg.get("strategy", {}) if isinstance(cfg.get("strategy"), dict) else {}
-    maker_cfg = (
-        strategy_cfg.get("maker_competitiveness", {})
-        if isinstance(strategy_cfg.get("maker_competitiveness"), dict)
-        else {}
-    )
-    selection_gate_cfg = (
-        maker_cfg.get("selection_gate", {}) if isinstance(maker_cfg.get("selection_gate"), dict) else {}
-    )
     risk_cfg = cfg.get("risk", {}) if isinstance(cfg.get("risk"), dict) else {}
     lane_thresholds = (
         risk_cfg.get("min_sec_to_expiry_for_new_exposure_by_lane", {})
@@ -709,32 +700,18 @@ def _timing_watchboard(
     lifecycle_cfg = cfg.get("lifecycle", {}) if isinstance(cfg, dict) else {}
     if not isinstance(lifecycle_cfg, dict):
         lifecycle_cfg = {}
+    lifecycle_selection_cfg = lifecycle_cfg.get("selection", {})
+    if not isinstance(lifecycle_selection_cfg, dict):
+        lifecycle_selection_cfg = {}
     lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
     if not isinstance(lifecycle_phase_cfg, dict):
         lifecycle_phase_cfg = {}
-    selection_gate_min = selection_gate_cfg.get("min_sec_to_expiry")
-    selection_gate_max = selection_gate_cfg.get("max_sec_to_expiry")
-    selection_gate_active = bool(
-        isinstance(selection_gate_min, (int, float)) or isinstance(selection_gate_max, (int, float))
-    )
-    if selection_gate_active:
-        warnings.append("timing_watch_duplicate_selection_gate_timing_owner_active")
-
     maker_gate_min = _safe_float(lifecycle_phase_cfg.get("taker_window_open_sec"))
-    if maker_gate_min is None:
-        maker_gate_min = _safe_float(maker_cfg.get("timing_gate_min_sec_to_expiry"))
     maker_gate_max = _safe_float(lifecycle_phase_cfg.get("maker_window_open_sec"))
-    if maker_gate_max is None:
-        maker_gate_max = _safe_float(maker_cfg.get("timing_gate_max_sec_to_expiry"))
     risk_global_min = _safe_float(risk_cfg.get("min_sec_to_expiry_for_new_exposure"))
     risk_maker_min = _safe_float(lane_thresholds.get("maker"))
     risk_effective_maker_min = risk_maker_min if risk_maker_min is not None else risk_global_min
-    layered_left_edge_split_active = (
-        bool(maker_cfg.get("timing_gate_enabled", False))
-        and isinstance(maker_gate_min, float)
-        and isinstance(risk_effective_maker_min, float)
-        and abs(float(maker_gate_min) - float(risk_effective_maker_min)) <= 1e-9
-    )
+    layered_left_edge_split_active = False
 
     return {
         "host_sync": host_summary,
@@ -762,19 +739,24 @@ def _timing_watchboard(
         "submit_latency": {
             "accepted_submit_latency_ms_summary": _latency_summary_ms(submit_latencies),
         },
+        "ownership_entry_authority": {
+            "enabled": bool(lifecycle_selection_cfg.get("enabled", True)),
+            "max_sec_to_expiry": _safe_float(lifecycle_selection_cfg.get("max_sec_to_expiry")),
+            "min_market_age_sec": _safe_float(lifecycle_selection_cfg.get("min_market_age_sec")),
+        },
         "maker_timing_authority": {
-            "timing_gate_enabled": bool(maker_cfg.get("timing_gate_enabled", False)),
+            "timing_gate_enabled": bool(
+                (lifecycle_cfg.get("lane_gates") or {}).get("maker", {}).get("timing_gate_enabled", False)
+                if isinstance((lifecycle_cfg.get("lane_gates") or {}).get("maker", {}), dict)
+                else False
+            ),
             "timing_gate_min_sec_to_expiry": maker_gate_min,
             "timing_gate_max_sec_to_expiry": maker_gate_max,
             "risk_min_sec_to_expiry_for_new_exposure_global": risk_global_min,
             "risk_min_sec_to_expiry_for_new_exposure_maker_effective": risk_effective_maker_min,
-            "selection_gate_timing_min_sec_to_expiry": (
-                float(selection_gate_min) if isinstance(selection_gate_min, (int, float)) else None
-            ),
-            "selection_gate_timing_max_sec_to_expiry": (
-                float(selection_gate_max) if isinstance(selection_gate_max, (int, float)) else None
-            ),
-            "selection_gate_timing_duplicate_owner_active": bool(selection_gate_active),
+            "selection_gate_timing_min_sec_to_expiry": maker_gate_min,
+            "selection_gate_timing_max_sec_to_expiry": maker_gate_max,
+            "selection_gate_timing_duplicate_owner_active": False,
             "layered_left_edge_split_active": bool(layered_left_edge_split_active),
         },
         "warning_band_ratio": float(TIMING_WATCH_WARN_RATIO),

@@ -822,29 +822,18 @@ class CanonicalPaperSessionPostrunTests(unittest.TestCase):
                 state_path=state_path,
                 run_id=str(uuid.uuid4()),
                 session_token=str(uuid.uuid4()),
-                ignored_compatibility_fields=["strategy.maker_competitiveness.queue_pressure"],
-                compatibility_warnings=[
-                    "strategy.maker_competitiveness.queue_pressure is a removed queue-pressure compatibility surface and is ignored"
-                ],
+                ignored_compatibility_fields=[],
+                compatibility_warnings=[],
             )
             runner = SessionRunner(ctx)
 
             session_state = json.loads(ctx.session_state_path.read_text(encoding="utf-8"))
             session_identity = json.loads((ctx.report_root / "session_identity.json").read_text(encoding="utf-8"))
-            self.assertEqual(
-                session_state.get("ignored_compatibility_fields"),
-                ["strategy.maker_competitiveness.queue_pressure"],
-            )
-            self.assertEqual(int(session_state.get("compatibility_warning_count") or 0), 1)
-            self.assertIn(
-                "removed queue-pressure compatibility surface",
-                "\n".join(str(x) for x in session_state.get("compatibility_warnings") or []),
-            )
-            self.assertEqual(
-                session_identity.get("ignored_compatibility_fields"),
-                ["strategy.maker_competitiveness.queue_pressure"],
-            )
-            self.assertEqual(int(session_identity.get("compatibility_warning_count") or 0), 1)
+            self.assertEqual(session_state.get("ignored_compatibility_fields"), [])
+            self.assertEqual(int(session_state.get("compatibility_warning_count") or 0), 0)
+            self.assertEqual(list(session_state.get("compatibility_warnings") or []), [])
+            self.assertEqual(session_identity.get("ignored_compatibility_fields"), [])
+            self.assertEqual(int(session_identity.get("compatibility_warning_count") or 0), 0)
 
     def test_phase_active_fails_fast_when_stack_dies_early(self) -> None:
         with tempfile.TemporaryDirectory() as td:

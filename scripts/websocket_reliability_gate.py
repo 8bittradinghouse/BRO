@@ -78,6 +78,18 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _websocket_truth_required(row: Dict[str, Any]) -> bool:
+    if _as_bool(row.get("active_targets_present"), default=False):
+        return True
+    if _as_bool(row.get("market_truth_required"), default=False):
+        return True
+    if str(row.get("owned_market_ref") or "").strip():
+        return True
+    if str(row.get("challenger_market_ref") or "").strip():
+        return True
+    return False
+
+
 def _reconnect_counter(payload: Dict[str, Any]) -> Optional[float]:
     # Prefer steady-state reconnect accounting when emitted by runtime.
     steady = _coerce_float(payload.get("reconnects_steady"))
@@ -294,19 +306,23 @@ def run_gate(
     chain_worker_unusable_rows = 0
     book_worker_restart_exhausted_rows = 0
     chain_worker_restart_exhausted_rows = 0
+    truth_required_rows = 0
     for row in rows:
         book = _as_dict(row.get("book_feed"))
         chain = _as_dict(row.get("chainlink"))
         gateway = _as_dict(row.get("gateway"))
-        if not book:
-            missing_book_count += 1
-        if not chain:
-            missing_chain_count += 1
+        truth_required = _websocket_truth_required(row)
+        if truth_required:
+            truth_required_rows += 1
+            if not book:
+                missing_book_count += 1
+            if not chain:
+                missing_chain_count += 1
         book_connected = _as_bool(book.get("connected"), default=False)
         chain_connected = _as_bool(chain.get("connected"), default=False)
-        if not book_connected:
+        if truth_required and not book_connected:
             book_down_count += 1
-        if not chain_connected:
+        if truth_required and not chain_connected:
             chain_down_count += 1
         if book:
             if bool(book.get("enabled", False)) and not _as_bool(book.get("worker_usable"), default=True):
@@ -314,27 +330,29 @@ def run_gate(
             if _as_bool(book.get("worker_restart_exhausted"), default=False):
                 book_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(book)
-            if reconnects is None:
+            if truth_required and reconnects is None:
                 missing_book_reconnect_count += 1
             else:
-                max_book_reconnects = max(max_book_reconnects, float(reconnects))
+                if reconnects is not None:
+                    max_book_reconnects = max(max_book_reconnects, float(reconnects))
         if chain:
             if bool(chain.get("enabled", False)) and not _as_bool(chain.get("worker_usable"), default=True):
                 chain_worker_unusable_rows += 1
             if _as_bool(chain.get("worker_restart_exhausted"), default=False):
                 chain_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(chain)
-            if reconnects is None:
+            if truth_required and reconnects is None:
                 missing_chain_reconnect_count += 1
             else:
-                max_chain_reconnects = max(max_chain_reconnects, float(reconnects))
+                if reconnects is not None:
+                    max_chain_reconnects = max(max_chain_reconnects, float(reconnects))
         if book:
             book_age_raw = book.get("last_msg_age_sec")
             book_age = _coerce_float(book.get("last_msg_age_sec"))
-            if book_age is None:
+            if truth_required and book_age is None:
                 if book_age_raw is not None or book_connected:
                     missing_book_age_count += 1
-            else:
+            elif truth_required:
                 max_book_age = max(max_book_age, float(book_age))
                 book_age_vals.append(float(book_age))
                 if float(book_age) > float(max_book_feed_last_msg_age_sec):
@@ -342,23 +360,23 @@ def run_gate(
         if chain:
             chain_age_raw = chain.get("last_tick_age_sec")
             chain_age = _coerce_float(chain.get("last_tick_age_sec"))
-            if chain_age is None:
+            if truth_required and chain_age is None:
                 if chain_age_raw is not None or chain_connected:
                     missing_chain_age_count += 1
-            else:
+            elif truth_required:
                 max_chain_age = max(max_chain_age, float(chain_age))
                 chain_age_vals.append(float(chain_age))
                 if float(chain_age) > float(max_chainlink_last_tick_age_sec):
                     chain_age_spike_rows += 1
             queue_size = _coerce_float(chain.get("queue_size"))
-            if queue_size is None:
+            if truth_required and queue_size is None:
                 missing_chain_queue_count += 1
-            else:
+            elif queue_size is not None:
                 max_chain_queue = max(max_chain_queue, float(queue_size))
             dropped_ticks = _coerce_float(chain.get("dropped_ticks"))
-            if dropped_ticks is None:
+            if truth_required and dropped_ticks is None:
                 missing_chain_dropped_count += 1
-            else:
+            elif dropped_ticks is not None:
                 max_chain_dropped = max(max_chain_dropped, float(dropped_ticks))
         if gateway:
             resting_orders_present = _as_bool(gateway.get("resting_orders_present"), default=False)
@@ -389,10 +407,10 @@ def run_gate(
                     )
 
     sample_count = len(rows)
-    book_down_ratio = (float(book_down_count) / float(sample_count)) if sample_count > 0 else 1.0
-    chain_down_ratio = (float(chain_down_count) / float(sample_count)) if sample_count > 0 else 1.0
-    book_age_spike_ratio = (float(book_age_spike_rows) / float(sample_count)) if sample_count > 0 else 1.0
-    chain_age_spike_ratio = (float(chain_age_spike_rows) / float(sample_count)) if sample_count > 0 else 1.0
+    book_down_ratio = (float(book_down_count) / float(truth_required_rows)) if truth_required_rows > 0 else 0.0
+    chain_down_ratio = (float(chain_down_count) / float(truth_required_rows)) if truth_required_rows > 0 else 0.0
+    book_age_spike_ratio = (float(book_age_spike_rows) / float(truth_required_rows)) if truth_required_rows > 0 else 0.0
+    chain_age_spike_ratio = (float(chain_age_spike_rows) / float(truth_required_rows)) if truth_required_rows > 0 else 0.0
     book_reconnects_per_hour = max_book_reconnects / duration_hours
     chain_reconnects_per_hour = max_chain_reconnects / duration_hours
     book_age_p95 = _percentile(book_age_vals, 0.95)
@@ -530,6 +548,7 @@ def run_gate(
         "artifact_identity": build_artifact_identity(log_dir=log_dir.resolve(), run_id=resolved_run_id),
         "context_hints": context_hints,
         "status_row_count": sample_count,
+        "websocket_truth_required_row_count": truth_required_rows,
         "metrics": {
             "duration_sec": duration_sec,
             "book_feed_down_ratio": book_down_ratio,

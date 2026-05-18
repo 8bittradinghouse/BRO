@@ -20,21 +20,17 @@ class GuardianProfileAuditTests(unittest.TestCase):
         path.write_text(yaml.safe_dump(payload), encoding="utf-8")
         return path
 
-    def _write_config(self, root: Path, *, include_legacy_queue_pressure: bool) -> Path:
+    def _write_config(self, root: Path, *, include_unknown_strategy_owner: bool) -> Path:
         payload = {
             "targets": {
                 "token_ids": ["tok1"],
             }
         }
-        if include_legacy_queue_pressure:
+        if include_unknown_strategy_owner:
             payload["strategy"] = {
-                "maker_competitiveness": {
-                    "queue_pressure": {
-                        "enabled": "definitely_not_bool",
-                        "allowed_stages": ["EXTREME_ONLY"],
-                        "inside_price_ticks": 0,
-                    }
-                }
+                "unexpected_policy_owner": {
+                    "enabled": True,
+                },
             }
         path = root / "execution_config.yaml"
         path.write_text(yaml.safe_dump(payload), encoding="utf-8")
@@ -69,7 +65,7 @@ class GuardianProfileAuditTests(unittest.TestCase):
                     "--no-trigger-on-kill-switch",
                 ],
             )
-            clean_cfg = self._write_config(root, include_legacy_queue_pressure=False)
+            clean_cfg = self._write_config(root, include_unknown_strategy_owner=False)
             report = run_audit(compose_path=compose, config_path=clean_cfg)
         self.assertTrue(report["ok"], msg=str(report.get("findings")))
         self.assertEqual(int(report.get("compatibility_warning_count") or 0), 0)
@@ -134,7 +130,7 @@ class GuardianProfileAuditTests(unittest.TestCase):
         self.assertIn("missing_require_authoritative_startup", text)
         self.assertIn("missing_no_run_id_from_manifest", text)
 
-    def test_guardian_profile_audit_surfaces_ignored_legacy_queue_pressure_warning(self):
+    def test_guardian_profile_audit_rejects_unknown_strategy_owner_fields(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             compose = self._write_compose(
@@ -163,20 +159,9 @@ class GuardianProfileAuditTests(unittest.TestCase):
                     "--no-trigger-on-kill-switch",
                 ],
             )
-            legacy_cfg = self._write_config(root, include_legacy_queue_pressure=True)
-            report = run_audit(compose_path=compose, config_path=legacy_cfg)
-        self.assertTrue(report["ok"], msg=str(report.get("findings")))
-        self.assertEqual(int(report.get("compatibility_warning_count") or 0), 1)
-        self.assertIn(
-            "strategy.maker_competitiveness.queue_pressure",
-            list(report.get("ignored_compatibility_fields") or []),
-        )
-        warnings_text = "\n".join(str(x) for x in report.get("compatibility_warnings") or [])
-        self.assertIn("removed queue-pressure compatibility surface", warnings_text)
-        self.assertIn(
-            "removed queue-pressure compatibility surface",
-            "\n".join(str(x) for x in report.get("warnings") or []),
-        )
+            legacy_cfg = self._write_config(root, include_unknown_strategy_owner=True)
+            with self.assertRaisesRegex(ValueError, "strategy contains unknown or retired fields"):
+                run_audit(compose_path=compose, config_path=legacy_cfg)
 
 
 if __name__ == "__main__":

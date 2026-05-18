@@ -106,20 +106,22 @@ G-frame override:
       - history-only demotion map
       - small-loss + scar-tissue board
       - maker surgery self-hardening pack
-    - current closeout order is:
+    - completed closeout slices now materially landed:
       1. truth-owner demotion + Packet 2 pickup reroute
       2. starvation proof correction + steady-state WS grading repair
-      3. one-sided family reclassification + narrow authority-bug closure
-      4. diagnostic-surface hardening
-      5. one-sided / non-authoritative active-band truth / residual WS-source / reference weakness
+      3. lifecycle ownership-entry / maker timing collision closure
+      4. selector-owned one-sided extinction + rerun
+      5. diagnostic-surface hardening plus websocket / maker-submit false-blocker repair
     - strongest current provisional findings are:
-      - strongest small-loss owner candidate = `complete-outcome truth`
-      - strongest foundation trace = `market-truth substrate`
-      - historical small-loss specimens stayed bad even under direct-midpoint
-        decision references, so substrate remains the foundation trace rather
-        than the proximate historical wound owner
-      - loudest current specimen frictions = quote-quality / queue-depth /
-        replace-guard pain
+      - lifecycle ownership-entry law is now current-code steel:
+        - `lifecycle.selection.max_sec_to_expiry=90.0`
+        - watched canon specimen `4f843da4-16ec-4616-948c-c7b19e7f5aea`
+          kept owned markets inside the final `90s`
+      - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` narrowed
+        the remaining live maker friction:
+        - selection depth multiple remains `keep-now steel`
+        - queue-depth quote quality remains `keep-now steel`
+        - accessory sizing feasibility is now the narrower active patient
       - queue pressure current/live authority is cut; only legacy-config
         ignored compatibility and historical replay lineage remain
       - recovery / unwind current-owner cut is materially landed; remaining old
@@ -135,24 +137,28 @@ G-frame override:
         and no longer the active maker patient
       - canonical lifecycle surgery is materially landed and no longer the
         active maker patient
-      - latest watched 20-minute current-tree systems-health specimen
-        `98d7f6c5-bec9-4768-bb06-941079c2ac72` stayed `VALID_ACTIVE` with
-        clean websocket/oracle/lifecycle/timing health and failed policy only
-        on maker utilization/economic findings
-      - the sharper pre-fix Packet 2 runtime wound was the impossible maker
-        selection timing window caused by reusing
-        `lifecycle.selection.min_sec_to_expiry=90.0` as maker submit timing
-        floor while using `maker_window_open_sec=15.0` as the same gate's max
-      - current code now derives maker selection timing from lifecycle phase
-        windows, and watched rerun `ae3bdf9e-6eee-4c99-8e3b-6e021136125c`
-        reproved that fix on live runtime
-      - the active Packet 2 move is now surviving-blocker remeasurement rather
-        than more speculative timing surgery
+      - current canon specimen `4f843da4-16ec-4616-948c-c7b19e7f5aea`
+        stayed `VALID_ACTIVE`, fired maker and taker, and current-code replay
+        closed the archived websocket and maker-submit false blockers
+      - the only remaining hard-fail on the current-code replay of that
+        specimen is real execution-quality pressure:
+        - `soak_execution_quality_capture_minus_adverse_too_low`
+      - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a`
+        stayed `VALID_ACTIVE` and current runtime blocker truth now chains
+        through `maker_blocker_ledger.json`
+      - the old recovery-tied small-loss family appears cut on current code:
+        - current canon losses are discrete order outcomes under a deliberately
+          detuned test profile
+        - `outcome_truth_audit.lane_outcome_truth.*.lifecycle_residue_records=0`
+        - reopen only if the old repeated tiny recovery-style bleed pattern
+          returns
+      - the active Packet 2 move is now surviving-blocker remeasurement and
+        hostile queue closeout, not more timing surgery
       - current surgery queue is:
-        1. `selector-owned one-sided extinction + rerun`
-        2. `support-shadow / probe family` truth cleanup
-        3. `accessory competitiveness bundle` runtime tribunal
-        4. `small-loss wound family` remeasurement after earlier family cuts
+        1. `support-shadow / probe family` truth cleanup
+        2. `accessory competitiveness bundle` runtime tribunal
+        3. `accessory maker sizing scaler bundle` runtime tribunal
+        4. `final trust / falsifier proof` after the blocker queue is honest
       - recovery / unwind current-owner cut is already landed; any remaining
         archaeology is optional history/compat cleanup, not a required
         live-owner surgery gate
@@ -1377,7 +1383,7 @@ Current next-step doctrine:
       - implementation status:
         - the bounded launch-safe maker selection packet lineage now exists as:
           - runtime gate:
-            `strategy.maker_competitiveness.selection_gate`
+            `lifecycle.selection` plus maker-lane lifecycle gates
         - historical experiment-profile residue previously existed on disk but
           has now been cut from the live workspace
         - the old noncanonical alternate paper lane is gone:

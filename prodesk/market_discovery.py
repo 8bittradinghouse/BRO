@@ -253,6 +253,21 @@ class MarketDiscovery:
         md_cfg = cfg.get("market_data", {})
         self.timeout_sec = float(disc.get("timeout_sec", md_cfg.get("timeout_sec", 8)))
         self.max_retries = int(disc.get("max_retries", md_cfg.get("max_retries", 2)))
+        lifecycle_cfg = cfg.get("lifecycle", {})
+        if not isinstance(lifecycle_cfg, dict):
+            lifecycle_cfg = {}
+        lifecycle_selection_cfg = lifecycle_cfg.get("selection", {})
+        if not isinstance(lifecycle_selection_cfg, dict):
+            lifecycle_selection_cfg = {}
+        self.selection_enabled = bool(lifecycle_selection_cfg.get("enabled", True))
+        self.selection_max_sec_to_expiry = max(
+            0.0,
+            float(lifecycle_selection_cfg.get("max_sec_to_expiry", 0.0) or 0.0),
+        )
+        self.selection_min_market_age_sec = max(
+            0.0,
+            float(lifecycle_selection_cfg.get("min_market_age_sec", 0.0) or 0.0),
+        )
 
         self.session = build_hardened_session(user_agent="polymarket-bro-executor/0.1")
 
@@ -366,8 +381,19 @@ class MarketDiscovery:
         end_time = _parse_end_time(market)
         if end_time is None or end_time <= now:
             return None
+        sec_to_expiry = float((end_time - now).total_seconds())
+        if self.selection_enabled and self.selection_max_sec_to_expiry > 0.0:
+            if sec_to_expiry > (self.selection_max_sec_to_expiry + 1e-9):
+                return None
+        if self.selection_enabled and self.selection_min_market_age_sec > 0.0:
+            open_time = _parse_event_start_time(market)
+            if open_time is None:
+                return None
+            market_age_sec = float((now - open_time).total_seconds())
+            if market_age_sec + 1e-9 < self.selection_min_market_age_sec:
+                return None
         if self.max_target_horizon_sec > 0:
-            if (end_time - now).total_seconds() > float(self.max_target_horizon_sec):
+            if sec_to_expiry > float(self.max_target_horizon_sec):
                 return None
         pair_ids = self._market_contract_pair_ids(market)
         if pair_ids is None:

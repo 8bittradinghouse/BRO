@@ -668,64 +668,34 @@ class ExecutionRunner:
             self.taker_multi_oracle_cap_usd = float(multi_oracle_capital_pct_cap * capital_base_usd)
             self.taker_multi_oracle_cap_source = "orchestration_heuristic_config_fallback"
             self.taker_multi_oracle_cap_authority_class = "derived"
-        maker_comp_cfg = self.cfg.get("strategy", {}).get("maker_competitiveness", {})
-        if not isinstance(maker_comp_cfg, dict):
-            maker_comp_cfg = {}
         self.maker_comp_timing_gate_enabled = bool(
-            lifecycle_maker_lane_cfg.get(
-                "timing_gate_enabled",
-                maker_comp_cfg.get("timing_gate_enabled", False),
-            )
+            lifecycle_maker_lane_cfg.get("timing_gate_enabled", False)
         )
         self.maker_comp_timing_gate_min_sec_to_expiry = float(self.lifecycle_taker_window_open_sec)
         self.maker_comp_timing_gate_max_sec_to_expiry = float(self.lifecycle_maker_window_open_sec)
         self.maker_comp_edge_scale_enabled = bool(
-            lifecycle_maker_lane_cfg.get(
-                "edge_scale_enabled",
-                maker_comp_cfg.get("edge_scale_enabled", False),
-            )
+            lifecycle_maker_lane_cfg.get("edge_scale_enabled", False)
         )
         self.maker_comp_edge_scale_start_abs = float(
-            lifecycle_maker_lane_cfg.get(
-                "edge_scale_start_abs",
-                maker_comp_cfg.get("edge_scale_start_abs", 0.05),
-            )
+            lifecycle_maker_lane_cfg.get("edge_scale_start_abs", 0.05)
         )
         self.maker_comp_edge_scale_full_abs = float(
-            lifecycle_maker_lane_cfg.get(
-                "edge_scale_full_abs",
-                maker_comp_cfg.get("edge_scale_full_abs", 0.20),
-            )
+            lifecycle_maker_lane_cfg.get("edge_scale_full_abs", 0.20)
         )
         self.maker_comp_size_mult_max = float(
-            lifecycle_maker_lane_cfg.get(
-                "size_mult_max",
-                maker_comp_cfg.get("size_mult_max", 1.35),
-            )
+            lifecycle_maker_lane_cfg.get("size_mult_max", 1.35)
         )
         self.maker_comp_spread_mult_min = float(
-            lifecycle_maker_lane_cfg.get(
-                "spread_mult_min",
-                maker_comp_cfg.get("spread_mult_min", 0.75),
-            )
+            lifecycle_maker_lane_cfg.get("spread_mult_min", 0.75)
         )
         self.maker_comp_requote_delta_mult_min = float(
-            lifecycle_maker_lane_cfg.get(
-                "requote_delta_mult_min",
-                maker_comp_cfg.get("requote_delta_mult_min", 0.50),
-            )
+            lifecycle_maker_lane_cfg.get("requote_delta_mult_min", 0.50)
         )
         self.maker_comp_one_sided_enabled = bool(
-            lifecycle_maker_lane_cfg.get(
-                "one_sided_enabled",
-                maker_comp_cfg.get("one_sided_enabled", False),
-            )
+            lifecycle_maker_lane_cfg.get("one_sided_enabled", False)
         )
         self.maker_comp_one_sided_edge_threshold_abs = float(
-            lifecycle_maker_lane_cfg.get(
-                "one_sided_edge_threshold_abs",
-                maker_comp_cfg.get("one_sided_edge_threshold_abs", 0.18),
-            )
+            lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs", 0.18)
         )
         self.maker_comp_base_requote_delta = max(
             1e-9,

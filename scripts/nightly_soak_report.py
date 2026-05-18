@@ -7,6 +7,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import pathlib
 from collections import Counter, defaultdict
 from statistics import median
@@ -4299,10 +4300,13 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     lifecycle_phase = _dict(lifecycle.get("phase"))
     lifecycle_lane_gates = _dict(lifecycle.get("lane_gates"))
     lifecycle_maker_lane = _dict(lifecycle_lane_gates.get("maker"))
-    strategy = _dict(config.get("strategy"))
     sizing = _dict(config.get("sizing"))
-    maker_comp = _dict(strategy.get("maker_competitiveness"))
+    strategy = _dict(config.get("strategy"))
     execution_quality = _dict(strategy.get("execution_quality"))
+    # Report-only manifest posture may still need to read historical maker
+    # competitiveness snapshots when replaying older artifacts that predate the
+    # lifecycle owner path.
+    maker_comp = _dict(strategy.get("maker_competitiveness"))
     dynamic_scaling = _dict(risk.get("dynamic_scaling"))
 
     held_reduce_only_sec = _optional_float(runtime.get("held_preexpiry_reduce_only_sec"))
@@ -4834,68 +4838,29 @@ def _maker_admission_thresholds_for_report(run_manifest: Dict[str, Any]) -> Dict
     maker_timing_gate_min_sec_to_expiry = (
         float(lifecycle_taker_window_open_sec)
         if lifecycle_taker_window_open_sec is not None
-        else _safe_float(
-            _dict_path(
-                run_manifest,
-                ("config", "strategy", "maker_competitiveness", "timing_gate_min_sec_to_expiry"),
-                15.0,
-            ),
-            default=15.0,
-        )
+        else None
     )
     maker_timing_gate_max_sec_to_expiry = (
         float(lifecycle_maker_window_open_sec)
         if lifecycle_maker_window_open_sec is not None
-        else _safe_float(
-            _dict_path(
-                run_manifest,
-                ("config", "strategy", "maker_competitiveness", "timing_gate_max_sec_to_expiry"),
-                20.0,
-            ),
-            default=20.0,
-        )
-    )
-    lifecycle_selection_min_sec_to_expiry = _safe_float(
-        _dict_path(run_manifest, ("config", "lifecycle", "selection", "min_sec_to_expiry"), None),
-        default=None,
-    )
-    selection_gate_min_sec_to_expiry_raw = _dict_path(
-        run_manifest,
-        ("config", "strategy", "maker_competitiveness", "selection_gate", "min_sec_to_expiry"),
-        None,
-    )
-    selection_gate_max_sec_to_expiry_raw = _dict_path(
-        run_manifest,
-        ("config", "strategy", "maker_competitiveness", "selection_gate", "max_sec_to_expiry"),
-        None,
-    )
-    selection_gate_min_sec_to_expiry = (
-        float(selection_gate_min_sec_to_expiry_raw)
-        if isinstance(selection_gate_min_sec_to_expiry_raw, (int, float))
         else None
     )
-    selection_gate_max_sec_to_expiry = (
-        float(selection_gate_max_sec_to_expiry_raw)
-        if isinstance(selection_gate_max_sec_to_expiry_raw, (int, float))
-        else None
-    )
-    has_canonical_lifecycle_window = (
-        lifecycle_maker_window_open_sec is not None
-        or lifecycle_taker_window_open_sec is not None
-    )
-    if not has_canonical_lifecycle_window:
-        if selection_gate_min_sec_to_expiry is not None:
-            maker_timing_gate_min_sec_to_expiry = float(selection_gate_min_sec_to_expiry)
-        if selection_gate_max_sec_to_expiry is not None:
-            maker_timing_gate_max_sec_to_expiry = float(selection_gate_max_sec_to_expiry)
-    if lifecycle_selection_min_sec_to_expiry is not None:
-        selection_gate_min_sec_to_expiry = float(lifecycle_selection_min_sec_to_expiry)
+    selection_gate_min_sec_to_expiry = maker_timing_gate_min_sec_to_expiry
+    selection_gate_max_sec_to_expiry = maker_timing_gate_max_sec_to_expiry
     return {
         "min_expected_fill_prob": float(min_expected_fill_prob),
         "max_queue_ahead_size": float(max_queue_ahead_size),
         "geometry_floor_price": float(geometry_floor_price),
-        "maker_timing_gate_min_sec_to_expiry": float(maker_timing_gate_min_sec_to_expiry),
-        "maker_timing_gate_max_sec_to_expiry": float(maker_timing_gate_max_sec_to_expiry),
+        "maker_timing_gate_min_sec_to_expiry": (
+            float(maker_timing_gate_min_sec_to_expiry)
+            if maker_timing_gate_min_sec_to_expiry is not None
+            else None
+        ),
+        "maker_timing_gate_max_sec_to_expiry": (
+            float(maker_timing_gate_max_sec_to_expiry)
+            if maker_timing_gate_max_sec_to_expiry is not None
+            else None
+        ),
         "selection_gate_min_sec_to_expiry": selection_gate_min_sec_to_expiry,
         "selection_gate_max_sec_to_expiry": selection_gate_max_sec_to_expiry,
     }
@@ -6612,21 +6577,6 @@ def _maker_selection_window_bounds(run_manifest: Dict[str, Any]) -> Tuple[Option
     max_sec = legacy_phase_cfg.get("maker_window_open_sec")
     min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
     max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
-    if min_value is not None or max_value is not None:
-        return min_value, max_value
-    strategy = config.get("strategy") if isinstance(config, dict) else {}
-    maker_competitiveness = (
-        strategy.get("maker_competitiveness") if isinstance(strategy, dict) else {}
-    )
-    selection_gate = (
-        maker_competitiveness.get("selection_gate")
-        if isinstance(maker_competitiveness, dict)
-        else {}
-    )
-    min_sec = selection_gate.get("min_sec_to_expiry") if isinstance(selection_gate, dict) else None
-    max_sec = selection_gate.get("max_sec_to_expiry") if isinstance(selection_gate, dict) else None
-    min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
-    max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
     return min_value, max_value
 
 
@@ -6828,7 +6778,9 @@ def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
 def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     config = run_manifest.get("config") if isinstance(run_manifest, dict) else {}
     runtime_cfg = config.get("runtime") if isinstance(config, dict) else {}
-    lifecycle_cfg = runtime_cfg.get("lifecycle") if isinstance(runtime_cfg, dict) else {}
+    lifecycle_cfg = config.get("lifecycle") if isinstance(config, dict) else {}
+    if not isinstance(lifecycle_cfg, dict):
+        lifecycle_cfg = runtime_cfg.get("lifecycle") if isinstance(runtime_cfg, dict) else {}
     lifecycle_selection = lifecycle_cfg.get("selection") if isinstance(lifecycle_cfg, dict) else {}
     if not isinstance(lifecycle_selection, dict):
         lifecycle_selection = {}
@@ -6838,14 +6790,13 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
     lifecycle_maker_lane = lifecycle_lane_gates.get("maker") if isinstance(lifecycle_lane_gates, dict) else {}
     if not isinstance(lifecycle_maker_lane, dict):
         lifecycle_maker_lane = {}
-    strategy = config.get("strategy") if isinstance(config, dict) else {}
-    maker_comp = strategy.get("maker_competitiveness") if isinstance(strategy, dict) else {}
+    strategy_cfg = config.get("strategy") if isinstance(config, dict) else {}
+    if not isinstance(strategy_cfg, dict):
+        strategy_cfg = {}
+    maker_comp = strategy_cfg.get("maker_competitiveness") if isinstance(strategy_cfg, dict) else {}
     if not isinstance(maker_comp, dict):
         maker_comp = {}
-    selection_gate = maker_comp.get("selection_gate") if isinstance(maker_comp, dict) else {}
-    if not isinstance(selection_gate, dict):
-        selection_gate = {}
-    selection_owner = lifecycle_selection if lifecycle_selection else selection_gate
+    selection_owner = lifecycle_selection
     return {
         "enabled": bool(selection_owner.get("enabled", False)),
         "authority_contract": EDGE_MAKER_PHASE_ALLOWED_FIELD,
@@ -7260,6 +7211,176 @@ def _maker_selection_authority_bundle(
         "counterfactual": counterfactual,
         "rows": audit_rows,
     }
+
+
+def _maker_blocker_runtime_reason(row: Dict[str, Any]) -> str:
+    reason = str(
+        row.get("runtime_decision_block_reason")
+        or row.get("decision_block_reason")
+        or row.get("selection_gate_primary_reject_reason")
+        or ""
+    ).strip().lower()
+    if reason:
+        if reason == "insufficient_depth_multiple":
+            return "launch_safe_selection_insufficient_depth_multiple"
+        return reason
+    if str(row.get("order_submit_id") or "").strip():
+        return "submitted"
+    if str(row.get("decision_result") or "").strip().lower() == "submitted":
+        return "submitted"
+    return "unknown"
+
+
+def _maker_blocker_bucket(reason: str) -> str:
+    normalized = str(reason or "").strip().lower()
+    if normalized.startswith("launch_safe_selection_"):
+        return "selection_gate"
+    if normalized == "quote_quality_skip_queue_depth":
+        return "quote_quality"
+    if normalized == "sizing_reject":
+        return "sizing"
+    if normalized == "submitted":
+        return "submitted"
+    return "other"
+
+
+def _maker_blocker_ledger_bundle(
+    *,
+    shadow_rows: List[Dict[str, Any]],
+    selection_authority_rows: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    runtime_reason_counts: Counter[str] = Counter()
+    bucket_counts: Counter[str] = Counter()
+    selection_depth_values: List[float] = []
+    queue_depth_values: List[float] = []
+
+    for row in selection_authority_rows:
+        reason = _maker_blocker_runtime_reason(row)
+        runtime_reason_counts[reason] += 1
+        bucket_counts[_maker_blocker_bucket(reason)] += 1
+
+    for row in shadow_rows:
+        reason = _maker_blocker_runtime_reason(row)
+        if reason == "launch_safe_selection_insufficient_depth_multiple":
+            visible_depth_notional = _safe_float(row.get("visible_depth_notional_usd"), default=None)
+            if visible_depth_notional is None:
+                visible_depth_shares = _safe_float(row.get("visible_depth_shares"), default=None)
+                desired_quote_price = _safe_float(row.get("desired_quote_price"), default=None)
+                if visible_depth_shares is not None and desired_quote_price is not None:
+                    visible_depth_notional = float(visible_depth_shares) * float(desired_quote_price)
+            selection_depth_values.append(float(visible_depth_notional or 0.0))
+        elif reason == "quote_quality_skip_queue_depth":
+            queue_depth_values.append(float(row.get("queue_ahead_size") or 0.0))
+
+    selection_count = int(runtime_reason_counts.get("launch_safe_selection_insufficient_depth_multiple", 0))
+    quote_quality_count = int(runtime_reason_counts.get("quote_quality_skip_queue_depth", 0))
+    sizing_count = int(runtime_reason_counts.get("sizing_reject", 0))
+    submitted_count = int(runtime_reason_counts.get("submitted", 0))
+    selection_depth_zero_count = sum(1 for value in selection_depth_values if value <= 1e-9)
+    selection_depth_lt_20_count = sum(1 for value in selection_depth_values if value < 20.0)
+    selection_depth_lt_30_count = sum(1 for value in selection_depth_values if value < 30.0)
+    selection_depth_lt_50_count = sum(1 for value in selection_depth_values if value < 50.0)
+
+    selection_verdict = (
+        "keep_now_steel"
+        if selection_count > 0 and selection_depth_values and selection_depth_lt_30_count >= max(1, math.ceil(selection_count * 0.75))
+        else "active_patient"
+        if selection_count > 0
+        else "not_present"
+    )
+    quote_quality_verdict = (
+        "keep_now_steel"
+        if quote_quality_count > 0 and queue_depth_values and min(queue_depth_values) > 0.0
+        else "minor_residue"
+        if quote_quality_count > 0
+        else "not_present"
+    )
+    sizing_verdict = (
+        "minor_residue"
+        if sizing_count > 0 and sizing_count <= 1
+        else "active_patient"
+        if sizing_count > 0
+        else "not_present"
+    )
+    runtime_blocker_family_closed = bool(
+        selection_verdict == "keep_now_steel"
+        and quote_quality_verdict in {"keep_now_steel", "not_present"}
+        and sizing_verdict in {"minor_residue", "not_present"}
+    )
+    if selection_verdict == "active_patient":
+        next_packet2_patient = "selection_gate_depth_multiple"
+    elif quote_quality_verdict == "active_patient":
+        next_packet2_patient = "quote_quality_queue_depth"
+    elif sizing_verdict == "active_patient":
+        next_packet2_patient = "accessory_maker_sizing_feasibility"
+    else:
+        next_packet2_patient = "support_shadow_schoolhouse_cleanup"
+    summary = {
+        "maker_blocker_ledger_version": 1,
+        "current_owner_artifact": "maker_blocker_ledger.json",
+        "authoritative_for_runtime_blocker_truth": True,
+        "claim_boundary": (
+            "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census"
+        ),
+        "closed_family_assertions": {
+            "timing_window_collision": "closed",
+            "selector_owned_one_sided_family": "closed",
+            "websocket_denominator_false_fail": "closed",
+            "maker_submit_opportunity_false_fail": "closed",
+            "historical_small_loss_recovery_bleed_family": "closed_unless_exact_pattern_returns",
+        },
+        "runtime_reason_distribution": _counter_to_sorted_int_dict(runtime_reason_counts),
+        "runtime_bucket_distribution": _counter_to_sorted_int_dict(bucket_counts),
+        "dominant_runtime_blocker_reason": (
+            "launch_safe_selection_insufficient_depth_multiple"
+            if selection_count >= max(quote_quality_count, sizing_count)
+            else "quote_quality_skip_queue_depth"
+            if quote_quality_count >= sizing_count
+            else "sizing_reject"
+        ),
+        "dominant_runtime_blocker_bucket": (
+            "selection_gate"
+            if selection_count >= max(quote_quality_count, sizing_count)
+            else "quote_quality"
+            if quote_quality_count >= sizing_count
+            else "sizing"
+        ),
+        "selection_gate_verdict": selection_verdict,
+        "quote_quality_verdict": quote_quality_verdict,
+        "sizing_verdict": sizing_verdict,
+        "support_shadow_verdict": "support_only",
+        "runtime_blocker_family_status": (
+            "closed_keep_now_steel_or_minor_residue"
+            if runtime_blocker_family_closed
+            else "open_runtime_patient"
+        ),
+        "next_packet2_patient": next_packet2_patient,
+        "selection_gate_depth_summary": {
+            "row_count": int(selection_count),
+            "zero_visible_depth_count": int(selection_depth_zero_count),
+            "lt_20_notional_count": int(selection_depth_lt_20_count),
+            "lt_30_notional_count": int(selection_depth_lt_30_count),
+            "lt_50_notional_count": int(selection_depth_lt_50_count),
+            "median_visible_depth_notional_usd": (
+                float(median(selection_depth_values)) if selection_depth_values else 0.0
+            ),
+            "max_visible_depth_notional_usd": (
+                float(max(selection_depth_values)) if selection_depth_values else 0.0
+            ),
+        },
+        "quote_quality_summary": {
+            "row_count": int(quote_quality_count),
+            "min_queue_ahead_size": float(min(queue_depth_values)) if queue_depth_values else 0.0,
+            "max_queue_ahead_size": float(max(queue_depth_values)) if queue_depth_values else 0.0,
+        },
+        "sizing_summary": {
+            "row_count": int(sizing_count),
+        },
+        "submitted_summary": {
+            "row_count": int(submitted_count),
+        },
+    }
+    return {"summary": summary}
 
 
 def _maker_truth_favored_side_depth_state(row: Dict[str, Any]) -> str:
@@ -8114,7 +8235,7 @@ def _maker_participation_waterfall_bundle(
         "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
         "authoritative_for_canonical_selection": False,
         "applicability": "descriptive_only",
-        "current_owner_artifact": "maker_selection_authority_audit.json",
+        "current_owner_artifact": "maker_blocker_ledger.json",
         "stages": stages,
         "terminal_path_counts": terminal_path_dict,
         "reconciliation": {
@@ -8330,7 +8451,7 @@ def _maker_zero_submit_root_cause_bundle(
             "runtime_classification": runtime_class_name or "UNKNOWN",
             "authoritative_for_canonical_selection": False,
             "applicability": "not_applicable_submit_run",
-            "current_owner_artifact": "maker_selection_authority_audit.json",
+            "current_owner_artifact": "maker_blocker_ledger.json",
             "zero_submit_classification": "not_applicable_maker_participated",
             "classification_factors": ["maker_participated_current_run"],
             "decision_readiness": "not_applicable_submit_run",
@@ -8395,7 +8516,7 @@ def _maker_zero_submit_root_cause_bundle(
         "runtime_classification": runtime_class_name or "UNKNOWN",
         "authoritative_for_canonical_selection": False,
         "applicability": "support_only_zero_submit_diagnostic",
-        "current_owner_artifact": "maker_selection_authority_audit.json",
+        "current_owner_artifact": "maker_blocker_ledger.json",
         "zero_submit_classification": zero_submit_classification,
         "classification_factors": classification_factors,
         "decision_readiness": decision_readiness,
@@ -9688,6 +9809,17 @@ def build_report(
     latency_stats = _latency_distribution(events)
     taker = _taker_summary_stats(events, duration_minutes)
     execution_paths = _execution_path_stats(events, duration_minutes)
+    quote_uptime_applicable = bool(
+        _safe_float(quote_diagnostics.get("quote_active_rows")) > 0.0
+        or _safe_float(quote_diagnostics.get("participation_rows")) > 0.0
+        or _safe_float(execution_paths.get("maker_submits")) > 0.0
+    )
+    quote_diagnostics["quote_uptime_applicable"] = quote_uptime_applicable
+    quote_diagnostics["quote_uptime_applicability_reason"] = (
+        "quote_or_submit_activity_present"
+        if quote_uptime_applicable
+        else "no_quote_or_submit_activity"
+    )
     financial_performance = _financial_performance_summary(events, status, run_manifest)
     financial_outcome_reconciliation = _financial_outcome_reconciliation(
         financial_performance,
@@ -9753,6 +9885,10 @@ def build_report(
         outcome_truth_records=outcome_truth_records,
         run_manifest=run_manifest,
         run_id=resolved_run_id,
+    )
+    maker_blocker_ledger_bundle = _maker_blocker_ledger_bundle(
+        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        selection_authority_rows=maker_selection_authority_bundle["rows"],
     )
     kill_switch_events = float(
         sum(1 for evt in events if str(evt.get("event_type") or "") == "kill_switch_cancel_all")
@@ -9880,6 +10016,7 @@ def build_report(
         "maker_fireability": maker_fireability,
         "edge_truth": edge_truth,
         "maker_competitiveness": maker_competitiveness,
+        "maker_blocker_ledger": maker_blocker_ledger_bundle["summary"],
         "maker_selection_authority": maker_selection_authority_bundle["audit"],
         **maker_complete_outcomes,
         "taker_competitiveness": taker_competitiveness,
@@ -9972,6 +10109,7 @@ def build_report(
                 "resting_order_survival_audit"
             ],
             "maker_quote_integrity_summary": maker_quote_integrity_bundle["summary"],
+            "maker_blocker_ledger": maker_blocker_ledger_bundle["summary"],
             "maker_selection_authority_audit": maker_selection_authority_bundle["audit"],
             "maker_selection_authority_counterfactual": maker_selection_authority_bundle[
                 "counterfactual"
@@ -11715,6 +11853,7 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
     maker_quote_integrity_summary = dict(
         support_artifacts.get("maker_quote_integrity_summary") or {}
     )
+    maker_blocker_ledger = dict(support_artifacts.get("maker_blocker_ledger") or {})
     maker_selection_authority_audit = dict(
         support_artifacts.get("maker_selection_authority_audit") or {}
     )
@@ -11736,12 +11875,10 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
         ):
             artifact["authoritative_for_canonical_selection"] = False
             artifact["applicability"] = "descriptive_only"
-            artifact["current_owner_artifact"] = "maker_selection_authority_audit.json"
+            artifact["current_owner_artifact"] = "maker_blocker_ledger.json"
         maker_zero_submit_root_cause_audit["authoritative_for_canonical_selection"] = False
         maker_zero_submit_root_cause_audit["applicability"] = "not_applicable_submit_run"
-        maker_zero_submit_root_cause_audit["current_owner_artifact"] = (
-            "maker_selection_authority_audit.json"
-        )
+        maker_zero_submit_root_cause_audit["current_owner_artifact"] = "maker_blocker_ledger.json"
 
     rows_path = report_dir / "maker_fight_admission_shadow.jsonl"
     with rows_path.open("w", encoding="utf-8") as handle:
@@ -11834,6 +11971,10 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
     )
     (report_dir / "maker_quote_integrity_summary.json").write_text(
         json.dumps(maker_quote_integrity_summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (report_dir / "maker_blocker_ledger.json").write_text(
+        json.dumps(maker_blocker_ledger, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (report_dir / "maker_selection_authority_audit.json").write_text(

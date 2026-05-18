@@ -71,6 +71,7 @@ soak:
     non_actionable_block_reasons:
       - maker_no_submission
       - maker_timing_gate_closed
+      - phase_disallow_maker
       - token_lag_not_verified_for_maker
       - latency_not_armed
       - latency_not_armed_for_maker
@@ -83,6 +84,10 @@ soak:
       - missing_expiry_metadata
       - missing_threshold_metadata
       - missing_side_metadata
+      - open_order_cleanup_required
+      - settlement_hold_required
+      - unresolved_lifecycle_obligation
+      - cancel_fail_closed
   # Fail if paper begins behaving like optimistic fill simulation.
   max_maker_fill_rate: 0.85
   maker_fill_rate_enforcement_min_submits: 5

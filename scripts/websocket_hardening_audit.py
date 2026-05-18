@@ -160,6 +160,18 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _websocket_truth_required(row: Dict[str, Any]) -> bool:
+    if _as_bool(row.get("active_targets_present"), default=False):
+        return True
+    if _as_bool(row.get("market_truth_required"), default=False):
+        return True
+    if str(row.get("owned_market_ref") or "").strip():
+        return True
+    if str(row.get("challenger_market_ref") or "").strip():
+        return True
+    return False
+
+
 def _safe_nonnegative_int(value: Any) -> Optional[int]:
     try:
         out = int(value)
@@ -326,15 +338,19 @@ def run_audit(
             ordering_class_missing_rows = 0
             ordering_class_invalid_rows = 0
             ordering_class_totals: Dict[str, int] = {key: 0 for key in ORDERING_CLASS_REQUIRED_KEYS}
+            truth_required_rows = 0
             for row in rows:
                 book = _as_dict(row.get("book_feed"))
                 chain_status = _as_dict(row.get("chainlink"))
                 book_connected = _as_bool(book.get("connected"), default=True)
                 chain_connected = _as_bool(chain_status.get("connected"), default=True)
-                if not book_connected:
-                    book_connected_false += 1
-                if not chain_connected:
-                    chain_connected_false += 1
+                truth_required = _websocket_truth_required(row)
+                if truth_required:
+                    truth_required_rows += 1
+                    if not book_connected:
+                        book_connected_false += 1
+                    if not chain_connected:
+                        chain_connected_false += 1
                 reconnect_book = _reconnect_counter(book)
                 reconnect_chain = _reconnect_counter(chain_status)
                 age_book = _safe_float(book.get("last_msg_age_sec"))
@@ -347,9 +363,9 @@ def run_audit(
                     max_book_reconnects = max(max_book_reconnects, reconnect_book)
                 if reconnect_chain is not None:
                     max_chain_reconnects = max(max_chain_reconnects, reconnect_chain)
-                if age_book is not None:
+                if truth_required and age_book is not None:
                     max_book_age = max(max_book_age, age_book)
-                if age_chain is not None:
+                if truth_required and age_chain is not None:
                     max_chain_age = max(max_chain_age, age_chain)
                 if qsize_chain is not None:
                     max_chain_queue_size = max(max_chain_queue_size, qsize_chain)
@@ -404,8 +420,17 @@ def run_audit(
                                 break
                             ordering_class_totals[key] = max(ordering_class_totals[key], int(parsed))
 
-            book_down_ratio = float(book_connected_false) / float(sample_count)
-            chain_down_ratio = float(chain_connected_false) / float(sample_count)
+            evidence["websocket_truth_required_rows"] = int(truth_required_rows)
+            book_down_ratio = (
+                float(book_connected_false) / float(truth_required_rows)
+                if truth_required_rows > 0
+                else 0.0
+            )
+            chain_down_ratio = (
+                float(chain_connected_false) / float(truth_required_rows)
+                if truth_required_rows > 0
+                else 0.0
+            )
             book_reconnects_per_hour = max_book_reconnects / duration_hours
             chain_reconnects_per_hour = max_chain_reconnects / duration_hours
 

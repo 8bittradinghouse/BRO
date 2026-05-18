@@ -147,10 +147,10 @@ Transition:
 A market may be admitted only if it passes the admission law.
 
 Admission law:
-- `sec_to_expiry >= 90.0`
+- `sec_to_expiry <= 90.0`
 - `market_age_sec >= 60.0`
-  - preferred source: venue launch/open truth
-  - fallback source when venue launch truth is unavailable: first-observed age
+  - current runtime owner: venue launch/open truth
+  - if launch/open truth is unavailable while the age gate is active, fail closed
 - visible maker depth notional at the intended maker side/price supports at least `1.5x` the canonical maker order notional
 - visible taker aggressive fillability supports the full canonical taker order requirement at the intended entry price
   - partial fillability counts only if higher canonical doctrine explicitly ratifies it

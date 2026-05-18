@@ -250,8 +250,9 @@
   - `config_fingerprint_sha256=6d4b4950bc89856f619325fbb8ec07fc5cc43ab78eaaf92671f3bd7be19356bc`
   - `code_fingerprint_sha256=7673ddbf3aa8ebc5feab3f8949bdd0ce8c8fa325245a7dbca29b777f8af61511`
   - `profile_name=paper_universal`
-  - `strategy.maker_competitiveness.timing_gate_min_sec_to_expiry=15.0`
-  - `strategy.maker_competitiveness.timing_gate_max_sec_to_expiry=20.0`
+  - retired packet-era maker timing owner values were:
+    - timing gate min `15.0`
+    - timing gate max `20.0`
   - `risk.min_sec_to_expiry_for_new_exposure=15.0`
   - historical contrast run still carried now-removed compatibility keys:
     - `runtime.held_preexpiry_reduce_only_sec=15.0`

@@ -36,7 +36,10 @@ Program-wide seriousness rules:
 
 ## Current Program Lock
 - `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
-- `Packet 2` is now active in post-audit truth-owner / proof-semantics closeout.
+- `Packet 2` is now active in support-shadow cleanup and accessory maker
+  sizing / shaping tribunal after current-code replay cut the first blocker
+  ledger and the fresh watched specimen narrowed the remaining live patient to
+  sizing-feasibility conflict.
 - `Packet 3` through `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
@@ -44,18 +47,16 @@ Program-wide seriousness rules:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
 - The live working Packet 2 recovery / unwind closeout artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
-- The current Packet 2 closeout order is:
+- The current Packet 2 landed-closeout order is:
   1. truth-owner demotion + Packet 2 pickup reroute
   2. starvation proof correction + steady-state WS grading repair
-  3. one-sided family reclassification + narrow bug closure language
-  4. existing diagnostic-surface hardening
-  5. bounded-only active-band truth / residual WS-source / reference weakness
+  3. lifecycle ownership-entry / maker timing collision closure
+  4. selector-owned one-sided extinction + rerun
+  5. existing diagnostic-surface hardening plus websocket / maker-submit false-blocker repair
+  6. surviving-blocker runtime tribunal closeout + blocker-ledger owner promotion
 - Packet 2 carry-forward truths this program must preserve:
-  - strongest current small-loss owner candidate = `complete-outcome truth`
-  - strongest foundation trace = `market-truth substrate`
-  - historical small-loss specimens stayed bad even under direct-midpoint
-    decision references, so substrate remains the foundation trace rather than
-    the proximate historical wound owner
+  - the old small-loss / recovery-bleed family appears cut on current code and
+    reopens only if its exact pattern recurs
   - queue pressure is cut from current/live authority and preserved only as
     ignored legacy-config compatibility plus historical replay lineage
   - recovery / unwind current-owner cut is materially landed; remaining old
@@ -65,14 +66,24 @@ Program-wide seriousness rules:
     real accepted exposure are the replacement doctrine targets
   - historical packet-era `50-60 / 50` timing posture is ancestry only, not
     current doctrine
-- latest watched current-tree health anchor is
-  `6957087b-488e-4bbb-b8b9-1f215b5e33d0`:
-  - stored validator bundle clean with all exits `0`
-  - maker `1 submit / 2 fills`
-  - taker `1 submit / 1 fill`
-  - action-row source purity clean on both lanes
-  - repaired valuation summary now truthfully carries event-level bruise windows
-    through nightly/report truth
+- latest canon runtime truth now uses a two-specimen read:
+  - replay anchor `4f843da4-16ec-4616-948c-c7b19e7f5aea`:
+    - `runtime_classification=VALID_ACTIVE`
+    - maker and taker both fired
+    - owned markets stayed inside the final `90s`
+    - current-code replay closes the archived websocket and maker-submit false
+      blockers
+    - first blocker-ledger cut:
+      - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
+      - `quote_quality_skip_queue_depth` = `keep-now steel`
+      - `sizing_reject` = `minor residue`
+      - `maker_blocker_ledger.json` = current blocker-truth owner artifact
+  - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a`:
+    - `runtime_classification=VALID_ACTIVE`
+    - owned markets still stayed inside the final `90s`
+    - selection depth multiple remains `keep-now steel`
+    - queue-depth quote quality remains `keep-now steel`
+    - `sizing_reject` reopened as the active runtime patient
 - Current taker hardening truths that this program must preserve:
   - inherited `SNIPER_PRIMARY` / `EXTREME_ONLY` family surfaces must not retain
     current taker fire authority

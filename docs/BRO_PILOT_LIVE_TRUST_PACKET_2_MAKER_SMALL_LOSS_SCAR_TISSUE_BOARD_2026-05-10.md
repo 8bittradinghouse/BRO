@@ -8,6 +8,9 @@
 ## Purpose
 - `VERIFIED`: this board materializes the Packet 2 small-loss anatomy trace and scar-tissue family trace.
 - `VERIFIED`: it exists to keep the recurring small negative maker dollars and the compensator-family question explicit in one place.
+- `VERIFIED`: current-code canon proof now says the old recovery-tied
+  small-loss family is not an active Packet 2 patient unless its exact
+  repeated tiny-bleed pattern returns.
 
 ## Small-Loss Owner Candidates
 | Candidate owner population | Surface family | Why it matters | Current Packet 2 call |
@@ -184,13 +187,15 @@
   - same-target calm caps and post-only cross guard remain keep-now steel
 
 ## Current Disposition
-- `VERIFIED`: the recurring small-loss family is not currently trusted steel.
-- `INFERRED`: the best current Packet 2 posture is to treat this family as slag /
-  surgery-pile material rather than healthy live-maker friction.
-- `UNKNOWN`: the final cut law is still open:
-  - some sub-pieces may be cut
-  - some may be fenced
-  - some may need re-homing if they protect real safety steel
+- `VERIFIED`: this board remains valid as wound-lineage evidence.
+- `VERIFIED`: current-code canon proof does not show the historical
+  recovery-tied small-loss family alive:
+  - current canon losses are discrete order outcomes
+  - lifecycle residue linkage is `0`
+- `INFERRED`: the active Packet 2 posture is to treat the old family as cut
+  unless future watched runtime reproduces its exact repeated tiny-bleed shape.
+- `UNKNOWN`: whether a different later economics patient exists; that would be
+  a new patient, not automatic resurrection of this historical one.
 
 ## Current Surgery Patients
 1. `queue pressure`

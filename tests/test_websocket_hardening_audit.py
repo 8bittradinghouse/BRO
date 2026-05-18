@@ -105,6 +105,9 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
                 {
                     "ts_utc": "2026-01-01T00:00:00.000Z",
                     "run_id": run_id,
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": 30},
                     "chainlink": {
                         "connected": False,
@@ -119,6 +122,9 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
                 {
                     "ts_utc": "2026-01-01T00:01:00.000Z",
                     "run_id": run_id,
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {
                         "enabled": True,
                         "connected": False,
@@ -161,6 +167,67 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
         self.assertIn("websocket_evidence_book_feed_thread_dead_rows", text)
         self.assertIn("websocket_evidence_chainlink_thread_dead_rows", text)
         self.assertIn("BRO-2201", result.get("error_codes", []))
+
+    def test_audit_scopes_down_ratio_to_truth_required_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root)
+            run_id = "run-ws-scope"
+            rows = []
+            for idx in range(5):
+                rows.append(
+                    {
+                        "ts_utc": f"2026-01-01T00:00:0{idx}.000Z",
+                        "run_id": run_id,
+                        "active_targets_present": False,
+                        "market_truth_required": False,
+                        "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": None},
+                        "chainlink": {
+                            "connected": False,
+                            "reconnects": 0,
+                            "last_tick_age_sec": None,
+                            "queue_size": 0,
+                            "dropped_ticks": 0,
+                            "ordering_policy": self._ordering_policy_payload(),
+                            "ordering_classification_counts": self._ordering_class_counts(ordered=1),
+                        },
+                    }
+                )
+            for idx in range(7):
+                rows.append(
+                    {
+                        "ts_utc": f"2026-01-01T00:01:0{idx}.000Z",
+                        "run_id": run_id,
+                        "active_targets_present": True,
+                        "market_truth_required": True,
+                        "owned_market_ref": "mkt-1",
+                        "book_feed": {
+                            "connected": False if idx == 0 else True,
+                            "reconnects": 0,
+                            "last_msg_age_sec": None if idx == 0 else 0.2,
+                        },
+                        "chainlink": {
+                            "connected": False if idx == 0 else True,
+                            "reconnects": 0,
+                            "last_tick_age_sec": None if idx == 0 else 0.2,
+                            "queue_size": 0,
+                            "dropped_ticks": 0,
+                            "ordering_policy": self._ordering_policy_payload(),
+                            "ordering_classification_counts": self._ordering_class_counts(ordered=idx + 1),
+                        },
+                    }
+                )
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(config_path=cfg_path, log_dir=root, run_id=run_id)
+        self.assertTrue(result["ok"], msg=str(result["findings"]))
+        evidence = result["evidence"]
+        self.assertEqual(evidence["status_rows"], 12)
+        self.assertEqual(evidence["websocket_truth_required_rows"], 7)
+        self.assertAlmostEqual(float(evidence["book_feed_down_ratio"]), 1.0 / 7.0, places=6)
+        self.assertAlmostEqual(float(evidence["chainlink_down_ratio"]), 1.0 / 7.0, places=6)
 
     def test_audit_flags_worker_fatal_and_restart_exhausted_rows(self):
         with tempfile.TemporaryDirectory() as td:

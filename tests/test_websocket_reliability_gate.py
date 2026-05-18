@@ -181,6 +181,9 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
                 {
                     "run_id": run_id,
                     "ts_utc": "2099-01-01T00:00:00Z",
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": 20.0},
                     "chainlink": {
                         "connected": False,
@@ -193,6 +196,9 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
                 {
                     "run_id": run_id,
                     "ts_utc": "2099-01-01T00:10:00Z",
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {"connected": False, "reconnects": 100, "last_msg_age_sec": 30.0},
                     "chainlink": {
                         "connected": False,
@@ -231,6 +237,79 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
             self.assertIn("websocket_slo_book_feed_down_ratio_too_high", text)
             self.assertIn("websocket_slo_chainlink_dropped_ticks_too_high", text)
             self.assertIn("BRO-2201", out["error_codes"])
+
+    def test_gate_scopes_down_ratio_to_truth_required_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r-scope"
+            rows = []
+            for idx in range(5):
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": f"2099-01-01T00:00:0{idx}Z",
+                        "active_targets_present": False,
+                        "market_truth_required": False,
+                        "book_feed": {"connected": False, "reconnects": 0, "last_msg_age_sec": None},
+                        "chainlink": {
+                            "connected": False,
+                            "reconnects": 0,
+                            "last_tick_age_sec": None,
+                            "queue_size": 0,
+                            "dropped_ticks": 0,
+                        },
+                    }
+                )
+            for idx in range(7):
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": f"2099-01-01T00:01:0{idx}Z",
+                        "active_targets_present": True,
+                        "market_truth_required": True,
+                        "owned_market_ref": "mkt-1",
+                        "book_feed": {
+                            "connected": False if idx == 0 else True,
+                            "reconnects": 0,
+                            "last_msg_age_sec": None if idx == 0 else 1.0,
+                        },
+                        "chainlink": {
+                            "connected": False if idx == 0 else True,
+                            "reconnects": 0,
+                            "last_tick_age_sec": None if idx == 0 else 1.0,
+                            "queue_size": 0,
+                            "dropped_ticks": 0,
+                        },
+                    }
+                )
+            (root / "status_2099-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            out = run_gate(
+                log_dir=root,
+                run_id=run_id,
+                min_status_rows=1,
+                max_book_feed_down_ratio=0.2,
+                max_chainlink_down_ratio=0.2,
+                max_book_feed_reconnects_per_hour=10.0,
+                max_chainlink_reconnects_per_hour=10.0,
+                max_book_feed_last_msg_age_sec=10.0,
+                max_chainlink_last_tick_age_sec=10.0,
+                max_book_feed_last_msg_age_spike_rows=10,
+                max_chainlink_last_tick_age_spike_rows=10,
+                max_book_feed_last_msg_age_spike_ratio=1.0,
+                max_chainlink_last_tick_age_spike_ratio=1.0,
+                max_book_feed_last_msg_age_p95_sec=10.0,
+                max_chainlink_last_tick_age_p95_sec=10.0,
+                max_chainlink_dropped_ticks=0.0,
+                max_chainlink_queue_size=1000.0,
+            )
+            self.assertTrue(out["ok"], msg=out["findings"])
+            self.assertEqual(out["status_row_count"], 12)
+            self.assertEqual(out["websocket_truth_required_row_count"], 7)
+            self.assertAlmostEqual(out["metrics"]["book_feed_down_ratio"], 1.0 / 7.0, places=6)
+            self.assertAlmostEqual(out["metrics"]["chainlink_down_ratio"], 1.0 / 7.0, places=6)
 
     def test_gate_fails_on_worker_fatal_and_gateway_rows(self):
         with tempfile.TemporaryDirectory() as td:
@@ -557,12 +636,18 @@ class WebsocketReliabilityGateTests(unittest.TestCase):
                 {
                     "run_id": run_id,
                     "ts_utc": "2099-01-01T00:00:00Z",
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {"connected": True, "reconnects": 0},
                     "chainlink": {"connected": True, "reconnects": 0},
                 },
                 {
                     "run_id": run_id,
                     "ts_utc": "2099-01-01T00:10:00Z",
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {"connected": True, "last_msg_age_sec": "nan"},
                     "chainlink": {
                         "connected": True,

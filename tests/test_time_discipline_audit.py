@@ -165,7 +165,7 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             cfg["taker"].pop("max_chainlink_tick_age_sec", None)
             cfg["storage"]["log_dir"] = str(root / "logs")
             cfg["preflight"]["check_clock_sync"] = True
-            cfg["strategy"]["maker_competitiveness"]["selection_gate"]["min_sec_to_expiry"] = 15.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 15.0
             cfg["targets"]["discovery"]["enabled"] = True
             cfg_path = root / "cfg.yaml"
             cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
@@ -267,10 +267,21 @@ class TimeDisciplineAuditTests(unittest.TestCase):
                 msg=result.get("warnings", []),
             )
             board = result.get("timing_watchboard", {})
+            self.assertTrue(board.get("ownership_entry_authority", {}).get("enabled"))
+            self.assertAlmostEqual(
+                float(board.get("ownership_entry_authority", {}).get("max_sec_to_expiry") or 0.0),
+                90.0,
+                places=9,
+            )
+            self.assertAlmostEqual(
+                float(board.get("ownership_entry_authority", {}).get("min_market_age_sec") or 0.0),
+                60.0,
+                places=9,
+            )
             self.assertFalse(board.get("maker_timing_authority", {}).get("selection_gate_timing_duplicate_owner_active"))
             self.assertAlmostEqual(
                 float(board.get("maker_timing_authority", {}).get("timing_gate_min_sec_to_expiry") or 0.0),
-                7.0,
+                15.0,
                 places=9,
             )
             self.assertAlmostEqual(

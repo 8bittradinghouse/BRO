@@ -297,8 +297,9 @@ Primary artifacts:
 - `maker_selection_authority_counterfactual.json`
 
 Current canonical selector law in `paper_universal`:
-- reuse the existing
-  `strategy.maker_competitiveness.selection_gate`
+- reuse the lifecycle-owned canonical selector under:
+  - `lifecycle.selection`
+  - `lifecycle.lane_gates.maker`
 - `enabled = true`
 - lifecycle-first admission and maker-lane gating now own timing semantics;
   the old stage allowlist is retired
@@ -533,7 +534,7 @@ the whole doctrine package as one all-or-nothing bet.
 Current runtime bridge from this tool truth:
 - the bounded launch-safe maker selector now exists as:
   - runtime gate:
-    `strategy.maker_competitiveness.selection_gate`
+    `lifecycle.selection` plus maker-lane lifecycle gates
 - historical experiment-profile lineage has been cut from the live workspace;
   the durable runtime bridge that remains is the canonical selector gate and
   archived report truth rather than separate packet-profile surfaces.

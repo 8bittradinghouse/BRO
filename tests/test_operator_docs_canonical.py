@@ -58,6 +58,15 @@ ACTIVE_LIVE_TRUST_AUTHORITY_DOCS = [
     REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
     REPO_ROOT / "docs" / "JIN_COMMAND_CARD_2026-04-27.md",
 ]
+ACTIVE_LIFECYCLE_MAKER_OWNER_DOCS = [
+    REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md",
+    REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md",
+    REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md",
+    REPO_ROOT / "docs" / "BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md",
+    REPO_ROOT / "docs" / "BRO_DIAGNOSTIC_TOOLS.md",
+]
 LEGACY_STAGE_FAMILY_QUARANTINE_DOCS = [
     REPO_ROOT / "docs" / "BRO_CANONICAL_DOCTRINE_STAGE_MACHINE_ARCHIVE_2026-05-18.md",
     REPO_ROOT / "docs" / "BRO_MARKET_LIFECYCLE_CUTOVER_PLAN_2026-05-16.md",
@@ -95,6 +104,14 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             if hits:
                 offenders[str(path.relative_to(REPO_ROOT))] = hits
         self.assertEqual(offenders, {})
+
+    def test_active_lifecycle_maker_owner_docs_do_not_use_retired_strategy_owner_label(self):
+        offenders: list[str] = []
+        for path in ACTIVE_LIFECYCLE_MAKER_OWNER_DOCS:
+            text = path.read_text(encoding="utf-8")
+            if "strategy.maker_competitiveness" in text:
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+        self.assertEqual(offenders, [])
 
     def test_legacy_stage_family_docs_are_explicitly_quarantined(self):
         for path in LEGACY_STAGE_FAMILY_QUARANTINE_DOCS:
@@ -878,9 +895,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("small recurring negative maker losses", packet_text)
         self.assertIn("SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md", packet_text)
         self.assertIn("GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md", packet_text)
-        self.assertIn("truth-owner demotion + Packet 2 pickup reroute", packet_text)
-        self.assertIn("starvation proof correction + steady-state WS grading repair", packet_text)
-        self.assertIn("selector-owned one-sided extinction", packet_text)
+        self.assertIn("surviving-blocker runtime tribunal", packet_text)
+        self.assertIn("support-shadow / probe family truth cleanup", packet_text)
+        self.assertIn("accessory competitiveness + sizing tribunals", packet_text)
         self.assertIn("diagnostic-surface hardening", packet_text)
         self.assertIn("Recurring self-hardening cadence", program_text)
         self.assertIn("## Pilot-Live Severity Lock", sink_text)
@@ -918,10 +935,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn(recovery_extinction_rel, next_plan_text)
         self.assertIn(recovery_extinction_rel, limits_text)
         self.assertIn("current packet = `Packet 2 Maker-Live / Economic Trust Qualification`", packet_text)
-        self.assertIn("current mode = `active post-audit truth-owner / proof-semantics closeout`", packet_text)
-        self.assertIn("current first work = truth-owner demotion + Packet 2 pickup reroute", packet_text)
-        self.assertIn("current second work = starvation proof correction + steady-state WS grading repair", packet_text)
-        self.assertIn("current third work = selector-owned one-sided extinction + rerun", packet_text)
+        self.assertIn("current mode = `support-shadow cleanup + accessory maker sizing tribunal`", packet_text)
+        self.assertIn("current first work = support-shadow / probe family truth cleanup", packet_text)
+        self.assertIn("current second work = accessory maker sizing tribunal", packet_text)
+        self.assertIn("current third work = accessory competitiveness tribunal", packet_text)
         self.assertIn("cancel-only fail-close for open", packet_text)
         self.assertIn("`docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen", packet_text)
         self.assertIn("maker gate opens at `15s`", sink_text)

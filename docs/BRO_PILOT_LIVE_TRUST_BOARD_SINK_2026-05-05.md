@@ -19,12 +19,14 @@
 - current broad proof anchor: `7bbde42c-003a-4f57-b59a-7ce138224075`
 - current timing closeout anchor: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current grip closeout anchor: `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- current watched current-tree systems-health anchor:
-  `98d7f6c5-bec9-4768-bb06-941079c2ac72`
-- current watched current-tree systems-health read:
+- current watched current-tree canon anchor:
+  `4f843da4-16ec-4616-948c-c7b19e7f5aea`
+- current watched current-tree canon read:
   - `runtime_classification=VALID_ACTIVE`
-  - websocket/CLOB/oracle/lifecycle/timing health = clean
-  - policy closeout still failed on maker-only utilization/economic findings
+  - owned markets stayed inside the final `90s`
+  - maker and taker both fired
+  - current-code replay closes the archived websocket and maker-submit false blockers
+  - the remaining replay hard fail is real execution-quality pressure only
 - runtime lineage tuple expectation for new closure claims:
   - `run_id`
   - `git_commit`
@@ -35,7 +37,7 @@
 - phase: `pilot_live`
 - macro lane: `live trust qualification`
 - current lane status: `open`
-- current active implementation lane: `Packet 2 maker live trust qualification (active timing-authority collision surgery + rerun remeasurement)`
+- current active implementation lane: `Packet 2 maker live trust qualification (support-shadow cleanup + accessory maker sizing tribunal)`
 - active Packet 2 entry artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
   - companion board + hardening stack:
@@ -69,7 +71,7 @@ Board law:
 
 ## Packet Status Board
 - Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
-- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / timing-authority collision surgery`
+- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / support-shadow cleanup + accessory maker sizing tribunal`
 - Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / inactive`
 - Packet 4 `Bounded Live Hookup / Controlled Arming Qualification`: `sequenced / inactive`
 - Packet 5 `Immediate-Performance Proof`: `sequenced / inactive`
@@ -120,20 +122,18 @@ Board law:
     - current-code maker path forensic semantic audit
     - maker timing owner layer
   - current strongest packet-local provisional reads are:
-    - strongest small-loss owner candidate = `complete-outcome truth`
-    - recurring small-loss family = `not trusted steel / surgery-pile candidate`
-    - strongest foundation trace = `market-truth substrate`
-    - historical small-loss specimens stayed bad even under direct-midpoint
-      decision references, so substrate remains a foundation trace rather than
-      the proximate owner of that historical wound family
+    - lifecycle ownership-entry law is now active current-code steel at
+      `<=90s`
+    - the old small-loss / recovery-bleed family appears cut on current code
+      and reopens only if its repeated tiny-bleed pattern returns
     - official WS/CLOB substrate transplant is now materially landed and no
       longer the active maker patient
     - canonical lifecycle surgery is now materially landed and no longer the
       active maker patient
-    - loudest present runtime choke = maker selection timing-authority
-      collision
-    - loudest downstream follow-on frictions = queue-depth / fill-probability /
-      replace-guard pain after that choke is cut
+    - loudest present runtime blocker family = depth / queue-depth / sizing
+      geometry after the timing and selector cuts
+    - current canon replay closes the archived websocket and maker-submit
+      false blockers
     - recovery and dust = quiet in current Packet 2 specimen set, but no
       longer treated as keep-now maker steel
     - current doctrine timing chain = maker opens at `15s`, taker handoff at
@@ -147,13 +147,19 @@ Board law:
         `stage_disallow_maker` rows unless the raw event tape is checked
     - historical packet-era `50-60 / 50` timing posture = ancestry only
   - current surgery patients are now explicit:
-    1. `maker selection timing-authority collision`
-       - current packet
-       - must land before broader maker reread
-    2. `surviving maker blockers after timing cut`
-       - immediate rerun and remeasurement lane after the timing cut
-    3. `support-shadow / probe family`
-       - report-side de-fat after the rerun and surviving-blocker reread
+    1. current-code replay on canon specimen `4f843da4...` proved the first
+       blocker-ledger cut, and fresh watched specimen `187f3031...` tightened
+       the live read:
+       - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
+       - `quote_quality_skip_queue_depth` = `keep-now steel`
+       - `sizing_reject` = active runtime patient on the fresh watched specimen
+       - `maker_blocker_ledger.json` = current owner artifact for blocker truth
+    2. `support-shadow / probe family`
+       - report-side de-fat and no-outrank fence after the blocker verdict
+    3. `accessory maker sizing scaler bundle`
+       - live tribunal after the support-family cut
+    4. `accessory competitiveness bundle`
+       - runtime tribunal after sizing feasibility truth is settled
   - `NO-GO` for generic tuning or live arming
 
 ## Packet 1 Relock Spine
@@ -264,24 +270,25 @@ Current board use:
 - Whole fighter still `Needs Work`.
 - `pilot_live` remains the active phase.
 - Packet 2 `Maker-Live` is now active in post-surgery maker runtime reread:
-  - strongest current small-loss owner candidate:
-    - `complete-outcome truth`
-  - strongest foundation trace:
-    - `market-truth substrate`
+  - the old small-loss / recovery-bleed family appears cut on current code and
+    reopens only if its exact repeated tiny-bleed pattern returns
   - major completed body repairs now carried forward:
     - official Polymarket WS/CLOB substrate transplant
     - canonical lifecycle surgery
-  - latest watched 20-minute system-health specimen:
-    - `98d7f6c5-bec9-4768-bb06-941079c2ac72`
+  - latest canon timing / queue-audit specimen:
+    - `4f843da4-16ec-4616-948c-c7b19e7f5aea`
     - transport / oracle / lifecycle / timing = healthy
-    - policy closeout failed on maker-only utilization/economic findings
+    - ownership-entry law held inside the final `90s`
+    - maker and taker both fired
+    - current-code replay closed the archived websocket and maker-submit false blockers
+    - remaining replay hard fail is `soak_execution_quality_capture_minus_adverse_too_low`
   - dominant current maker runtime patient:
-    - maker selection timing-authority collision between market-admission
-      timing law and maker submit timing law
-  - loudest downstream follow-on frictions after that cut:
+    - accessory maker sizing feasibility after selection depth and queue-depth
+      blockers reproved as keep-now steel
+  - loudest surviving runtime blockers on the canon specimen:
+    - `launch_safe_selection_insufficient_depth_multiple`
     - `quote_quality_skip_queue_depth`
-    - `quote_quality_skip_fill_probability`
-    - `replace_guard_min_rest`
+    - `sizing_reject`
   - current scar-tissue read:
     - queue pressure = cut from current/live authority, preserved only as
       historical-only lineage
@@ -297,11 +304,10 @@ Current board use:
   - historical packet-era `50-60 / 50` maker timing posture belongs to
     dirty-tree run manifests and is quarantined as ancestry only
   - current legal residual order is:
-    1. maker selection timing-authority collision
-    2. rerun and surviving-blocker remeasurement
-    3. support-shadow / probe family de-fat
-    4. accessory competitiveness bundle runtime tribunal
-    5. small-loss wound family remeasurement after earlier family cuts
+    1. support-shadow / probe family de-fat
+    2. accessory competitiveness bundle runtime tribunal
+    3. accessory maker sizing scaler bundle runtime tribunal
+    4. final trust / falsifier proof
   - optional later archaeology packet:
     - recovery / unwind compatibility archaeology + ignored dead-key support
       extinction

@@ -139,36 +139,32 @@ class ExecutionStackTests(unittest.TestCase):
         max_same_target_submit_count_prior: int = 999,
         max_same_target_side_submit_count_prior: int = 1,
     ) -> tuple[dict, dict, dict]:
-        runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
-        strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
-        sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        runtime_cfg = copy.deepcopy(cfg["runtime"])
+        strategy_cfg = copy.deepcopy(cfg["strategy"])
+        sizing_cfg = copy.deepcopy(cfg["sizing"])
         strategy_cfg["execution_quality"]["enabled"] = False
-        strategy_cfg["maker_competitiveness"]["selection_gate"]["enabled"] = True
-        strategy_cfg["maker_competitiveness"]["selection_gate"][
-            "require_secondary_oracle_confirmation"
-        ] = True
-        strategy_cfg["maker_competitiveness"]["selection_gate"][
-            "cannon_target_notional_usd"
-        ] = 20.0
-        strategy_cfg["maker_competitiveness"]["selection_gate"]["min_depth_multiple"] = float(
-            min_depth_multiple
+        cfg["lifecycle"]["selection"]["enabled"] = True
+        cfg["lifecycle"]["selection"]["require_secondary_oracle_confirmation"] = True
+        cfg["lifecycle"]["selection"]["cannon_target_notional_usd"] = 20.0
+        cfg["lifecycle"]["selection"]["maker_min_depth_multiple"] = float(min_depth_multiple)
+        cfg["lifecycle"]["selection"]["max_same_target_submit_count_prior"] = int(
+            max_same_target_submit_count_prior
         )
-        strategy_cfg["maker_competitiveness"]["selection_gate"][
-            "max_same_target_submit_count_prior"
-        ] = int(max_same_target_submit_count_prior)
-        strategy_cfg["maker_competitiveness"]["selection_gate"][
-            "max_same_target_side_submit_count_prior"
-        ] = int(max_same_target_side_submit_count_prior)
-        strategy_cfg["maker_competitiveness"]["selection_gate"]["min_sec_to_expiry"] = (
+        cfg["lifecycle"]["selection"]["max_same_target_side_submit_count_prior"] = int(
+            max_same_target_side_submit_count_prior
+        )
+        cfg["lifecycle"]["phase"]["taker_window_open_sec"] = (
             float(min_sec_to_expiry)
             if isinstance(min_sec_to_expiry, (int, float))
             else None
         )
-        strategy_cfg["maker_competitiveness"]["selection_gate"]["max_sec_to_expiry"] = (
+        cfg["lifecycle"]["phase"]["maker_window_open_sec"] = (
             float(max_sec_to_expiry)
             if isinstance(max_sec_to_expiry, (int, float))
             else None
         )
+        runtime_cfg["lifecycle"] = copy.deepcopy(cfg["lifecycle"])
         sizing_cfg["mode"] = "shares"
         sizing_cfg["maker_competitive_min_notional_usd"] = 0.0
         sizing_cfg["maker_competitive_max_notional_usd"] = 0.0
@@ -374,12 +370,12 @@ class ExecutionStackTests(unittest.TestCase):
             events.close()
             tmp.cleanup()
 
-    def test_order_manager_lifecycle_selection_gate_uses_phase_window_not_market_admission_floor(self):
+    def test_order_manager_lifecycle_selection_gate_uses_phase_window_not_market_admission_ceiling(self):
         runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
         runtime_cfg["lifecycle"] = {
             "selection": {
                 "enabled": True,
-                "min_sec_to_expiry": 90.0,
+                "max_sec_to_expiry": 90.0,
                 "maker_min_depth_multiple": 1.5,
                 "require_secondary_oracle_confirmation": True,
                 "cannon_target_notional_usd": 20.0,
@@ -457,9 +453,9 @@ class ExecutionStackTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
-    def test_load_config_rejects_retired_strategy_selection_gate_one_sided_requirement(self):
+    def test_load_config_rejects_retired_lifecycle_selection_min_sec_to_expiry(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        cfg["strategy"]["maker_competitiveness"]["selection_gate"]["require_one_sided_active"] = True
+        cfg["lifecycle"]["selection"]["min_sec_to_expiry"] = 90.0
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as tmp:
             yaml.safe_dump(cfg, tmp, sort_keys=False)
             path = Path(tmp.name)
@@ -471,8 +467,8 @@ class ExecutionStackTests(unittest.TestCase):
 
     def test_config_rejects_selection_gate_timing_min_above_max(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        cfg["strategy"]["maker_competitiveness"]["selection_gate"]["min_sec_to_expiry"] = 15.0
-        cfg["strategy"]["maker_competitiveness"]["selection_gate"]["max_sec_to_expiry"] = 10.0
+        cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 15.0
+        cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 10.0
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -492,7 +488,7 @@ class ExecutionStackTests(unittest.TestCase):
     def test_config_rejects_new_exposure_expiry_gate_above_maker_timing_max(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 90.0
-        cfg["strategy"]["maker_competitiveness"]["timing_gate_max_sec_to_expiry"] = 60.0
+        cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 60.0
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -841,140 +837,24 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
-    def test_config_rejects_legacy_maker_competitiveness_one_sided_stage_surface(self):
-        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-        cfg["targets"]["token_ids"] = ["tok1"]
-        cfg["strategy"]["maker_competitiveness"]["one_sided_allowed_stages"] = ["EXTREME_ONLY"]
-        with self.assertRaisesRegex(
-            ValueError,
-            "strategy.maker_competitiveness.one_sided_allowed_stages is retired",
-        ):
-            validate_execution_config(cfg)
-
-    def test_load_execution_config_ignores_legacy_maker_queue_pressure_surface(self):
-        with tempfile.TemporaryDirectory() as td, warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            cfg_path = Path(td) / "legacy_queue_pressure.yaml"
+    def test_load_execution_config_rejects_unknown_strategy_owner_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "unknown_strategy_field.yaml"
             cfg_path.write_text(
                 "\n".join(
                     [
                         "targets:",
                         "  token_ids: [tok1]",
                         "strategy:",
-                        "  maker_competitiveness:",
-                        "    queue_pressure:",
-                        "      enabled: definitely_not_bool",
-                        "      allowed_stages: [EXTREME_ONLY]",
-                        "      inside_price_ticks: 0",
+                        "  unexpected_policy_owner:",
+                        "    enabled: true",
                     ]
                 )
                 + "\n",
                 encoding="utf-8",
             )
-            cfg = load_execution_config(cfg_path)
-            maker_comp = dict((cfg.get("strategy") or {}).get("maker_competitiveness") or {})
-            self.assertNotIn("queue_pressure", maker_comp)
-            meta = dict(cfg.get("_meta") or {})
-            self.assertIn(
-                "strategy.maker_competitiveness.queue_pressure",
-                list(meta.get("ignored_compatibility_fields") or []),
-            )
-            self.assertTrue(
-                any(
-                    "strategy.maker_competitiveness.queue_pressure" in str(w.message)
-                    for w in caught
-                )
-            )
-
-    def test_legacy_maker_queue_pressure_config_matches_clean_runtime_behavior(self):
-        with tempfile.TemporaryDirectory() as td, warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            root = Path(td)
-            clean_cfg_path = root / "clean.yaml"
-            clean_cfg_path.write_text("targets:\n  token_ids: [tok1]\n", encoding="utf-8")
-            legacy_cfg_path = root / "legacy.yaml"
-            legacy_cfg_path.write_text(
-                "\n".join(
-                    [
-                        "targets:",
-                        "  token_ids: [tok1]",
-                        "strategy:",
-                        "  maker_competitiveness:",
-                        "    queue_pressure:",
-                        "      enabled: true",
-                        "      allowed_stages: [MAKER_TAKER_SELECTIVE]",
-                        "      inside_price_ticks: 1",
-                        "      max_queue_ahead_size: 100",
-                        "      min_expected_fill_prob: 0.10",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            clean_snapshot = self._run_loaded_config_maker_snapshot(clean_cfg_path)
-            legacy_snapshot = self._run_loaded_config_maker_snapshot(legacy_cfg_path)
-
-        self.assertEqual(clean_snapshot["first_summary"]["open_orders"], 1)
-        self.assertEqual(legacy_snapshot["first_summary"]["open_orders"], 1)
-        self.assertEqual(
-            clean_snapshot["second_summary"].get("maker_no_submission_reason_by_token", {}),
-            legacy_snapshot["second_summary"].get("maker_no_submission_reason_by_token", {}),
-        )
-        self.assertEqual(clean_snapshot["open_orders"], legacy_snapshot["open_orders"])
-        self.assertEqual(clean_snapshot["queue_pressure_rows"], [])
-        self.assertEqual(legacy_snapshot["queue_pressure_rows"], [])
-        self.assertTrue(
-            any(
-                "strategy.maker_competitiveness.queue_pressure" in str(w.message)
-                for w in caught
-            )
-        )
-
-    def test_malformed_legacy_maker_queue_pressure_config_matches_clean_runtime_behavior(self):
-        with tempfile.TemporaryDirectory() as td, warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            root = Path(td)
-            clean_cfg_path = root / "clean.yaml"
-            clean_cfg_path.write_text("targets:\n  token_ids: [tok1]\n", encoding="utf-8")
-            malformed_cfg_path = root / "malformed.yaml"
-            malformed_cfg_path.write_text(
-                "\n".join(
-                    [
-                        "targets:",
-                        "  token_ids: [tok1]",
-                        "strategy:",
-                        "  maker_competitiveness:",
-                        "    queue_pressure:",
-                        "      enabled: definitely_not_bool",
-                        "      allowed_stages: [EXTREME_ONLY, nonsense_stage]",
-                        "      inside_price_ticks: -7",
-                        "      max_queue_ahead_size: nope",
-                        "      min_expected_fill_prob: still_nope",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            clean_snapshot = self._run_loaded_config_maker_snapshot(clean_cfg_path)
-            malformed_snapshot = self._run_loaded_config_maker_snapshot(malformed_cfg_path)
-            loaded_cfg = load_execution_config(malformed_cfg_path)
-
-        self.assertEqual(clean_snapshot["first_summary"]["open_orders"], 1)
-        self.assertEqual(malformed_snapshot["first_summary"]["open_orders"], 1)
-        self.assertEqual(
-            clean_snapshot["second_summary"].get("maker_no_submission_reason_by_token", {}),
-            malformed_snapshot["second_summary"].get("maker_no_submission_reason_by_token", {}),
-        )
-        self.assertEqual(clean_snapshot["open_orders"], malformed_snapshot["open_orders"])
-        self.assertEqual(malformed_snapshot["queue_pressure_rows"], [])
-        maker_comp = dict((loaded_cfg.get("strategy") or {}).get("maker_competitiveness") or {})
-        self.assertNotIn("queue_pressure", maker_comp)
-        self.assertTrue(
-            any(
-                "strategy.maker_competitiveness.queue_pressure" in str(w.message)
-                for w in caught
-            )
-        )
+            with self.assertRaisesRegex(ValueError, "strategy contains unknown or retired fields"):
+                load_execution_config(cfg_path)
 
     def test_config_rejects_maker_competitive_floor_when_notional_mode_disabled(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -10589,9 +10469,9 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["late-maker"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_enabled"] = True
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_min_sec_to_expiry"] = 10.0
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_max_sec_to_expiry"] = 15.0
+            cfg["lifecycle"]["lane_gates"]["maker"]["timing_gate_enabled"] = True
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 10.0
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 15.0
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
             runner = ExecutionRunner(cfg)
@@ -10632,16 +10512,11 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["late-maker"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"] = True
-            cfg["strategy"]["maker_competitiveness"]["one_sided_edge_threshold_abs"] = 0.18
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_enabled"] = True
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_min_sec_to_expiry"] = 10.0
-            cfg["strategy"]["maker_competitiveness"]["timing_gate_max_sec_to_expiry"] = 15.0
             cfg["lifecycle"]["lane_gates"]["maker"]["one_sided_enabled"] = True
             cfg["lifecycle"]["lane_gates"]["maker"]["one_sided_edge_threshold_abs"] = 0.18
             cfg["lifecycle"]["lane_gates"]["maker"]["timing_gate_enabled"] = True
-            cfg["lifecycle"]["lane_gates"]["maker"]["timing_gate_min_sec_to_expiry"] = 10.0
-            cfg["lifecycle"]["lane_gates"]["maker"]["timing_gate_max_sec_to_expiry"] = 15.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 10.0
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 15.0
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
             runner = ExecutionRunner(cfg)

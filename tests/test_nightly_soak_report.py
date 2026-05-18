@@ -17,6 +17,7 @@ from prodesk.historical_recovery_replay_compat import (
     HISTORICAL_RECOVERY_REASON_FIELD as _HISTORICAL_RECOVERY_REASON_FIELD,
 )
 from scripts.nightly_soak_report import (
+    _maker_blocker_ledger_bundle,
     _maker_probe_rows_with_shadow_truth,
     _maker_phase_allowed_from_row,
     _maker_quote_construction_bundle,
@@ -79,6 +80,35 @@ def _historical_recovery_runtime_config(
 
 
 class NightlySoakReportTests(unittest.TestCase):
+    def test_maker_blocker_ledger_promotes_sizing_feasibility_after_steel_selection_verdicts(self):
+        bundle = _maker_blocker_ledger_bundle(
+            shadow_rows=[
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 0.0},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 10.0},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 15.0},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 25.0},
+                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth", "queue_ahead_size": 900.0},
+                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth", "queue_ahead_size": 1200.0},
+            ],
+            selection_authority_rows=[
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
+                {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
+                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth"},
+                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth"},
+                {"runtime_decision_block_reason": "sizing_reject"},
+                {"runtime_decision_block_reason": "sizing_reject"},
+                {"runtime_decision_block_reason": "sizing_reject"},
+            ],
+        )
+        summary = bundle["summary"]
+        self.assertEqual(summary.get("selection_gate_verdict"), "keep_now_steel")
+        self.assertEqual(summary.get("quote_quality_verdict"), "keep_now_steel")
+        self.assertEqual(summary.get("sizing_verdict"), "active_patient")
+        self.assertEqual(summary.get("next_packet2_patient"), "accessory_maker_sizing_feasibility")
+        self.assertEqual(summary.get("runtime_blocker_family_status"), "open_runtime_patient")
+
     def test_maker_probe_rows_with_shadow_truth_prefers_canonical_lifecycle_window(self):
         rows = _maker_probe_rows_with_shadow_truth(
             probe_rows=[
@@ -144,7 +174,7 @@ class NightlySoakReportTests(unittest.TestCase):
         )
         self.assertEqual(root_cause.get("decision_readiness"), "not_applicable_submit_run")
         self.assertEqual(root_cause.get("authoritative_for_canonical_selection"), False)
-        self.assertEqual(root_cause.get("current_owner_artifact"), "maker_selection_authority_audit.json")
+        self.assertEqual(root_cause.get("current_owner_artifact"), "maker_blocker_ledger.json")
         self.assertEqual(int(root_cause.get("submitted_shadow_row_count", 0)), 1)
 
     def test_maker_phase_allowed_helper_prefers_canonical_lifecycle_truth(self):
@@ -479,7 +509,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 payload = json.loads((report_dir / name).read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("authoritative_for_canonical_selection"), False)
                 self.assertEqual(payload.get("applicability"), "descriptive_only")
-                self.assertEqual(payload.get("current_owner_artifact"), "maker_selection_authority_audit.json")
+                self.assertEqual(payload.get("current_owner_artifact"), "maker_blocker_ledger.json")
             zero_submit_payload = json.loads(
                 (report_dir / "maker_zero_submit_root_cause_audit.json").read_text(encoding="utf-8")
             )
@@ -487,7 +517,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(zero_submit_payload.get("applicability"), "not_applicable_submit_run")
             self.assertEqual(
                 zero_submit_payload.get("current_owner_artifact"),
-                "maker_selection_authority_audit.json",
+                "maker_blocker_ledger.json",
             )
             reconciliation_payload = json.loads(
                 (report_dir / "financial_outcome_reconciliation.json").read_text(encoding="utf-8")

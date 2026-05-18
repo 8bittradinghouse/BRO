@@ -240,20 +240,11 @@ strategy:
     high_vol_spread_mult: 0.8
     low_vol_size_mult: 0.85
     high_vol_size_mult: 1.25
-  maker_competitiveness:
-    edge_scale_enabled: false
-    edge_scale_start_abs: 0.05
-    edge_scale_full_abs: 0.20
-    size_mult_max: 1.35
-    spread_mult_min: 0.75
-    requote_delta_mult_min: 0.50
-    one_sided_enabled: false
-    one_sided_edge_threshold_abs: 0.18
 
 lifecycle:
   selection:
     enabled: false
-    min_sec_to_expiry: 90.0
+    max_sec_to_expiry: 90.0
     min_market_age_sec: 60.0
     maker_min_depth_multiple: 1.5
     taker_min_fill_ratio: 0.5

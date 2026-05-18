@@ -194,7 +194,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
     "lifecycle": {
         "selection": {
             "enabled": True,
-            "min_sec_to_expiry": 90.0,
+            "max_sec_to_expiry": 90.0,
             "min_market_age_sec": 60.0,
             "maker_min_depth_multiple": 1.5,
             "taker_min_fill_ratio": 0.5,
@@ -316,27 +316,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "high_vol_spread_mult": 0.8,
             "low_vol_size_mult": 0.85,
             "high_vol_size_mult": 1.25,
-        },
-        "maker_competitiveness": {
-            "timing_gate_enabled": False,
-            "timing_gate_min_sec_to_expiry": 7.0,
-            "timing_gate_max_sec_to_expiry": 15.0,
-            "edge_scale_enabled": False,
-            "edge_scale_start_abs": 0.05,
-            "edge_scale_full_abs": 0.20,
-            "size_mult_max": 1.35,
-            "spread_mult_min": 0.75,
-            "requote_delta_mult_min": 0.50,
-            "one_sided_enabled": False,
-            "one_sided_edge_threshold_abs": 0.18,
-            "selection_gate": {
-                "enabled": False,
-                "require_secondary_oracle_confirmation": True,
-                "cannon_target_notional_usd": 350.0,
-                "min_depth_multiple": 1.5,
-                "max_same_target_submit_count_prior": 1,
-                "max_same_target_side_submit_count_prior": 1,
-            },
         },
     },
     "sizing": {
@@ -689,107 +668,67 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
         taker_lane = {}
         lane_gates["taker"] = taker_lane
 
-    strategy = cfg.setdefault("strategy", {})
-    maker_comp = strategy.setdefault("maker_competitiveness", {})
-    if not isinstance(maker_comp, dict):
-        maker_comp = {}
-        strategy["maker_competitiveness"] = maker_comp
-    selection_gate = maker_comp.setdefault("selection_gate", {})
-    if not isinstance(selection_gate, dict):
-        selection_gate = {}
-        maker_comp["selection_gate"] = selection_gate
-
     taker = cfg.setdefault("taker", {})
     taker_comp = taker.setdefault("competitiveness", {})
     if not isinstance(taker_comp, dict):
         taker_comp = {}
         taker["competitiveness"] = taker_comp
 
-    selection["enabled"] = bool(selection.get("enabled", selection_gate.get("enabled", True)))
-    selection["min_sec_to_expiry"] = float(
-        selection.get("min_sec_to_expiry", selection_gate.get("min_sec_to_expiry", 90.0))
-    )
+    selection["enabled"] = bool(selection.get("enabled", True))
+    selection["max_sec_to_expiry"] = float(selection.get("max_sec_to_expiry", 90.0))
     selection["min_market_age_sec"] = float(selection.get("min_market_age_sec", 60.0))
     selection["maker_min_depth_multiple"] = float(
-        selection.get("maker_min_depth_multiple", selection_gate.get("min_depth_multiple", 1.5))
+        selection.get("maker_min_depth_multiple", 1.5)
     )
     selection["taker_min_fill_ratio"] = float(
         selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))
     )
     selection["require_secondary_oracle_confirmation"] = bool(
-        selection.get(
-            "require_secondary_oracle_confirmation",
-            selection_gate.get("require_secondary_oracle_confirmation", True),
-        )
+        selection.get("require_secondary_oracle_confirmation", True)
     )
     selection["cannon_target_notional_usd"] = float(
-        selection.get(
-            "cannon_target_notional_usd",
-            selection_gate.get("cannon_target_notional_usd", 350.0),
-        )
+        selection.get("cannon_target_notional_usd", 350.0)
     )
     selection["max_same_target_submit_count_prior"] = int(
-        float(
-            selection.get(
-                "max_same_target_submit_count_prior",
-                selection_gate.get("max_same_target_submit_count_prior", 1),
-            )
-        )
+        float(selection.get("max_same_target_submit_count_prior", 1))
     )
     selection["max_same_target_side_submit_count_prior"] = int(
-        float(
-            selection.get(
-                "max_same_target_side_submit_count_prior",
-                selection_gate.get("max_same_target_side_submit_count_prior", 1),
-            )
-        )
+        float(selection.get("max_same_target_side_submit_count_prior", 1))
     )
     selection["replacement_margin"] = float(selection.get("replacement_margin", 0.0))
     selection["replacement_dwell_sec"] = float(selection.get("replacement_dwell_sec", 0.0))
     selection["ownership_fail_dwell_sec"] = float(selection.get("ownership_fail_dwell_sec", 0.0))
 
     phase["maker_window_open_sec"] = float(
-        phase.get("maker_window_open_sec", maker_comp.get("timing_gate_max_sec_to_expiry", 15.0))
+        phase.get("maker_window_open_sec", 15.0)
     )
     phase["taker_window_open_sec"] = float(
         phase.get(
             "taker_window_open_sec",
-            maker_comp.get(
-                "timing_gate_min_sec_to_expiry",
-                taker_comp.get("final_window_sec", 7.0),
-            ),
+            taker_comp.get("final_window_sec", 7.0),
         )
     )
 
-    maker_lane["timing_gate_enabled"] = bool(
-        maker_lane.get("timing_gate_enabled", maker_comp.get("timing_gate_enabled", False))
-    )
-    maker_lane["edge_scale_enabled"] = bool(
-        maker_lane.get("edge_scale_enabled", maker_comp.get("edge_scale_enabled", False))
-    )
+    maker_lane["timing_gate_enabled"] = bool(maker_lane.get("timing_gate_enabled", False))
+    maker_lane["edge_scale_enabled"] = bool(maker_lane.get("edge_scale_enabled", False))
     maker_lane["edge_scale_start_abs"] = float(
-        maker_lane.get("edge_scale_start_abs", maker_comp.get("edge_scale_start_abs", 0.05))
+        maker_lane.get("edge_scale_start_abs", 0.05)
     )
     maker_lane["edge_scale_full_abs"] = float(
-        maker_lane.get("edge_scale_full_abs", maker_comp.get("edge_scale_full_abs", 0.20))
+        maker_lane.get("edge_scale_full_abs", 0.20)
     )
     maker_lane["size_mult_max"] = float(
-        maker_lane.get("size_mult_max", maker_comp.get("size_mult_max", 1.35))
+        maker_lane.get("size_mult_max", 1.35)
     )
     maker_lane["spread_mult_min"] = float(
-        maker_lane.get("spread_mult_min", maker_comp.get("spread_mult_min", 0.75))
+        maker_lane.get("spread_mult_min", 0.75)
     )
     maker_lane["requote_delta_mult_min"] = float(
-        maker_lane.get("requote_delta_mult_min", maker_comp.get("requote_delta_mult_min", 0.50))
+        maker_lane.get("requote_delta_mult_min", 0.50)
     )
-    maker_lane["one_sided_enabled"] = bool(
-        maker_lane.get("one_sided_enabled", maker_comp.get("one_sided_enabled", False))
-    )
+    maker_lane["one_sided_enabled"] = bool(maker_lane.get("one_sided_enabled", False))
     maker_lane["one_sided_edge_threshold_abs"] = float(
-        maker_lane.get(
-            "one_sided_edge_threshold_abs",
-            maker_comp.get("one_sided_edge_threshold_abs", 0.18),
-        )
+        maker_lane.get("one_sided_edge_threshold_abs", 0.18)
     )
 
     taker_lane["final_window_enabled"] = bool(
@@ -815,12 +754,6 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
     taker_comp["aggressive_window_sec"] = float(taker_lane["aggressive_window_sec"])
     taker_comp["multi_oracle_boost_window_sec"] = float(taker_lane["multi_oracle_boost_window_sec"])
 
-    maker_comp.pop("timing_gate_min_sec_to_expiry", None)
-    maker_comp.pop("timing_gate_max_sec_to_expiry", None)
-    selection_gate.pop("min_sec_to_expiry", None)
-    selection_gate.pop("max_sec_to_expiry", None)
-
-
 def _normalize_doctrine_semantics(cfg: Dict[str, Any]) -> None:
     doctrine = cfg.setdefault("doctrine", {})
     mode = str(doctrine.get("mode", "canonical")).strip().lower()
@@ -833,32 +766,29 @@ def _normalize_doctrine_semantics(cfg: Dict[str, Any]) -> None:
 
 
 def _reject_retired_lifecycle_stage_surfaces(cfg: Dict[str, Any]) -> None:
-    maker_comp = ((cfg.get("strategy") or {}).get("maker_competitiveness") or {})
-    selection_gate = (maker_comp.get("selection_gate") or {}) if isinstance(maker_comp, dict) else {}
+    strategy = cfg.get("strategy") or {}
     taker = cfg.get("taker") or {}
     taker_comp = (taker.get("competitiveness") or {}) if isinstance(taker, dict) else {}
 
-    if isinstance(maker_comp, dict) and maker_comp.get("one_sided_allowed_stages"):
-        raise ValueError(
-            "strategy.maker_competitiveness.one_sided_allowed_stages is retired for current configs; "
-            "use lifecycle.lane_gates.maker.one_sided_enabled and lifecycle.lane_gates.maker.one_sided_edge_threshold_abs"
-        )
-    if isinstance(selection_gate, dict) and selection_gate.get("allowed_stages"):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.allowed_stages is retired for current configs; "
-            "use lifecycle.selection and lifecycle.phase"
-        )
-    if isinstance(selection_gate, dict) and "require_one_sided_active" in selection_gate:
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.require_one_sided_active is retired; "
-            "maker side selection now belongs only to lifecycle.lane_gates.maker side-policy truth"
-        )
+    if isinstance(strategy, dict) and "maker_competitiveness" in strategy:
+        maker_owner = strategy.get("maker_competitiveness")
+        if isinstance(maker_owner, dict) and not maker_owner:
+            strategy.pop("maker_competitiveness", None)
+        else:
+            raise ValueError(
+                "legacy maker strategy policy ownership is retired; "
+                "use lifecycle.selection and lifecycle.lane_gates.maker"
+            )
     lifecycle = cfg.get("lifecycle") or {}
     lifecycle_selection = lifecycle.get("selection") if isinstance(lifecycle, dict) else {}
     if isinstance(lifecycle_selection, dict) and "require_one_sided_active" in lifecycle_selection:
         raise ValueError(
-            "lifecycle.selection.require_one_sided_active is retired; "
             "market admission may not own maker side-selection authority"
+        )
+    if isinstance(lifecycle_selection, dict) and "min_sec_to_expiry" in lifecycle_selection:
+        raise ValueError(
+            "lifecycle.selection.min_sec_to_expiry is retired; "
+            "use lifecycle.selection.max_sec_to_expiry for the ownership-entry ceiling"
         )
     if isinstance(taker, dict) and taker.get("per_token_cooldown_sec_by_stage"):
         raise ValueError(
@@ -959,10 +889,6 @@ def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     _reject_retired_lifecycle_stage_surfaces(raw)
     explicit_doctrine_oracle = _raw_has_path(raw, ("doctrine", "oracle_max_tick_age_sec"))
     explicit_taker_oracle = _raw_has_path(raw, ("taker", "max_chainlink_tick_age_sec"))
-    explicit_maker_queue_pressure = _raw_has_path(
-        raw,
-        ("strategy", "maker_competitiveness", "queue_pressure"),
-    )
     removed_compatibility_surfaces: List[Tuple[str, str, Tuple[str, ...]]] = [
         (
             "strategy.execution_quality.reduce_only_recovery_min_expected_fill_prob_floor",
@@ -1026,9 +952,6 @@ def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     taker_comp_cfg = ((cfg.get("taker") or {}).get("competitiveness") or {})
     if isinstance(taker_comp_cfg, dict):
         build_taker_competitiveness_policy(taker_comp_cfg, strict=True)
-    maker_comp_cfg = ((cfg.get("strategy") or {}).get("maker_competitiveness") or {})
-    if isinstance(maker_comp_cfg, dict):
-        maker_comp_cfg.pop("queue_pressure", None)
     for _, _, nested_path in removed_compatibility_surfaces:
         _pop_nested_path(cfg, nested_path)
     _normalize_taker_semantics(cfg)
@@ -1043,19 +966,6 @@ def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     explicit_fields = cfg_meta.setdefault("explicit_fields", {})
     explicit_fields["doctrine.oracle_max_tick_age_sec"] = bool(explicit_doctrine_oracle)
     explicit_fields["taker.max_chainlink_tick_age_sec"] = bool(explicit_taker_oracle)
-    if explicit_maker_queue_pressure:
-        explicit_fields["strategy.maker_competitiveness.queue_pressure"] = True
-        ignored_fields = cfg_meta.setdefault("ignored_compatibility_fields", [])
-        compatibility_warnings = cfg_meta.setdefault("compatibility_warnings", [])
-        ignored_field = "strategy.maker_competitiveness.queue_pressure"
-        warning_text = (
-            f"{ignored_field} is a removed queue-pressure compatibility surface and is ignored"
-        )
-        if ignored_field not in ignored_fields:
-            ignored_fields.append(ignored_field)
-        if warning_text not in compatibility_warnings:
-            compatibility_warnings.append(warning_text)
-        warnings.warn(warning_text, UserWarning, stacklevel=2)
     for field, warning_text in explicit_removed_compatibility_surfaces:
         explicit_fields[field] = True
         ignored_fields = cfg_meta.setdefault("ignored_compatibility_fields", [])
@@ -1710,9 +1620,15 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("strategy.volatility.high_vol_spread_mult", cfg["strategy"]["volatility"]["high_vol_spread_mult"])
     _require_positive("strategy.volatility.low_vol_size_mult", cfg["strategy"]["volatility"]["low_vol_size_mult"])
     _require_positive("strategy.volatility.high_vol_size_mult", cfg["strategy"]["volatility"]["high_vol_size_mult"])
-    maker_comp_cfg = cfg["strategy"].get("maker_competitiveness", {})
-    if not isinstance(maker_comp_cfg, dict):
-        raise ValueError("strategy.maker_competitiveness must be a mapping")
+    allowed_strategy_keys = set(DEFAULT_EXECUTION_CONFIG["strategy"].keys())
+    unexpected_strategy_keys = sorted(
+        key for key in cfg["strategy"].keys() if key not in allowed_strategy_keys
+    )
+    if unexpected_strategy_keys:
+        raise ValueError(
+            "strategy contains unknown or retired fields: "
+            + ",".join(unexpected_strategy_keys)
+        )
     lifecycle_cfg = cfg.get("lifecycle", {})
     if not isinstance(lifecycle_cfg, dict):
         raise ValueError("lifecycle must be a mapping")
@@ -1734,8 +1650,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     if not isinstance(lifecycle_selection_cfg.get("enabled"), bool):
         raise ValueError("lifecycle.selection.enabled must be boolean")
     _require_positive(
-        "lifecycle.selection.min_sec_to_expiry",
-        lifecycle_selection_cfg.get("min_sec_to_expiry"),
+        "lifecycle.selection.max_sec_to_expiry",
+        lifecycle_selection_cfg.get("max_sec_to_expiry"),
         allow_zero=True,
     )
     _require_positive(
@@ -1799,8 +1715,16 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     )
     maker_window_open_sec = float(lifecycle_phase_cfg.get("maker_window_open_sec", 15.0) or 0.0)
     taker_window_open_sec = float(lifecycle_phase_cfg.get("taker_window_open_sec", 7.0) or 0.0)
+    selection_max_sec_to_expiry = float(lifecycle_selection_cfg.get("max_sec_to_expiry", 0.0) or 0.0)
     if maker_window_open_sec + 1e-9 < taker_window_open_sec:
         raise ValueError("lifecycle.phase.maker_window_open_sec must be >= taker_window_open_sec")
+    if (
+        selection_max_sec_to_expiry > 0.0
+        and selection_max_sec_to_expiry + 1e-9 < maker_window_open_sec
+    ):
+        raise ValueError(
+            "lifecycle.selection.max_sec_to_expiry must be >= lifecycle.phase.maker_window_open_sec"
+        )
     if (
         maker_min_sec_to_expiry_for_new_exposure > 0.0
         and maker_min_sec_to_expiry_for_new_exposure > (maker_window_open_sec + 1e-9)
@@ -2245,25 +2169,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("sizing.exposure_cap_mode must be a string")
     if not isinstance(cfg["sizing"]["maker_liquidity_tod_scaler_enabled"], bool):
         raise ValueError("sizing.maker_liquidity_tod_scaler_enabled must be boolean")
-    if not isinstance(cfg["strategy"]["maker_competitiveness"]["timing_gate_enabled"], bool):
-        raise ValueError("strategy.maker_competitiveness.timing_gate_enabled must be boolean")
-    if not isinstance(cfg["strategy"]["maker_competitiveness"]["edge_scale_enabled"], bool):
-        raise ValueError("strategy.maker_competitiveness.edge_scale_enabled must be boolean")
-    if not isinstance(cfg["strategy"]["maker_competitiveness"]["one_sided_enabled"], bool):
-        raise ValueError("strategy.maker_competitiveness.one_sided_enabled must be boolean")
-    selection_gate_cfg = cfg["strategy"]["maker_competitiveness"]["selection_gate"]
-    if not isinstance(selection_gate_cfg.get("enabled"), bool):
-        raise ValueError("strategy.maker_competitiveness.selection_gate.enabled must be boolean")
-    if not isinstance(selection_gate_cfg.get("require_secondary_oracle_confirmation"), bool):
-        raise ValueError(
-            "strategy.maker_competitiveness.selection_gate.require_secondary_oracle_confirmation must be boolean"
-        )
-    for field_name in ("min_sec_to_expiry", "max_sec_to_expiry"):
-        field_value = selection_gate_cfg.get(field_name)
-        if field_value is not None and not isinstance(field_value, (int, float)):
-            raise ValueError(
-                f"strategy.maker_competitiveness.selection_gate.{field_name} must be numeric or null"
-            )
     risk_dynamic_cfg = cfg["risk"]["dynamic_scaling"]
     if not isinstance(risk_dynamic_cfg.get("enabled"), bool):
         raise ValueError("risk.dynamic_scaling.enabled must be boolean")

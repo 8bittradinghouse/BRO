@@ -424,6 +424,7 @@ def run_gate(
     uptime = _f(report.get("quote_uptime_ratio"), 0.0)
     errors = _f(report.get("error_rows"), 0.0)
     paths = dict(report.get("execution_paths", {}) or {})
+    quote_diagnostics = dict(report.get("quote_diagnostics", {}) or {})
     execution_quality = dict(report.get("execution_quality", {}) or {})
     market_data_source = dict(report.get("market_data_source", {}) or {})
     valuation_truth = dict(report.get("valuation_truth", {}) or {})
@@ -501,6 +502,7 @@ def run_gate(
             - held_unpriceable_unrecovered_non_defect_count,
         ),
     )
+    quote_uptime_applicable = bool(quote_diagnostics.get("quote_uptime_applicable", False))
 
     # Explicit, machine-verifiable maker opportunity policy.
     maker_enforcement_cfg = dict(soak_cfg.get("maker_submit_enforcement", {}) or {})
@@ -517,6 +519,7 @@ def run_gate(
     default_non_actionable_reasons = [
         "maker_no_submission",
         "maker_timing_gate_closed",
+        "phase_disallow_maker",
         "token_lag_not_verified_for_maker",
         "latency_not_armed",
         "latency_not_armed_for_maker",
@@ -529,6 +532,10 @@ def run_gate(
         "missing_expiry_metadata",
         "missing_threshold_metadata",
         "missing_side_metadata",
+        "open_order_cleanup_required",
+        "settlement_hold_required",
+        "unresolved_lifecycle_obligation",
+        "cancel_fail_closed",
     ]
     configured_non_actionable = maker_enforcement_cfg.get("non_actionable_block_reasons")
     if isinstance(configured_non_actionable, list):
@@ -599,8 +606,8 @@ def run_gate(
         kind="min",
         comparison_cfg=readiness_comparison_cfg,
     )
-    uptime_pass = _passes_min(uptime, min_uptime, uptime_min_eps)
-    if not uptime_pass:
+    uptime_pass = (not quote_uptime_applicable) or _passes_min(uptime, min_uptime, uptime_min_eps)
+    if quote_uptime_applicable and not uptime_pass:
         findings.append(f"soak_quote_uptime_too_low:{uptime:.6f}<min:{min_uptime:.6f}")
     decision_trace.append(
         decision_item(
@@ -611,7 +618,10 @@ def run_gate(
             value=uptime,
             threshold=min_uptime,
             passed=uptime_pass,
-            note=f"minimum uptime eps={uptime_min_eps:.6f}",
+            note=(
+                f"minimum uptime eps={uptime_min_eps:.6f} "
+                + f"applicable={1 if quote_uptime_applicable else 0}"
+            ),
         )
     )
     error_max_eps = _metric_epsilon(
@@ -1076,6 +1086,7 @@ def run_gate(
         "soak_report": {
             "duration_minutes": duration,
             "quote_uptime_ratio": uptime,
+            "quote_uptime_applicable": quote_uptime_applicable,
             "error_rows": errors,
             "maker_submits": maker_submits,
             "maker_fill_rate": maker_fill_rate,

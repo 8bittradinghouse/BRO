@@ -293,6 +293,9 @@ def _collect_derived_metrics(
     quote_diagnostics = report.get("quote_diagnostics", {})
     if not isinstance(quote_diagnostics, dict):
         quote_diagnostics = {}
+    execution_paths = report.get("execution_paths", {})
+    if not isinstance(execution_paths, dict):
+        execution_paths = {}
     runtime_metrics = runtime_classification.get("metrics", {})
     if not isinstance(runtime_metrics, dict):
         runtime_metrics = {}
@@ -319,11 +322,16 @@ def _collect_derived_metrics(
     scan_rows = _safe_float(runtime_metrics.get("scan_rows"))
     status_rows_total = max(1.0, _safe_float(runtime_metrics.get("status_rows"), default=0.0))
     scan_ratio = scan_rows / status_rows_total if status_rows_total > 0 else 0.0
+    quote_uptime_raw = _safe_float(report.get("quote_uptime_ratio"))
+    quote_uptime_applicable = bool(
+        quote_diagnostics.get("quote_uptime_applicable", False)
+    )
+    quote_uptime_effective = quote_uptime_raw if quote_uptime_applicable else 1.0
 
     metrics = {
         "status_rows": _safe_float(report.get("status_rows")),
         "error_rows": _safe_float(report.get("error_rows")),
-        "quote_uptime_ratio": _safe_float(report.get("quote_uptime_ratio")),
+        "quote_uptime_ratio": quote_uptime_effective,
         "capture_minus_adverse": _safe_float(execution_quality.get("capture_minus_adverse")),
         "total_rejects": total_rejects,
         "reject_ratio_order_rate_limit": (order_rate_rejects / total_rejects) if total_rejects > 0 else 0.0,
@@ -427,6 +435,9 @@ def _collect_derived_metrics(
         ),
         "execution_starvation_mode": execution_starvation_mode,
         "protected_no_trade_explanation": protected_no_trade_explanation,
+        "quote_uptime_ratio_raw": quote_uptime_raw,
+        "quote_uptime_applicable": 1.0 if quote_uptime_applicable else 0.0,
+        "maker_submits": _safe_float(execution_paths.get("maker_submits")),
     }
     return metrics
 

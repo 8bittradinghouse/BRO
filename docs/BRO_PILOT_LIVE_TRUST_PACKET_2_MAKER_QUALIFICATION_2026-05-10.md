@@ -95,8 +95,26 @@ Severity rules:
     - `runtime_classification=VALID_ACTIVE`
     - maker submitted and filled under the canonical lifecycle window
     - the old timing collision did not recur
-  - the active Packet 2 patient is now the surviving maker blocker family
-    exposed by that rerun, not the timing collision itself
+  - current-code replay on canon specimen
+    `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first clean blocker
+    ledger cut:
+    - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
+    - `quote_quality_skip_queue_depth` = `keep-now steel`
+    - `sizing_reject` = `minor residue` on that replay specimen
+    - `maker_blocker_ledger.json` = current owner artifact for blocker truth
+  - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` tightened the
+    current live read:
+    - this keeps the `surviving-blocker runtime tribunal` alive only in the
+      narrower sense of sizing-feasibility truth, not as a generic blocker
+      mystery
+    - selection depth multiple remains `keep-now steel`
+    - queue-depth quote quality remains `keep-now steel`
+    - `sizing_reject` reopened as the narrower active runtime patient
+    - support-schoolhouse remains subordinate to the blocker ledger
+  - the active Packet 2 patient is therefore no longer a generic
+    blocker-family mystery; it is support-schoolhouse cleanup plus accessory
+    maker sizing / shaping truth after the timing collision and selector-owned
+    one-sided family were cut
   - Packet 2 still lacks closure-grade final authoritative-only dollar-owner
     proof, final scar-tissue provenance verdicts, and final falsifier closure
     strong enough to support live trust claims without drift
@@ -263,6 +281,10 @@ Failure rule:
   - `risk.py` owns maker new-exposure legality at the explicit maker `7.0s` floor while the shared global floor remains `15.0s`
   - `order_manager.py` still applies a maker selection-gate timing window on
     top of that lifecycle chain
+- `VERIFIED`: current ownership-entry doctrine is now explicit and live-proven:
+  - `lifecycle.selection.max_sec_to_expiry=90.0`
+  - current canon specimen `4f843da4-16ec-4616-948c-c7b19e7f5aea` kept owned
+    markets inside the final `90s`
 - `VERIFIED`: the effective current paper maker risk-increasing submit window is `(7.0, 15.0]`, with taker taking over at `<=7.0s`.
 - `VERIFIED`: latest watched run `98d7f6c5-bec9-4768-bb06-941079c2ac72`
   sharpened the pre-fix maker patient:
@@ -280,6 +302,7 @@ Failure rule:
 - `VERIFIED`: the watched timing collision is explicit in the pre-fix run and
   in the old packet-era code/config splice:
   - `configs/profiles/paper_universal.yaml` sets
+    the `90s` ownership-entry rule as
     `lifecycle.selection.min_sec_to_expiry=90.0`
   - the same profile sets
     `lifecycle.phase.maker_window_open_sec=15.0`
@@ -300,6 +323,21 @@ Failure rule:
   longer broad residual WS weakness or the timing splice by itself.
   - the sharper active patient is the surviving blocker population after the
     timing-owner fix is runtime-reproven
+- `VERIFIED`: current-code replay of the canon specimen
+  `4f843da4-16ec-4616-948c-c7b19e7f5aea` closes the archived false blockers
+  that used to muddy Packet 2 interpretation:
+  - `websocket_hardening_audit` now passes on truth-required rows
+  - `soak_maker_submits_too_low` no longer fires once lifecycle/settlement
+    non-actionable rows are removed from maker opportunity accounting
+  - the remaining replay hard fail is real execution-quality pressure:
+    `soak_execution_quality_capture_minus_adverse_too_low`
+- `VERIFIED`: the old small-loss / recovery-bleed family is not currently an
+  active Packet 2 patient on current proof:
+  - current canon losses are discrete order outcomes under the deliberately
+    detuned paper profile
+  - `outcome_truth_audit.lane_outcome_truth.maker.lifecycle_residue_records=0`
+  - `outcome_truth_audit.lane_outcome_truth.normal_taker.lifecycle_residue_records=0`
+  - reopen only if the old repeated tiny recovery-style bleed pattern returns
 - `VERIFIED`: watched current-tree specimen `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
   now belongs to the pre-correction `15-20 / 15` lineage:
   - active `15-20s` band:
@@ -405,56 +443,42 @@ Failure rule:
     ignored legacy-config compatibility and archive replay lineage remaining
 
 ## Open Investigation Lanes
-1. maker timing-authority collision
-   - `VERIFIED`: current code now treats this as landed, but the fix still
-     needs watched runtime reproval on the current tree
-   - preserve current lifecycle doctrine:
-     - maker opens at `15s`
-     - taker handoff at `7s`
-2. watched rerun and surviving-blocker remeasurement
-   - after the timing-owner fix, remeasure what really remains:
-     - `secondary_oracle_not_confirmed`
-     - `insufficient_depth_multiple`
-     - residual one-sided / non-authoritative truth
-3. diagnostic-surface hardening
+1. diagnostic-surface hardening
    - keep raw `maker_competitiveness_decision` truth above empty downstream
      audit comfort
    - make the existing selection audit rows carry the decisive context fields
-4. support-shadow / probe family de-fat
+2. support-shadow / probe family de-fat
    - `maker_fight_admission_shadow*`
    - late/mid-window probes
    - zero-submit root-cause
    - quote-starvation / quote-integrity / selection-authority counterfactual
-5. small-loss wound family remeasurement
-   - reopen only after the timing collision and surviving blocker populations
-     are remeasured
-6. recovery / unwind root-death closeout verification
+   - submit-bearing support artifacts must point at
+     `maker_blocker_ledger.json`, not older selection-authority owner claims
+3. accessory competitiveness bundle runtime tribunal
+   - `edge_scale_*`
+   - `size_mult_max`
+   - `spread_mult_min`
+   - `requote_delta_mult_min`
+4. accessory maker sizing scaler bundle runtime tribunal
+   - `maker_depth_target_*`
+   - `maker_liquidity_tod_*`
+5. recovery / unwind root-death closeout verification
    - keep cancel-only fail-close for open unfilled orders
    - keep hold-to-settlement for real accepted exposure
 
 ## Current Surgery Patients
-1. `maker selection timing-authority collision`
-   - `VERIFIED`: current code path says this is landed but still awaiting fresh
-     watched runtime reproval
-   - current surgery order = `treat as fixed in code, then reproven in runtime`
-2. `surviving live maker blockers after timing cut`
-   - `VERIFIED`: this is now the active Packet 2 runtime patient
-   - current surgery order = `remeasure before touching support or economics`
-3. `support-shadow / probe family`
-   - `VERIFIED`: this is report-side de-fat work, not the current owner packet
-   - current surgery order = `after the rerun and surviving-blocker reread`
-4. `small-loss wound family`
-  - `VERIFIED`: strongest current owner candidate remains
-     `complete-outcome truth`
-  - `VERIFIED`: current disposition remains `not trusted steel /
-     surgery-pile candidate`
-  - current surgery order = `remeasure after earlier family cuts`
-5. `recovery / unwind root-death verification`
+1. `support-shadow / probe family`
+   - `VERIFIED`: this is now the active Packet 2 schoolhouse patient
+   - current surgery order = `de-fat and subordinate to maker_blocker_ledger`
+2. `accessory competitiveness + sizing bundles`
+   - `VERIFIED`: these are still live runtime shaping families on current code
+   - current surgery order = `tribunal after the support-family cut`
+3. `recovery / unwind root-death verification`
    - `VERIFIED`: stronger doctrine says accepted exposure rides to settlement
      and open unfilled orders are cancel / cleanup patients, not unwind
      authority
    - `VERIFIED`: this is no longer the current Packet 2 front patient
-   - current surgery order = `verify closeout only after the maker timing lane`
+   - current surgery order = `verify closeout only after the blocker queue is honest`
 
 ## Materialized Packet 2 Companion Stack
 These packet-local working surfaces now exist:
@@ -487,12 +511,12 @@ Board law:
 Recommended investigation cadence:
 1. truth-owner demotion + Packet 2 pickup-route check
 2. starvation proof / steady-state WS grading check
-3. selector-owned one-sided extinction check
-4. diagnostic-surface hardening check
+3. lifecycle ownership-entry / maker timing closeout check
+4. selector-owned one-sided extinction check
 5. trigger recurring self-hardening pass
-6. bounded-only active-band truth / residual WS-source / reference weakness
+6. websocket / maker-submit false-blocker replay check
 7. support-shadow / probe family de-fat only after the truth family is cleaner
-8. small-loss wound remeasurement after the earlier family cuts
+8. accessory competitiveness + sizing tribunals after the support-family cut
 9. final contradiction compression and negative-proof pass
 
 ## Anti-Drift Reinforcement Layer
@@ -637,10 +661,10 @@ If a new thread must open now, re-anchor in this order:
 
 Then restate:
 - current packet = `Packet 2 Maker-Live / Economic Trust Qualification`
-- current mode = `active post-audit truth-owner / proof-semantics closeout`
+- current mode = `support-shadow cleanup + accessory maker sizing tribunal`
 - current no-change list = the list above
-- current first work = truth-owner demotion + Packet 2 pickup reroute
-- current second work = starvation proof correction + steady-state WS grading repair
-- current third work = selector-owned one-sided extinction + rerun
+- current first work = support-shadow / probe family truth cleanup
+- current second work = accessory maker sizing tribunal
+- current third work = accessory competitiveness tribunal
 - current recovery/unwind replacement truth = cancel-only fail-close for open
   unfilled orders; hold real accepted exposure to settlement

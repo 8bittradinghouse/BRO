@@ -19,6 +19,8 @@ class MarketDiscoveryTests(unittest.TestCase):
         cfg["targets"]["discovery"]["max_pages"] = 1
         cfg["targets"]["discovery"]["page_limit"] = 100
         cfg["targets"]["discovery"]["require_fee_enabled"] = True
+        cfg["lifecycle"]["selection"]["max_sec_to_expiry"] = 0.0
+        cfg["lifecycle"]["selection"]["min_market_age_sec"] = 0.0
         return cfg
 
     def test_discovery_selects_single_earliest_pair(self):
@@ -371,6 +373,106 @@ class MarketDiscoveryTests(unittest.TestCase):
                 "question": "BTC 5 minute up or down?",
                 "clobTokenIds": ["yes1", "no1"],
                 "endDateIso": "2000-01-01T00:01:00Z",
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, [])
+            self.assertEqual(result.pairs_selected, 0)
+            self.assertGreaterEqual(result.contract_rejected_pairs, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_rejects_market_outside_ownership_entry_ceiling(self):
+        cfg = self._cfg()
+        cfg["lifecycle"]["selection"]["max_sec_to_expiry"] = 90.0
+        cfg["lifecycle"]["selection"]["min_market_age_sec"] = 0.0
+        discovery = MarketDiscovery(cfg)
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down?",
+                "clobTokenIds": ["yes1", "no1"],
+                "endDateIso": utc_iso(now + dt.timedelta(seconds=91)),
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, [])
+            self.assertEqual(result.pairs_selected, 0)
+            self.assertGreaterEqual(result.contract_rejected_pairs, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_accepts_market_inside_ownership_entry_ceiling(self):
+        cfg = self._cfg()
+        cfg["lifecycle"]["selection"]["max_sec_to_expiry"] = 90.0
+        cfg["lifecycle"]["selection"]["min_market_age_sec"] = 0.0
+        discovery = MarketDiscovery(cfg)
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down?",
+                "clobTokenIds": ["yes1", "no1"],
+                "endDateIso": utc_iso(now + dt.timedelta(seconds=89)),
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, ["yes1", "no1"])
+            self.assertEqual(result.pairs_selected, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_rejects_market_younger_than_min_market_age(self):
+        cfg = self._cfg()
+        cfg["lifecycle"]["selection"]["max_sec_to_expiry"] = 90.0
+        cfg["lifecycle"]["selection"]["min_market_age_sec"] = 60.0
+        discovery = MarketDiscovery(cfg)
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down?",
+                "clobTokenIds": ["yes1", "no1"],
+                "eventStartTime": utc_iso(now - dt.timedelta(seconds=59)),
+                "endDateIso": utc_iso(now + dt.timedelta(seconds=80)),
+                "active": True,
+            }
+        ]
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", return_value=payload):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, [])
+            self.assertEqual(result.pairs_selected, 0)
+            self.assertGreaterEqual(result.contract_rejected_pairs, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_rejects_market_missing_open_anchor_when_age_gate_required(self):
+        cfg = self._cfg()
+        cfg["lifecycle"]["selection"]["max_sec_to_expiry"] = 90.0
+        cfg["lifecycle"]["selection"]["min_market_age_sec"] = 60.0
+        discovery = MarketDiscovery(cfg)
+        now = dt.datetime.now(dt.timezone.utc)
+        payload = [
+            {
+                "id": "m1",
+                "conditionId": "c1",
+                "question": "BTC 5 minute up or down?",
+                "clobTokenIds": ["yes1", "no1"],
+                "endDateIso": utc_iso(now + dt.timedelta(seconds=80)),
                 "active": True,
             }
         ]

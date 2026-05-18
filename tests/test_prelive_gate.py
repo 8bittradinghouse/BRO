@@ -32,7 +32,7 @@ class PreliveGateTests(unittest.TestCase):
         *,
         mode: str = "live",
         allow_taker: bool = True,
-        include_legacy_queue_pressure: bool = False,
+        include_unknown_strategy_owner: bool = False,
     ) -> Path:
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         # Canonical doctrine fixtures must not set both doctrine and deprecated taker freshness keys.
@@ -45,12 +45,8 @@ class PreliveGateTests(unittest.TestCase):
         cfg["auth"]["allow_taker"] = allow_taker
         if str(mode).strip().lower() == "live":
             cfg["wallet"]["approval_spender_targets"] = ["0x1111111111111111111111111111111111111111"]
-        if include_legacy_queue_pressure:
-            cfg["strategy"]["maker_competitiveness"]["queue_pressure"] = {
-                "enabled": "definitely_not_bool",
-                "allowed_stages": ["EXTREME_ONLY"],
-                "inside_price_ticks": 0,
-            }
+        if include_unknown_strategy_owner:
+            cfg["strategy"]["unexpected_policy_owner"] = {"enabled": True}
         cfg["storage"]["log_dir"] = str(root / "logs_exec")
         cfg["storage"]["state_path"] = str(root / "logs_exec" / "state.json")
         cfg["runtime"]["guard_stop_file"] = str(root / "logs_exec" / "guard_stop.txt")
@@ -219,14 +215,14 @@ class PreliveGateTests(unittest.TestCase):
                 )
         self.assertTrue(result["ok"], msg=str(result["findings"]))
 
-    def test_prelive_gate_surfaces_ignored_legacy_queue_pressure_warning_without_failing(self):
+    def test_prelive_gate_rejects_unknown_strategy_owner_fields(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg_path = self._write_cfg(
                 root,
                 mode="live",
                 allow_taker=True,
-                include_legacy_queue_pressure=True,
+                include_unknown_strategy_owner=True,
             )
             run_id = self._write_manifest(root)
             self._write_authoritative_time_contract(root, run_id)
@@ -237,33 +233,24 @@ class PreliveGateTests(unittest.TestCase):
                 "SECURITY_ACK": "YES",
             }
             with mock.patch.dict(os.environ, env, clear=False):
-                result = run_prelive_gate(
-                    config_path=cfg_path,
-                    policy_path=Path("ops/ramp_policy.yaml"),
-                    required_stage="pilot_live",
-                    run_id=run_id,
-                    skip_readiness=True,
-                    skip_runtime_audit=True,
-                    skip_config_consistency=True,
-                    skip_manifest_check=False,
-                    manifest_max_age_hours=48.0,
-                    manifest_min_schema_version=2,
-                    skip_backup_check=False,
-                    backup_dir=backup_dir,
-                    backup_max_age_hours=48.0,
-                    skip_run_integrity_audit=True,
-                    allow_env_secrets_in_live=True,
-                )
-        self.assertTrue(result["ok"], msg=str(result["findings"]))
-        self.assertEqual(int(result.get("compatibility_warning_count") or 0), 1)
-        self.assertIn(
-            "strategy.maker_competitiveness.queue_pressure",
-            list((result.get("checks", {}).get("config_compatibility", {}) or {}).get("ignored_compatibility_fields") or []),
-        )
-        self.assertIn(
-            "removed queue-pressure compatibility surface",
-            "\n".join(str(x) for x in result.get("compatibility_warnings") or []),
-        )
+                with self.assertRaisesRegex(ValueError, "strategy contains unknown or retired fields"):
+                    run_prelive_gate(
+                        config_path=cfg_path,
+                        policy_path=Path("ops/ramp_policy.yaml"),
+                        required_stage="pilot_live",
+                        run_id=run_id,
+                        skip_readiness=True,
+                        skip_runtime_audit=True,
+                        skip_config_consistency=True,
+                        skip_manifest_check=False,
+                        manifest_max_age_hours=48.0,
+                        manifest_min_schema_version=2,
+                        skip_backup_check=False,
+                        backup_dir=backup_dir,
+                        backup_max_age_hours=48.0,
+                        skip_run_integrity_audit=True,
+                        allow_env_secrets_in_live=True,
+                    )
 
     def test_prelive_gate_blocks_env_secret_sources_in_live_by_default(self):
         with tempfile.TemporaryDirectory() as td:

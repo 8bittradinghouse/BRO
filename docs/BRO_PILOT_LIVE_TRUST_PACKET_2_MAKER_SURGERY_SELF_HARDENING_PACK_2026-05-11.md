@@ -55,6 +55,12 @@
 - `docs/SOLAR_SLUG_MAKER_TRUTH_SEMANTICS_MAP.json`
 
 ## Packet Disease Statement
+- Historical note:
+  - parts of this pack were written before the lifecycle ownership-entry cut,
+    selector-owned one-sided extinction, and current-code replay closure of the
+    websocket / maker-submit false blockers
+  - when older bullets below disagree with Tier 1 current packet truth, treat
+    the older wording as lineage only
 - `VERIFIED`: the current first surgery patient is the post-audit
   truth-owner / proof-semantics family:
   - stale Packet 2 pickup routing
@@ -117,10 +123,11 @@
   - current posture: contradictory live owner family; planning/prep open
   - working surgery question: how do we cut in-cycle recovery trading and
     emergency unwind authority while preserving cancel-only fail-close?
-- `small-loss wound family`
-  - current posture: surgery-pile disease packet
-  - working surgery question: what exact owner surfaces and downstream
-    behaviors must be cut once the other fake-authority families are removed?
+- `historical small-loss / recovery-bleed family`
+  - current posture: historical wound-lineage only unless its exact repeated
+    tiny-bleed pattern returns on current code
+  - working surgery question: none by default; reopen only from fresh watched
+    runtime proof
 
 ## Null Hypotheses
 - `post-audit truth-owner / proof-semantics closeout`: the remaining friction
@@ -131,9 +138,9 @@
   broader competitiveness tuning
 - `support-shadow / probe family`: much of this support mass can be fenced or
   reduced once the runtime owner family is cleaner
-- `small-loss wound family`: current recurring small losses are not healthy
-  maker friction and should materially improve if fake-authority families are
-  removed cleanly
+- `historical small-loss / recovery-bleed family`: current code appears to
+  have cut this old patient; do not silently reopen it from ordinary losing
+  orders on the deliberately detuned paper profile
 
 ## Forced Self-Hardening Loop
 This pack must be forced multiple times through every maker surgery packet.
@@ -196,8 +203,8 @@ Failure rule:
      the contradictory recovery family cleanly
 4. `support-shadow / probe family`
    - de-fat report-side support mass only after the runtime owner family is cleaner
-5. `small-loss wound family`
-   - remeasure after the earlier fake-authority cuts land
+5. `accessory competitiveness + sizing bundles`
+   - runtime tribunal after the support-family truth is honest
 
 ## One-Line Rule
 Load this pack, harden repeatedly, cut one family at a time, and do not let

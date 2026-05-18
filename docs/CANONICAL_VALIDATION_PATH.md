@@ -116,6 +116,10 @@ Paper-harness realism checks enforced in this path:
   lifecycle watch tokens may remain for cleanup/settlement, but neither class
   may contribute active pair-truth failure, ws-slo degradation, or outage
   health findings in the canonical validation path
+- maker submit opportunity semantics are lifecycle-aware:
+  `phase_disallow_maker` plus lifecycle residue / settlement / cleanup rows are
+  non-actionable opportunity loss only and must not inflate maker-submit
+  minimums in the canonical validation path
 - fill realism envelopes (`max_maker_fill_rate`, `max_taker_bonus_fill_rate`)
 - proving-lineage tuple surfaced directly in `paper_harness_audit` output:
   - `run_id`

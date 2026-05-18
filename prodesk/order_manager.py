@@ -248,12 +248,6 @@ class OrderManager:
         self._seen_trade_ids_queue: Deque[str] = deque()
         self.last_fill_ts_utc: Optional[str] = None
         self.quality = ExecutionQualityModel(strategy_cfg.get("execution_quality", {}))
-        maker_competitiveness_cfg = strategy_cfg.get("maker_competitiveness", {})
-        if not isinstance(maker_competitiveness_cfg, dict):
-            maker_competitiveness_cfg = {}
-        selection_gate_cfg = maker_competitiveness_cfg.get("selection_gate", {})
-        if not isinstance(selection_gate_cfg, dict):
-            selection_gate_cfg = {}
         lifecycle_cfg = runtime_cfg.get("lifecycle", {}) if isinstance(runtime_cfg, dict) else {}
         if not isinstance(lifecycle_cfg, dict):
             lifecycle_cfg = {}
@@ -263,7 +257,7 @@ class OrderManager:
         lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
         if not isinstance(lifecycle_phase_cfg, dict):
             lifecycle_phase_cfg = {}
-        selection_owner_cfg = lifecycle_selection_cfg if lifecycle_selection_cfg else selection_gate_cfg
+        selection_owner_cfg = lifecycle_selection_cfg
         self.maker_selection_gate_enabled = bool(selection_owner_cfg.get("enabled", False))
         self.maker_selection_gate_require_secondary_oracle_confirmation = bool(
             selection_owner_cfg.get("require_secondary_oracle_confirmation", True)

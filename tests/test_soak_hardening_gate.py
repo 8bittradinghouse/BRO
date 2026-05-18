@@ -138,6 +138,19 @@ class SoakHardeningGateTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (log_dir / "events_2099-01-01.jsonl").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2099-01-01T00:05:00Z",
+                        "event_type": "order_submit",
+                        "order_id": "m1",
+                        "reason": "maker_quote",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertTrue(result["ok"], msg=result["findings"])
             self.assertIn("decision_trace", result)
@@ -381,6 +394,19 @@ class SoakHardeningGateTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (log_dir / "events_2099-01-01.jsonl").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2099-01-01T00:05:00Z",
+                        "event_type": "order_submit",
+                        "order_id": "m1",
+                        "reason": "maker_quote",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertFalse(result["ok"])
             self.assertTrue(
@@ -446,6 +472,19 @@ class SoakHardeningGateTests(unittest.TestCase):
                         "soak": {"min_duration_minutes": 20, "min_quote_uptime_ratio": 0.5, "max_error_rows": 0},
                     }
                 ),
+                encoding="utf-8",
+            )
+            (log_dir / "events_2099-01-01.jsonl").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2099-01-01T00:05:00Z",
+                        "event_type": "order_submit",
+                        "order_id": "m1",
+                        "reason": "maker_quote",
+                    }
+                )
+                + "\n",
                 encoding="utf-8",
             )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
@@ -1007,10 +1046,89 @@ class SoakHardeningGateTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            event_path = log_dir / "events_2099-01-01.jsonl"
+            event_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "ts_utc": "2099-01-01T00:05:00Z",
+                        "event_type": "order_submit",
+                        "order_id": "m1",
+                        "reason": "maker_quote",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
             self.assertFalse(result["ok"])
             self.assertTrue(any("soak_quote_uptime_too_low:" in f for f in result["findings"]))
             self.assertFalse(result["lanes"]["reliability"]["ok"])
+
+    def test_soak_gate_skips_quote_uptime_when_no_quote_or_submit_activity_exists(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            status_path = log_dir / "status_2099-01-01.jsonl"
+            status_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "gauge.open_orders": 0,
+                    "gauge.quote_active": 0,
+                    "counter.book_updates": 10.0,
+                    "counter.book_updates_ws": 10.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
+                    "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
+                    "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:30:00Z",
+                    "gauge.open_orders": 0,
+                    "gauge.quote_active": 0,
+                    "counter.book_updates": 20.0,
+                    "counter.book_updates_ws": 20.0,
+                    "pair_truth_pair_count": 1.0,
+                    "pair_truth_missing_pair_count": 0.0,
+                    "pair_truth_one_sided_pair_count": 0.0,
+                    "pair_truth_authoritative_pair_count": 1.0,
+                    "book_feed": {"connected": True, "reconnects": 0, "last_msg_age_sec": 0.5},
+                    "chainlink": {"connected": True, "reconnects": 0, "last_tick_age_sec": 0.5, "queue_size": 0, "dropped_ticks": 0},
+                },
+            ]
+            status_path.write_text("\n".join(json.dumps(r) for r in status_rows) + "\n", encoding="utf-8")
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "gate_mode": "reliability",
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {"min_status_rows": 1, "max_order_capacity_used_ratio": 1.0, "max_cancel_capacity_used_ratio": 1.0},
+                        "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {"min_duration_minutes": 20, "min_quote_uptime_ratio": 0.5, "max_error_rows": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertFalse(any("soak_quote_uptime_too_low:" in f for f in result["findings"]), msg=result["findings"])
+            quote_trace = next(
+                item for item in result["decision_trace"] if item.get("check") == "soak_quote_uptime_ratio"
+            )
+            self.assertTrue(bool(quote_trace.get("passed")))
+            self.assertIn("applicable=0", str(quote_trace.get("note") or ""))
+            self.assertFalse(bool(result["soak_report"].get("quote_uptime_applicable")))
 
     def test_soak_gate_reliability_fails_when_active_targets_have_no_meaningful_participation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1383,6 +1501,106 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertEqual(maker_enforcement["required_submits"], 2.0)
             self.assertEqual(maker_enforcement["maker_rows_total"], 4.0)
             self.assertEqual(maker_enforcement["maker_non_actionable_block_rows"], 2.0)
+            self.assertEqual(maker_enforcement["maker_actionable_opportunity_rows"], 2.0)
+
+    def test_soak_gate_default_opportunity_policy_excludes_lifecycle_residue_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "r1"
+            log_dir = self._write_fixture(root, run_id)
+            event_path = log_dir / "events_2099-01-01.jsonl"
+            event_rows = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:00Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "phase_disallow_maker",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:01Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "settlement_hold_required",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:02Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "open_order_cleanup_required",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:03Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "quote_quality_skip_queue_depth",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:04Z",
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "action_taken": "none",
+                    "block_reason": "quote_quality_skip_fill_probability",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:05Z",
+                    "event_type": "order_submit",
+                    "order_id": "m1",
+                    "reason": "maker_quote",
+                },
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2099-01-01T00:00:06Z",
+                    "event_type": "order_submit",
+                    "order_id": "m2",
+                    "reason": "maker_quote",
+                },
+            ]
+            event_path.write_text("\n".join(json.dumps(r) for r in event_rows) + "\n", encoding="utf-8")
+            policy = root / "policy.yaml"
+            policy.write_text(
+                yaml.safe_dump({"stage_order": ["paper"], "stages": {"paper": {"min_status_rows": 1, "min_quote_uptime_ratio": 0.0}}}),
+                encoding="utf-8",
+            )
+            budget = root / "budget.yaml"
+            budget.write_text(
+                yaml.safe_dump(
+                    {
+                        "gate_mode": "reliability",
+                        "integrity": {"min_status_rows": 1, "max_status_age_sec": 3153600000},
+                        "performance": {"min_status_rows": 1, "max_order_capacity_used_ratio": 1.0, "max_cancel_capacity_used_ratio": 1.0},
+                        "websocket": {"min_status_rows": 1, "max_book_feed_down_ratio": 1.0, "max_chainlink_down_ratio": 1.0},
+                        "readiness": {"policy": str(policy), "required_stage": "paper"},
+                        "soak": {
+                            "min_duration_minutes": 20,
+                            "min_quote_uptime_ratio": 0.0,
+                            "max_error_rows": 0,
+                            "min_maker_submits": 50,
+                            "maker_submit_enforcement": {
+                                "mode": "opportunity_aware",
+                                "min_opportunity_rows": 1,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_gate(log_dir=log_dir, run_id=run_id, budget_path=budget)
+            self.assertTrue(result["ok"], msg=result["findings"])
+            self.assertFalse(any("soak_maker_submits_too_low:" in finding for finding in result["findings"]))
+            maker_enforcement = result["soak_report"]["maker_submit_enforcement"]
+            self.assertEqual(maker_enforcement["required_submits"], 2.0)
+            self.assertEqual(maker_enforcement["maker_rows_total"], 5.0)
+            self.assertEqual(maker_enforcement["maker_non_actionable_block_rows"], 3.0)
             self.assertEqual(maker_enforcement["maker_actionable_opportunity_rows"], 2.0)
 
 
