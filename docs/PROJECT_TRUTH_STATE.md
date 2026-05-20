@@ -62,6 +62,41 @@
   - companion deep relock audit:
     - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
+## Current Addendum (2026-05-20)
+- Current pushed branch remains:
+  - `consultant/full-snapshot-public-20260402T055838Z`
+- Current `HEAD` commit is now:
+  - `af00d02`
+  - `Harden maker/taker authority and paper profile`
+- Current tree state is:
+  - pushed
+  - clean
+- Strongest current broad lane-health anchor is now:
+  - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
+  - `runtime_classification=VALID_ACTIVE`
+  - `highest_passing_stage=pilot_live`
+  - `blocking_stage=scaled_live`
+  - `promotion_eligible=true`
+  - maker `15 submits / 25 fills`
+  - taker `7 submits / 7 fills`
+- Latest quiet-time contrast anchor is:
+  - `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `runtime_classification=VALID_ACTIVE`
+  - `highest_passing_stage=none`
+  - `blocking_stage=paper`
+  - `promotion_eligible=true`
+  - lifecycle ownership and phase transitions remained clean
+  - taker fired `1 submit / 1 fill`
+  - maker stayed selective with `0 submits`
+  - this specimen is shoulder-band structural truth, not a maker-lane failure anchor
+- Current next move is:
+  - blueprint-defined maker/taker tuning alignment audit on the now-clean owner body
+  - not emergency blocker surgery
+- Current operator rule now enforced in doctrine/docs is:
+  1. ask whether the lane is alive
+  2. ask whether it is producing valid action and some success
+  3. only then decide whether a gate is defective or correctly filtering trash
+
 ## VERIFIED_CLOSED
 - Clean current-code release-anchor proving seam was diagnosed to
   canonical-session overlap/self-sabotage in

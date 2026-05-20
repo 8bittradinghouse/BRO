@@ -23,6 +23,27 @@
   - a later `schoolhouse clearing / deauth` lane is expected, but it is
     architecture/authority hygiene debt rather than the active runtime blocker
 
+## Current Packet Boundary Addendum (2026-05-20)
+- Current Packet 2 maker/taker selector families are not presently proven broken by reject volume alone.
+- Strong health anchor:
+  - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
+  - `runtime_classification=VALID_ACTIVE`
+  - maker `15 submits / 25 fills`
+  - taker `7 submits / 7 fills`
+- Quiet-time contrast anchor:
+  - `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `runtime_classification=VALID_ACTIVE`
+  - taker `1 submit / 1 fill`
+  - maker `0 submits`
+  - lifecycle clean
+  - read this as low-opportunity shoulder-band structural truth, not as default maker choke evidence
+- Current doctrine call:
+  - high reject volume alone is not authorization for selector retuning
+  - no generic maker/taker gate mutation is authorized without blueprint mismatch proof or a proved near-miss opportunity band
+- Current next move:
+  - blueprint-alignment audit
+  - not emergency blocker surgery
+
 ## Launch-Window Limitations
 - Current broad current-code canonical runtime proof
   `7bbde42c-003a-4f57-b59a-7ce138224075` is the active repo-level runtime

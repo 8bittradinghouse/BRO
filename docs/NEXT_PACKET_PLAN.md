@@ -7,6 +7,29 @@ This document now serves two jobs:
 1. preserve the immediate active pickup point,
 2. preserve the next macro lanes so they do not get lost after maintenance or side packets.
 
+## Current Pickup Addendum (2026-05-20)
+- packet body is now:
+  - committed
+  - pushed
+  - clean at `af00d02`
+- the active immediate pickup is no longer emergency Packet 2 surgery cleanup
+- current active next move is:
+  - read-only blueprint alignment audit for maker/taker tunings and surviving shaper authority
+- strongest health anchor to use first is:
+  - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
+  - maker and taker both alive
+  - lifecycle clean
+  - selector families behaving as gates, not obvious system choke
+- quiet-time contrast anchor to use carefully is:
+  - `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - healthy runtime, low-opportunity shoulder specimen
+  - do not overread no-submit maker there as lane failure
+- do not reopen the prior depth / one-sided panic lane from reject volume alone
+- if the next thread sees a loud gate family, force the SOP first:
+  1. is the lane alive?
+  2. is it producing valid action and some success?
+  3. only then ask whether the gate is defective or correctly filtering trash
+
 Master-guide continuity note:
 - broader `BRO` restoration -> surgery -> `Barbatos` promotion planning may
   also be carried in external shop continuity, but that external copy does not
