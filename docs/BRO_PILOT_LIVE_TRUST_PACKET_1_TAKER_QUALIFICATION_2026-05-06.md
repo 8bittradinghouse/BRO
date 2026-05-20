@@ -645,7 +645,7 @@ Audit anchor:
 | IOC taker execution | `place_taker_order_with_outcome()` hard-codes `tif="IOC"` and `post_only=False` for taker submits | aligned | proven keep-now runtime behavior |
 | Final `8-12s` sniper window | current canonical taker doctrine hard-locks `<=7s`; active config sets `final_window_sec: 7.0`; `stage_final_window_sec_by_stage` is fenced as diagnostic-only | mismatch | current `<=7s` taker commitment lane does not earn steel from the external blueprint and stays under keep-proof burden |
 | Hard dual-oracle delta threshold `>=0.20` before fire | current top-level taker fire threshold is now canonical `taker.min_edge=0.11`; `multi_oracle_edge_threshold_abs` remains optional boost eligibility rather than unconditional fire permission | partial | current threshold owner is cleaner, but dual-oracle confirmation still does not own fire permission the way the blueprint demands |
-| Liquidity must be `1.5x` order size at aggressive price | current taker lane checks `visible_fill_ratio >= min_visible_fill_ratio`; active profile uses `min_visible_fill_ratio: 0.5`, which is not the same contract as explicit `1.5x` depth | mismatch | current visibility/depth rule is real runtime behavior but not blueprint-equivalent; keep under challenge |
+| Liquidity must be `1.5x` order size at aggressive price | current taker lane checks `visible_fill_ratio >= min_visible_fill_ratio`; active profile now uses full-fill `min_visible_fill_ratio: 1.0`, which is stronger than the old `0.5` proving detune but still not the same contract as explicit `1.5x` depth | mismatch | current visibility/depth rule is tighter current runtime behavior but still not blueprint-equivalent to the external `1.5x` demand |
 | Peak-window / regime whitelist | no explicit taker-only `allowed_peak_windows` gate was found; current lane has operating-mode health gates plus time-of-day scalers for paper liquidity and dynamic risk sizing, not a hard taker peak-hours whitelist | mismatch | current taker regime gating does not inherit steel from the external blueprint and stays challenge-open |
 | Fixed `$150` taker shot | external blueprint still calls for fixed `$150`, but the current paper packet is temporarily detuned to `target_usd: 20.0`, `hard_min_target_usd: 20.0`, and `dynamic_size_target_usd_cap: 20.0` so taker can prove fireability before size is retightened | mismatch | temporary paper proving detune only; do not confuse with settled blueprint shot-size law |
 | Fail-closed on unknown state | current lane fail-closes on fully missing ws market reference (`market_probability_missing`), weak book source (`taker_requires_ws_book_source`), timing disarm, operating-mode disarm, and unknown secondary-oracle state for boost | aligned / stronger | proven keep-now safety posture |
@@ -906,9 +906,11 @@ Packet 1 recommendation:
   once re-homed
 - `VERIFIED`: the first live behavior slice is now tighter than the original
   balanced-path sketch:
-  - keep `multi_oracle_boost_*` as keep-now dual-oracle lock help
-  - keep `min_visible_fill_ratio` under challenge, but untouched in the first
-    packet
+  - current profile hardening now removes live `multi_oracle_boost_*`
+    authority on `paper_universal`
+  - current profile hardening now retightens `min_visible_fill_ratio` to
+    full-fill `1.0`; the external `1.5x` demand remains a separate higher
+    bar if we later choose to adopt it
   - cut dynamic-size authority, conviction-owned ranking authority, and dead
     stage-overlay semantics first
 
@@ -1166,7 +1168,8 @@ Current strongest findings:
     - hard `<=7s` / `EXTREME_ONLY` window
     - canonical top-level `taker.min_edge=0.11`
     - `multi_oracle_edge_threshold_abs` as boost-only logic
-    - `min_visible_fill_ratio`
+    - `min_visible_fill_ratio` now tightened to full-fill `1.0` on current
+      `paper_universal`, but still below the external `1.5x` proposal
     - lack of a hard taker-only peak-window whitelist
   - active use or partial Grok overlap does not grant those surfaces doctrine
     steel automatically

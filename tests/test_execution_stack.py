@@ -131,6 +131,64 @@ class ExecutionStackTests(unittest.TestCase):
         return info
 
     @staticmethod
+    def _maker_window_context(
+        *,
+        sec_to_expiry: float,
+        posture_contract: dict | None = None,
+        financial_posture_class: str = "NORMAL",
+        lineage_stage: str = "MAKER_TAKER_SELECTIVE",
+        maker_phase_allowed: bool = True,
+        maker_gate_open: bool = True,
+        **extra: object,
+    ) -> dict:
+        default_posture_contract = {
+            "market_reference_class": "authoritative",
+            "market_reference_mode": "direct_midpoint",
+            "fair_probability": 0.60,
+            "market_probability": 0.49,
+            "edge_signed": 0.11,
+            "edge_abs": 0.11,
+            "secondary_oracle_status": "confirmed",
+            "secondary_oracle_confirmation": True,
+        }
+        info = ExecutionStackTests._active_lifecycle_info(
+            lifecycle_phase="maker_window",
+            lineage_stage=lineage_stage,
+            sec_to_expiry=sec_to_expiry,
+            maker_phase_allowed=maker_phase_allowed,
+            taker_phase_allowed=False,
+            maker_gate_open=maker_gate_open,
+            taker_gate_open=False,
+        )
+        info["financial_posture_class"] = str(financial_posture_class or "NORMAL").strip().upper()
+        merged_posture_contract = dict(default_posture_contract)
+        if isinstance(posture_contract, dict):
+            merged_posture_contract.update(dict(posture_contract))
+        info["posture_contract"] = merged_posture_contract
+        info.update(extra)
+        return info
+
+    @staticmethod
+    def _maker_submit_viability_context(
+        *,
+        viability_allowed: bool = True,
+        primary_reject_reason: str | None = None,
+        **extra: object,
+    ) -> dict:
+        reject_reason = str(primary_reject_reason or "").strip().lower() or None
+        payload = {
+            "viability_allowed": bool(viability_allowed),
+            "primary_reject_reason": reject_reason,
+            "reject_reasons": [reject_reason] if reject_reason else [],
+        }
+        context: dict[str, object] = {
+            "viability_prechecked": bool(viability_allowed),
+            "maker_market_viability": payload,
+        }
+        context.update(extra)
+        return context
+
+    @staticmethod
     def _selection_gate_runtime_strategy_sizing_cfg(
         *,
         min_sec_to_expiry: float | None = None,
@@ -226,20 +284,22 @@ class ExecutionStackTests(unittest.TestCase):
                 "t1": {
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
                     "sec_to_expiry": 18.5,
-                    "secondary_fair_probability": 0.58,
-                    "secondary_edge_value": 0.09,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "chainlink_spot_price": 100125.0,
-                    "secondary_oracle_spot_price": 100118.0,
-                    "secondary_oracle_price_delta_abs": 7.0,
-                    "secondary_oracle_price_delta_bps": 0.699125,
+                    "posture_contract": {
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_fair_probability": 0.58,
+                        "secondary_edge_value": 0.09,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "chainlink_spot_price": 100125.0,
+                        "secondary_oracle_spot_price": 100118.0,
+                        "secondary_oracle_price_delta_abs": 7.0,
+                        "secondary_oracle_price_delta_bps": 0.699125,
+                    },
                 }
             }
             first = manager.step({"t1": top}, competitiveness_context_by_token=context, cycle_index=7)
@@ -288,7 +348,7 @@ class ExecutionStackTests(unittest.TestCase):
         runtime = dict(cfg.get("runtime") or {})
         risk = dict(cfg.get("risk") or {})
         strategy = dict(cfg.get("strategy") or {})
-        maker_comp = dict(strategy.get("maker_competitiveness") or {})
+        maker_comp = dict(strategy.get("maker_market_viability") or {})
         selection_gate = dict(maker_comp.get("selection_gate") or {})
         self.assertAlmostEqual(
             float(runtime.get("held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec") or 0.0),
@@ -414,7 +474,7 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 7.0, places=9)
             self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 15.0, places=9)
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
-                shadow_event={
+                snapshot_event={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
@@ -1175,6 +1235,7 @@ class ExecutionStackTests(unittest.TestCase):
                     top,
                     open_orders_for_token=[],
                     open_orders_total=0,
+                    competitiveness_context=self._maker_submit_viability_context(),
                 )
             self.assertIsNone(placed)
             self.assertEqual(reason, "wallet_reject")
@@ -1244,6 +1305,7 @@ class ExecutionStackTests(unittest.TestCase):
                             top,
                             open_orders_for_token=[],
                             open_orders_total=0,
+                            competitiveness_context=self._maker_submit_viability_context(),
                         )
                     release_lock.assert_called_once_with("lock-1")
             self.assertIsNone(placed)
@@ -1281,7 +1343,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             first = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=45.0)},
             )
             self.assertGreaterEqual(first["actions"], 2)
             self.assertGreaterEqual(first["open_orders"], 2)
@@ -1298,7 +1360,7 @@ class ExecutionStackTests(unittest.TestCase):
             gateway.on_book(cross)
             second = manager.step(
                 {"t1": cross},
-                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=45.0)},
             )
             self.assertGreaterEqual(second["fills"], 1)
             self.assertGreater(positions["t1"].buy_shares + positions["t1"].sell_shares, 0.0)
@@ -1338,16 +1400,18 @@ class ExecutionStackTests(unittest.TestCase):
                 {"t1": top},
                 side_policy_by_token={"t1": "BUY_ONLY"},
                 competitiveness_context_by_token={
-                    "t1": {
-                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                        "sec_to_expiry": 45.0,
-                        "side_policy": "BUY_ONLY",
-                        "one_sided_active": True,
-                        "edge_bucket": "0p10_0p20",
-                        "size_multiplier_competitiveness": 1.2,
-                        "spread_multiplier_competitiveness": 0.85,
-                        "requote_delta_multiplier_competitiveness": 0.7,
-                    }
+                    "t1": self._maker_window_context(
+                        sec_to_expiry=45.0,
+                        posture_contract={
+                            "side_policy": "BUY_ONLY",
+                            "one_sided_active": True,
+                            "edge_bucket": "0p10_0p20",
+                            "market_reference_class": "authoritative",
+                        },
+                        size_multiplier_competitiveness=1.2,
+                        spread_multiplier_competitiveness=0.85,
+                        requote_delta_multiplier_competitiveness=0.7,
+                    ),
                 },
             )
 
@@ -1366,7 +1430,7 @@ class ExecutionStackTests(unittest.TestCase):
                     if str(payload.get("event_type") or "") == "order_submit":
                         order_submit_rows.append(payload)
             self.assertTrue(order_submit_rows)
-            competitiveness_payload = order_submit_rows[-1].get("maker_competitiveness")
+            competitiveness_payload = order_submit_rows[-1].get("maker_market_viability")
             self.assertIsInstance(competitiveness_payload, dict)
             self.assertEqual(str(competitiveness_payload.get("side_policy") or ""), "BUY_ONLY")
             self.assertEqual(bool(competitiveness_payload.get("one_sided_active")), True)
@@ -1426,31 +1490,31 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 12.0,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                    },
+                )
             }
             summary = manager.step({"t1": top}, competitiveness_context_by_token=context)
             self.assertEqual(summary["open_orders"], 1)
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             submit_rows = self._read_event_rows(Path(tmp.name), event_type="order_submit")
             self.assertEqual(len(shadow_rows), 1)
             self.assertEqual(len(submit_rows), 1)
             shadow = shadow_rows[0]
             submit = submit_rows[0]
-            maker_comp = submit.get("maker_competitiveness")
+            maker_comp = submit.get("maker_market_viability")
             self.assertIsInstance(maker_comp, dict)
             self.assertEqual(str(shadow.get("decision_result") or ""), "submitted")
             self.assertEqual(bool(shadow.get("launch_safe_selection_enabled")), True)
@@ -1459,16 +1523,15 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(bool(shadow.get("launch_safe_selection_timing_window_met")), True)
             self.assertEqual(bool(shadow.get("cannon_depth_requirement_met")), True)
             self.assertEqual(bool(shadow.get("repeat_target_side_calm")), True)
-            self.assertEqual(
-                bool(maker_comp.get("launch_safe_selection_passed")),
-                True,
-            )
+            self.assertEqual(bool(maker_comp.get("viability_allowed")), True)
+            self.assertIsNone(maker_comp.get("primary_reject_reason"))
+            self.assertNotIn("launch_safe_selection_passed", maker_comp)
         finally:
             if events is not None:
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_maker_selection_gate_rejects_when_timing_unknown(self):
+    def test_order_manager_maker_selection_gate_records_unknown_timing_without_rejecting(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -1491,7 +1554,7 @@ class ExecutionStackTests(unittest.TestCase):
                 sizing_cfg=sizing_cfg,
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
-                shadow_event={
+                snapshot_event={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
@@ -1501,14 +1564,15 @@ class ExecutionStackTests(unittest.TestCase):
                 competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
-            self.assertEqual(bool(verdict.get("passed")), False)
-            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "timing_window_unknown")
+            self.assertEqual(bool(verdict.get("passed")), True)
+            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "")
+            self.assertIsNone(verdict.get("timing_window_met"))
         finally:
             if events is not None:
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_maker_selection_gate_rejects_when_timing_above_window(self):
+    def test_order_manager_maker_selection_gate_prefers_posture_contract_confirmation(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -1531,7 +1595,53 @@ class ExecutionStackTests(unittest.TestCase):
                 sizing_cfg=sizing_cfg,
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
-                shadow_event={
+                snapshot_event={
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                    "desired_quote_price": 20.0,
+                    "visible_depth_shares": 2.0,
+                    "same_target_submit_count_prior": 0,
+                    "same_target_side_submit_count_prior": 0,
+                    "sec_to_expiry": 12.0,
+                    "maker_phase_allowed": True,
+                    "lifecycle_phase": "maker_window",
+                },
+                competitiveness_context={
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                    "secondary_oracle_confirmation": False,
+                    "posture_contract": {"secondary_oracle_confirmation": True},
+                },
+            )
+            self.assertEqual(bool(verdict.get("passed")), True)
+            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_manager_maker_selection_gate_records_timing_above_window_without_rejecting(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg, strategy_cfg, sizing_cfg = self._selection_gate_runtime_strategy_sizing_cfg(
+                min_sec_to_expiry=10.0,
+                max_sec_to_expiry=15.0,
+            )
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            risk = RiskEngine(self._risk_cfg_without_expiry_gate(), {"t1": Position(token_id="t1")})
+            manager = OrderManager(
+                gateway,
+                object(),
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
+            verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
+                snapshot_event={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
@@ -1542,15 +1652,15 @@ class ExecutionStackTests(unittest.TestCase):
                 competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
-            self.assertEqual(bool(verdict.get("passed")), False)
-            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "timing_window_out_of_band")
+            self.assertEqual(bool(verdict.get("passed")), True)
+            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "")
             self.assertEqual(bool(verdict.get("timing_window_met")), False)
         finally:
             if events is not None:
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_maker_selection_gate_rejects_when_timing_below_window(self):
+    def test_order_manager_maker_selection_gate_records_timing_below_window_without_rejecting(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -1573,7 +1683,7 @@ class ExecutionStackTests(unittest.TestCase):
                 sizing_cfg=sizing_cfg,
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
-                shadow_event={
+                snapshot_event={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 20.0,
                     "visible_depth_shares": 2.0,
@@ -1584,8 +1694,8 @@ class ExecutionStackTests(unittest.TestCase):
                 competitiveness_context={"lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertEqual(bool(verdict.get("applied")), True)
-            self.assertEqual(bool(verdict.get("passed")), False)
-            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "timing_window_out_of_band")
+            self.assertEqual(bool(verdict.get("passed")), True)
+            self.assertEqual(str(verdict.get("primary_reject_reason") or ""), "")
             self.assertEqual(bool(verdict.get("timing_window_met")), False)
         finally:
             if events is not None:
@@ -1631,18 +1741,18 @@ class ExecutionStackTests(unittest.TestCase):
                 sizing_cfg=sizing_cfg,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 55.0,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=55.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                    },
+                )
             }
             good_top = BookTop(
                 token_id="t1",
@@ -1674,7 +1784,7 @@ class ExecutionStackTests(unittest.TestCase):
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             self.assertEqual(len(shadow_rows), 1)
             self.assertEqual(bool(shadow_rows[0].get("launch_safe_selection_passed")), True)
             self.assertEqual(len(gateway.get_open_orders()), 1)
@@ -1731,28 +1841,28 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 55.0,
-                    "secondary_oracle_status": "direction_mismatch",
-                    "secondary_oracle_confirmation": False,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=55.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "direction_mismatch",
+                        "secondary_oracle_confirmation": False,
+                    },
+                )
             }
             summary = manager.step({"t1": top}, competitiveness_context_by_token=context)
             self.assertEqual(summary["open_orders"], 0)
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             self.assertEqual(len(shadow_rows), 1)
             shadow = shadow_rows[0]
-            self.assertEqual(str(shadow.get("decision_result") or ""), "selection_rejected")
+            self.assertEqual(str(shadow.get("decision_result") or ""), "viability_rejected")
             self.assertEqual(
                 str(shadow.get("decision_block_reason") or ""),
                 "launch_safe_selection_secondary_oracle_not_confirmed",
@@ -1787,7 +1897,7 @@ class ExecutionStackTests(unittest.TestCase):
                 sizing_cfg=sizing_cfg,
             )
             verdict = manager._evaluate_maker_selection_gate(  # pylint: disable=protected-access
-                shadow_event={
+                snapshot_event={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "desired_quote_price": 0.50,
                     "visible_depth_shares": 100.0,
@@ -1798,8 +1908,8 @@ class ExecutionStackTests(unittest.TestCase):
                 },
                 competitiveness_context={
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "secondary_oracle_confirmation": True,
                     "sec_to_expiry": 55.0,
+                    "posture_contract": {"secondary_oracle_confirmation": True},
                 },
             )
             self.assertEqual(bool(verdict.get("applied")), True)
@@ -1872,38 +1982,38 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             buy_context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "market_reference_mode": "direct_midpoint",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 12.0,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "one_sided_active": True,
-                    "side_policy": "BUY_ONLY",
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "one_sided_active": True,
+                        "side_policy": "BUY_ONLY",
+                    },
+                )
             }
             sell_context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "market_reference_mode": "direct_midpoint",
-                    "fair_probability": 0.40,
-                    "market_probability": 0.51,
-                    "edge_signed": -0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 11.0,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "one_sided_active": True,
-                    "side_policy": "SELL_ONLY",
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=11.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.40,
+                        "market_probability": 0.51,
+                        "edge_signed": -0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "one_sided_active": True,
+                        "side_policy": "SELL_ONLY",
+                    },
+                )
             }
             first = manager.step({"t1": top}, competitiveness_context_by_token=buy_context)
             self.assertEqual(first["open_orders"], 1)
@@ -1913,7 +2023,7 @@ class ExecutionStackTests(unittest.TestCase):
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             submit_rows = self._read_event_rows(Path(tmp.name), event_type="order_submit")
             self.assertEqual(len(submit_rows), 1)
             self.assertEqual(len(shadow_rows), 1)
@@ -1978,34 +2088,212 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=1.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "market_reference_mode": "direct_midpoint",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 12.0,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "one_sided_active": True,
-                    "side_policy": "BUY_ONLY",
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "one_sided_active": True,
+                        "side_policy": "BUY_ONLY",
+                    },
+                )
             }
             summary = manager.step({"t1": top}, competitiveness_context_by_token=context)
             self.assertEqual(summary["open_orders"], 1)
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             self.assertEqual(len(shadow_rows), 1)
             shadow = shadow_rows[0]
             self.assertEqual(str(shadow.get("decision_result") or ""), "submitted")
             self.assertEqual(bool(shadow.get("launch_safe_selection_passed")), True)
             self.assertEqual(bool(shadow.get("cannon_depth_requirement_met")), True)
             self.assertLess(float(shadow.get("depth_multiple_vs_cannon_target") or 0.0), 1.5)
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_manager_snapshot_and_viability_prefer_posture_contract_over_legacy_context(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            runtime_cfg["lifecycle"] = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["lifecycle"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
+            sizing_cfg["mode"] = "shares"
+            sizing_cfg["maker_competitive_min_notional_usd"] = 0.0
+            sizing_cfg["maker_competitive_max_notional_usd"] = 0.0
+            sizing_cfg["maker_competitive_max_shares"] = 0.0
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            risk = RiskEngine(self._risk_cfg_without_expiry_gate(), {"t1": Position(token_id="t1")})
+            manager = OrderManager(
+                gateway,
+                object(),
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100.0,
+                best_ask_price=0.51,
+                best_ask_size=100.0,
+            )
+            desired = OrderIntent(
+                token_id="t1",
+                side="BUY",
+                price=0.49,
+                size=5.0,
+                tif="GTC",
+                post_only=True,
+                reason="mm_quote:test_posture_contract",
+                lineage_stage="MAKER_TAKER_SELECTIVE",
+                target_ref="target-posture",
+            )
+            competitiveness_context = {
+                "run_id": "run-test-posture",
+                "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                "lifecycle_phase": "maker_window",
+                "maker_phase_allowed": True,
+                "maker_gate_open": True,
+                "sec_to_expiry": 12.0,
+                "market_reference_class": "not_available",
+                "market_reference_mode": "missing",
+                "fair_probability": 0.1,
+                "market_probability": 0.2,
+                "edge_signed": -0.1,
+                "edge_abs": 0.1,
+                "secondary_oracle_confirmation": False,
+                "side_policy": "SELL_ONLY",
+                "one_sided_active": False,
+                "posture_contract": {
+                    "market_reference_class": "authoritative",
+                    "market_reference_mode": "direct_midpoint",
+                    "market_reference_basis": "direct_book_midpoint",
+                    "market_reference_source_side": "none",
+                    "fair_probability": 0.6,
+                    "market_probability": 0.49,
+                    "edge_signed": 0.11,
+                    "edge_abs": 0.11,
+                    "edge_bucket": "0p10_0p20",
+                    "secondary_fair_probability": 0.58,
+                    "secondary_edge_value": 0.09,
+                    "secondary_oracle_status": "confirmed",
+                    "secondary_oracle_confirmation": True,
+                    "side_policy": "BUY_ONLY",
+                    "one_sided_active": True,
+                },
+            }
+            snapshot = manager._build_maker_market_snapshot_event(  # pylint: disable=protected-access
+                token_id="t1",
+                side="BUY",
+                top=top,
+                desired_intent=desired,
+                competitiveness_context=competitiveness_context,
+                cycle_index=3,
+                primary=None,
+                open_maker_orders_total=0,
+                open_orders_for_token_count=0,
+                open_orders_same_side_count=0,
+            )
+            viability = manager._build_maker_market_viability_event(  # pylint: disable=protected-access
+                token_id="t1",
+                side="BUY",
+                competitiveness_context=competitiveness_context,
+                snapshot_event=snapshot,
+                selection_facts={},
+                desired_quote_present=True,
+            )
+            self.assertEqual(str(snapshot.get("market_reference_class") or ""), "authoritative")
+            self.assertEqual(str(snapshot.get("market_reference_mode") or ""), "direct_midpoint")
+            self.assertEqual(str(snapshot.get("market_reference_basis") or ""), "direct_book_midpoint")
+            self.assertEqual(str(snapshot.get("market_reference_source_side") or ""), "none")
+            self.assertAlmostEqual(float(snapshot.get("fair_probability") or 0.0), 0.6, places=9)
+            self.assertAlmostEqual(float(snapshot.get("market_probability") or 0.0), 0.49, places=9)
+            self.assertAlmostEqual(float(snapshot.get("edge_value") or 0.0), 0.11, places=9)
+            self.assertAlmostEqual(float(snapshot.get("edge_abs") or 0.0), 0.11, places=9)
+            self.assertEqual(str(snapshot.get("edge_bucket") or ""), "0p10_0p20")
+            self.assertEqual(bool(snapshot.get("secondary_oracle_confirmation")), True)
+            self.assertEqual(str(snapshot.get("side_policy") or ""), "BUY_ONLY")
+            self.assertEqual(bool(snapshot.get("one_sided_active")), True)
+            self.assertEqual(str(viability.get("market_reference_class") or ""), "authoritative")
+            self.assertAlmostEqual(float(viability.get("fair_probability") or 0.0), 0.6, places=9)
+            self.assertAlmostEqual(float(viability.get("market_probability") or 0.0), 0.49, places=9)
+            self.assertAlmostEqual(float(viability.get("edge_value") or 0.0), 0.11, places=9)
+            self.assertEqual(bool(viability.get("secondary_oracle_confirmation")), True)
+            self.assertEqual(str(viability.get("side_policy") or ""), "BUY_ONLY")
+            self.assertEqual(str(viability.get("run_id") or ""), "run-test-posture")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_order_manager_viability_derives_closed_gate_when_lifecycle_is_not_maker_window(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            risk = RiskEngine(self._risk_cfg_without_expiry_gate(), {"t1": Position(token_id="t1")})
+            manager = OrderManager(
+                gateway,
+                object(),
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+            )
+            viability = manager._build_maker_market_viability_event(  # pylint: disable=protected-access
+                token_id="t1",
+                side="BUY",
+                competitiveness_context={
+                    "lifecycle_phase": "prepare",
+                    "maker_phase_allowed": True,
+                    "posture_contract": {
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.6,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "side_policy": "BUY_ONLY",
+                        "one_sided_active": True,
+                    },
+                },
+                snapshot_event={
+                    "lifecycle_phase": "prepare",
+                },
+                selection_facts={},
+                desired_quote_present=True,
+            )
+            self.assertEqual(str(viability.get("lifecycle_phase") or ""), "prepare")
+            self.assertEqual(bool(viability.get("maker_phase_allowed")), True)
+            self.assertEqual(bool(viability.get("maker_gate_open")), False)
         finally:
             if events is not None:
                 events.close()
@@ -2053,6 +2341,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
@@ -2069,7 +2358,7 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_emits_maker_fight_admission_shadow_and_submit_linkage(self):
+    def test_order_manager_emits_maker_market_snapshot_and_submit_linkage(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -2120,24 +2409,24 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.60,
-                    "market_probability": 0.49,
-                    "edge_signed": 0.11,
-                    "edge_abs": 0.11,
-                    "sec_to_expiry": 14.5,
-                    "secondary_fair_probability": 0.58,
-                    "secondary_edge_value": 0.09,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "chainlink_spot_price": 100125.0,
-                    "secondary_oracle_spot_price": 100118.0,
-                    "secondary_oracle_price_delta_abs": 7.0,
-                    "secondary_oracle_price_delta_bps": 0.699125,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=14.5,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_fair_probability": 0.58,
+                        "secondary_edge_value": 0.09,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "chainlink_spot_price": 100125.0,
+                        "secondary_oracle_spot_price": 100118.0,
+                        "secondary_oracle_price_delta_abs": 7.0,
+                        "secondary_oracle_price_delta_bps": 0.699125,
+                    },
+                )
             }
             first = manager.step({"t1": top}, competitiveness_context_by_token=context, cycle_index=7)
             self.assertEqual(first["open_orders"], 1)
@@ -2147,14 +2436,14 @@ class ExecutionStackTests(unittest.TestCase):
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             self.assertEqual(len(shadow_rows), 1)
             submit_rows = self._read_event_rows(Path(tmp.name), event_type="order_submit")
             self.assertEqual(len(submit_rows), 1)
 
             first_shadow = shadow_rows[0]
             submit_row = submit_rows[0]
-            maker_comp = submit_row.get("maker_competitiveness")
+            maker_comp = submit_row.get("maker_market_viability")
             self.assertIsInstance(maker_comp, dict)
             self.assertEqual(str(first_shadow.get("target_side_ref") or ""), "target-alpha|BUY")
             self.assertEqual(str(first_shadow.get("decision_result") or ""), "submitted")
@@ -2163,8 +2452,8 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(str(first_shadow.get("ts_utc") or ""), utc_iso(fixed_shadow_ts))
             self.assertEqual(str(first_shadow.get("order_submit_id") or ""), str(submit_row.get("order_id") or ""))
             self.assertEqual(
-                str(maker_comp.get("admission_shadow_id") or ""),
-                str(first_shadow.get("admission_shadow_id") or ""),
+                str(maker_comp.get("market_snapshot_id") or ""),
+                str(first_shadow.get("market_snapshot_id") or ""),
             )
             self.assertAlmostEqual(float(first_shadow.get("sec_to_expiry") or 0.0), 14.5, places=9)
             self.assertEqual(str(first_shadow.get("secondary_oracle_status") or ""), "confirmed")
@@ -2177,7 +2466,7 @@ class ExecutionStackTests(unittest.TestCase):
             self.assertEqual(int(float(first_shadow.get("open_maker_orders_total") or 0.0)), 0)
             self.assertEqual(int(float(first_shadow.get("open_orders_for_token_count") or 0.0)), 0)
             self.assertEqual(int(float(first_shadow.get("open_orders_same_side_count") or 0.0)), 0)
-            self.assertEqual(int(float(first_shadow.get("same_target_side_shadow_count_prior") or 0.0)), 0)
+            self.assertEqual(int(float(first_shadow.get("same_target_side_snapshot_count_prior") or 0.0)), 0)
             self.assertEqual(int(float(first_shadow.get("same_target_side_submit_count_prior") or 0.0)), 0)
         finally:
             if events is not None:
@@ -2233,27 +2522,27 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.61,
-                    "market_probability": 0.55,
-                    "edge_signed": -0.06,
-                    "edge_abs": 0.06,
-                    "sec_to_expiry": 12.0,
-                    "secondary_fair_probability": 0.60,
-                    "secondary_edge_value": -0.05,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.61,
+                        "market_probability": 0.55,
+                        "edge_signed": -0.06,
+                        "edge_abs": 0.06,
+                        "secondary_fair_probability": 0.60,
+                        "secondary_edge_value": -0.05,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                    },
+                )
             }
             result = manager.step({"t1": top}, competitiveness_context_by_token=context, cycle_index=11)
             self.assertEqual(result["open_orders"], 1)
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             submit_rows = self._read_event_rows(Path(tmp.name), event_type="order_submit")
             clamp_rows = self._read_event_rows(Path(tmp.name), event_type="pre_submit_cross_guard_adjusted")
             self.assertEqual(len(shadow_rows), 1)
@@ -2340,27 +2629,27 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100.0,
             )
             context = {
-                "t1": {
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "financial_posture_class": "NORMAL",
-                    "market_reference_class": "authoritative",
-                    "fair_probability": 0.61,
-                    "market_probability": 0.55,
-                    "edge_signed": -0.06,
-                    "edge_abs": 0.06,
-                    "sec_to_expiry": 12.0,
-                    "secondary_fair_probability": 0.60,
-                    "secondary_edge_value": -0.05,
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                }
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "fair_probability": 0.61,
+                        "market_probability": 0.55,
+                        "edge_signed": -0.06,
+                        "edge_abs": 0.06,
+                        "secondary_fair_probability": 0.60,
+                        "secondary_edge_value": -0.05,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                    },
+                )
             }
             result = manager.step({"t1": top}, competitiveness_context_by_token=context, cycle_index=12)
             self.assertEqual(result["open_orders"], 0)
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
             submit_rows = self._read_event_rows(Path(tmp.name), event_type="order_submit")
             clamp_rows = self._read_event_rows(Path(tmp.name), event_type="pre_submit_cross_guard_adjusted")
             risk_rows = self._read_event_rows(Path(tmp.name), event_type="risk_reject")
@@ -2380,7 +2669,7 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_does_not_emit_maker_fight_admission_shadow_for_side_disallowed_rows(self):
+    def test_order_manager_prunes_opposite_side_without_snapshot_or_blocker_rows(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -2433,11 +2722,15 @@ class ExecutionStackTests(unittest.TestCase):
                 competitiveness_context_by_token={"t1": {"financial_posture_class": "NORMAL"}},
             )
             self.assertEqual(summary["open_orders"], 0)
+            self.assertEqual(
+                summary.get("maker_no_submission_category_by_token", {}),
+                {"t1": "no_desired_quote"},
+            )
 
             events.close()
             events = None
-            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_fight_admission_shadow")
-            self.assertEqual(shadow_rows, [])
+            shadow_rows = self._read_event_rows(Path(tmp.name), event_type="maker_market_snapshot")
+            self.assertEqual(len(shadow_rows), 0)
         finally:
             if events is not None:
                 events.close()
@@ -2476,7 +2769,7 @@ class ExecutionStackTests(unittest.TestCase):
                     fair_probability_by_token={"t1": 0.60},
                     maker_competitiveness_profiles_by_token={
                         "t1": {
-                            "context": {
+                            "posture_contract": {
                                 "secondary_fair_probability": 0.58,
                                 "secondary_oracle_status": "confirmed",
                                 "secondary_oracle_confirmation": True,
@@ -2718,6 +3011,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
@@ -2744,6 +3038,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
@@ -2757,7 +3052,7 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
-    def test_order_manager_recovery_quality_relaxation_removed_from_maker_lane(self):
+    def test_order_manager_maker_place_order_no_longer_owns_quote_quality(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -2802,6 +3097,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
@@ -2809,8 +3105,8 @@ class ExecutionStackTests(unittest.TestCase):
                     "reduce_only_size_cap_shares": 2.0,
                 },
             )
-            self.assertIsNone(placed_recovery)
-            self.assertEqual(str(reject_recovery), "quote_quality_skip_queue_depth")
+            self.assertIsNotNone(placed_recovery)
+            self.assertIsNone(reject_recovery)
 
             non_recovery_intent = OrderIntent(
                 token_id="t1",
@@ -2827,14 +3123,15 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "sec_to_expiry": 45.0,
                 },
             )
-            self.assertIsNone(placed_non_recovery)
-            self.assertEqual(str(reject_non_recovery), "quote_quality_skip_queue_depth")
+            self.assertIsNotNone(placed_non_recovery)
+            self.assertIsNone(reject_non_recovery)
         finally:
             if events is not None:
                 events.close()
@@ -2844,21 +3141,48 @@ class ExecutionStackTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
-            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
-            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            runtime_cfg, strategy_cfg, sizing_cfg = self._selection_gate_runtime_strategy_sizing_cfg(
+                min_depth_multiple=0.0,
+                max_same_target_submit_count_prior=999,
+                max_same_target_side_submit_count_prior=1,
+            )
             strategy_cfg["execution_quality"]["enabled"] = True
             strategy_cfg["execution_quality"]["max_queue_ahead_size"] = 100.0
             strategy_cfg["execution_quality"]["min_expected_fill_prob"] = 0.06
             risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
 
+            class _PinnedSellStrategy:
+                def make_quotes(self, token_id, top, position, **kwargs):  # noqa: ANN001, ANN002, ANN003
+                    return [
+                        OrderIntent(
+                            token_id=token_id,
+                            side="SELL",
+                            price=0.56,
+                            size=2.0,
+                            tif="GTC",
+                            post_only=True,
+                            reason="maker_quote",
+                            lineage_stage="MAKER_TAKER_SELECTIVE",
+                            target_ref="target-alpha",
+                        )
+                    ]
+
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
             telemetry = Telemetry()
             positions = {"t1": Position(token_id="t1", net_shares=0.0)}
             risk = RiskEngine(risk_cfg, positions)
-            strategy = MarketMakingStrategy(strategy_cfg)
-            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+            manager = OrderManager(
+                gateway,
+                _PinnedSellStrategy(),
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
 
             top = BookTop(
                 token_id="t1",
@@ -2869,32 +3193,29 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=150.0,
             )
-            intent = OrderIntent(
-                token_id="t1",
-                side="SELL",
-                price=0.56,
-                size=2.0,
-                tif="GTC",
-                post_only=True,
-                reason="maker_quote",
-                lineage_stage="MAKER_TAKER_SELECTIVE",
-            )
-            placed, reject_reason = manager._place_order(  # pylint: disable=protected-access
-                intent,
-                top,
-                open_orders_for_token=[],
-                open_orders_total=0,
-                risk_context={
-                    "submission_lane": "maker",
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "sec_to_expiry": 45.0,
-                },
-            )
-            self.assertIsNone(placed)
-            self.assertEqual(str(reject_reason), "quote_quality_skip_queue_depth")
+            context = {
+                "t1": self._maker_window_context(
+                    sec_to_expiry=12.0,
+                    posture_contract={
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.40,
+                        "market_probability": 0.51,
+                        "edge_signed": -0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "one_sided_active": True,
+                        "side_policy": "SELL_ONLY",
+                    },
+                )
+            }
+            summary = manager.step({"t1": top}, competitiveness_context_by_token=context)
+            self.assertEqual(summary["open_orders"], 0)
             events.close()
             events = None
             quote_skip_rows: list[dict] = []
+            snapshot_rows: list[dict] = []
             for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
                 for line in path.read_text(encoding="utf-8").splitlines():
                     if not line.strip():
@@ -2902,7 +3223,16 @@ class ExecutionStackTests(unittest.TestCase):
                     payload = json.loads(line)
                     if str(payload.get("event_type") or "") == "quote_quality_skip":
                         quote_skip_rows.append(payload)
+                    if str(payload.get("event_type") or "") == "maker_market_snapshot":
+                        snapshot_rows.append(payload)
             self.assertTrue(quote_skip_rows)
+            self.assertTrue(snapshot_rows)
+            self.assertEqual(
+                str(snapshot_rows[-1].get("decision_block_reason") or ""),
+                "quote_quality_skip_queue_depth",
+            )
+            self.assertIsNone(snapshot_rows[-1].get("selection_gate_primary_reject_reason"))
+            self.assertEqual(snapshot_rows[-1].get("selection_gate_all_reject_reasons"), [])
             row = quote_skip_rows[-1]
             self.assertEqual(str(row.get("skip_reason") or ""), "queue_ahead_too_deep")
             self.assertAlmostEqual(float(row.get("default_max_queue_ahead_size") or 0.0), 100.0, places=9)
@@ -3021,6 +3351,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE"},
             )
             self.assertIsNone(placed)
@@ -3080,6 +3411,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={
                     "submission_lane": "maker",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
@@ -3381,7 +3713,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": self._maker_window_context(sec_to_expiry=45.0)}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3428,7 +3760,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": self._maker_window_context(sec_to_expiry=45.0)}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3500,11 +3832,15 @@ class ExecutionStackTests(unittest.TestCase):
                 {"t1": top},
                 side_policy_by_token={"t1": "SELL_ONLY"},
                 competitiveness_context_by_token={
-                    "t1": {
-                        "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                        "financial_posture_class": "NORMAL",
-                        "sec_to_expiry": 18.0,
-                    }
+                    "t1": self._maker_window_context(
+                        sec_to_expiry=18.0,
+                        posture_contract={
+                            "side_policy": "SELL_ONLY",
+                            "one_sided_active": True,
+                            "edge_signed": -0.11,
+                            "edge_abs": 0.11,
+                        },
+                    )
                 },
             )
             self.assertEqual(summary["open_orders"], 1)
@@ -3546,7 +3882,7 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            context = {"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}}
+            context = {"t1": self._maker_window_context(sec_to_expiry=45.0)}
             first = manager.step({"t1": top_a}, competitiveness_context_by_token=context)
             self.assertEqual(first["open_orders"], 2)
 
@@ -3626,7 +3962,10 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100,
             )
             gateway.on_book(top)
-            summary = manager.step({"t1": top})
+            summary = manager.step(
+                {"t1": top},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=12.0)},
+            )
             self.assertEqual(summary["open_orders"], 0)
             self.assertEqual(int(summary["actions"]), 0)
             self.assertEqual(
@@ -3675,7 +4014,14 @@ class ExecutionStackTests(unittest.TestCase):
                 {"t1": top},
                 side_policy_by_token={"t1": "SELL_ONLY"},
                 competitiveness_context_by_token={
-                    "t1": self._historical_recovery_lineage_stage_info(
+                    "t1": self._active_lifecycle_info(
+                        lifecycle_phase="maker_window",
+                        lineage_stage="MAKER_TAKER_SELECTIVE",
+                        sec_to_expiry=45.0,
+                        maker_phase_allowed=True,
+                        maker_gate_open=True,
+                        taker_phase_allowed=False,
+                        taker_gate_open=False,
                         reduce_only_side_policy="SELL_ONLY",
                         reduce_only_size_cap_shares=0.68,
                         reduce_only_size_cap_below_min_order_size=True,
@@ -3738,6 +4084,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
@@ -3761,6 +4108,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
@@ -3818,6 +4166,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(placed)
@@ -3887,6 +4236,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
@@ -3901,6 +4251,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
@@ -3971,6 +4322,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(first)
@@ -3985,6 +4337,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(second)
@@ -4047,6 +4400,7 @@ class ExecutionStackTests(unittest.TestCase):
                     top,
                     open_orders_for_token=[],
                     open_orders_total=0,
+                    competitiveness_context=self._maker_submit_viability_context(),
                     risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
                 )
             self.assertIsNone(placed)
@@ -4105,6 +4459,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(order)
@@ -4172,6 +4527,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(order)
@@ -4261,6 +4617,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(order)
@@ -4327,6 +4684,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(first)
@@ -4336,6 +4694,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=1,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(second)
@@ -4419,6 +4778,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context=recovery_context,
             )
             self.assertIsNotNone(placed_recovery)
@@ -4531,6 +4891,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lifecycle_phase": "prepare", "sec_to_expiry": 45.0},
             )
             self.assertIsNone(placed)
@@ -4550,6 +4911,7 @@ class ExecutionStackTests(unittest.TestCase):
                 top,
                 open_orders_for_token=[],
                 open_orders_total=0,
+                competitiveness_context=self._maker_submit_viability_context(),
                 risk_context={"submission_lane": "maker", "lifecycle_phase": "prepare", "sec_to_expiry": 45.0},
             )
             self.assertIsNotNone(placed_ok)
@@ -5189,7 +5551,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             summary = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=45.0)},
             )
             self.assertEqual(summary["open_orders"], 1)
             self.assertGreaterEqual(telemetry.counters.get("order_soft_throttle_skips", 0), 1)
@@ -5228,7 +5590,10 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            summary = manager.step({"t1": top})
+            summary = manager.step(
+                {"t1": top},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=12.0)},
+            )
             self.assertEqual(summary["open_orders"], 0)
             self.assertGreaterEqual(telemetry.counters.get("low_quality_quote_skips", 0), 1)
         finally:
@@ -5265,7 +5630,10 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_price=0.55,
                 best_ask_size=100,
             )
-            summary = manager.step({"t1": top})
+            summary = manager.step(
+                {"t1": top},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=12.0)},
+            )
             self.assertEqual(summary["open_orders"], 0)
             self.assertGreaterEqual(telemetry.counters.get("low_quality_quote_skips", 0), 1)
         finally:
@@ -5301,7 +5669,7 @@ class ExecutionStackTests(unittest.TestCase):
             )
             summary = manager.step(
                 {"t1": top},
-                competitiveness_context_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 45.0}},
+                competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=45.0)},
                 max_actions_override=1,
             )
             self.assertEqual(summary["actions"], 1)
@@ -10602,6 +10970,22 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertFalse(bool((without_authority.get("context") or {}).get("one_sided_allowed_authority")))
                 self.assertEqual(str((with_authority.get("context") or {}).get("lifecycle_phase") or ""), "maker_window")
                 self.assertEqual(str((with_authority.get("context") or {}).get("lineage_stage") or ""), "EXTREME_ONLY")
+                self.assertIsInstance(with_authority.get("posture_contract"), dict)
+                posture = dict(with_authority.get("posture_contract") or {})
+                self.assertEqual(str(posture.get("side_policy") or ""), "BUY_ONLY")
+                self.assertTrue(bool(posture.get("one_sided_active")))
+                for forbidden_key in (
+                    "lifecycle_phase",
+                    "lineage_stage",
+                    "sec_to_expiry",
+                    "timing_gate_open",
+                    "timing_gate_min_sec_to_expiry",
+                    "timing_gate_max_sec_to_expiry",
+                    "size_multiplier_applied",
+                    "spread_multiplier_applied",
+                    "requote_delta_applied",
+                ):
+                    self.assertNotIn(forbidden_key, posture)
                 self.assertEqual(str(with_authority.get("side_policy") or ""), "BUY_ONLY")
                 self.assertTrue(bool((with_authority.get("context") or {}).get("one_sided_allowed_phase")))
                 self.assertTrue(bool((with_authority.get("context") or {}).get("one_sided_allowed_authority")))

@@ -16,6 +16,12 @@
 - no generic weapon tuning or blueprint tuning is authorized while Packet 2
   maker live-trust qualification remains unresolved.
 - Reconcile output is an integrity tripwire and must not be represented as full ledger accounting.
+- schoolhouse/toolbox authority must remain zero:
+  - schoolhouse means external VPS-level study/tool material, not BRO
+  - active board sinks, packet owners, doctrine roots, and live proof steel
+    stay with BRO
+  - a later `schoolhouse clearing / deauth` lane is expected, but it is
+    architecture/authority hygiene debt rather than the active runtime blocker
 
 ## Launch-Window Limitations
 - Current broad current-code canonical runtime proof
@@ -252,19 +258,24 @@
     `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first blocker-ledger cut:
     - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
     - `quote_quality_skip_queue_depth` = `keep-now steel`
-    - `sizing_reject` = `minor residue` on that replay specimen
+    - `non_actionable_geometry` = clean upstream expression of the old low-price
+      floor/cap infeasibility on that replay specimen
     - `maker_blocker_ledger.json` = current owner artifact for blocker truth
   - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` narrowed the
     still-open live patient:
     - selection depth multiple remains `keep-now steel`
     - queue-depth quote quality remains `keep-now steel`
-    - `sizing_reject` is now the active runtime patient
+    - upstream geometry feasibility is now the active runtime patient
   1. `support-shadow / probe family` truth cleanup:
-     - `maker_fight_admission_shadow*`
+     - `maker_market_snapshot*`
      - late/mid-window probes
      - zero-submit root-cause
      - quote-starvation / quote-integrity / selection-authority counterfactual
      - current disposition after rerun:
+       - current snapshot non-submit owner contract is
+         `decision_result=viability_rejected` plus `decision_block_reason`
+       - `selection_gate_*` fields are selector-only mirrors and may not be
+         repopulated from geometry or quote-quality viability reasons
        - `maker_zero_submit_root_cause_audit.json` must step aside on submit
          runs instead of hallucinating timing-band mismatch
        - `maker_participation_waterfall.json` remains descriptive-only and must
@@ -273,11 +284,24 @@
   2. `accessory maker sizing scaler bundle` runtime tribunal:
      - `maker_depth_target_*`
      - `maker_liquidity_tod_*`
+     - current `paper_universal` hardening now gives these leaves zero live
+       authority:
+       - `maker_depth_target_* = 0`
+       - `maker_liquidity_tod_scaler_enabled = false`
+       - `maker_liquidity_tod_depth_multiplier = 1.0`
+     - current live owner still enforces the hard scalar
+       `lifecycle.selection.maker_min_depth_multiple=1.5`
   3. `accessory competitiveness bundle` runtime tribunal:
      - `edge_scale_*`
      - `size_mult_max`
      - `spread_mult_min`
      - `requote_delta_mult_min`
+     - current `paper_universal` hardening now gives these leaves zero live
+       authority:
+       - `edge_scale_enabled = false`
+       - `size_mult_max = 1.0`
+       - `spread_mult_min = 1.0`
+       - `requote_delta_mult_min = 1.0`
   4. `final trust / falsifier proof` after the blocker queue is honest
   5. optional historical extinction packet only if we explicitly choose full
      repo extinction beyond current active-owner surfaces:

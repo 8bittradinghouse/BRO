@@ -156,8 +156,10 @@ G-frame override:
         hostile queue closeout, not more timing surgery
       - current surgery queue is:
         1. `support-shadow / probe family` truth cleanup
-        2. `accessory competitiveness bundle` runtime tribunal
-        3. `accessory maker sizing scaler bundle` runtime tribunal
+        2. `accessory competitiveness bundle` zero-authority hardening on
+           `paper_universal`
+        3. `accessory maker sizing scaler bundle` zero-authority hardening on
+           `paper_universal`
         4. `final trust / falsifier proof` after the blocker queue is honest
       - recovery / unwind current-owner cut is already landed; any remaining
         archaeology is optional history/compat cleanup, not a required
@@ -323,6 +325,12 @@ Historical-lane archive rule:
     2. Packet 3 `Grip-Live`
     3. Packet 4 `Bounded Live Hookup`
     4. Packet 5 `Immediate-Performance Proof`
+  - later pilot-live proving split must stay explicit:
+    - maker/taker packet proof = execution-lane trust
+    - pre-launch hostile detuned long runs = capital-safety stress trust
+    - pre-launch blueprint-tuned long runs = operational endurance trust
+    - those are separate go/no-go lanes and must not be collapsed into one
+      “feels ready” claim
   - active Packet 2 maker entry artifact is:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
   - active Packet 2 recovery / unwind closeout artifact is:
@@ -338,6 +346,13 @@ Historical-lane archive rule:
     - keep support tools useful but fenced, keep history historical-only, and
       prefer family-cut surgery over leaf-by-leaf residue cleanup once owner
       truth is fully mapped
+  - later repo hygiene lane after current pilot-live foundation:
+    - `schoolhouse clearing / deauth`
+    - schoolhouse means external VPS toolbox/study material with zero BRO
+      authority
+    - active board sinks, packet owners, and doctrine roots stay with BRO
+    - clear/deauth this only at the proper point after live-trust foundation
+      and final doctrine-law audit, not by derailing the current runtime lane
   - fresh watched post-restoration contrast specimen
     `6e2826a6-d1bf-4cd5-8d18-2846e86b8db1` reaffirms that lane without
     reopening Bones:
@@ -398,9 +413,9 @@ Historical-lane archive rule:
       `secondary_oracle_*`
     - same-time null-oracle duplicates were taker-scope
       `phase_disallow_taker` rows
-    - `maker_fight_admission_shadow` matched the maker-scope rows on that
+    - `maker_market_snapshot` matched the maker-scope rows on that
       specimen
-  - keep `maker_fight_admission_shadow` semantically narrow as a separate
+  - keep `maker_market_snapshot` semantically narrow as a separate
     runtime-emitted selection-shadow surface
   - next Brain move is the shared nightly backfill/recompute cut, with runtime
     owner surfaces kept classified tightly enough that we do not promote shadow
@@ -1117,14 +1132,14 @@ Current next-step doctrine:
      - `scripts/nightly_soak_report.py`
      - `scripts/bro_metric_harvest.py`
    - first-class support artifacts now exist:
-     - `maker_fight_admission_shadow.jsonl`
-     - `maker_fight_admission_shadow_summary.json`
-     - `maker_fight_admission_calibration_audit.json`
-     - `maker_fight_admission_shadow_rows.jsonl`
+     - `maker_market_snapshot.jsonl`
+     - `maker_market_snapshot_summary.json`
+     - `maker_market_snapshot_calibration_audit.json`
+     - `maker_market_snapshot_rows.jsonl`
      - `maker_admission_target_side_summary.json`
    - focused validation passed:
-     - `tests/test_execution_stack.py -k 'legacy_maker_queue_pressure_surface or maker_fight_admission_shadow'`
-     - `tests/test_nightly_soak_report.py -k 'maker_fight_admission_shadow_support_artifacts or legacy_maker_fight_admission_shadow'`
+     - `tests/test_execution_stack.py -k 'legacy_maker_queue_pressure_surface or maker_market_snapshot'`
+     - `tests/test_nightly_soak_report.py -k 'maker_market_snapshot_support_artifacts or legacy_maker_market_snapshot'`
      - `tests/test_nightly_soak_report.py`
      - `tests/test_bro_metric_harvest.py`
    - short runtime health gate completed:
@@ -1179,9 +1194,9 @@ Current next-step doctrine:
       - `secondary_oracle_status` / confirmation
       - `depth_multiple_vs_cannon_target`
     - targeted proof:
-      - `tests/test_execution_stack.py -k maker_fight_admission_shadow`
-      - `tests/test_nightly_soak_report.py -k maker_fight_admission_shadow`
-      - `tests/test_bro_metric_harvest.py -k maker_admission_shadow`
+      - `tests/test_execution_stack.py -k maker_market_snapshot`
+      - `tests/test_nightly_soak_report.py -k maker_market_snapshot`
+      - `tests/test_bro_metric_harvest.py -k maker_market_snapshot`
   - short native runtime proof after the cannon extension:
     - run: `823cd68e-26e1-4b0d-a63c-52091e86c7fe`
     - runtime truth:
@@ -1190,7 +1205,7 @@ Current next-step doctrine:
       - policy-only exit on `soak_hardening_gate` and `time_discipline_audit`
     - cannon-shadow artifact truth:
       - `row_count=18`
-      - `shadow_source_class_distribution={"runtime_raw":18}`
+      - `snapshot_source_class_distribution={"runtime_raw":18}`
       - `candidate=18`
       - `clean=0`
       - `borderline=0`
@@ -1475,7 +1490,8 @@ Current next-step doctrine:
               - `9` maker no-submit rows:
                 - `6`
                   `launch_safe_selection_insufficient_depth_multiple`
-                - `3` `one_sided_mode_disallow_side`
+                - `3` opposite-side rows later recognized as normal one-sided
+                  prunes, not real blocker-family authority
               - `11` shadow rejects with
                 `selection_gate_primary_reject_reason = insufficient_depth_multiple`
               - still `0` submits / `0` fills

@@ -205,10 +205,10 @@ class TimeDisciplineAuditTests(unittest.TestCase):
                     "ts_receive_utc": (now - dt.timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
                     "ts_source_utc": (now - dt.timedelta(seconds=1.05)).isoformat().replace("+00:00", "Z"),
                     "ts_decision_utc": (now - dt.timedelta(seconds=1.2)).isoformat().replace("+00:00", "Z"),
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "sec_to_expiry": 18.0,
-                        "timing_gate_min_sec_to_expiry": 15.0,
-                        "timing_gate_max_sec_to_expiry": 20.0,
+                        "maker_phase_allowed": True,
+                        "maker_gate_open": True,
                         "market_reference_mode": "direct_midpoint",
                         "market_reference_class": "authoritative",
                     },

@@ -250,7 +250,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "taker_bonus_fill_rate": 0.8,
                         "taker_bonus_fire_rate_per_min": 0.4,
                     },
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "timing_gate_blocked_count_decision": 11.0,
                         "timing_gate_blocked_count_edge_eval": 12.0,
                     },
@@ -672,7 +672,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "taker_bonus_fill_rate": 0.0,
                         "taker_bonus_fire_rate_per_min": 0.0,
                     },
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "timing_gate_blocked_count_decision": 30.0,
                         "timing_gate_blocked_count_edge_eval": 30.0,
                     },
@@ -829,7 +829,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "taker_bonus_fill_rate": 1.0,
                         "taker_bonus_fire_rate_per_min": 0.1,
                     },
-                    "maker_competitiveness": {"timing_gate_blocked_count_decision": 0.0, "timing_gate_blocked_count_edge_eval": 0.0},
+                    "maker_market_viability": {"timing_gate_blocked_count_decision": 0.0, "timing_gate_blocked_count_edge_eval": 0.0},
                     "edge_truth": {
                         "maker_reference_direct_midpoint_activity": 2.0,
                         "maker_reference_missing_activity": 2.0,
@@ -1101,7 +1101,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                 "run_index_jsonl",
             )
 
-    def test_harvest_reports_writes_maker_admission_shadow_outputs(self):
+    def test_harvest_reports_writes_maker_market_snapshot_outputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)
             report_root = root / "reports"
@@ -1127,7 +1127,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "maker_filled_orders": 1.0,
                         "maker_fill_rate": 1.0,
                     },
-                    "maker_competitiveness": {"timing_gate_blocked_count_decision": 0.0, "timing_gate_blocked_count_edge_eval": 0.0},
+                    "maker_market_viability": {"timing_gate_blocked_count_decision": 0.0, "timing_gate_blocked_count_edge_eval": 0.0},
                     "edge_truth": {"maker_no_submission_cause_distribution": {}, "maker_block_reason_distribution": {}},
                     "maker_fireability": {
                         "active_window_row_count": 1.0,
@@ -1152,10 +1152,10 @@ class BroMetricHarvestTests(unittest.TestCase):
                 },
             )
             _write_json(
-                run1 / "maker_fight_admission_shadow_summary.json",
+                run1 / "maker_market_snapshot_summary.json",
                 {
                     "admission_rubric_version": 1,
-                    "maker_cannon_shadow_version": 1,
+                    "maker_market_snapshot_version": 1,
                     "population_class_counts": {"candidate": 2, "external_blocked": 0, "truth_thin": 0},
                     "admission_class_counts": {"clean": 1, "borderline": 0, "trash": 1},
                     "submit_rate_by_class": {"clean": 1.0, "borderline": 0.0, "trash": 1.0},
@@ -1188,10 +1188,10 @@ class BroMetricHarvestTests(unittest.TestCase):
                 },
             )
             _write_json(
-                run1 / "maker_fight_admission_calibration_audit.json",
+                run1 / "maker_market_snapshot_calibration_audit.json",
                 {
                     "admission_rubric_version": 1,
-                    "maker_cannon_shadow_version": 1,
+                    "maker_market_snapshot_version": 1,
                     "outcome_truth_status_distribution_by_class": {"clean": {"complete": 1}, "trash": {"complete": 1}},
                     "claim_boundary_class_distribution_by_class": {"clean": {"complete": 1}, "trash": {"complete": 1}},
                     "evaluation_horizon_ms_distribution_by_class": {"clean": {"5000": 1}, "trash": {"5000": 1}},
@@ -1278,7 +1278,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                 },
             )
             _write_jsonl(
-                run1 / "maker_fight_admission_shadow.jsonl",
+                run1 / "maker_market_snapshot.jsonl",
                 [
                     {
                         "run_id": "run-alpha",
@@ -1289,7 +1289,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "outcome_truth_status": "complete",
                         "decision_quality": "correct",
                         "dominant_driver": "queue_delta_pressure",
-                        "maker_cannon_shadow_version": 1,
+                        "maker_market_snapshot_version": 1,
                         "cannon_window_class": "10_to_15s",
                         "maker_timing_band_class": "10_to_15s",
                         "session_regime_class": "usa_europe_peak_heuristic",
@@ -1308,7 +1308,7 @@ class BroMetricHarvestTests(unittest.TestCase):
                         "outcome_truth_status": "complete",
                         "decision_quality": "incorrect",
                         "dominant_driver": "queue_delta_gt_50",
-                        "maker_cannon_shadow_version": 1,
+                        "maker_market_snapshot_version": 1,
                         "cannon_window_class": "gt_20s",
                         "maker_timing_band_class": "20_to_30s",
                         "session_regime_class": "asia_dominant_heuristic",
@@ -1461,9 +1461,9 @@ class BroMetricHarvestTests(unittest.TestCase):
             )
 
             outputs = bro_metric_harvest.harvest_reports(report_root=report_root, out_dir=out_dir)
-            self.assertTrue(outputs["maker_fight_admission_shadow_rows_jsonl"].exists())
-            self.assertTrue(outputs["maker_fight_admission_shadow_summary_json"].exists())
-            self.assertTrue(outputs["maker_fight_admission_calibration_audit_json"].exists())
+            self.assertTrue(outputs["maker_market_snapshot_rows_jsonl"].exists())
+            self.assertTrue(outputs["maker_market_snapshot_summary_json"].exists())
+            self.assertTrue(outputs["maker_market_snapshot_calibration_audit_json"].exists())
             self.assertTrue(outputs["maker_admission_target_side_summary_json"].exists())
             self.assertTrue(outputs["maker_cannon_late_window_probe_rows_jsonl"].exists())
             self.assertTrue(outputs["maker_cannon_late_window_probe_summary_json"].exists())
@@ -1472,34 +1472,34 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertTrue(outputs["maker_mid_window_probe_summary_json"].exists())
             self.assertTrue(outputs["maker_mid_window_probe_session_sweep_json"].exists())
 
-            shadow_summary = json.loads(
-                outputs["maker_fight_admission_shadow_summary_json"].read_text(encoding="utf-8")
+            snapshot_summary = json.loads(
+                outputs["maker_market_snapshot_summary_json"].read_text(encoding="utf-8")
             )
-            self.assertEqual(shadow_summary["row_count"], 2)
-            self.assertEqual(shadow_summary["admission_rubric_version"], 1)
-            self.assertEqual(shadow_summary["maker_cannon_shadow_version"], 1)
+            self.assertEqual(snapshot_summary["row_count"], 2)
+            self.assertEqual(snapshot_summary["admission_rubric_version"], 1)
+            self.assertEqual(snapshot_summary["maker_market_snapshot_version"], 1)
             self.assertEqual(
-                shadow_summary["cannon_window_class_distribution"],
+                snapshot_summary["cannon_window_class_distribution"],
                 {"10_to_15s": 1, "gt_20s": 1},
             )
             self.assertEqual(
-                shadow_summary["maker_timing_band_class_distribution"],
+                snapshot_summary["maker_timing_band_class_distribution"],
                 {"10_to_15s": 1, "20_to_30s": 1},
             )
             self.assertEqual(
-                shadow_summary["complete_bad_ratio_by_timing_band"],
+                snapshot_summary["complete_bad_ratio_by_timing_band"],
                 {"10_to_15s": 0.0, "20_to_30s": 1.0},
             )
             self.assertEqual(
-                shadow_summary["dominant_driver_distribution"],
+                snapshot_summary["dominant_driver_distribution"],
                 {"queue_delta_gt_50": 1, "queue_delta_pressure": 1},
             )
-            self.assertNotIn("queue_pressure", shadow_summary["dominant_driver_distribution"])
+            self.assertNotIn("queue_pressure", snapshot_summary["dominant_driver_distribution"])
             calibration_audit = json.loads(
-                outputs["maker_fight_admission_calibration_audit_json"].read_text(encoding="utf-8")
+                outputs["maker_market_snapshot_calibration_audit_json"].read_text(encoding="utf-8")
             )
             self.assertEqual(calibration_audit["admission_rubric_version"], 1)
-            self.assertEqual(calibration_audit["maker_cannon_shadow_version"], 1)
+            self.assertEqual(calibration_audit["maker_market_snapshot_version"], 1)
             self.assertEqual(
                 calibration_audit["maker_timing_band_class_distribution"],
                 {"10_to_15s": 1, "20_to_30s": 1},
@@ -1518,11 +1518,11 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(target_side_summary[0]["target_side_ref"], "target-b|SELL")
             bundle_rows = [
                 json.loads(line)
-                for line in outputs["maker_fight_admission_shadow_rows_jsonl"].read_text(encoding="utf-8").splitlines()
+                for line in outputs["maker_market_snapshot_rows_jsonl"].read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
             self.assertEqual(len(bundle_rows), 2)
-            self.assertEqual(bundle_rows[0]["maker_cannon_shadow_version"], 1)
+            self.assertEqual(bundle_rows[0]["maker_market_snapshot_version"], 1)
             self.assertEqual(bundle_rows[0]["maker_timing_band_class"], "10_to_15s")
             self.assertEqual(bundle_rows[0]["dominant_driver"], "queue_delta_pressure")
             self.assertNotEqual(bundle_rows[0]["dominant_driver"], "queue_pressure")

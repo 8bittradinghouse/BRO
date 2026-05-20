@@ -238,6 +238,9 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
                 {
                     "ts_utc": "2026-01-01T00:00:00.000Z",
                     "run_id": run_id,
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
                     "book_feed": {
                         "enabled": True,
                         "connected": False,
@@ -266,6 +269,70 @@ class WebsocketHardeningAuditTests(unittest.TestCase):
         self.assertIn("websocket_evidence_book_feed_worker_unusable_rows", text)
         self.assertIn("websocket_evidence_book_feed_worker_restart_exhausted_rows", text)
         self.assertIn("websocket_evidence_chainlink_worker_fatal_rows", text)
+
+    def test_audit_scopes_worker_unusable_rows_to_truth_required_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg_path = self._write_cfg(root)
+            run_id = "run-ws-unusable-scope"
+            rows = [
+                {
+                    "ts_utc": "2026-01-01T00:00:00.000Z",
+                    "run_id": run_id,
+                    "active_targets_present": False,
+                    "market_truth_required": False,
+                    "book_feed": {
+                        "enabled": True,
+                        "connected": False,
+                        "worker_usable": False,
+                        "worker_restart_exhausted": True,
+                    },
+                    "chainlink": {
+                        "enabled": True,
+                        "connected": False,
+                        "worker_usable": False,
+                        "worker_restart_exhausted": True,
+                        "ordering_policy": self._ordering_policy_payload(),
+                        "ordering_classification_counts": self._ordering_class_counts(ordered=1),
+                    },
+                },
+                {
+                    "ts_utc": "2026-01-01T00:01:00.000Z",
+                    "run_id": run_id,
+                    "active_targets_present": True,
+                    "market_truth_required": True,
+                    "owned_market_ref": "mkt-1",
+                    "book_feed": {
+                        "enabled": True,
+                        "connected": True,
+                        "worker_usable": True,
+                        "worker_restart_exhausted": False,
+                        "last_msg_age_sec": 0.1,
+                    },
+                    "chainlink": {
+                        "enabled": True,
+                        "connected": True,
+                        "worker_usable": True,
+                        "worker_restart_exhausted": False,
+                        "last_tick_age_sec": 0.1,
+                        "queue_size": 0,
+                        "dropped_ticks": 0,
+                        "ordering_policy": self._ordering_policy_payload(),
+                        "ordering_classification_counts": self._ordering_class_counts(ordered=2),
+                    },
+                },
+            ]
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in rows) + "\n",
+                encoding="utf-8",
+            )
+            result = run_audit(config_path=cfg_path, log_dir=root, run_id=run_id)
+        self.assertTrue(result["ok"], msg=str(result["findings"]))
+        evidence = result["evidence"]
+        self.assertEqual(int(evidence["book_feed_worker_unusable_rows"]), 0)
+        self.assertEqual(int(evidence["chainlink_worker_unusable_rows"]), 0)
+        self.assertEqual(int(evidence["book_feed_worker_restart_exhausted_rows"]), 0)
+        self.assertEqual(int(evidence["chainlink_worker_restart_exhausted_rows"]), 0)
 
     def test_audit_supports_run_contract_bounded_replay(self):
         with tempfile.TemporaryDirectory() as td:

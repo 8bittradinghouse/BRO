@@ -325,9 +325,13 @@ def run_gate(
         if truth_required and not chain_connected:
             chain_down_count += 1
         if book:
-            if bool(book.get("enabled", False)) and not _as_bool(book.get("worker_usable"), default=True):
+            if (
+                truth_required
+                and bool(book.get("enabled", False))
+                and not _as_bool(book.get("worker_usable"), default=True)
+            ):
                 book_worker_unusable_rows += 1
-            if _as_bool(book.get("worker_restart_exhausted"), default=False):
+            if truth_required and _as_bool(book.get("worker_restart_exhausted"), default=False):
                 book_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(book)
             if truth_required and reconnects is None:
@@ -336,9 +340,13 @@ def run_gate(
                 if reconnects is not None:
                     max_book_reconnects = max(max_book_reconnects, float(reconnects))
         if chain:
-            if bool(chain.get("enabled", False)) and not _as_bool(chain.get("worker_usable"), default=True):
+            if (
+                truth_required
+                and bool(chain.get("enabled", False))
+                and not _as_bool(chain.get("worker_usable"), default=True)
+            ):
                 chain_worker_unusable_rows += 1
-            if _as_bool(chain.get("worker_restart_exhausted"), default=False):
+            if truth_required and _as_bool(chain.get("worker_restart_exhausted"), default=False):
                 chain_worker_restart_exhausted_rows += 1
             reconnects = _reconnect_counter(chain)
             if truth_required and reconnects is None:

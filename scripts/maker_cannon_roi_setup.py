@@ -314,7 +314,7 @@ def build_recommendation(active_analysis: dict[str, Any], late_analysis: dict[st
 
 
 def analyze_bundle(bundle_dir: pathlib.Path) -> dict[str, Any]:
-    active_rows = _load_jsonl(bundle_dir / "maker_fight_admission_shadow_rows.jsonl")
+    active_rows = _load_jsonl(bundle_dir / "maker_market_snapshot_rows.jsonl")
     late_rows = _load_jsonl(bundle_dir / "maker_cannon_late_window_probe_rows.jsonl")
     active_analysis = analyze_active_rows(active_rows)
     late_analysis = analyze_late_probe_rows(late_rows)

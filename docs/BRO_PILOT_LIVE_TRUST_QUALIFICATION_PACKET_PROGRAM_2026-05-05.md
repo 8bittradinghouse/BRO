@@ -20,6 +20,20 @@ for:
 4. bounded live hookup / controlled arming trust
 5. immediate-performance proof after bounded live hookup is clean
 
+## House / Frame Context
+`8bit ODA` is the House / ship.
+`BRO` is the first proving frame serving that House.
+
+Program-wide orientation:
+- the ship is more valuable than the suit
+- the frame exists to create real money-and-time freedom for the House
+- the mission is bloodline endurance, stewardship, and truthful strength, not
+  vanity wealth
+- this program qualifies the first serious ancestor candidate before clone or
+  descendant-line scale is legal
+- AI tooling and specialist support are native assets in hostile terrain, not
+  replacement owners for founder mission or House doctrine
+
 ## Pilot-Live Severity Covenant
 Pilot-live work must be treated as capital-trust engineering, not convenience
 cleanup.
@@ -33,6 +47,30 @@ Program-wide seriousness rules:
   motivational language
 - every packet must prove what is strong enough to keep, what is support-only,
   and what is scar tissue that should eventually be cut
+
+Three trust classes:
+- `execution-lane trust`
+  - prove maker and taker can place, fill, and obey lifecycle/gate truth
+- `capital-safety stress trust`
+  - prove BRO stops, blocks, and fails closed under intentionally ugly tuning
+    and long hostile runs
+- `blueprint-tuned operational trust`
+  - prove BRO stays clean and stable during long runs at intended doctrine
+    posture
+
+These are separate go/no-go lanes and may not be blurred into one comfort
+claim.
+
+Ancestor-frame graduation bar:
+- `BRO` remains the proving frame until it can run as a clean truthful
+  ancestor candidate:
+  - doctrine-clean
+  - fluff-extinct
+  - strong smooth end-to-end runtime
+  - hours-long reliable operation without false shutdowns
+  - precise execution
+  - wallet-safe and hacker-hard enough for House law
+- clone / descendant scale remains blocked until that bar is real
 
 ## Current Program Lock
 - `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
@@ -91,6 +129,16 @@ Program-wide seriousness rules:
   - subtree removal posture is balanced re-home-then-delete, not blind rip-out
   - old sniper-era surfaces are compatibility/readback only unless they still
     prove a real doctrine or safety job
+
+House-underway target:
+- future-state working truth for the House being "truly underway" is:
+  - one `Barbatos`-class descendant frame or a lawful small descendant pack
+  - earning roughly `$1,500-$2,000` weekly
+  - with the same doctrine, timing, security, and truth law as the ancestor
+    frame
+  - whether that output comes from one wallet or a centrally governed
+    multi-wallet pack
+- this is a future-state threshold, not a current packet closure claim
 
 ## Packet 1 Restoration Carry-Forward
 Authority boundary:
@@ -175,6 +223,11 @@ This program adopts one explicit cross-lane timing rule:
 - no lane may certify live trust while a weaker upstream timing authority still
   pollutes its downstream proof
 - do not let coarse fallback timing stand in for authoritative timing truth
+- timing authority is hard top-level law, but gate application may use bounded
+  safe bands when the stronger central owner explicitly defines them
+- harmless micro-variance inside a centrally owned band must not be mistaken
+  for a doctrine breach
+- lower layers may not invent their own edge tolerances or grace windows
 
 ## Authority Lock
 Each packet in this program must anchor to this order:
@@ -326,12 +379,40 @@ Every packet must produce these sections:
   board/operator doc
 - prove the same concept keeps the same meaning end to end
 
-5. `Reverse Semantics Sweep`
+5. `Forward Timing Sweep`
+- doctrine timing owner -> config -> runtime emitter -> validator/gate ->
+  report -> board/operator doc
+- prove the same timing edge keeps the same owner, same band semantics, and
+  same hard-fail meaning end to end
+
+6. `Reverse Semantics Sweep`
 - board/operator claim -> report -> validator/gate -> runtime emitter ->
   doctrine
 - prove every front-door claim can be walked backward to the true owner
 
-6. `Contradiction Compression Pass`
+7. `Reverse Timing Sweep`
+- board/operator timing claim -> report -> validator/gate -> runtime emitter ->
+  doctrine timing owner
+- prove every timing claim can be walked backward to the true owner without
+  local tolerance freelancing
+
+8. `Candidate Actionability Sweep`
+- prove the candidate is actually executable under canonical min-notional,
+  max-shares, and equivalent geometry law
+- if the candidate is mathematically impossible, reject it early as
+  non-actionable instead of letting late-path failure pretend it was a quality
+  shot
+
+9. `Ownership Commitment Split`
+- identify whether the owned market is:
+  - provisional / uncommitted
+  - committed
+  - closeout-only
+- before commitment, allow quality decay / replacement logic to matter
+- after commitment, challenger truth becomes observational and the packet must
+  focus on order, exposure, settlement, and closeout truth
+
+10. `Contradiction Compression Pass`
 - force the packet to answer, in one compressed map:
   - who owns this truth
   - what surface is pretending to own it but should not
@@ -340,7 +421,7 @@ Every packet must produce these sections:
   - what the real disease is in one sentence
   - what absolutely must not change while fixing it
 
-7. `Negative-Proof Pass`
+11. `Negative-Proof Pass`
 - spend an explicit pass trying to disprove the preferred diagnosis or closure
   story
 - ask:
@@ -349,12 +430,12 @@ Every packet must produce these sections:
   - what weaker explanation am I accidentally accepting because it is tidy
   - what untested assumption would turn this into false closure
 
-8. `Combat Timing Doctrine Verification`
+12. `Combat Timing Doctrine Verification`
 - host -> runtime -> weapon/wallet -> validators -> reports
 - reports -> validators -> runtime -> host
 - include host-out-and-back combat timing check
 
-9. `Gate Legitimacy Sweep`
+13. `Gate Legitimacy Sweep`
 - each relevant gate must record:
   - owner
   - inputs
@@ -364,17 +445,17 @@ Every packet must produce these sections:
   - stale/ghost-path risk
   - whether current behavior actually matches doctrine
 
-10. `Dependency Review`
+14. `Dependency Review`
 - upstream pollution risk
 - downstream blast radius
 - false-closure risk
 - no-shortcut zones
 
-11. `Binary Verdict`
+15. `Binary Verdict`
 - `Bounded-live-test ready`
 - or `Needs work`
 
-12. `Closure Matrix Update`
+16. `Closure Matrix Update`
 - what must become true
 - required proof artifact
 - currently missing proof
@@ -414,6 +495,9 @@ Dependency law:
   blocker before Packet 4 can begin
 - Packet 4 cannot certify live trust if Packet 1, Packet 2, or Packet 3 still
   reads unsafe
+- before bounded live hookup is cleared, BRO must also survive:
+  - detuned long-run capital-safety inspection
+  - blueprint-tuned long-run operational inspection
 - Packet 5 may begin only after bounded live hookup is clean and may not reopen
   authority surgery as “performance work”
 - inside each packet, implementation should still land as one seam or one
@@ -540,9 +624,18 @@ Questions to answer:
 - do live authority surfaces stay honest under real connection conditions?
 - does observed live behavior match the qualified expectations from Packets 1-3?
 - is there any new contradiction that paper/prelive could not reveal?
+- do detuned long hostile runs prove the `BRO wtf are you doing?` shell:
+  - hard stops
+  - shutdown behavior
+  - wallet / capital fail-closed behavior
+  - top-level safety flags and tripwires
+- do blueprint-tuned long runs prove the intended machine can stay smooth,
+  stable, and doctrine-clean under endurance conditions?
 
 Exit criteria:
 - bounded live hookup proof exists
+- detuned capital-safety long-run proof exists
+- blueprint-tuned operational long-run proof exists
 - remaining prelive debt is explicitly identified
 - clone/scale discussion remains blocked until bounded live hookup truth is real
 

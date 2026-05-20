@@ -84,6 +84,8 @@
 8. explicit watched-specimen witness criteria
 9. explicit abort criteria
 10. strongest falsifier list
+11. explicit surgery end-state declaration
+12. explicit `3 / 3 / 3` surgery-prep cadence plan
 
 ## No-Change List
 - no live arming
@@ -95,6 +97,7 @@
 - no wallet/risk fail-closed weakening
 - no new helper path unless the existing path is proven insufficient
 - no broad frame surgery
+- no keeping mathematically impossible candidates alive as fake quality shots
 
 ## Current Keep-Now Steel
 - maker doctrine proposal authority as intended weapon doctrine
@@ -105,6 +108,8 @@
   place under current owner truth
 - ordinary cancel cleanup as fail-closed order hygiene
 - hold-to-settlement for real accepted exposure
+- reuse of existing steel only when it can be re-owned cleanly under the
+  lifecycle owner without preserving a second live pathway
 
 ## Current Under-Challenge Families
 - `post-audit truth-owner / proof-semantics closeout`
@@ -142,6 +147,32 @@
   have cut this old patient; do not silently reopen it from ordinary losing
   orders on the deliberately detuned paper profile
 
+## Candidate Actionability And Commitment Law
+- mathematically impossible candidate geometry is upstream selection truth, not
+  late submit-path theater
+- if the candidate cannot satisfy canonical expression law under current
+  min-notional, max-shares, or equivalent geometry, reject it early and move to
+  real contenders
+- owned-but-uncommitted markets may still be dropped if quality decays before
+  real commitment
+- after real maker order, taker commitment, or accepted exposure, the market is
+  sticky and the packet must focus on lifecycle obligations and closeout truth
+- challenger competition after commitment is descriptive only unless explicit
+  abandonment or shared-safety override is proven
+
+## Mandatory Surgery Prep Translation
+For maker surgery packets, the global surgery-prep doctrine means:
+
+1. map the full family from the surface/tag layer down through owner, runtime,
+   report, validator, accessories, and substrate
+2. identify what heavy encoded material is real steel worth remodeling under
+   the correct owner before cutting easier junk
+3. separate authority steel from reporting/diagnostic/historical value
+4. make waste truly extinct
+5. force remodeled material into canonical semantics/timing and reporting-only
+   demotion unless it is explicitly retained as owner steel
+6. run the required `3 / 3 / 3` cadence before and after cutting
+
 ## Forced Self-Hardening Loop
 This pack must be forced multiple times through every maker surgery packet.
 
@@ -166,10 +197,16 @@ Required output from each forced pass:
 7. strongest falsifier list
 8. residual risk register
 9. current surgery legality call
+10. candidate-actionability verdict
+11. reuse-vs-extinction verdict
 
 Failure rule:
 - if a pass is thin, contradictory, or cannot name the strongest owner
   cleanly, the packet is `NO-GO` for more cutting until the map is repaired
+- no next cut, no closeout, and no recommendation to move on is legal from a
+  partial `3 / 3 / 3` cadence
+- exception is legal only when the skipped piece is explicitly logic-cleared
+  and written down as an agreed override
 
 ## Watched Specimen Witness Criteria
 - no weakened fail-closed source/timing/wallet/risk behavior

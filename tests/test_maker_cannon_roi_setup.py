@@ -21,7 +21,7 @@ class MakerCannonRoiSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             bundle = pathlib.Path(tmpdir)
             _write_jsonl(
-                bundle / "maker_fight_admission_shadow_rows.jsonl",
+                bundle / "maker_market_snapshot_rows.jsonl",
                 [
                     {
                         "population_class": "candidate",
@@ -90,7 +90,7 @@ class MakerCannonRoiSetupTests(unittest.TestCase):
     def test_main_writes_json_and_markdown_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             bundle = pathlib.Path(tmpdir)
-            _write_jsonl(bundle / "maker_fight_admission_shadow_rows.jsonl", [])
+            _write_jsonl(bundle / "maker_market_snapshot_rows.jsonl", [])
             _write_jsonl(bundle / "maker_cannon_late_window_probe_rows.jsonl", [])
 
             argv = [

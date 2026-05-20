@@ -503,7 +503,7 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
             continue
 
         if event_type != "order_submit":
-            if event_type == "maker_competitiveness_decision":
+            if event_type == "maker_market_viability_decision":
                 maker_timing_rows_observed += 1
                 if not isinstance(row.get("sec_to_expiry"), (int, float)) or not str(
                     row.get("market_reference_mode") or ""
@@ -532,13 +532,13 @@ def _critical_timing_evidence_audit(event_rows: List[Dict[str, Any]]) -> Tuple[D
             ):
                 accepted_taker_submit_missing_context_rows += 1
         elif submission_lane == "maker":
-            maker_context = row.get("maker_competitiveness")
+            maker_context = row.get("maker_market_viability")
             maker_timing_rows_observed += 1
             if (
                 not isinstance(maker_context, dict)
                 or not isinstance(maker_context.get("sec_to_expiry", row.get("sec_to_expiry")), (int, float))
-                or not isinstance(maker_context.get("timing_gate_min_sec_to_expiry"), (int, float))
-                or not isinstance(maker_context.get("timing_gate_max_sec_to_expiry"), (int, float))
+                or not isinstance(maker_context.get("maker_phase_allowed"), bool)
+                or not isinstance(maker_context.get("maker_gate_open"), bool)
                 or not str(
                     (maker_context if isinstance(maker_context, dict) else {}).get("market_reference_mode") or ""
                 ).strip()

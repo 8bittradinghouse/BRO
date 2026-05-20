@@ -881,6 +881,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         truth_text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
         next_plan_text = (REPO_ROOT / "docs" / "NEXT_PACKET_PLAN.md").read_text(encoding="utf-8")
         limits_text = (REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md").read_text(encoding="utf-8")
+        diagnostic_tools_text = (REPO_ROOT / "docs" / "BRO_DIAGNOSTIC_TOOLS.md").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("Maker Live Trust Qualification", packet_text)
         self.assertIn("## Packet-Local Lock Card", packet_text)
@@ -952,6 +955,8 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
             next_plan_text,
         )
         self.assertIn("canonical maker selection authority", next_plan_text)
+        self.assertIn("normal one-sided prunes", diagnostic_tools_text)
+        self.assertIn("not real blocker-family authority", diagnostic_tools_text)
         self.assertIn("recovery / unwind current-owner cut is materially landed", program_text)
         self.assertIn("compatibility readers, ignored dead-key support, and", program_text)
         self.assertIn("shared recovery / unwind spine = cut from the current", sink_text)

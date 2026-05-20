@@ -35,13 +35,13 @@ REPORT_FILES = [
     "soak_hardening_gate.json",
 ]
 SUPPORT_JSON_FILES = [
-    "maker_fight_admission_shadow_summary.json",
-    "maker_fight_admission_calibration_audit.json",
+    "maker_market_snapshot_summary.json",
+    "maker_market_snapshot_calibration_audit.json",
     "maker_cannon_late_window_probe_summary.json",
     "maker_mid_window_probe_summary.json",
 ]
 SUPPORT_JSONL_FILES = [
-    "maker_fight_admission_shadow.jsonl",
+    "maker_market_snapshot.jsonl",
     "maker_cannon_late_window_probe.jsonl",
     "maker_mid_window_probe.jsonl",
 ]
@@ -350,7 +350,7 @@ def _coerce_float(value: Any) -> float | None:
     return None
 
 
-def _maker_shadow_timing_band_class(sec_to_expiry: Any) -> str:
+def _maker_snapshot_timing_band_class(sec_to_expiry: Any) -> str:
     value = _coerce_float(sec_to_expiry)
     if value is None:
         return "unknown"
@@ -1192,8 +1192,8 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("maker_filled_orders", "nightly_soak_report.json", ("execution_paths", "maker_filled_orders")),
         ("maker_fill_rate", "nightly_soak_report.json", ("execution_paths", "maker_fill_rate")),
         ("maker_fire_rate_per_min", "nightly_soak_report.json", ("execution_paths", "maker_fire_rate_per_min")),
-        ("maker_timing_gate_blocked_decision", "nightly_soak_report.json", ("maker_competitiveness", "timing_gate_blocked_count_decision")),
-        ("maker_timing_gate_blocked_edge_eval", "nightly_soak_report.json", ("maker_competitiveness", "timing_gate_blocked_count_edge_eval")),
+        ("maker_timing_gate_blocked_decision", "nightly_soak_report.json", ("maker_market_viability", "timing_gate_blocked_count_decision")),
+        ("maker_timing_gate_blocked_edge_eval", "nightly_soak_report.json", ("maker_market_viability", "timing_gate_blocked_count_edge_eval")),
         ("maker_reference_direct_midpoint_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_direct_midpoint_activity")),
         ("maker_reference_missing_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_missing_activity")),
         ("maker_reference_direct_midpoint_action_activity", "nightly_soak_report.json", ("edge_truth", "maker_reference_direct_midpoint_action_activity")),
@@ -1972,23 +1972,23 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
                 "outcome_truth_records.jsonl",
                 "maker outcome truth records unavailable for forensic derivation",
             )
-    if support_rows.get("maker_fight_admission_shadow.jsonl") is not None:
+    if support_rows.get("maker_market_snapshot.jsonl") is not None:
         _record_derived(
             row,
             provenance,
-            "maker_admission_shadow_row_count",
-            float(len(support_rows.get("maker_fight_admission_shadow.jsonl") or [])),
-            "maker_fight_admission_shadow.jsonl",
-            "count of normalized maker fight admission shadow rows",
+            "maker_market_snapshot_row_count",
+            float(len(support_rows.get("maker_market_snapshot.jsonl") or [])),
+            "maker_market_snapshot.jsonl",
+            "count of normalized maker market snapshot rows",
         )
     else:
         _record_derived(
             row,
             provenance,
-            "maker_admission_shadow_row_count",
+            "maker_market_snapshot_row_count",
             None,
-            "maker_fight_admission_shadow.jsonl",
-            "maker fight admission shadow row artifact unavailable",
+            "maker_market_snapshot.jsonl",
+            "maker market snapshot row artifact unavailable",
         )
     if support_rows.get("maker_cannon_late_window_probe.jsonl") is not None:
         _record_derived(
@@ -2008,43 +2008,43 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
             "maker_cannon_late_window_probe.jsonl",
             "maker cannon late-window probe row artifact unavailable",
         )
-    shadow_specs = [
-        ("admission_rubric_version", "maker_fight_admission_shadow_summary.json", ("admission_rubric_version",)),
-        ("maker_cannon_shadow_version", "maker_fight_admission_shadow_summary.json", ("maker_cannon_shadow_version",)),
-        ("maker_admission_candidate_count", "maker_fight_admission_shadow_summary.json", ("population_class_counts", "candidate")),
-        ("maker_admission_external_blocked_count", "maker_fight_admission_shadow_summary.json", ("population_class_counts", "external_blocked")),
-        ("maker_admission_truth_thin_count", "maker_fight_admission_shadow_summary.json", ("population_class_counts", "truth_thin")),
-        ("maker_admission_clean_count", "maker_fight_admission_shadow_summary.json", ("admission_class_counts", "clean")),
-        ("maker_admission_borderline_count", "maker_fight_admission_shadow_summary.json", ("admission_class_counts", "borderline")),
-        ("maker_admission_trash_count", "maker_fight_admission_shadow_summary.json", ("admission_class_counts", "trash")),
-        ("maker_admission_submit_rate_by_class", "maker_fight_admission_shadow_summary.json", ("submit_rate_by_class",)),
-        ("maker_admission_complete_joined_count_by_class", "maker_fight_admission_shadow_summary.json", ("complete_joined_count_by_class",)),
-        ("maker_admission_complete_bad_ratio_by_class", "maker_fight_admission_shadow_summary.json", ("complete_bad_ratio_by_class",)),
-        ("maker_admission_multifill_incorrect_ratio_by_class", "maker_fight_admission_shadow_summary.json", ("multifill_incorrect_ratio_by_class",)),
-        ("maker_admission_dominant_driver_distribution", "maker_fight_admission_shadow_summary.json", ("dominant_driver_distribution",)),
-        ("maker_admission_top_trash_target_side_ref_counts", "maker_fight_admission_shadow_summary.json", ("top_trash_target_side_ref_counts",)),
-        ("maker_admission_top_clean_target_side_ref_counts", "maker_fight_admission_shadow_summary.json", ("top_clean_target_side_ref_counts",)),
-        ("maker_admission_cannon_window_class_distribution", "maker_fight_admission_shadow_summary.json", ("cannon_window_class_distribution",)),
-        ("maker_admission_timing_band_class_distribution", "maker_fight_admission_shadow_summary.json", ("maker_timing_band_class_distribution",)),
-        ("maker_admission_candidate_count_by_timing_band", "maker_fight_admission_shadow_summary.json", ("candidate_count_by_timing_band",)),
-        ("maker_admission_admission_class_distribution_by_timing_band", "maker_fight_admission_shadow_summary.json", ("admission_class_distribution_by_timing_band",)),
-        ("maker_admission_submitted_count_by_timing_band", "maker_fight_admission_shadow_summary.json", ("submitted_count_by_timing_band",)),
-        ("maker_admission_complete_joined_count_by_timing_band", "maker_fight_admission_shadow_summary.json", ("complete_joined_count_by_timing_band",)),
-        ("maker_admission_complete_bad_ratio_by_timing_band", "maker_fight_admission_shadow_summary.json", ("complete_bad_ratio_by_timing_band",)),
-        ("maker_admission_multifill_incorrect_ratio_by_timing_band", "maker_fight_admission_shadow_summary.json", ("multifill_incorrect_ratio_by_timing_band",)),
-        ("maker_admission_session_regime_class_distribution", "maker_fight_admission_shadow_summary.json", ("session_regime_class_distribution",)),
-        ("maker_admission_stack_pressure_class_distribution", "maker_fight_admission_shadow_summary.json", ("stack_pressure_class_distribution",)),
-        ("maker_admission_secondary_oracle_status_distribution", "maker_fight_admission_shadow_summary.json", ("secondary_oracle_status_distribution",)),
-        ("maker_admission_secondary_oracle_confirmation_distribution", "maker_fight_admission_shadow_summary.json", ("secondary_oracle_confirmation_distribution",)),
-        ("maker_admission_cannon_depth_requirement_counts", "maker_fight_admission_shadow_summary.json", ("cannon_depth_requirement_counts",)),
-        ("maker_admission_depth_multiple_vs_cannon_target_summary", "maker_fight_admission_shadow_summary.json", ("depth_multiple_vs_cannon_target_summary",)),
-        ("maker_admission_outcome_truth_status_distribution_by_class", "maker_fight_admission_calibration_audit.json", ("outcome_truth_status_distribution_by_class",)),
-        ("maker_admission_claim_boundary_class_distribution_by_class", "maker_fight_admission_calibration_audit.json", ("claim_boundary_class_distribution_by_class",)),
-        ("maker_admission_evaluation_horizon_ms_distribution_by_class", "maker_fight_admission_calibration_audit.json", ("evaluation_horizon_ms_distribution_by_class",)),
-        ("maker_admission_clean_but_bad_examples", "maker_fight_admission_calibration_audit.json", ("clean_but_bad_examples",)),
-        ("maker_admission_trash_but_okay_examples", "maker_fight_admission_calibration_audit.json", ("trash_but_okay_examples",)),
+    snapshot_specs = [
+        ("admission_rubric_version", "maker_market_snapshot_summary.json", ("admission_rubric_version",)),
+        ("maker_market_snapshot_version", "maker_market_snapshot_summary.json", ("maker_market_snapshot_version",)),
+        ("maker_admission_candidate_count", "maker_market_snapshot_summary.json", ("population_class_counts", "candidate")),
+        ("maker_admission_external_blocked_count", "maker_market_snapshot_summary.json", ("population_class_counts", "external_blocked")),
+        ("maker_admission_truth_thin_count", "maker_market_snapshot_summary.json", ("population_class_counts", "truth_thin")),
+        ("maker_admission_clean_count", "maker_market_snapshot_summary.json", ("admission_class_counts", "clean")),
+        ("maker_admission_borderline_count", "maker_market_snapshot_summary.json", ("admission_class_counts", "borderline")),
+        ("maker_admission_trash_count", "maker_market_snapshot_summary.json", ("admission_class_counts", "trash")),
+        ("maker_admission_submit_rate_by_class", "maker_market_snapshot_summary.json", ("submit_rate_by_class",)),
+        ("maker_admission_complete_joined_count_by_class", "maker_market_snapshot_summary.json", ("complete_joined_count_by_class",)),
+        ("maker_admission_complete_bad_ratio_by_class", "maker_market_snapshot_summary.json", ("complete_bad_ratio_by_class",)),
+        ("maker_admission_multifill_incorrect_ratio_by_class", "maker_market_snapshot_summary.json", ("multifill_incorrect_ratio_by_class",)),
+        ("maker_admission_dominant_driver_distribution", "maker_market_snapshot_summary.json", ("dominant_driver_distribution",)),
+        ("maker_admission_top_trash_target_side_ref_counts", "maker_market_snapshot_summary.json", ("top_trash_target_side_ref_counts",)),
+        ("maker_admission_top_clean_target_side_ref_counts", "maker_market_snapshot_summary.json", ("top_clean_target_side_ref_counts",)),
+        ("maker_admission_cannon_window_class_distribution", "maker_market_snapshot_summary.json", ("cannon_window_class_distribution",)),
+        ("maker_admission_timing_band_class_distribution", "maker_market_snapshot_summary.json", ("maker_timing_band_class_distribution",)),
+        ("maker_admission_candidate_count_by_timing_band", "maker_market_snapshot_summary.json", ("candidate_count_by_timing_band",)),
+        ("maker_admission_admission_class_distribution_by_timing_band", "maker_market_snapshot_summary.json", ("admission_class_distribution_by_timing_band",)),
+        ("maker_admission_submitted_count_by_timing_band", "maker_market_snapshot_summary.json", ("submitted_count_by_timing_band",)),
+        ("maker_admission_complete_joined_count_by_timing_band", "maker_market_snapshot_summary.json", ("complete_joined_count_by_timing_band",)),
+        ("maker_admission_complete_bad_ratio_by_timing_band", "maker_market_snapshot_summary.json", ("complete_bad_ratio_by_timing_band",)),
+        ("maker_admission_multifill_incorrect_ratio_by_timing_band", "maker_market_snapshot_summary.json", ("multifill_incorrect_ratio_by_timing_band",)),
+        ("maker_admission_session_regime_class_distribution", "maker_market_snapshot_summary.json", ("session_regime_class_distribution",)),
+        ("maker_admission_stack_pressure_class_distribution", "maker_market_snapshot_summary.json", ("stack_pressure_class_distribution",)),
+        ("maker_admission_secondary_oracle_status_distribution", "maker_market_snapshot_summary.json", ("secondary_oracle_status_distribution",)),
+        ("maker_admission_secondary_oracle_confirmation_distribution", "maker_market_snapshot_summary.json", ("secondary_oracle_confirmation_distribution",)),
+        ("maker_admission_cannon_depth_requirement_counts", "maker_market_snapshot_summary.json", ("cannon_depth_requirement_counts",)),
+        ("maker_admission_depth_multiple_vs_cannon_target_summary", "maker_market_snapshot_summary.json", ("depth_multiple_vs_cannon_target_summary",)),
+        ("maker_admission_outcome_truth_status_distribution_by_class", "maker_market_snapshot_calibration_audit.json", ("outcome_truth_status_distribution_by_class",)),
+        ("maker_admission_claim_boundary_class_distribution_by_class", "maker_market_snapshot_calibration_audit.json", ("claim_boundary_class_distribution_by_class",)),
+        ("maker_admission_evaluation_horizon_ms_distribution_by_class", "maker_market_snapshot_calibration_audit.json", ("evaluation_horizon_ms_distribution_by_class",)),
+        ("maker_admission_clean_but_bad_examples", "maker_market_snapshot_calibration_audit.json", ("clean_but_bad_examples",)),
+        ("maker_admission_trash_but_okay_examples", "maker_market_snapshot_calibration_audit.json", ("trash_but_okay_examples",)),
     ]
-    for field_name, source_name, path in shadow_specs:
+    for field_name, source_name, path in snapshot_specs:
         _record_path(row, provenance, loaded, field_name, source_name, path)
     cannon_probe_specs = [
         ("maker_cannon_probe_version", "maker_cannon_late_window_probe_summary.json", ("maker_cannon_probe_version",)),
@@ -2812,7 +2812,7 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "eval_reference_basis_distribution": dict(maker_basis_eval.most_common()),
             },
         },
-        "maker_admission_shadow": {
+        "maker_market_snapshot_admission": {
             "run_scope": "single_run" if len(rows) == 1 else "corpus",
             "population_class_counts": {
                 key: int(maker_admission_population_counts[key])
@@ -3048,7 +3048,7 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
     coverage = anomaly_summary["coverage"]["field_coverage"]
     engineer_focus = anomaly_summary.get("engineer_focus", {})
     maker_forensics = anomaly_summary.get("maker_forensics", {})
-    maker_admission_shadow = anomaly_summary.get("maker_admission_shadow", {})
+    maker_market_snapshot_admission = anomaly_summary.get("maker_market_snapshot_admission", {})
     maker_cannon_probe = anomaly_summary.get("maker_cannon_probe", {})
     maker_truth_population_note = anomaly_summary.get("maker_truth_population_note", {})
     core_coverage_fields = [
@@ -3129,31 +3129,31 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         f"- Fill-count quality distribution: `{json.dumps(maker_forensics.get('maker_fill_count_quality_distribution', {}), sort_keys=True)}`",
         f"- Reference basis summary: `{json.dumps(maker_forensics.get('maker_reference_basis_summary', {}), sort_keys=True)}`",
         "",
-        "## Maker Admission Shadow",
-        f"- Population counts: `{json.dumps(maker_admission_shadow.get('population_class_counts', {}), sort_keys=True)}`",
-        f"- Admission class counts: `{json.dumps(maker_admission_shadow.get('admission_class_counts', {}), sort_keys=True)}`",
-        f"- Submit-rate-by-class summary: `{json.dumps(maker_admission_shadow.get('submit_rate_by_class_summary', {}), sort_keys=True)}`",
-        f"- Complete bad-ratio-by-class summary: `{json.dumps(maker_admission_shadow.get('complete_bad_ratio_by_class_summary', {}), sort_keys=True)}`",
-        f"- Multifill incorrect-ratio-by-class summary: `{json.dumps(maker_admission_shadow.get('multifill_incorrect_ratio_by_class_summary', {}), sort_keys=True)}`",
-        f"- Dominant drivers: `{json.dumps(maker_admission_shadow.get('dominant_driver_counts', {}), sort_keys=True)}`",
-        f"- Top trash target-side cohorts: `{json.dumps(maker_admission_shadow.get('top_trash_target_side_ref_counts', {}), sort_keys=True)}`",
-        f"- Top clean target-side cohorts: `{json.dumps(maker_admission_shadow.get('top_clean_target_side_ref_counts', {}), sort_keys=True)}`",
-        f"- Cannon window classes: `{json.dumps(maker_admission_shadow.get('cannon_window_class_counts', {}), sort_keys=True)}`",
-        f"- Maker timing bands: `{json.dumps(maker_admission_shadow.get('maker_timing_band_class_counts', {}), sort_keys=True)}`",
-        f"- Candidate count by timing band: `{json.dumps(maker_admission_shadow.get('candidate_count_by_timing_band', {}), sort_keys=True)}`",
-        f"- Submitted count by timing band: `{json.dumps(maker_admission_shadow.get('submitted_count_by_timing_band', {}), sort_keys=True)}`",
-        f"- Complete joined count by timing band: `{json.dumps(maker_admission_shadow.get('complete_joined_count_by_timing_band', {}), sort_keys=True)}`",
-        f"- Admission-class distribution by timing band: `{json.dumps(maker_admission_shadow.get('admission_class_distribution_by_timing_band', {}), sort_keys=True)}`",
-        f"- Complete bad-ratio-by-timing-band summary: `{json.dumps(maker_admission_shadow.get('complete_bad_ratio_by_timing_band_summary', {}), sort_keys=True)}`",
-        f"- Multifill incorrect-ratio-by-timing-band summary: `{json.dumps(maker_admission_shadow.get('multifill_incorrect_ratio_by_timing_band_summary', {}), sort_keys=True)}`",
-        f"- Session regime classes: `{json.dumps(maker_admission_shadow.get('session_regime_class_counts', {}), sort_keys=True)}`",
-        f"- Stack pressure classes: `{json.dumps(maker_admission_shadow.get('stack_pressure_class_counts', {}), sort_keys=True)}`",
-        f"- Secondary-oracle status counts: `{json.dumps(maker_admission_shadow.get('secondary_oracle_status_counts', {}), sort_keys=True)}`",
-        f"- Secondary-oracle confirmation counts: `{json.dumps(maker_admission_shadow.get('secondary_oracle_confirmation_counts', {}), sort_keys=True)}`",
-        f"- Cannon depth-requirement counts: `{json.dumps(maker_admission_shadow.get('cannon_depth_requirement_counts', {}), sort_keys=True)}`",
-        f"- Depth-multiple-vs-cannon summary: `{json.dumps(maker_admission_shadow.get('depth_multiple_vs_cannon_target_summary', {}), sort_keys=True)}`",
-        f"- Clean-but-bad examples: `{json.dumps(maker_admission_shadow.get('clean_but_bad_examples', []), sort_keys=True)}`",
-        f"- Trash-but-okay examples: `{json.dumps(maker_admission_shadow.get('trash_but_okay_examples', []), sort_keys=True)}`",
+        "## Maker Market Snapshot Admission",
+        f"- Population counts: `{json.dumps(maker_market_snapshot_admission.get('population_class_counts', {}), sort_keys=True)}`",
+        f"- Admission class counts: `{json.dumps(maker_market_snapshot_admission.get('admission_class_counts', {}), sort_keys=True)}`",
+        f"- Submit-rate-by-class summary: `{json.dumps(maker_market_snapshot_admission.get('submit_rate_by_class_summary', {}), sort_keys=True)}`",
+        f"- Complete bad-ratio-by-class summary: `{json.dumps(maker_market_snapshot_admission.get('complete_bad_ratio_by_class_summary', {}), sort_keys=True)}`",
+        f"- Multifill incorrect-ratio-by-class summary: `{json.dumps(maker_market_snapshot_admission.get('multifill_incorrect_ratio_by_class_summary', {}), sort_keys=True)}`",
+        f"- Dominant drivers: `{json.dumps(maker_market_snapshot_admission.get('dominant_driver_counts', {}), sort_keys=True)}`",
+        f"- Top trash target-side cohorts: `{json.dumps(maker_market_snapshot_admission.get('top_trash_target_side_ref_counts', {}), sort_keys=True)}`",
+        f"- Top clean target-side cohorts: `{json.dumps(maker_market_snapshot_admission.get('top_clean_target_side_ref_counts', {}), sort_keys=True)}`",
+        f"- Cannon window classes: `{json.dumps(maker_market_snapshot_admission.get('cannon_window_class_counts', {}), sort_keys=True)}`",
+        f"- Maker timing bands: `{json.dumps(maker_market_snapshot_admission.get('maker_timing_band_class_counts', {}), sort_keys=True)}`",
+        f"- Candidate count by timing band: `{json.dumps(maker_market_snapshot_admission.get('candidate_count_by_timing_band', {}), sort_keys=True)}`",
+        f"- Submitted count by timing band: `{json.dumps(maker_market_snapshot_admission.get('submitted_count_by_timing_band', {}), sort_keys=True)}`",
+        f"- Complete joined count by timing band: `{json.dumps(maker_market_snapshot_admission.get('complete_joined_count_by_timing_band', {}), sort_keys=True)}`",
+        f"- Admission-class distribution by timing band: `{json.dumps(maker_market_snapshot_admission.get('admission_class_distribution_by_timing_band', {}), sort_keys=True)}`",
+        f"- Complete bad-ratio-by-timing-band summary: `{json.dumps(maker_market_snapshot_admission.get('complete_bad_ratio_by_timing_band_summary', {}), sort_keys=True)}`",
+        f"- Multifill incorrect-ratio-by-timing-band summary: `{json.dumps(maker_market_snapshot_admission.get('multifill_incorrect_ratio_by_timing_band_summary', {}), sort_keys=True)}`",
+        f"- Session regime classes: `{json.dumps(maker_market_snapshot_admission.get('session_regime_class_counts', {}), sort_keys=True)}`",
+        f"- Stack pressure classes: `{json.dumps(maker_market_snapshot_admission.get('stack_pressure_class_counts', {}), sort_keys=True)}`",
+        f"- Secondary-oracle status counts: `{json.dumps(maker_market_snapshot_admission.get('secondary_oracle_status_counts', {}), sort_keys=True)}`",
+        f"- Secondary-oracle confirmation counts: `{json.dumps(maker_market_snapshot_admission.get('secondary_oracle_confirmation_counts', {}), sort_keys=True)}`",
+        f"- Cannon depth-requirement counts: `{json.dumps(maker_market_snapshot_admission.get('cannon_depth_requirement_counts', {}), sort_keys=True)}`",
+        f"- Depth-multiple-vs-cannon summary: `{json.dumps(maker_market_snapshot_admission.get('depth_multiple_vs_cannon_target_summary', {}), sort_keys=True)}`",
+        f"- Clean-but-bad examples: `{json.dumps(maker_market_snapshot_admission.get('clean_but_bad_examples', []), sort_keys=True)}`",
+        f"- Trash-but-okay examples: `{json.dumps(maker_market_snapshot_admission.get('trash_but_okay_examples', []), sort_keys=True)}`",
         "",
         "## Maker Cannon Late-Window Probe",
         f"- Population counts: `{json.dumps(maker_cannon_probe.get('population_class_counts', {}), sort_keys=True)}`",
@@ -3230,7 +3230,7 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
 def _build_maker_admission_target_side_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: defaultdict[str, dict[str, Any]] = defaultdict(
         lambda: {
-            "shadow_row_count": 0.0,
+            "snapshot_row_count": 0.0,
             "candidate_count": 0.0,
             "clean_count": 0.0,
             "borderline_count": 0.0,
@@ -3247,7 +3247,7 @@ def _build_maker_admission_target_side_summary(rows: list[dict[str, Any]]) -> li
         if not target_side_ref:
             continue
         bucket = grouped[target_side_ref]
-        bucket["shadow_row_count"] += 1.0
+        bucket["snapshot_row_count"] += 1.0
         run_id = str(row.get("run_id") or "").strip()
         if run_id:
             bucket["source_runs"].add(run_id)
@@ -3271,7 +3271,7 @@ def _build_maker_admission_target_side_summary(rows: list[dict[str, Any]]) -> li
         summary.append(
             {
                 "target_side_ref": target_side_ref,
-                "shadow_row_count": float(bucket["shadow_row_count"]),
+                "snapshot_row_count": float(bucket["snapshot_row_count"]),
                 "candidate_count": float(bucket["candidate_count"]),
                 "clean_count": float(bucket["clean_count"]),
                 "borderline_count": float(bucket["borderline_count"]),
@@ -3315,7 +3315,7 @@ def _maker_admission_example_rows(rows: list[dict[str, Any]]) -> list[dict[str, 
                 "outcome_truth_status": row.get("outcome_truth_status"),
                 "queue_delta_shares": row.get("queue_delta_shares"),
                 "fill_prob_margin": row.get("fill_prob_margin"),
-                "same_target_side_shadow_count_prior": row.get("same_target_side_shadow_count_prior"),
+                "same_target_side_snapshot_count_prior": row.get("same_target_side_snapshot_count_prior"),
             }
         )
     return examples
@@ -3338,7 +3338,7 @@ def _build_maker_admission_bundle_outputs(
     top_trash_target_side_counts: Counter[str] = Counter()
     top_clean_target_side_counts: Counter[str] = Counter()
     rubric_version_counts: Counter[str] = Counter()
-    cannon_shadow_version_counts: Counter[str] = Counter()
+    snapshot_version_counts: Counter[str] = Counter()
     cannon_window_counts: Counter[str] = Counter()
     maker_timing_band_counts: Counter[str] = Counter()
     candidate_counts_by_timing_band: Counter[str] = Counter()
@@ -3359,15 +3359,15 @@ def _build_maker_admission_bundle_outputs(
         rubric_version = row.get("admission_rubric_version")
         if rubric_version is not None:
             rubric_version_counts[str(rubric_version)] += 1
-        cannon_shadow_version = row.get("maker_cannon_shadow_version")
-        if cannon_shadow_version is not None:
-            cannon_shadow_version_counts[str(cannon_shadow_version)] += 1
+        snapshot_version = row.get("maker_market_snapshot_version")
+        if snapshot_version is not None:
+            snapshot_version_counts[str(snapshot_version)] += 1
         population_class = str(row.get("population_class") or "")
         if population_class:
             population_counts[population_class] += 1
         cannon_window_counts[str(row.get("cannon_window_class") or "unknown")] += 1
         maker_timing_band = str(
-            row.get("maker_timing_band_class") or _maker_shadow_timing_band_class(row.get("sec_to_expiry"))
+            row.get("maker_timing_band_class") or _maker_snapshot_timing_band_class(row.get("sec_to_expiry"))
         )
         maker_timing_band_counts[maker_timing_band] += 1
         session_regime_counts[str(row.get("session_regime_class") or "unknown")] += 1
@@ -3447,22 +3447,22 @@ def _build_maker_admission_bundle_outputs(
             bundle_rubric_version = int(only_key) if only_key.isdigit() else only_key
         else:
             bundle_rubric_version = "mixed"
-    bundle_cannon_shadow_version: str | int | None = None
-    if cannon_shadow_version_counts:
-        if len(cannon_shadow_version_counts) == 1:
-            only_key = next(iter(cannon_shadow_version_counts))
-            bundle_cannon_shadow_version = int(only_key) if only_key.isdigit() else only_key
+    bundle_snapshot_version: str | int | None = None
+    if snapshot_version_counts:
+        if len(snapshot_version_counts) == 1:
+            only_key = next(iter(snapshot_version_counts))
+            bundle_snapshot_version = int(only_key) if only_key.isdigit() else only_key
         else:
-            bundle_cannon_shadow_version = "mixed"
+            bundle_snapshot_version = "mixed"
 
     summary = {
         "admission_rubric_version": bundle_rubric_version,
-        "maker_cannon_shadow_version": bundle_cannon_shadow_version,
+        "maker_market_snapshot_version": bundle_snapshot_version,
         "admission_rubric_version_distribution": {
             key: int(value) for key, value in sorted(rubric_version_counts.items())
         },
-        "maker_cannon_shadow_version_distribution": {
-            key: int(value) for key, value in sorted(cannon_shadow_version_counts.items())
+        "maker_market_snapshot_version_distribution": {
+            key: int(value) for key, value in sorted(snapshot_version_counts.items())
         },
         "row_count": int(len(rows)),
         "population_class_counts": {key: int(population_counts[key]) for key in sorted(population_counts)},
@@ -3566,9 +3566,9 @@ def _build_maker_admission_bundle_outputs(
     }
     calibration_audit = {
         "admission_rubric_version": summary["admission_rubric_version"],
-        "maker_cannon_shadow_version": summary["maker_cannon_shadow_version"],
+        "maker_market_snapshot_version": summary["maker_market_snapshot_version"],
         "admission_rubric_version_distribution": summary["admission_rubric_version_distribution"],
-        "maker_cannon_shadow_version_distribution": summary["maker_cannon_shadow_version_distribution"],
+        "maker_market_snapshot_version_distribution": summary["maker_market_snapshot_version_distribution"],
         "population_class_counts": summary["population_class_counts"],
         "admission_class_counts": summary["admission_class_counts"],
         "complete_joined_count_by_class": summary["complete_joined_count_by_class"],
@@ -4685,7 +4685,7 @@ def harvest_reports(
     selected_run_dirs = _discover_run_dirs(report_root, run_id, limit, selected_run_ids_filter)
     rows: list[dict[str, Any]] = []
     metric_catalog_accumulator: dict[str, dict[str, dict[str, Any]]] = {}
-    maker_admission_shadow_rows: list[dict[str, Any]] = []
+    maker_market_snapshot_rows: list[dict[str, Any]] = []
     maker_cannon_probe_rows: list[dict[str, Any]] = []
     maker_mid_window_probe_rows: list[dict[str, Any]] = []
 
@@ -4697,15 +4697,15 @@ def harvest_reports(
         for source_name, data in loaded.items():
             _update_metric_catalog(metric_catalog_accumulator, source_name, data)
         _, support_jsonl, _ = _load_support_artifacts(run_dir)
-        for shadow_row in support_jsonl.get("maker_fight_admission_shadow.jsonl", []):
-            normalized_shadow_row = dict(shadow_row)
-            normalized_shadow_row.setdefault("run_id", row.get("run_id"))
-            normalized_shadow_row.setdefault("admission_rubric_version", row.get("admission_rubric_version"))
-            normalized_shadow_row.setdefault(
+        for snapshot_row in support_jsonl.get("maker_market_snapshot.jsonl", []):
+            normalized_snapshot_row = dict(snapshot_row)
+            normalized_snapshot_row.setdefault("run_id", row.get("run_id"))
+            normalized_snapshot_row.setdefault("admission_rubric_version", row.get("admission_rubric_version"))
+            normalized_snapshot_row.setdefault(
                 "maker_timing_band_class",
-                _maker_shadow_timing_band_class(normalized_shadow_row.get("sec_to_expiry")),
+                _maker_snapshot_timing_band_class(normalized_snapshot_row.get("sec_to_expiry")),
             )
-            maker_admission_shadow_rows.append(normalized_shadow_row)
+            maker_market_snapshot_rows.append(normalized_snapshot_row)
         for probe_row in support_jsonl.get("maker_cannon_late_window_probe.jsonl", []):
             normalized_probe_row = dict(probe_row)
             normalized_probe_row.setdefault("run_id", row.get("run_id"))
@@ -4720,9 +4720,9 @@ def harvest_reports(
     summary_csv_path = out_dir / "maker_taker_summary.csv"
     anomaly_summary_path = out_dir / "anomaly_summary.json"
     research_pack_path = out_dir / "maker_research_pack.md"
-    maker_admission_shadow_rows_path = out_dir / "maker_fight_admission_shadow_rows.jsonl"
-    maker_admission_shadow_summary_path = out_dir / "maker_fight_admission_shadow_summary.json"
-    maker_admission_calibration_audit_path = out_dir / "maker_fight_admission_calibration_audit.json"
+    maker_market_snapshot_rows_path = out_dir / "maker_market_snapshot_rows.jsonl"
+    maker_market_snapshot_summary_path = out_dir / "maker_market_snapshot_summary.json"
+    maker_admission_calibration_audit_path = out_dir / "maker_market_snapshot_calibration_audit.json"
     maker_admission_target_side_summary_path = out_dir / "maker_admission_target_side_summary.json"
     maker_cannon_probe_rows_path = out_dir / "maker_cannon_late_window_probe_rows.jsonl"
     maker_cannon_probe_summary_path = out_dir / "maker_cannon_late_window_probe_summary.json"
@@ -4748,22 +4748,22 @@ def harvest_reports(
     anomaly_summary = build_anomaly_summary(rows)
     anomaly_summary_path.write_text(json.dumps(anomaly_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     research_pack_path.write_text(build_maker_research_pack(rows, anomaly_summary), encoding="utf-8")
-    maker_admission_shadow_rows.sort(
+    maker_market_snapshot_rows.sort(
         key=lambda item: (
             str(item.get("run_id") or ""),
             str(item.get("target_side_ref") or ""),
             str(item.get("ts_decision_utc") or ""),
-            str(item.get("admission_shadow_id") or ""),
+            str(item.get("market_snapshot_id") or ""),
         )
     )
-    with maker_admission_shadow_rows_path.open("w", encoding="utf-8") as handle:
-        for shadow_row in maker_admission_shadow_rows:
-            handle.write(json.dumps(shadow_row, sort_keys=True) + "\n")
-    maker_admission_shadow_summary, maker_admission_calibration_audit = _build_maker_admission_bundle_outputs(
-        maker_admission_shadow_rows
+    with maker_market_snapshot_rows_path.open("w", encoding="utf-8") as handle:
+        for snapshot_row in maker_market_snapshot_rows:
+            handle.write(json.dumps(snapshot_row, sort_keys=True) + "\n")
+    maker_market_snapshot_summary, maker_admission_calibration_audit = _build_maker_admission_bundle_outputs(
+        maker_market_snapshot_rows
     )
-    maker_admission_shadow_summary_path.write_text(
-        json.dumps(maker_admission_shadow_summary, indent=2, sort_keys=True) + "\n",
+    maker_market_snapshot_summary_path.write_text(
+        json.dumps(maker_market_snapshot_summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     maker_admission_calibration_audit_path.write_text(
@@ -4771,7 +4771,7 @@ def harvest_reports(
         encoding="utf-8",
     )
     maker_admission_target_side_summary = _build_maker_admission_target_side_summary(
-        maker_admission_shadow_rows
+        maker_market_snapshot_rows
     )
     maker_admission_target_side_summary_path.write_text(
         json.dumps(maker_admission_target_side_summary, indent=2, sort_keys=True) + "\n",
@@ -4833,9 +4833,9 @@ def harvest_reports(
         "maker_taker_summary_csv": summary_csv_path,
         "anomaly_summary_json": anomaly_summary_path,
         "maker_research_pack_md": research_pack_path,
-        "maker_fight_admission_shadow_rows_jsonl": maker_admission_shadow_rows_path,
-        "maker_fight_admission_shadow_summary_json": maker_admission_shadow_summary_path,
-        "maker_fight_admission_calibration_audit_json": maker_admission_calibration_audit_path,
+        "maker_market_snapshot_rows_jsonl": maker_market_snapshot_rows_path,
+        "maker_market_snapshot_summary_json": maker_market_snapshot_summary_path,
+        "maker_market_snapshot_calibration_audit_json": maker_admission_calibration_audit_path,
         "maker_admission_target_side_summary_json": maker_admission_target_side_summary_path,
         "maker_cannon_late_window_probe_rows_jsonl": maker_cannon_probe_rows_path,
         "maker_cannon_late_window_probe_summary_json": maker_cannon_probe_summary_path,

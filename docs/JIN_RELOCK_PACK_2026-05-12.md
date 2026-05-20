@@ -32,21 +32,52 @@ Do not use this pack as:
 ## Legal Vs Illegal Relock
 Relock is `GO` only when:
 - the strongest owner is identified cleanly
+- the timing-chain owner is identified cleanly
 - the disease statement is concrete
 - the shared foundation under the loudest symptoms is named honestly
+- the House / frame mission stack is compressed cleanly
 - the no-change steel is explicit
+- paired semantic and timing audits are both present
 - support surfaces are fenced from owner-law
 - history is quarantined from present-tense pickup
 - the lock score thresholds are met
 
 Relock is `NO-GO` when:
 - the agent cannot compress mission/doctrine/owner/disease cleanly
+- the House is being treated like it exists for the frame instead of the frame
+  existing for the House
+- semantic drift is being audited without timing-chain drift, or timing-chain
+  drift is being audited without semantic drift
 - wrapper mood outranks runtime truth
 - support tools are speaking as owner-law
 - packet order is stale or contradictory
 - the fix story is tuning on dirty foundations
+- brittle point-law is replacing bounded safe-band doctrine at a lower layer
+- one more helper or shim is being proposed before the existing path is proven
+  insufficient
 - subsystem warnings are being optimized before the shared transmission layer is
   inspected
+
+## Mutual-Proof Override Law
+Default discipline is hard.
+
+Meaning:
+- Jin is expected to hold the process and refuse to skip relock or surgery-prep
+  law by momentum
+- Robb is expected to challenge, redirect, or override only by explicit logic,
+  not by urgency or frustration
+- overrides are legal when the stronger logic is real and stated clearly
+
+Hard rule:
+- no doctrine, packet order, or surgery-prep default may be overridden by vibe
+  alone
+- no old written doctrine wins automatically just because it is written
+- no new instinct wins automatically just because it feels right
+- the stronger explicit logic wins, but it must be named and written down
+
+Plain-English:
+we do the process together every time, but Jin must be the discipline that
+holds the line until a real logic-based override is proven.
 
 ## Public Front Door
 - `VERIFIED`: canonical paper proving front door remains:
@@ -75,8 +106,10 @@ Relock is `NO-GO` when:
 - same required outputs as `quick relock`
 - plus:
   - strongest runtime owner surface
+  - timing-chain owner surface
   - shared-foundation inspection order
   - under-the-hood inspection order
+  - timing-band tolerance map
   - wrapper distrust note
 
 ### `surgery relock`
@@ -85,8 +118,11 @@ Relock is `NO-GO` when:
 - plus:
   - slice legality call
   - no-build-solutions lock
+  - paired semantic + timing audit
   - post-cut coherence plan
   - residue disposition map
+  - explicit surgery end-state declaration
+  - mandatory surgery-prep cadence proof
   - packet-local overlay handoff when relevant
 
 ### `hostile reread relock`
@@ -126,6 +162,29 @@ Internalization law:
   - no-change steel
 - if the restatement is thin, contradictory, or vague, the pack is `NO-GO`
 
+Mission-compression law:
+- the mission line must state House truth plainly when it is relevant:
+  - `8bit ODA` is the House / ship
+  - `BRO` is a proving frame serving the House
+  - the war is extractive economic captivity
+  - the freedom target is money plus time
+  - scale is for bloodline endurance and stewardship, not vanity
+
+## House / Frame Compression
+Use this compression when the packet touches mission architecture, frame
+lineage, or scale truth:
+
+- `8bit ODA` = House / ship / continuity body
+- `BRO` = first proving frame and prospective ancestor frame
+- future descendant frames must inherit one doctrine, one timing law, one
+  security law, and one report language
+- AI specialists are native assets and lawful interfaces in hostile terrain,
+  not the mission owner or the moral center
+- the House tells the truth and may not scale through corruption, deception,
+  or harm
+- the House is truly underway only when descendant-frame output is reliable
+  enough to create real money-and-time freedom rather than mere activity
+
 ## Comms Routing Guard
 Shared user-to-Jin tag semantics are part of relock legality, not optional
 style.
@@ -152,17 +211,25 @@ Score these categories:
 - doctrine lock
 - authority lock
 - pathology lock
+- house-mission lock
+- timing-authority lock
+- timing-band discipline
 - runtime-owner lock
 - pickup-routing lock
 - support-boundary lock
 - history-quarantine lock
 - proof-plan lock
+- no-build-solutions discipline
 - post-cut coherence discipline
 - residue extinction follow-through
 
 `GO` only if:
-- mission / doctrine / authority / pathology / runtime-owner are each `>=95`
+- mission / doctrine / authority / pathology / house-mission lock /
+  timing-authority /
+  runtime-owner are each `>=95`
 - on surgery relock, hostile reread relock, or post-cut closeout:
+  - `timing-band discipline >=95`
+  - `no-build-solutions discipline >=95`
   - `post-cut coherence discipline >=95`
   - `residue extinction follow-through >=95`
 - no category is `<90`
@@ -177,6 +244,92 @@ Otherwise:
 - do not route to journal/archive or broader reflection surfaces by default;
   those are escalation tools only if the relock remains thin after the
   hardening pass
+
+## Paired Semantic And Timing Audit
+Every serious relock must run four linked checks:
+1. owner audit
+2. semantic audit
+3. timing-authority audit
+4. timing-band audit
+
+Required ownership/application questions:
+- is the candidate actionable or mathematically impossible under current
+  canonical execution geometry?
+- is the owned market still provisional, or has it crossed into committed
+  ownership where challenger logic should be demoted?
+- is an old surface being kept because it is real steel under the right owner,
+  or because slag still has hidden gravity?
+
+Required timing law:
+- top-level timing authority is hard law
+- lower-layer gate application may use bounded safe bands only when a stronger
+  central owner defines them
+- downstream layers may not invent local grace windows, tolerances, or edge
+  reinterpretations
+
+Required contradiction question:
+- is a supposed failure actually a real doctrine breach, or just a harmless
+  small variance that still sits inside the centrally owned safe band?
+- is a supposed `quality candidate` actually non-actionable truth that should
+  have died upstream?
+
+## Mandatory Surgery Prep Cadence
+Before any live-body mutation, surgery relock must prove a `3 / 3 / 3` cadence.
+
+### Three mapping passes
+1. `family-bedrock map`
+   - map from the surface id/tag family down through:
+     - strongest owner
+     - shadow owner
+     - accessories
+     - runtime/report/validator contacts
+     - bedrock substrate
+2. `goal-fit / encoded-steel map`
+   - ask what BRO actually needs
+   - identify what heavy encoded material can be reused, remodeled, or
+     promoted under the correct owner before cutting easier junk
+3. `value/disposition map`
+   - classify what is:
+     - true authority steel
+     - reporting/diagnostic-only value
+     - historical-only value
+     - waste / false power
+
+### Three planning passes
+1. `end-state declaration`
+   - patient family
+   - intended disposition:
+     - `extinct`
+     - `refine_into_steel`
+     - `rehome_or_fence`
+     - `remodel`
+2. `cut/remodel plan`
+   - what dies completely
+   - what survives
+   - what gets reporting-only demotion
+   - what semantics/timing alignment work is required
+3. `proof / blast-radius plan`
+   - top-down docs-to-runtime checks
+   - no-change steel
+   - rollback and residual-risk plan
+
+### Three post-surgery hostile audits
+1. `runtime-owner hostile audit`
+   - does the stronger runtime owner now tell the intended story?
+2. `top-down doctrine hostile audit`
+   - are doctrine, timing, semantics, validators, reports, and operator truth
+     fully aligned?
+3. `residue / waste hostile audit`
+   - was waste made truly extinct?
+   - was retained material demoted or promoted honestly?
+
+Failure rule:
+- if the `3 / 3 / 3` cadence is not explicit, surgery relock is `NO-GO`
+- no move to mutation, closeout, or next packet is legal from a thin or
+  partially completed surgery-prep cadence
+- exception is legal only when the logic for skipping a piece is explicitly
+  agreed and written down as a named override instead of being assumed by
+  momentum
 
 ## Post-Cut Coherence Gate
 This gate is mandatory when:
@@ -361,6 +514,13 @@ Must never impersonate:
 
 Drift smell when misused:
 - support tools sounding sovereign because they are tidy
+- schoolhouse / toolbox material being treated like BRO-local owner truth
+
+Schoolhouse rule:
+- `schoolhouse` means VPS-level external toolbox / study material
+- it is not BRO and it carries zero owner authority
+- if schoolhouse-derived material appears in a relock, treat it as
+  support-only at best and never as pickup or owner-law
 
 ### `historical-only / quarantine`
 Use for:
@@ -491,6 +651,7 @@ Handoff law:
 - shallow relock that sounds right without demonstrating absorbed truth
 - wrapper summaries outranking runtime owners
 - support-tool promotion into live authority
+- schoolhouse/toolbox material masquerading as BRO-local owner truth
 - stale packet order quietly steering current work
 - packet-local surgery beginning without anti-drift ritual
 - duplicate path or duplicate owner drift

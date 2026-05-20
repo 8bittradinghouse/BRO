@@ -88,7 +88,7 @@
 | `dust` family | descriptive `position_dust_*` plus formerly authoritative `held_dust_*` / hard-degraded exemption flow | dust shadow / enforcement authority and dust-based severity suppression were not justified as intended maker-cannon steel | `CURRENT-CODE CUT / WATCHED PROOF PENDING` |
 | maker recovery family | historical recovery-lineage truth plus formerly maker-authoritative relaxations | maker recovery privilege cluster did not belong in intended maker-cannon doctrine; current owner cut is landed and the remaining tail is archaeology / compat only | `CUT / HISTORICAL-COMPAT LINEAGE` |
 | queue-pressure family | historical queue-mutation lineage only; current code removed the runtime/config/report family and keeps only legacy-config ignored compatibility plus archive replay awareness | present authority collapsed cleanly without harming core maker steel, and historical packet lineage still remains readable | `CUT / HISTORICAL-ONLY LINEAGE` |
-| support-shadow / probe family | `maker_fight_admission_shadow*`, late/mid-window probes, zero-submit root-cause, quote-starvation / quote-integrity / selection-authority counterfactual report artifacts | recent watched specimens show tiny live maker participation under much larger synthetic/support populations, so this family is narrating far more than it owns | `SURGERY-PILE CANDIDATE / REPORT-SIDE FIRST` |
+| support-shadow / probe family | `maker_market_snapshot*`, late/mid-window probes, zero-submit root-cause, quote-starvation / quote-integrity / selection-authority counterfactual report artifacts | recent watched specimens show tiny live maker participation under much larger synthetic/support populations, so this family is narrating far more than it owns | `SURGERY-PILE CANDIDATE / REPORT-SIDE FIRST` |
 | accessory competitiveness bundle | live `edge_scale_*`, `size_mult_max`, `spread_mult_min`, `requote_delta_mult_min` maker shaping leaves | house-added quote/size/requote shaping bundle exceeds the clean cannon doctrine and is not yet runtime-proven as must-keep steel | `SURGERY-PILE CANDIDATE / RUNTIME TRIBUNAL` |
 | accessory maker sizing scaler bundle | `maker_depth_target_*` plus `maker_liquidity_tod_*` live shapers | fixed-shot + `1.5x` depth doctrine does not automatically justify extra depth-target or overnight liquidity scaling; these leaves can distort runtime interpretation | `SURGERY-PILE CANDIDATE / RUNTIME TRIBUNAL` |
 | duplicate selection-authority seams | selection-gate `allowed_stages` fallback plus dormant selection-gate timing fields | the stronger timing/authority owners already exist, so extra gate carriers risk reintroducing duplicate authority by shape alone | `FENCE / LATER TRIBUNAL` |
@@ -212,7 +212,7 @@
    - `VERIFIED`: runtime-observed maker participation is much smaller than the
      emitted support populations in the fresh watched specimens
    - `VERIFIED`: this family is report-side first:
-     - `maker_fight_admission_shadow*`
+     - `maker_market_snapshot*`
      - late/mid-window probes
      - zero-submit root-cause
      - quote-starvation / quote-integrity / selection-authority counterfactual

@@ -66,7 +66,7 @@ from scripts.paper_harness_realism_contract import (
 REPORT_SCHEMA_VERSION = 2
 DEFAULT_MAX_LINES_PER_FILE = 200000
 ADMISSION_RUBRIC_VERSION = 1
-MAKER_CANNON_SHADOW_VERSION = 1
+MAKER_MARKET_SNAPSHOT_VERSION = 1
 MAKER_MID_WINDOW_PROBE_VERSION = 1
 MAKER_ZERO_SUBMIT_AUDIT_VERSION = 1
 MAKER_QUOTE_INTEGRITY_AUDIT_VERSION = 1
@@ -78,7 +78,7 @@ MAKER_CANNON_STACK_HARD_MAX = 6
 MAKER_QUOTE_INTEGRITY_PRIMARY_RUN_ID = "484e533d-c9a1-4ac4-bc0d-ce379c624e09"
 LEGACY_MAKER_QUEUE_PRESSURE_EVENT_TYPE = "maker_queue_pressure_adjustment"
 MAKER_QUOTE_INTEGRITY_EVENT_TYPES = (
-    "maker_fight_admission_shadow",
+    "maker_market_snapshot",
     "pre_submit_cross_guard_adjusted",
     "order_submit",
     "order_cancel",
@@ -131,7 +131,7 @@ def _maker_cannon_window_class(sec_to_expiry: Any) -> str:
     return "gt_20s"
 
 
-def _maker_shadow_timing_band_class(sec_to_expiry: Any) -> str:
+def _maker_snapshot_timing_band_class(sec_to_expiry: Any) -> str:
     if not isinstance(sec_to_expiry, (int, float)):
         return "unknown"
     sec = float(sec_to_expiry)
@@ -154,7 +154,7 @@ def _maker_shadow_timing_band_class(sec_to_expiry: Any) -> str:
     return "gt_90s"
 
 
-def _maker_shadow_stack_pressure_class(open_maker_orders_total: Any) -> str:
+def _maker_snapshot_stack_pressure_class(open_maker_orders_total: Any) -> str:
     if not isinstance(open_maker_orders_total, (int, float)):
         return "unknown"
     count = int(float(open_maker_orders_total))
@@ -165,7 +165,7 @@ def _maker_shadow_stack_pressure_class(open_maker_orders_total: Any) -> str:
     return "over_hard_cap"
 
 
-def _maker_shadow_session_regime_class(ts_decision_utc: Any) -> str:
+def _maker_snapshot_session_regime_class(ts_decision_utc: Any) -> str:
     parsed = parse_ts(ts_decision_utc)
     if parsed is None:
         return "unknown"
@@ -205,7 +205,7 @@ def _maker_cannon_favored_depth_class(
     return "unknown"
 
 
-def _apply_maker_cannon_shadow_fields(row: Dict[str, Any]) -> None:
+def _apply_maker_market_snapshot_fields(row: Dict[str, Any]) -> None:
     def _optional_float_local(value: Any) -> Optional[float]:
         if isinstance(value, bool):
             return None
@@ -223,13 +223,13 @@ def _apply_maker_cannon_shadow_fields(row: Dict[str, Any]) -> None:
     cannon_min_depth_multiple = _optional_float_local(row.get("cannon_min_depth_multiple"))
     if not isinstance(cannon_min_depth_multiple, (int, float)) or float(cannon_min_depth_multiple) <= 0.0:
         cannon_min_depth_multiple = float(MAKER_CANNON_MIN_DEPTH_MULTIPLE)
-    row["maker_cannon_shadow_version"] = MAKER_CANNON_SHADOW_VERSION
+    row["maker_market_snapshot_version"] = MAKER_MARKET_SNAPSHOT_VERSION
     row["cannon_target_notional_usd"] = float(cannon_target_notional_usd)
     row["cannon_min_depth_multiple"] = float(cannon_min_depth_multiple)
     row["cannon_stack_soft_max"] = int(MAKER_CANNON_STACK_SOFT_MAX)
     row["cannon_stack_hard_max"] = int(MAKER_CANNON_STACK_HARD_MAX)
     row["cannon_window_class"] = _maker_cannon_window_class(sec_to_expiry)
-    row["maker_timing_band_class"] = _maker_shadow_timing_band_class(sec_to_expiry)
+    row["maker_timing_band_class"] = _maker_snapshot_timing_band_class(sec_to_expiry)
 
     parsed_ts = parse_ts(row.get("ts_decision_utc"))
     row["decision_hour_utc"] = (
@@ -237,7 +237,7 @@ def _apply_maker_cannon_shadow_fields(row: Dict[str, Any]) -> None:
         if parsed_ts is not None
         else None
     )
-    row["session_regime_class"] = _maker_shadow_session_regime_class(
+    row["session_regime_class"] = _maker_snapshot_session_regime_class(
         row.get("ts_decision_utc")
     )
 
@@ -268,7 +268,7 @@ def _apply_maker_cannon_shadow_fields(row: Dict[str, Any]) -> None:
     else:
         row["cannon_depth_requirement_met"] = None
 
-    row["stack_pressure_class"] = _maker_shadow_stack_pressure_class(
+    row["stack_pressure_class"] = _maker_snapshot_stack_pressure_class(
         row.get("open_maker_orders_total")
     )
     selection_gate_min_sec_to_expiry = _optional_float_local(
@@ -3090,7 +3090,7 @@ def _maker_fireability_window_stats(
             "geometry_only_classification; viable vs impossible rows are derived from maker market_probability "
             "against manifest sizing floor min_notional/max_shares and do not assign broader causal blame"
         ),
-        "active_window_queue_depth_shadow_claim_boundary": (
+        "active_window_queue_depth_snapshot_claim_boundary": (
             "queue-depth target burden uses maker edge-evaluation no-submit assignments by target; raw near-threshold "
             "vs hard-miss counts come from non-recovery quote_quality_skip event deltas and are a different population"
         ),
@@ -4303,10 +4303,7 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     sizing = _dict(config.get("sizing"))
     strategy = _dict(config.get("strategy"))
     execution_quality = _dict(strategy.get("execution_quality"))
-    # Report-only manifest posture may still need to read historical maker
-    # competitiveness snapshots when replaying older artifacts that predate the
-    # lifecycle owner path.
-    maker_comp = _dict(strategy.get("maker_competitiveness"))
+    maker_comp = _dict(strategy.get("maker_market_viability"))
     dynamic_scaling = _dict(risk.get("dynamic_scaling"))
 
     held_reduce_only_sec = _optional_float(runtime.get("held_preexpiry_reduce_only_sec"))
@@ -4498,7 +4495,7 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _maker_market_viability_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     timing_gate_blocked_edge_eval = 0.0
     timing_gate_blocked_decision = 0.0
     one_sided_decision_buy = 0.0
@@ -4521,8 +4518,12 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 timing_gate_blocked_edge_eval += 1.0
             continue
 
-        if event_type == "maker_competitiveness_decision":
-            if bool(evt.get("timing_gate_blocked", False)):
+        if event_type == "maker_market_viability_decision":
+            if (
+                not bool(evt.get("viability_allowed", True))
+                and str(evt.get("primary_reject_reason") or "").strip().lower()
+                in {"maker_timing_gate_closed", "phase_disallow_maker"}
+            ):
                 timing_gate_blocked_decision += 1.0
             if bool(evt.get("one_sided_active", False)):
                 policy = str(evt.get("side_policy") or "").strip().upper()
@@ -4536,7 +4537,7 @@ def _maker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             reason = str(evt.get("reason") or "").strip().lower()
             if _is_taker_submit_reason(reason):
                 continue
-            comp = evt.get("maker_competitiveness")
+            comp = evt.get("maker_market_viability")
             if not isinstance(comp, dict):
                 continue
             bucket = str(comp.get("edge_bucket") or "unknown").strip().lower() or "unknown"
@@ -4632,7 +4633,7 @@ def _maker_fight_admission_population_class(row: Dict[str, Any]) -> str:
     required_numeric_fields = (
         "queue_delta_shares",
         "fill_prob_margin",
-        "same_target_side_shadow_count_prior",
+        "same_target_side_snapshot_count_prior",
     )
     for field in required_numeric_fields:
         if not isinstance(row.get(field), (int, float)):
@@ -4650,7 +4651,7 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
     sizing_conflict = bool(row.get("sizing_conflict", False))
     queue_delta = float(row.get("queue_delta_shares") or 0.0)
     fill_prob_margin = float(row.get("fill_prob_margin") or 0.0)
-    repeat_count = int(float(row.get("same_target_side_shadow_count_prior") or 0.0))
+    repeat_count = int(float(row.get("same_target_side_snapshot_count_prior") or 0.0))
     ratio = row.get("size_to_visible_depth_ratio")
 
     geometry_score = 30 if viability_class == "viable_only" and not sizing_conflict else 0
@@ -4770,7 +4771,7 @@ def _maker_fight_admission_examples(rows: List[Dict[str, Any]]) -> List[Dict[str
                 "outcome_truth_status": row.get("outcome_truth_status"),
                 "queue_delta_shares": row.get("queue_delta_shares"),
                 "fill_prob_margin": row.get("fill_prob_margin"),
-                "same_target_side_shadow_count_prior": row.get("same_target_side_shadow_count_prior"),
+                "same_target_side_snapshot_count_prior": row.get("same_target_side_snapshot_count_prior"),
             }
         )
     return examples
@@ -5156,7 +5157,7 @@ def _maker_cannon_probe_rows(
             row["probe_visible_depth_shares"] = 0.0
             row["visible_depth_shares"] = 0.0
             row["probe_visible_depth_fail_closed_zero_imputed"] = True
-        _apply_maker_cannon_shadow_fields(row)
+        _apply_maker_market_snapshot_fields(row)
         row["market_probability_band"] = _maker_cannon_market_probability_band(row.get("market_probability"))
         row["favored_side_depth_class"] = _maker_cannon_favored_depth_class(
             row.get("probe_visible_depth_shares"),
@@ -5332,7 +5333,7 @@ def _maker_mid_window_probe_rows(
             row["probe_visible_depth_shares"] = 0.0
             row["visible_depth_shares"] = 0.0
             row["probe_visible_depth_fail_closed_zero_imputed"] = True
-        _apply_maker_cannon_shadow_fields(row)
+        _apply_maker_market_snapshot_fields(row)
         row["market_probability_band"] = _maker_cannon_market_probability_band(row.get("market_probability"))
         row["favored_side_depth_class"] = _maker_cannon_favored_depth_class(
             row.get("probe_visible_depth_shares"),
@@ -6024,7 +6025,11 @@ def _legacy_maker_fight_admission_rows(
         )
 
         size_resolution = evt.get("size_resolution") if isinstance(evt.get("size_resolution"), dict) else {}
-        maker_ctx = evt.get("maker_competitiveness") if isinstance(evt.get("maker_competitiveness"), dict) else {}
+        maker_ctx = (
+            evt.get("maker_market_viability")
+            if isinstance(evt.get("maker_market_viability"), dict)
+            else {}
+        )
         if not target_ref:
             target_ref = (
                 _extract_target_ref_from_decision_linkage_key(evt.get("decision_linkage_key"))
@@ -6124,8 +6129,8 @@ def _legacy_maker_fight_admission_rows(
             }
         )
         row = {
-            "admission_shadow_id": f"legacy-{event_type}-{len(rows) + 1}",
-            "shadow_source_class": "legacy_quote_or_submit_backfill_v1",
+            "market_snapshot_id": f"legacy-{event_type}-{len(rows) + 1}",
+            "snapshot_source_class": "legacy_quote_or_submit_backfill_v1",
             "run_id": evt.get("run_id"),
             "token_id": evt.get("token_id"),
             "target_ref": target_ref,
@@ -6164,7 +6169,7 @@ def _legacy_maker_fight_admission_rows(
             "intended_size_shares": intended_size_shares,
             "intended_notional_usd": intended_notional_usd,
             "size_to_visible_depth_ratio": size_to_visible_depth_ratio,
-            "same_target_side_shadow_count_prior": 0,
+            "same_target_side_snapshot_count_prior": 0,
             "same_target_side_submit_count_prior": 0,
             "open_maker_orders_total": maker_ctx.get("open_maker_orders_total"),
             "open_orders_for_token_count": maker_ctx.get("open_orders_for_token_count"),
@@ -6182,22 +6187,22 @@ def _legacy_maker_fight_admission_rows(
         key=lambda item: (
             str(item.get("target_side_ref") or ""),
             str(item.get("ts_decision_utc") or ""),
-            str(item.get("admission_shadow_id") or ""),
+            str(item.get("market_snapshot_id") or ""),
         )
     )
-    shadow_counts: Counter[str] = Counter()
+    snapshot_counts: Counter[str] = Counter()
     submit_counts: Counter[str] = Counter()
     for row in rows:
         target_side_ref = str(row.get("target_side_ref") or "")
-        row["same_target_side_shadow_count_prior"] = int(shadow_counts[target_side_ref])
+        row["same_target_side_snapshot_count_prior"] = int(snapshot_counts[target_side_ref])
         row["same_target_side_submit_count_prior"] = int(submit_counts[target_side_ref])
-        shadow_counts[target_side_ref] += 1
+        snapshot_counts[target_side_ref] += 1
         if str(row.get("decision_result") or "").strip().lower() == "submitted":
             submit_counts[target_side_ref] += 1
     return rows
 
 
-def _maker_fight_admission_shadow_bundle(
+def _maker_market_snapshot_bundle(
     *,
     events: List[Dict[str, Any]],
     status: List[Dict[str, Any]],
@@ -6227,12 +6232,12 @@ def _maker_fight_admission_shadow_bundle(
             "median": float(median(ordered)),
         }
 
-    runtime_shadow_rows = [
+    runtime_snapshot_rows = [
         _canonicalize_maker_report_row(dict(evt))
         for evt in events
-        if str(evt.get("event_type") or "").strip() == "maker_fight_admission_shadow"
+        if str(evt.get("event_type") or "").strip() == "maker_market_snapshot"
     ]
-    shadow_rows_raw = runtime_shadow_rows or _legacy_maker_fight_admission_rows(
+    snapshot_rows_raw = runtime_snapshot_rows or _legacy_maker_fight_admission_rows(
         events=events,
         status=status,
         run_manifest=run_manifest,
@@ -6270,14 +6275,14 @@ def _maker_fight_admission_shadow_bundle(
     multifill_complete_counts_by_timing_band: Counter[str] = Counter()
     multifill_incorrect_counts_by_timing_band: Counter[str] = Counter()
 
-    for raw in shadow_rows_raw:
+    for raw in snapshot_rows_raw:
         row = dict(raw)
         row["admission_rubric_version"] = ADMISSION_RUBRIC_VERSION
-        row["shadow_source_class"] = str(
-            row.get("shadow_source_class")
-            or ("runtime_raw" if runtime_shadow_rows else "legacy_quote_or_submit_backfill_v1")
+        row["snapshot_source_class"] = str(
+            row.get("snapshot_source_class")
+            or ("runtime_raw" if runtime_snapshot_rows else "legacy_quote_or_submit_backfill_v1")
         )
-        _apply_maker_cannon_shadow_fields(row)
+        _apply_maker_market_snapshot_fields(row)
         population_class = _maker_fight_admission_population_class(row)
         row["population_class"] = population_class
         row["admission_score"] = None
@@ -6286,7 +6291,7 @@ def _maker_fight_admission_shadow_bundle(
         row["hard_fail_reasons"] = []
         row["soft_driver_flags"] = []
         row["dominant_driver"] = None
-        source_class_counts[str(row.get("shadow_source_class") or "unknown")] += 1
+        source_class_counts[str(row.get("snapshot_source_class") or "unknown")] += 1
         cannon_window_counts[str(row.get("cannon_window_class") or "unknown")] += 1
         maker_timing_band = str(row.get("maker_timing_band_class") or "unknown")
         maker_timing_band_counts[maker_timing_band] += 1
@@ -6373,11 +6378,11 @@ def _maker_fight_admission_shadow_bundle(
         key=lambda item: (
             str(item.get("target_side_ref") or ""),
             str(item.get("ts_decision_utc") or ""),
-            str(item.get("admission_shadow_id") or ""),
+            str(item.get("market_snapshot_id") or ""),
         )
     )
-    normalized_rows = _maker_shadow_rows_with_submit_history(
-        shadow_rows=normalized_rows,
+    normalized_rows = _maker_snapshot_rows_with_submit_history(
+        snapshot_rows=normalized_rows,
         events=events,
         outcome_truth_records=outcome_truth_records,
     )
@@ -6400,9 +6405,9 @@ def _maker_fight_admission_shadow_bundle(
 
     summary = {
         "admission_rubric_version": ADMISSION_RUBRIC_VERSION,
-        "maker_cannon_shadow_version": MAKER_CANNON_SHADOW_VERSION,
+        "maker_market_snapshot_version": MAKER_MARKET_SNAPSHOT_VERSION,
         "row_count": int(len(normalized_rows)),
-        "shadow_source_class_distribution": {
+        "snapshot_source_class_distribution": {
             key: int(source_class_counts[key]) for key in sorted(source_class_counts)
         },
         "population_class_counts": {key: int(population_counts[key]) for key in sorted(population_counts)},
@@ -6510,8 +6515,8 @@ def _maker_fight_admission_shadow_bundle(
     }
     calibration_audit = {
         "admission_rubric_version": ADMISSION_RUBRIC_VERSION,
-        "maker_cannon_shadow_version": MAKER_CANNON_SHADOW_VERSION,
-        "shadow_source_class_distribution": summary["shadow_source_class_distribution"],
+        "maker_market_snapshot_version": MAKER_MARKET_SNAPSHOT_VERSION,
+        "snapshot_source_class_distribution": summary["snapshot_source_class_distribution"],
         "population_class_counts": summary["population_class_counts"],
         "admission_class_counts": summary["admission_class_counts"],
         "complete_joined_count_by_class": summary["complete_joined_count_by_class"],
@@ -6606,11 +6611,11 @@ def _canonical_maker_selection_timing_window_met(
     return bool(timing_window_met)
 
 
-def _maker_shadow_match_index(
-    shadow_rows: List[Dict[str, Any]],
+def _maker_snapshot_match_index(
+    snapshot_rows: List[Dict[str, Any]],
 ) -> Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]]:
     by_target_side_ref: Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]] = defaultdict(list)
-    for row in shadow_rows:
+    for row in snapshot_rows:
         target_side_ref = str(row.get("target_side_ref") or "").strip()
         decision_ts = parse_ts(
             row.get("ts_decision_utc") or row.get("ts_event_utc") or row.get("ts_utc")
@@ -6623,8 +6628,8 @@ def _maker_shadow_match_index(
     return by_target_side_ref
 
 
-def _nearest_shadow_match(
-    shadow_index: Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]],
+def _nearest_snapshot_match(
+    snapshot_index: Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]],
     *,
     target_side_ref: str,
     decision_ts: Optional[dt.datetime],
@@ -6632,7 +6637,7 @@ def _nearest_shadow_match(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[float]]:
     if decision_ts is None:
         return None, None
-    candidates = shadow_index.get(str(target_side_ref or "").strip(), [])
+    candidates = snapshot_index.get(str(target_side_ref or "").strip(), [])
     best_row: Optional[Dict[str, Any]] = None
     best_delta: Optional[float] = None
     for candidate_ts, row in candidates:
@@ -6645,68 +6650,68 @@ def _nearest_shadow_match(
     return best_row, best_delta
 
 
-def _maker_probe_rows_with_shadow_truth(
+def _maker_probe_rows_with_snapshot_truth(
     *,
     probe_rows: List[Dict[str, Any]],
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     selection_min_sec, selection_max_sec = _maker_selection_window_bounds(run_manifest)
-    shadow_index = _maker_shadow_match_index(shadow_rows)
+    snapshot_index = _maker_snapshot_match_index(snapshot_rows)
     enriched_rows: List[Dict[str, Any]] = []
     for raw in probe_rows:
         row = dict(raw)
         decision_ts = parse_ts(row.get("ts_decision_utc") or row.get("ts_event_utc") or row.get("ts_utc"))
-        shadow_match, shadow_delta_sec = _nearest_shadow_match(
-            shadow_index,
+        snapshot_match, snapshot_delta_sec = _nearest_snapshot_match(
+            snapshot_index,
             target_side_ref=str(row.get("target_side_ref") or ""),
             decision_ts=decision_ts,
         )
-        row["matched_shadow_present"] = bool(shadow_match is not None)
-        row["matched_shadow_delta_sec"] = (
-            float(shadow_delta_sec) if isinstance(shadow_delta_sec, (int, float)) else None
+        row["matched_snapshot_present"] = bool(snapshot_match is not None)
+        row["matched_snapshot_delta_sec"] = (
+            float(snapshot_delta_sec) if isinstance(snapshot_delta_sec, (int, float)) else None
         )
-        row["matched_shadow_decision_result"] = (
-            str(shadow_match.get("decision_result") or "").strip().lower()
-            if isinstance(shadow_match, dict)
+        row["matched_snapshot_decision_result"] = (
+            str(snapshot_match.get("decision_result") or "").strip().lower()
+            if isinstance(snapshot_match, dict)
             else None
         )
-        row["matched_shadow_decision_block_reason"] = (
-            str(shadow_match.get("decision_block_reason") or "").strip().lower()
-            if isinstance(shadow_match, dict) and str(shadow_match.get("decision_block_reason") or "").strip()
+        row["matched_snapshot_decision_block_reason"] = (
+            str(snapshot_match.get("decision_block_reason") or "").strip().lower()
+            if isinstance(snapshot_match, dict) and str(snapshot_match.get("decision_block_reason") or "").strip()
             else None
         )
-        row["matched_shadow_order_submit_id"] = (
-            str(shadow_match.get("order_submit_id") or "").strip()
-            if isinstance(shadow_match, dict) and str(shadow_match.get("order_submit_id") or "").strip()
+        row["matched_snapshot_order_submit_id"] = (
+            str(snapshot_match.get("order_submit_id") or "").strip()
+            if isinstance(snapshot_match, dict) and str(snapshot_match.get("order_submit_id") or "").strip()
             else None
         )
-        row["matched_shadow_selection_primary_reject_reason"] = None
-        row["matched_shadow_selection_reject_reasons"] = []
-        if isinstance(shadow_match, dict):
+        row["matched_snapshot_selection_primary_reject_reason"] = None
+        row["matched_snapshot_selection_reject_reasons"] = []
+        if isinstance(snapshot_match, dict):
             primary_reject_reason = _normalize_selection_reject_reason(
-                shadow_match.get("selection_gate_primary_reject_reason")
-                or shadow_match.get("decision_block_reason")
+                snapshot_match.get("selection_gate_primary_reject_reason")
+                or snapshot_match.get("decision_block_reason")
             )
             reject_reasons = [
                 reason
                 for reason in (
                     _normalize_selection_reject_reason(raw)
-                    for raw in list(shadow_match.get("selection_gate_all_reject_reasons") or [])
+                    for raw in list(snapshot_match.get("selection_gate_all_reject_reasons") or [])
                 )
                 if reason
             ]
             if not reject_reasons and primary_reject_reason:
                 reject_reasons = [primary_reject_reason]
-            row["matched_shadow_selection_primary_reject_reason"] = primary_reject_reason
-            row["matched_shadow_selection_reject_reasons"] = reject_reasons
+            row["matched_snapshot_selection_primary_reject_reason"] = primary_reject_reason
+            row["matched_snapshot_selection_reject_reasons"] = reject_reasons
         row["launch_safe_selection_timing_window_met"] = _canonical_maker_selection_timing_window_met(
             row,
             selection_min_sec=selection_min_sec,
             selection_max_sec=selection_max_sec,
         )
         maker_no_submission_cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
-        if shadow_match is not None:
+        if snapshot_match is not None:
             row["desired_quote_present"] = True
         elif maker_no_submission_cause == "no_desired_quote":
             row["desired_quote_present"] = False
@@ -6733,36 +6738,71 @@ def _normalize_selection_reject_reason(reason: Any) -> Optional[str]:
     return text or None
 
 
-def _normalized_shadow_support_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+_SELECTION_GATE_REJECT_REASONS = {
+    "insufficient_depth_multiple",
+    "secondary_oracle_not_confirmed",
+    "selection_prior_same_side_submit",
+    "selection_prior_target_submit",
+    "timing_window_out_of_band",
+}
+
+
+def _is_selection_gate_reject_reason(reason: Any) -> bool:
+    normalized = _normalize_selection_reject_reason(reason)
+    return bool(normalized and normalized in _SELECTION_GATE_REJECT_REASONS)
+
+
+def _snapshot_selection_reject_reasons(row: Dict[str, Any]) -> List[str]:
+    reject_reasons: List[str] = []
+    for raw in list(row.get("selection_gate_all_reject_reasons") or []):
+        normalized = _normalize_selection_reject_reason(raw)
+        if not normalized or normalized in reject_reasons:
+            continue
+        if normalized in _SELECTION_GATE_REJECT_REASONS:
+            reject_reasons.append(normalized)
+    primary_reason = _normalize_selection_reject_reason(
+        row.get("selection_gate_primary_reject_reason")
+    )
+    if primary_reason and primary_reason in _SELECTION_GATE_REJECT_REASONS and primary_reason not in reject_reasons:
+        reject_reasons.insert(0, primary_reason)
+    decision_result = str(row.get("decision_result") or "").strip().lower()
+    decision_block_reason = row.get("decision_block_reason")
+    if (
+        decision_result in {"selection_rejected", "viability_rejected"}
+        and _is_selection_gate_reject_reason(decision_block_reason)
+    ):
+        normalized_block_reason = _normalize_selection_reject_reason(decision_block_reason)
+        if normalized_block_reason and normalized_block_reason not in reject_reasons:
+            reject_reasons.insert(0, normalized_block_reason)
+    if decision_result == "selection_rejected" and not reject_reasons:
+        reject_reasons = ["selection_rejected"]
+    return reject_reasons
+
+
+def _snapshot_is_selection_rejected(row: Dict[str, Any]) -> bool:
+    decision_result = str(row.get("decision_result") or "").strip().lower()
+    if decision_result not in {"selection_rejected", "viability_rejected"}:
+        return False
+    return bool(_snapshot_selection_reject_reasons(row))
+
+
+def _normalized_snapshot_support_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     normalized_rows: List[Dict[str, Any]] = []
     for raw in rows:
         row = dict(raw)
         decision_result = str(row.get("decision_result") or "").strip().lower()
-        primary_reason = _normalize_selection_reject_reason(
-            row.get("selection_gate_primary_reject_reason") or row.get("decision_block_reason")
-        )
-        reject_reasons = [
-            reason
-            for reason in (
-                _normalize_selection_reject_reason(value)
-                for value in list(row.get("selection_gate_all_reject_reasons") or [])
-            )
-            if reason
-        ]
-        if decision_result == "selection_rejected":
-            if primary_reason and not reject_reasons:
-                reject_reasons = [primary_reason]
-            if primary_reason:
-                row["selection_gate_primary_reject_reason"] = primary_reason
-            if reject_reasons:
-                row["selection_gate_all_reject_reasons"] = reject_reasons
+        reject_reasons = _snapshot_selection_reject_reasons(row)
+        primary_reason = reject_reasons[0] if reject_reasons else None
+        if decision_result in {"selection_rejected", "viability_rejected"}:
+            row["selection_gate_primary_reject_reason"] = primary_reason
+            row["selection_gate_all_reject_reasons"] = list(reject_reasons)
         normalized_rows.append(row)
     return normalized_rows
 
 
 def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
     return {
-        "policy_name": "paper_universal_minimal_canonical_selection_authority",
+        "policy_name": "paper_universal_runtime_aligned_selection_authority",
         "version": int(MAKER_SELECTION_AUTHORITY_AUDIT_VERSION),
         "authority_contract": EDGE_MAKER_PHASE_ALLOWED_FIELD,
         "allowed_lifecycle_phases": ["maker_window"],
@@ -6793,7 +6833,11 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
     strategy_cfg = config.get("strategy") if isinstance(config, dict) else {}
     if not isinstance(strategy_cfg, dict):
         strategy_cfg = {}
-    maker_comp = strategy_cfg.get("maker_competitiveness") if isinstance(strategy_cfg, dict) else {}
+    maker_comp = (
+        strategy_cfg.get("maker_market_viability")
+        if isinstance(strategy_cfg, dict) and isinstance(strategy_cfg.get("maker_market_viability"), dict)
+        else {}
+    )
     if not isinstance(maker_comp, dict):
         maker_comp = {}
     selection_owner = lifecycle_selection
@@ -6803,6 +6847,9 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
         "allowed_lifecycle_phases": ["maker_window"],
         "require_secondary_oracle_confirmation": bool(
             selection_owner.get("require_secondary_oracle_confirmation", True)
+        ),
+        "cannon_target_notional_usd": float(
+            _safe_float(selection_owner.get("cannon_target_notional_usd"), 100.0)
         ),
         "max_same_target_submit_count_prior": int(
             _safe_float(selection_owner.get("max_same_target_submit_count_prior"), 1.0)
@@ -6929,9 +6976,9 @@ def _canonicalize_maker_report_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _maker_shadow_rows_with_submit_history(
+def _maker_snapshot_rows_with_submit_history(
     *,
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     events: List[Dict[str, Any]],
     outcome_truth_records: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -6945,17 +6992,17 @@ def _maker_shadow_rows_with_submit_history(
         if order_id:
             maker_submit_by_order_id[order_id] = dict(evt)
     outcome_by_submit_id = _maker_outcome_lookup(outcome_truth_records)
-    source_rows = [dict(row) for row in shadow_rows]
+    source_rows = [dict(row) for row in snapshot_rows]
     rows = [dict(row) for row in source_rows]
     rows.sort(
         key=lambda item: (
             _maker_quote_integrity_event_ts(item) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
-            str(item.get("admission_shadow_id") or ""),
+            str(item.get("market_snapshot_id") or ""),
         )
     )
-    target_shadow_counts: Counter[str] = Counter()
+    target_snapshot_counts: Counter[str] = Counter()
     target_submit_counts: Counter[str] = Counter()
-    target_side_shadow_counts: Counter[str] = Counter()
+    target_side_snapshot_counts: Counter[str] = Counter()
     target_side_submit_counts: Counter[str] = Counter()
     enriched_rows: List[Dict[str, Any]] = []
     for row in rows:
@@ -6969,14 +7016,14 @@ def _maker_shadow_rows_with_submit_history(
         order_submit_id = str(row.get("order_submit_id") or "").strip()
         submit_evt = maker_submit_by_order_id.get(order_submit_id)
         maker_comp = (
-            dict((submit_evt or {}).get("maker_competitiveness") or {})
-            if isinstance((submit_evt or {}).get("maker_competitiveness"), dict)
+            dict((submit_evt or {}).get("maker_market_viability") or {})
+            if isinstance((submit_evt or {}).get("maker_market_viability"), dict)
             else {}
         )
         row["target_side_ref"] = target_side_ref
-        row["same_target_shadow_count_prior"] = int(target_shadow_counts[target_ref]) if target_ref else 0
+        row["same_target_snapshot_count_prior"] = int(target_snapshot_counts[target_ref]) if target_ref else 0
         row["same_target_submit_count_prior"] = int(target_submit_counts[target_ref]) if target_ref else 0
-        row["same_target_side_shadow_count_prior"] = int(target_side_shadow_counts[target_side_ref])
+        row["same_target_side_snapshot_count_prior"] = int(target_side_snapshot_counts[target_side_ref])
         row["same_target_side_submit_count_prior"] = int(target_side_submit_counts[target_side_ref])
         if row.get("one_sided_active") is None:
             one_sided_active = maker_comp.get("one_sided_active")
@@ -6993,27 +7040,29 @@ def _maker_shadow_rows_with_submit_history(
             row["execution_quality"] = outcome_row.get("execution_quality")
             row["edge_realized_x_size"] = outcome_row.get("edge_realized_x_size")
             row["outcome_truth_status"] = outcome_row.get("outcome_truth_status")
-        target_shadow_counts[target_ref] += 1
-        target_side_shadow_counts[target_side_ref] += 1
+        target_snapshot_counts[target_ref] += 1
+        target_side_snapshot_counts[target_side_ref] += 1
         if str(row.get("decision_result") or "").strip().lower() == "submitted":
             if target_ref:
                 target_submit_counts[target_ref] += 1
             target_side_submit_counts[target_side_ref] += 1
         enriched_rows.append(row)
-    by_shadow_id = {
-        str(row.get("admission_shadow_id") or ""): row for row in enriched_rows if str(row.get("admission_shadow_id") or "")
+    by_snapshot_id = {
+        str(row.get("market_snapshot_id") or ""): row
+        for row in enriched_rows
+        if str(row.get("market_snapshot_id") or "")
     }
     ordered_rows: List[Dict[str, Any]] = []
     for row in source_rows:
-        shadow_id = str(row.get("admission_shadow_id") or "")
-        ordered_rows.append(dict(by_shadow_id.get(shadow_id) or row))
+        snapshot_id = str(row.get("market_snapshot_id") or "")
+        ordered_rows.append(dict(by_snapshot_id.get(snapshot_id) or row))
     return ordered_rows
 
 
 def _maker_selection_authority_bundle(
     *,
     events: List[Dict[str, Any]],
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     outcome_truth_records: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
     run_id: str,
@@ -7037,7 +7086,7 @@ def _maker_selection_authority_bundle(
     runtime_config = _maker_selection_runtime_config(run_manifest)
     selection_reject_reason_distribution = Counter(
         reason
-        for row in shadow_rows
+        for row in snapshot_rows
         for reason in list(row.get("selection_gate_all_reject_reasons") or [])
         if str(reason or "").strip()
     )
@@ -7046,19 +7095,19 @@ def _maker_selection_authority_bundle(
             selection_reject_reason_distribution
             or any(
                 str(row.get("decision_result") or "").strip().lower() == "submitted"
-                for row in shadow_rows
+                for row in snapshot_rows
             )
         )
     counterfactual_policy = _canonical_maker_selection_counterfactual_policy()
-    chronology_rows = _maker_shadow_rows_with_submit_history(
-        shadow_rows=shadow_rows,
+    chronology_rows = _maker_snapshot_rows_with_submit_history(
+        snapshot_rows=snapshot_rows,
         events=events,
         outcome_truth_records=outcome_truth_records,
     )
     chronology_rows.sort(
         key=lambda item: (
             _maker_quote_integrity_event_ts(item) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
-            str(item.get("admission_shadow_id") or ""),
+            str(item.get("market_snapshot_id") or ""),
         )
     )
     submitted_counts_by_one_sided_active: Counter[str] = Counter()
@@ -7096,6 +7145,22 @@ def _maker_selection_authority_bundle(
                 and not bool(row.get("secondary_oracle_confirmation", False))
             ):
                 reject_reasons.append("secondary_oracle_not_confirmed")
+            depth_requirement_met = row.get("cannon_depth_requirement_met")
+            depth_multiple = _optional_float_local(row.get("depth_multiple_vs_cannon_target"))
+            min_depth_multiple = _optional_float_local(
+                row.get("cannon_min_depth_multiple")
+                if row.get("cannon_min_depth_multiple") is not None
+                else runtime_config.get("min_depth_multiple")
+            )
+            if depth_requirement_met is False:
+                reject_reasons.append("insufficient_depth_multiple")
+            elif (
+                depth_requirement_met is None
+                and depth_multiple is not None
+                and min_depth_multiple is not None
+                and float(depth_multiple) + 1e-12 < float(min_depth_multiple)
+            ):
+                reject_reasons.append("insufficient_depth_multiple")
             if int(_safe_float(row.get("same_target_submit_count_prior"))) > int(
                 counterfactual_policy.get("max_same_target_submit_count_prior", 0)
             ):
@@ -7118,7 +7183,7 @@ def _maker_selection_authority_bundle(
             {
                 "run_id": run_id,
                 "profile_name": profile_name,
-                "admission_shadow_id": row.get("admission_shadow_id"),
+                "market_snapshot_id": row.get("market_snapshot_id"),
                 "order_submit_id": row.get("order_submit_id"),
                 "target_ref": target_ref or None,
                 "target_side_ref": target_side_ref or None,
@@ -7246,7 +7311,7 @@ def _maker_blocker_bucket(reason: str) -> str:
 
 def _maker_blocker_ledger_bundle(
     *,
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     selection_authority_rows: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     runtime_reason_counts: Counter[str] = Counter()
@@ -7259,7 +7324,7 @@ def _maker_blocker_ledger_bundle(
         runtime_reason_counts[reason] += 1
         bucket_counts[_maker_blocker_bucket(reason)] += 1
 
-    for row in shadow_rows:
+    for row in snapshot_rows:
         reason = _maker_blocker_runtime_reason(row)
         if reason == "launch_safe_selection_insufficient_depth_multiple":
             visible_depth_notional = _safe_float(row.get("visible_depth_notional_usd"), default=None)
@@ -7314,7 +7379,7 @@ def _maker_blocker_ledger_bundle(
     elif sizing_verdict == "active_patient":
         next_packet2_patient = "accessory_maker_sizing_feasibility"
     else:
-        next_packet2_patient = "support_shadow_schoolhouse_cleanup"
+        next_packet2_patient = "support_snapshot_schoolhouse_cleanup"
     summary = {
         "maker_blocker_ledger_version": 1,
         "current_owner_artifact": "maker_blocker_ledger.json",
@@ -7342,7 +7407,7 @@ def _maker_blocker_ledger_bundle(
         "selection_gate_verdict": selection_verdict,
         "quote_quality_verdict": quote_quality_verdict,
         "sizing_verdict": sizing_verdict,
-        "support_shadow_verdict": "support_only",
+        "support_snapshot_verdict": "support_only",
         "runtime_blocker_family_status": (
             "closed_keep_now_steel_or_minor_residue"
             if runtime_blocker_family_closed
@@ -7439,7 +7504,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     market_reference_counts: Counter[str] = Counter()
     no_submit_cause_counts: Counter[str] = Counter()
     desired_quote_counts: Counter[str] = Counter()
-    shadow_decision_counts: Counter[str] = Counter()
+    snapshot_decision_counts: Counter[str] = Counter()
     row_count = 0
     authoritative_reference_count = 0
     dual_oracle_confirmed_count = 0
@@ -7478,9 +7543,9 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         cause = str(row.get("maker_no_submission_cause") or "").strip().lower()
         if cause:
             no_submit_cause_counts[cause] += 1
-        decision_result = str(row.get("matched_shadow_decision_result") or "").strip().lower()
+        decision_result = str(row.get("matched_snapshot_decision_result") or "").strip().lower()
         if decision_result:
-            shadow_decision_counts[decision_result] += 1
+            snapshot_decision_counts[decision_result] += 1
     return {
         "row_count": int(row_count),
         "maker_phase_allowed_count": int(runtime_stage_allowed_count),
@@ -7494,7 +7559,7 @@ def _maker_band_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "market_reference_class_distribution": _counter_to_sorted_int_dict(market_reference_counts),
         "desired_quote_presence_distribution": _counter_to_sorted_int_dict(desired_quote_counts),
         "no_submit_cause_distribution": _counter_to_sorted_int_dict(no_submit_cause_counts),
-        "matched_shadow_decision_distribution": _counter_to_sorted_int_dict(shadow_decision_counts),
+        "matched_snapshot_decision_distribution": _counter_to_sorted_int_dict(snapshot_decision_counts),
     }
 
 
@@ -7526,7 +7591,7 @@ def _maker_quote_starvation_bundle(
         )
         if block_reason != "maker_no_submission" and not maker_no_submission_cause and not maker_no_submission_category:
             continue
-        if bool(row.get("matched_shadow_present", False)):
+        if bool(row.get("matched_snapshot_present", False)):
             continue
         desired_quote_present = row.get("desired_quote_present")
         if desired_quote_present is True:
@@ -7559,8 +7624,8 @@ def _maker_quote_starvation_bundle(
             "desired_quote_present": desired_quote_present,
             "maker_no_submission_cause": maker_no_submission_cause or None,
             "maker_no_submission_category": maker_no_submission_category or None,
-            "matched_shadow_present": False,
-            "matched_shadow_delta_sec": None,
+            "matched_snapshot_present": False,
+            "matched_snapshot_delta_sec": None,
         }
         rows.append(audit_row)
         cause = str(audit_row.get("maker_no_submission_cause") or "").strip().lower() or "unknown"
@@ -7694,9 +7759,9 @@ def _maker_truth_reference_starvation_bundle(
             "open_orders_same_side_count": row.get("open_orders_same_side_count"),
             "same_target_submit_count_prior": row.get("same_target_submit_count_prior"),
             "same_target_side_submit_count_prior": row.get("same_target_side_submit_count_prior"),
-            "matched_shadow_present": bool(row.get("matched_shadow_present", False)),
-            "matched_shadow_selection_primary_reject_reason": row.get(
-                "matched_shadow_selection_primary_reject_reason"
+            "matched_snapshot_present": bool(row.get("matched_snapshot_present", False)),
+            "matched_snapshot_selection_primary_reject_reason": row.get(
+                "matched_snapshot_selection_primary_reject_reason"
             ),
         }
         rows.append(audit_row)
@@ -7758,7 +7823,7 @@ def _maker_quote_construction_bundle(
     for raw in truth_sound_rows:
         if raw.get("desired_quote_present") is True:
             continue
-        cause = "shadow_gap_without_no_quote_signal"
+        cause = "snapshot_gap_without_no_quote_signal"
         favored_depth_truth_state = str(raw.get("favored_side_depth_truth_state") or "unknown")
         maker_no_submission_category = str(raw.get("maker_no_submission_category") or "").strip().lower()
         maker_no_submission_cause = str(raw.get("maker_no_submission_cause") or "").strip().lower()
@@ -7770,9 +7835,7 @@ def _maker_quote_construction_bundle(
         same_target_side_submit_count_prior = int(
             _safe_float(raw.get("same_target_side_submit_count_prior"), 0.0)
         )
-        if maker_no_submission_category == "one_sided_mode_disallow_side":
-            cause = "one_sided_mode_disallow_side"
-        elif block_reason == "open_order_cleanup_required":
+        if block_reason == "open_order_cleanup_required":
             cause = "open_order_cleanup_required"
         elif block_reason == "settlement_hold_required":
             cause = "settlement_hold_required"
@@ -7795,7 +7858,7 @@ def _maker_quote_construction_bundle(
             or same_target_submit_count_prior > 0
             or same_target_side_submit_count_prior > 0
         ):
-            cause = "resting_quote_already_live_or_shadow_gap"
+            cause = "resting_quote_already_live_or_snapshot_gap"
         rows.append(
             {
                 **raw,
@@ -7955,7 +8018,7 @@ def _maker_participation_waterfall_bundle(
     *,
     events: List[Dict[str, Any]],
     probe_rows: List[Dict[str, Any]],
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     outcome_truth_records: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
     truth_rows: Optional[List[Dict[str, Any]]] = None,
@@ -7980,7 +8043,7 @@ def _maker_participation_waterfall_bundle(
     truth_reference_insufficient_reason_counts: Counter[str] = Counter()
     desired_quote_missing_reason_counts: Counter[str] = Counter()
     selection_reject_reason_counts: Counter[str] = Counter()
-    shadow_non_submit_reason_counts: Counter[str] = Counter()
+    snapshot_non_submit_reason_counts: Counter[str] = Counter()
     submit_attempt_reject_reason_counts: Counter[str] = Counter()
     submit_success_outcome_counts: Counter[str] = Counter()
     active_band_probe_rows = [row for row in probe_rows if row.get("launch_safe_selection_timing_window_met") is True]
@@ -8025,10 +8088,10 @@ def _maker_participation_waterfall_bundle(
         terminal_path_counts["truth_reference_insufficient"] += 1
         truth_reference_insufficient_reason_counts[truth_primary_deprivation_reason] += 1
     desired_quote_present_rows = [row for row in actionable_prequote_rows if row.get("desired_quote_present") is True]
-    shadow_runtime_rows = [
-        row for row in actionable_prequote_rows if bool(row.get("matched_shadow_present", False))
+    snapshot_runtime_rows = [
+        row for row in actionable_prequote_rows if bool(row.get("matched_snapshot_present", False))
     ]
-    pre_shadow_non_shadow_reason_counts: Counter[str] = Counter()
+    pre_snapshot_unmatched_reason_counts: Counter[str] = Counter()
 
     for evt in maker_rows:
         sec_value = evt.get("time_remaining_sec")
@@ -8079,32 +8142,38 @@ def _maker_participation_waterfall_bundle(
         desired_quote_missing_reason_counts[reason] += 1
 
     for row in desired_quote_present_rows:
-        if bool(row.get("matched_shadow_present", False)):
+        if bool(row.get("matched_snapshot_present", False)):
             continue
-        terminal_path_counts["pre_shadow_non_shadow"] += 1
-        pre_shadow_non_shadow_reason_counts["shadow_missing_after_quote_present"] += 1
+        terminal_path_counts["pre_snapshot_unmatched"] += 1
+        pre_snapshot_unmatched_reason_counts["snapshot_missing_after_quote_present"] += 1
 
-    for row in shadow_runtime_rows:
-        decision_result = str(row.get("matched_shadow_decision_result") or "").strip().lower() or "unknown"
-        if decision_result == "selection_rejected":
+    for row in snapshot_runtime_rows:
+        decision_result = str(row.get("matched_snapshot_decision_result") or "").strip().lower() or "unknown"
+        matched_snapshot_row = {
+            "decision_result": row.get("matched_snapshot_decision_result"),
+            "decision_block_reason": row.get("matched_snapshot_decision_block_reason"),
+            "selection_gate_primary_reject_reason": row.get(
+                "matched_snapshot_selection_primary_reject_reason"
+            ),
+            "selection_gate_all_reject_reasons": row.get(
+                "matched_snapshot_selection_reject_reasons"
+            ),
+        }
+        if _snapshot_is_selection_rejected(matched_snapshot_row):
             terminal_path_counts["selection_rejected"] += 1
             reason = (
-                _normalize_selection_reject_reason(
-                    row.get("matched_shadow_selection_primary_reject_reason")
-                    or row.get("matched_shadow_decision_block_reason")
-                )
-                or "selection_rejected"
+                (_snapshot_selection_reject_reasons(matched_snapshot_row) or ["selection_rejected"])[0]
             )
             selection_reject_reason_counts[reason] += 1
         elif decision_result == "submit_rejected":
             terminal_path_counts["submit_attempt_rejected"] += 1
             reason = (
-                str(row.get("matched_shadow_decision_block_reason") or "").strip().lower()
+                str(row.get("matched_snapshot_decision_block_reason") or "").strip().lower()
                 or "submit_rejected"
             )
             submit_attempt_reject_reason_counts[reason] += 1
         elif decision_result == "submitted":
-            submit_order_id = str(row.get("matched_shadow_order_submit_id") or "").strip()
+            submit_order_id = str(row.get("matched_snapshot_order_submit_id") or "").strip()
             outcome = outcome_by_submit_id.get(submit_order_id)
             if isinstance(outcome, dict) and int(_safe_float(outcome.get("fill_count"))) > 0:
                 terminal_path_counts["fill"] += 1
@@ -8113,13 +8182,13 @@ def _maker_participation_waterfall_bundle(
                 terminal_path_counts["submit_success_unfilled"] += 1
                 submit_success_outcome_counts["unfilled_or_missing_outcome"] += 1
         else:
-            terminal_path_counts["shadow_non_submit_blocked"] += 1
+            terminal_path_counts["snapshot_non_submit_blocked"] += 1
             reason = (
-                str(row.get("matched_shadow_decision_block_reason") or "").strip().lower()
+                str(row.get("matched_snapshot_decision_block_reason") or "").strip().lower()
                 or decision_result
-                or "shadow_non_submit_blocked"
+                or "snapshot_non_submit_blocked"
             )
-            shadow_non_submit_reason_counts[reason] += 1
+            snapshot_non_submit_reason_counts[reason] += 1
 
     total_maker_rows = int(len(maker_rows))
     stage_band_allowed_rows = int(len(active_band_probe_rows))
@@ -8127,13 +8196,13 @@ def _maker_participation_waterfall_bundle(
     truth_reference_sufficient_rows = int(len(actionable_prequote_rows))
     truth_reference_insufficient_rows = int(terminal_path_counts["truth_reference_insufficient"])
     desired_quote_missing_rows = int(terminal_path_counts["desired_quote_missing"])
-    pre_shadow_non_shadow_rows = int(terminal_path_counts["pre_shadow_non_shadow"])
+    pre_snapshot_unmatched_rows = int(terminal_path_counts["pre_snapshot_unmatched"])
     selection_rejected_rows = int(terminal_path_counts["selection_rejected"])
-    shadow_non_submit_blocked_rows = int(terminal_path_counts["shadow_non_submit_blocked"])
+    snapshot_non_submit_blocked_rows = int(terminal_path_counts["snapshot_non_submit_blocked"])
     submit_attempt_rejected_rows = int(terminal_path_counts["submit_attempt_rejected"])
     submit_success_unfilled_rows = int(terminal_path_counts["submit_success_unfilled"])
     fill_rows = int(terminal_path_counts["fill"])
-    shadow_eligible_rows = int(len(shadow_runtime_rows))
+    snapshot_eligible_rows = int(len(snapshot_runtime_rows))
     submit_attempt_rows = int(submit_attempt_rejected_rows + submit_success_unfilled_rows + fill_rows)
     submit_success_rows = int(submit_success_unfilled_rows + fill_rows)
 
@@ -8185,28 +8254,28 @@ def _maker_participation_waterfall_bundle(
             "percent_of_prior_stage": _pct(desired_quote_missing_rows, truth_reference_sufficient_rows),
             "loss_reason_distribution": _counter_to_sorted_int_dict(desired_quote_missing_reason_counts),
         },
-        "pre_shadow_non_shadow_rows": {
-            "count": pre_shadow_non_shadow_rows,
+        "pre_snapshot_unmatched_rows": {
+            "count": pre_snapshot_unmatched_rows,
             "prior_stage": "desired_quote_present_rows",
-            "percent_of_prior_stage": _pct(pre_shadow_non_shadow_rows, int(len(desired_quote_present_rows))),
-            "loss_reason_distribution": _counter_to_sorted_int_dict(pre_shadow_non_shadow_reason_counts),
+            "percent_of_prior_stage": _pct(pre_snapshot_unmatched_rows, int(len(desired_quote_present_rows))),
+            "loss_reason_distribution": _counter_to_sorted_int_dict(pre_snapshot_unmatched_reason_counts),
         },
-        "shadow_rows": {
-            "count": shadow_eligible_rows,
+        "snapshot_rows": {
+            "count": snapshot_eligible_rows,
             "prior_stage": "desired_quote_present_rows",
-            "percent_of_prior_stage": _pct(shadow_eligible_rows, int(len(desired_quote_present_rows))),
+            "percent_of_prior_stage": _pct(snapshot_eligible_rows, int(len(desired_quote_present_rows))),
             "loss_reason_distribution": {},
         },
         "selection_rejected_rows": {
             "count": selection_rejected_rows,
-            "prior_stage": "shadow_rows",
-            "percent_of_prior_stage": _pct(selection_rejected_rows, shadow_eligible_rows),
+            "prior_stage": "snapshot_rows",
+            "percent_of_prior_stage": _pct(selection_rejected_rows, snapshot_eligible_rows),
             "loss_reason_distribution": _counter_to_sorted_int_dict(selection_reject_reason_counts),
         },
         "submit_attempt_rows": {
             "count": submit_attempt_rows,
-            "prior_stage": "shadow_rows",
-            "percent_of_prior_stage": _pct(submit_attempt_rows, shadow_eligible_rows),
+            "prior_stage": "snapshot_rows",
+            "percent_of_prior_stage": _pct(submit_attempt_rows, snapshot_eligible_rows),
             "loss_reason_distribution": _counter_to_sorted_int_dict(submit_attempt_reject_reason_counts),
         },
         "submit_success_rows": {
@@ -8244,7 +8313,7 @@ def _maker_participation_waterfall_bundle(
 def _maker_zero_submit_root_cause_bundle(
     *,
     probe_rows: List[Dict[str, Any]],
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     quote_starvation_rows: List[Dict[str, Any]],
     quote_starvation_summary: Dict[str, Any],
     waterfall: Dict[str, Any],
@@ -8262,43 +8331,43 @@ def _maker_zero_submit_root_cause_bundle(
     off_band_full_candidates = [
         row for row in probe_rows if bool(row.get("off_band_opportunity", False))
     ]
-    zero_shadow_rows = int(waterfall.get("stages", {}).get("shadow_rows", {}).get("count", 0)) == 0
-    runtime_eligible_pre_shadow_rows = int(len(quote_starvation_rows))
+    zero_snapshot_rows = int(waterfall.get("stages", {}).get("snapshot_rows", {}).get("count", 0)) == 0
+    runtime_eligible_pre_snapshot_rows = int(len(quote_starvation_rows))
 
     active_band_reason_counts: Counter[str] = Counter()
     for row in active_band_runtime_rows:
         for reason in list(row.get("reject_reasons") or []):
             active_band_reason_counts[str(reason or "unknown")] += 1
-    shadow_selection_rejected_row_count = int(
+    snapshot_selection_rejected_row_count = int(
         sum(
             1
-            for row in shadow_rows
-            if str(row.get("decision_result") or "").strip().lower() == "selection_rejected"
+            for row in snapshot_rows
+            if _snapshot_is_selection_rejected(row)
         )
     )
-    submitted_shadow_row_count = int(
+    submitted_snapshot_row_count = int(
         sum(
             1
-            for row in shadow_rows
+            for row in snapshot_rows
             if str(row.get("decision_result") or "").strip().lower() == "submitted"
         )
     )
     selection_rejected_primary_reason_counts: Counter[str] = Counter(
-        _normalize_selection_reject_reason(
-            row.get("selection_gate_primary_reject_reason") or row.get("decision_block_reason")
-        )
-        or "selection_rejected"
-        for row in shadow_rows
-        if str(row.get("decision_result") or "").strip().lower() == "selection_rejected"
+        (_snapshot_selection_reject_reasons(row) or ["selection_rejected"])[0]
+        for row in snapshot_rows
+        if _snapshot_is_selection_rejected(row)
     )
 
     contradiction_ledger: List[Dict[str, Any]] = []
-    if zero_shadow_rows and runtime_eligible_pre_shadow_rows > 0:
+    if zero_snapshot_rows and runtime_eligible_pre_snapshot_rows > 0:
         contradiction_ledger.append(
             {
-                "code": "zero_shadow_with_runtime_eligible_pre_shadow_rows",
+                "code": "zero_snapshot_with_runtime_eligible_pre_snapshot_rows",
                 "severity": "high",
-                "detail": f"shadow_rows=0 while runtime_eligible_pre_shadow_rows={runtime_eligible_pre_shadow_rows}",
+                "detail": (
+                    f"snapshot_rows=0 while runtime_eligible_pre_snapshot_rows="
+                    f"{runtime_eligible_pre_snapshot_rows}"
+                ),
             }
         )
     if off_band_full_candidates:
@@ -8341,7 +8410,7 @@ def _maker_zero_submit_root_cause_bundle(
         "stage_band_allowed_rows": "stage_band_excluded",
         "prequote_prereq_pass_rows": "prequote_prereq_blocked",
         "truth_reference_insufficient_rows": "truth_reference_insufficient",
-        "pre_shadow_non_shadow_rows": "pre_shadow_non_shadow",
+        "pre_snapshot_unmatched_rows": "pre_snapshot_unmatched",
         "desired_quote_missing_rows": "desired_quote_missing",
         "selection_rejected_rows": "selection_rejected",
     }
@@ -8406,15 +8475,15 @@ def _maker_zero_submit_root_cause_bundle(
             measurement_gaps.append("missing_market_reference_mode")
         if not str(row.get("market_reference_source_side") or "").strip():
             measurement_gaps.append("missing_market_reference_source_side")
-    unmatched_shadow_rejections = int(
+    unmatched_snapshot_rejections = int(
         max(
             0,
-            shadow_selection_rejected_row_count
+            snapshot_selection_rejected_row_count
             - int(waterfall.get("stages", {}).get("selection_rejected_rows", {}).get("count", 0)),
         )
     )
-    if unmatched_shadow_rejections > int(len(off_band_full_candidates)):
-        measurement_gaps.append("unmatched_shadow_selection_rejections")
+    if unmatched_snapshot_rejections > int(len(off_band_full_candidates)):
+        measurement_gaps.append("unmatched_snapshot_selection_rejections")
     normalized_measurement_gaps = sorted(set(measurement_gaps))
     decision_readiness = (
         "measurement_incomplete" if normalized_measurement_gaps else "ready_for_truth_packet"
@@ -8439,7 +8508,7 @@ def _maker_zero_submit_root_cause_bundle(
         ),
         "reject_reason_distribution": _counter_to_sorted_int_dict(active_band_reason_counts),
     }
-    if submitted_shadow_row_count > 0:
+    if submitted_snapshot_row_count > 0:
         return {
             "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
             "runtime_classification": runtime_class_name or "UNKNOWN",
@@ -8451,8 +8520,8 @@ def _maker_zero_submit_root_cause_bundle(
             "decision_readiness": "not_applicable_submit_run",
             "measurement_gaps": [],
             "known_truths": {
-                "current_run_submit_count": int(submitted_shadow_row_count),
-                "current_run_selection_rejected_row_count": int(shadow_selection_rejected_row_count),
+                "current_run_submit_count": int(submitted_snapshot_row_count),
+                "current_run_selection_rejected_row_count": int(snapshot_selection_rejected_row_count),
                 "row_universe_caveats": [],
             },
             "ranked_cause_stack": [],
@@ -8461,22 +8530,22 @@ def _maker_zero_submit_root_cause_bundle(
                     "code": "maker_participated_current_run",
                     "severity": "info",
                     "detail": (
-                        f"submitted_shadow_row_count={submitted_shadow_row_count},"
-                        f" selection_rejected_shadow_row_count={shadow_selection_rejected_row_count}"
+                        f"submitted_snapshot_row_count={submitted_snapshot_row_count},"
+                        f" selection_rejected_snapshot_row_count={snapshot_selection_rejected_row_count}"
                     ),
                 }
             ],
             "active_band_runtime_summary": active_band_summary,
-            "shadow_row_count": int(len(shadow_rows)),
-            "submitted_shadow_row_count": int(submitted_shadow_row_count),
-            "shadow_selection_rejected_row_count": int(shadow_selection_rejected_row_count),
+            "snapshot_row_count": int(len(snapshot_rows)),
+            "submitted_snapshot_row_count": int(submitted_snapshot_row_count),
+            "snapshot_selection_rejected_row_count": int(snapshot_selection_rejected_row_count),
             "selection_rejected_primary_reason_distribution": _counter_to_sorted_int_dict(
                 selection_rejected_primary_reason_counts
             ),
             "probe_matched_selection_rejected_row_count": int(
                 waterfall.get("stages", {}).get("selection_rejected_rows", {}).get("count", 0)
             ),
-            "unmatched_selection_rejected_shadow_row_count": 0,
+            "unmatched_selection_rejected_snapshot_row_count": 0,
             "off_band_full_cannon_candidate_count": int(len(off_band_full_candidates)),
             "off_band_full_cannon_candidate_examples": [],
         }
@@ -8493,13 +8562,13 @@ def _maker_zero_submit_root_cause_bundle(
     ]
     known_truths = {
         "packet_b_350": {
-            "quote_starvation_row_count": 10 if runtime_eligible_pre_shadow_rows == 10 and shadow_selection_rejected_row_count == 0 else None,
-            "shadow_row_count": 0 if shadow_selection_rejected_row_count == 0 and zero_shadow_rows else None,
+            "quote_starvation_row_count": 10 if runtime_eligible_pre_snapshot_rows == 10 and snapshot_selection_rejected_row_count == 0 else None,
+            "snapshot_row_count": 0 if snapshot_selection_rejected_row_count == 0 and zero_snapshot_rows else None,
         },
         "caliber_250": {
-            "quote_starvation_row_count": 20 if runtime_eligible_pre_shadow_rows == 20 else None,
-            "shadow_selection_rejected_row_count": (
-                shadow_selection_rejected_row_count if shadow_selection_rejected_row_count > 0 else None
+            "quote_starvation_row_count": 20 if runtime_eligible_pre_snapshot_rows == 20 else None,
+            "snapshot_selection_rejected_row_count": (
+                snapshot_selection_rejected_row_count if snapshot_selection_rejected_row_count > 0 else None
             ),
             "off_band_full_cannon_candidate_count": int(len(off_band_full_candidates)),
         },
@@ -8519,12 +8588,12 @@ def _maker_zero_submit_root_cause_bundle(
         "ranked_cause_stack": ranked_cause_stack,
         "contradiction_ledger": contradiction_ledger,
         "active_band_runtime_summary": active_band_summary,
-        "shadow_row_count": int(len(shadow_rows)),
-        "shadow_selection_rejected_row_count": shadow_selection_rejected_row_count,
+        "snapshot_row_count": int(len(snapshot_rows)),
+        "snapshot_selection_rejected_row_count": snapshot_selection_rejected_row_count,
         "probe_matched_selection_rejected_row_count": int(
             waterfall.get("stages", {}).get("selection_rejected_rows", {}).get("count", 0)
         ),
-        "unmatched_selection_rejected_shadow_row_count": unmatched_shadow_rejections,
+        "unmatched_selection_rejected_snapshot_row_count": unmatched_snapshot_rejections,
         "off_band_full_cannon_candidate_count": int(len(off_band_full_candidates)),
         "off_band_full_cannon_candidate_examples": off_band_examples,
     }
@@ -9745,7 +9814,7 @@ def build_report(
     run_manifest = _load_run_manifest(resolved_log_dir, resolved_run_id)
     outcome_truth_records = _load_outcome_truth_records(resolved_log_dir, resolved_run_id)
     outcome_truth_audit = _load_outcome_truth_audit(resolved_log_dir, resolved_run_id)
-    maker_fight_admission_shadow_bundle = _maker_fight_admission_shadow_bundle(
+    maker_market_snapshot_bundle = _maker_market_snapshot_bundle(
         events=events,
         status=status,
         outcome_truth_records=outcome_truth_records,
@@ -9759,17 +9828,17 @@ def build_report(
         events=events,
         run_manifest=run_manifest,
     )
-    maker_probe_rows_with_shadow_truth = _maker_probe_rows_with_shadow_truth(
+    maker_probe_rows_with_snapshot_truth = _maker_probe_rows_with_snapshot_truth(
         probe_rows=maker_cannon_late_window_probe_bundle["rows"],
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         run_manifest=run_manifest,
     )
     maker_quote_starvation_bundle = _maker_quote_starvation_bundle(
-        probe_rows=maker_probe_rows_with_shadow_truth,
+        probe_rows=maker_probe_rows_with_snapshot_truth,
         run_manifest=run_manifest,
     )
     maker_truth_reference_starvation_bundle = _maker_truth_reference_starvation_bundle(
-        probe_rows=maker_probe_rows_with_shadow_truth,
+        probe_rows=maker_probe_rows_with_snapshot_truth,
     )
     maker_quote_construction_bundle = _maker_quote_construction_bundle(
         truth_rows=maker_truth_reference_starvation_bundle["rows"],
@@ -9786,7 +9855,7 @@ def build_report(
     capture_stats = _fill_capture_stats(events)
     taker_lineage_stage_net_breakout = _taker_lineage_stage_net_breakout(events)
     edge_quality = _edge_quality_by_regime(events)
-    maker_competitiveness = _maker_competitiveness_stats(events)
+    maker_market_viability = _maker_market_viability_stats(events)
     maker_complete_outcomes = _maker_complete_outcome_rates(outcome_truth_records)
     taker_competitiveness = _taker_competitiveness_stats(events)
     taker_intent_gate_posture_matrix = _taker_intent_gate_posture_matrix(events)
@@ -9845,22 +9914,22 @@ def build_report(
     market_data_source = _market_data_source_stats(status)
     maker_participation_waterfall = _maker_participation_waterfall_bundle(
         events=events,
-        probe_rows=maker_probe_rows_with_shadow_truth,
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        probe_rows=maker_probe_rows_with_snapshot_truth,
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         outcome_truth_records=outcome_truth_records,
         run_manifest=run_manifest,
         truth_rows=maker_truth_reference_starvation_bundle["rows"],
     )
     maker_timing_band_diagnostic_matrix = _maker_timing_band_diagnostic_matrix(
-        probe_rows=maker_probe_rows_with_shadow_truth,
+        probe_rows=maker_probe_rows_with_snapshot_truth,
     )
     maker_timing_band_decision = _maker_timing_band_decision_bundle(
-        probe_rows=maker_probe_rows_with_shadow_truth,
+        probe_rows=maker_probe_rows_with_snapshot_truth,
         truth_rows=maker_truth_reference_starvation_bundle["rows"],
     )
     maker_zero_submit_root_cause_audit = _maker_zero_submit_root_cause_bundle(
-        probe_rows=maker_probe_rows_with_shadow_truth,
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        probe_rows=maker_probe_rows_with_snapshot_truth,
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         quote_starvation_rows=maker_quote_starvation_bundle["rows"],
         quote_starvation_summary=maker_quote_starvation_bundle["summary"],
         waterfall=maker_participation_waterfall,
@@ -9869,19 +9938,19 @@ def build_report(
     )
     maker_quote_integrity_bundle = _maker_quote_integrity_bundle(
         events=events,
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         run_manifest=run_manifest,
         run_id=resolved_run_id,
     )
     maker_selection_authority_bundle = _maker_selection_authority_bundle(
         events=events,
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         outcome_truth_records=outcome_truth_records,
         run_manifest=run_manifest,
         run_id=resolved_run_id,
     )
     maker_blocker_ledger_bundle = _maker_blocker_ledger_bundle(
-        shadow_rows=maker_fight_admission_shadow_bundle["rows"],
+        snapshot_rows=maker_market_snapshot_bundle["rows"],
         selection_authority_rows=maker_selection_authority_bundle["rows"],
     )
     kill_switch_events = float(
@@ -10004,14 +10073,30 @@ def build_report(
         "latency_distribution_ms": latency_stats,
         "taker": taker,
         "execution_paths": execution_paths,
+        "maker_submits": _safe_float(execution_paths.get("maker_submits")),
+        "maker_fills": _safe_float(execution_paths.get("maker_fills")),
+        "maker_filled_orders": _safe_float(execution_paths.get("maker_filled_orders")),
+        "maker_fill_rate": _safe_float(execution_paths.get("maker_fill_rate")),
+        "maker_fire_rate_per_min": _safe_float(execution_paths.get("maker_fire_rate_per_min")),
+        "taker_bonus_submits": _safe_float(execution_paths.get("taker_bonus_submits")),
+        "taker_bonus_fills": _safe_float(execution_paths.get("taker_bonus_fills")),
+        "taker_bonus_filled_orders": _safe_float(execution_paths.get("taker_bonus_filled_orders")),
+        "taker_bonus_fill_rate": _safe_float(execution_paths.get("taker_bonus_fill_rate")),
+        "taker_bonus_fire_rate_per_min": _safe_float(execution_paths.get("taker_bonus_fire_rate_per_min")),
         "financial_performance": financial_performance,
         "financial_outcome_reconciliation": financial_outcome_reconciliation,
         "maker_regression_sentinel": maker_regression_sentinel,
         "maker_fireability": maker_fireability,
         "edge_truth": edge_truth,
-        "maker_competitiveness": maker_competitiveness,
+        "maker_market_viability": maker_market_viability,
+        "maker_market_snapshot_summary": maker_market_snapshot_bundle["summary"],
+        "maker_snapshot_summary": maker_market_snapshot_bundle["summary"],
+        "maker_viability_summary": maker_market_viability,
         "maker_blocker_ledger": maker_blocker_ledger_bundle["summary"],
         "maker_selection_authority": maker_selection_authority_bundle["audit"],
+        "maker_participation_waterfall": maker_participation_waterfall,
+        "maker_participation_summary": maker_participation_waterfall,
+        "maker_zero_submit_root_cause_audit": maker_zero_submit_root_cause_audit,
         **maker_complete_outcomes,
         "taker_competitiveness": taker_competitiveness,
         "taker_intent_gate_posture_matrix": taker_intent_gate_posture_matrix,
@@ -10074,10 +10159,10 @@ def build_report(
     }
     if include_support_artifacts:
         report["_support_artifacts"] = {
-            "maker_fight_admission_shadow_rows": maker_fight_admission_shadow_bundle["rows"],
-            "maker_fight_admission_shadow_summary": maker_fight_admission_shadow_bundle["summary"],
-            "maker_fight_admission_calibration_audit": maker_fight_admission_shadow_bundle["calibration_audit"],
-            "maker_cannon_late_window_probe_rows": maker_probe_rows_with_shadow_truth,
+            "maker_market_snapshot_rows": maker_market_snapshot_bundle["rows"],
+            "maker_market_snapshot_summary": maker_market_snapshot_bundle["summary"],
+            "maker_market_snapshot_calibration_audit": maker_market_snapshot_bundle["calibration_audit"],
+            "maker_cannon_late_window_probe_rows": maker_probe_rows_with_snapshot_truth,
             "maker_cannon_late_window_probe_summary": maker_cannon_late_window_probe_bundle["summary"],
             "maker_mid_window_probe_rows": maker_mid_window_probe_bundle["rows"],
             "maker_mid_window_probe_summary": maker_mid_window_probe_bundle["summary"],
@@ -10179,7 +10264,11 @@ def render_human_summary(report: Dict[str, Any]) -> str:
     )
     taker_stage_net = report.get("taker_lineage_stage_net_breakout", {}) if isinstance(report.get("taker_lineage_stage_net_breakout"), dict) else {}
     edge_truth = report.get("edge_truth", {}) if isinstance(report.get("edge_truth"), dict) else {}
-    maker_comp = report.get("maker_competitiveness", {}) if isinstance(report.get("maker_competitiveness"), dict) else {}
+    maker_comp = (
+        report.get("maker_market_viability", {})
+        if isinstance(report.get("maker_market_viability"), dict)
+        else {}
+    )
     maker_selection = (
         report.get("maker_selection_authority", {})
         if isinstance(report.get("maker_selection_authority"), dict)
@@ -10314,7 +10403,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{int(_safe_float(edge_truth.get('maker_market_reference_one_sided_context_count')))}"
         ),
         (
-            "maker_competitiveness="
+            "maker_market_viability="
             + f"timing_gate_blocked={int(_safe_float(maker_comp.get('timing_gate_blocked_count_edge_eval')))},"
             + f"one_sided_submit_buy={int(_safe_float(maker_comp.get('one_sided_activation_submit_buy_count')))},"
             + f"one_sided_submit_sell={int(_safe_float(maker_comp.get('one_sided_activation_submit_sell_count')))},"
@@ -10617,7 +10706,7 @@ def _maker_zero_submit_specimen_manifest(
             "quote_starvation_rows": int(
                 quote_starvation.get("quote_starvation_row_count", quote_starvation.get("row_count", 0))
             ),
-            "shadow_row_count": int(root_cause.get("shadow_row_count", 0)),
+            "snapshot_row_count": int(root_cause.get("snapshot_row_count", 0)),
             "off_band_full_cannon_candidate_count": int(
                 root_cause.get("off_band_full_cannon_candidate_count", 0)
             ),
@@ -10663,9 +10752,9 @@ def _maker_zero_submit_specimen_snapshot(
         "quote_starvation_row_count": int(
             quote_starvation.get("quote_starvation_row_count", quote_starvation.get("row_count", 0))
         ),
-        "shadow_row_count": int(root_cause.get("shadow_row_count", 0)),
-        "shadow_selection_rejected_row_count": int(
-            root_cause.get("shadow_selection_rejected_row_count", 0)
+        "snapshot_row_count": int(root_cause.get("snapshot_row_count", 0)),
+        "snapshot_selection_rejected_row_count": int(
+            root_cause.get("snapshot_selection_rejected_row_count", 0)
         ),
         "probe_matched_selection_rejected_row_count": int(
             root_cause.get("probe_matched_selection_rejected_row_count", 0)
@@ -10864,16 +10953,16 @@ def _nearest_event_for_quote_integrity(
     return best_row
 
 
-def _maker_next_shadow_after_submit(
+def _maker_next_snapshot_after_submit(
     *,
-    shadow_index: Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]],
+    snapshot_index: Dict[str, List[Tuple[dt.datetime, Dict[str, Any]]]],
     target_side_ref: str,
     submit_ts: Optional[dt.datetime],
     max_delta_sec: float = 3.0,
 ) -> Optional[Dict[str, Any]]:
     if submit_ts is None:
         return None
-    candidates = shadow_index.get(str(target_side_ref or "").strip(), [])
+    candidates = snapshot_index.get(str(target_side_ref or "").strip(), [])
     for candidate_ts, row in candidates:
         delta = (candidate_ts - submit_ts).total_seconds()
         if delta <= 1e-9:
@@ -10943,12 +11032,12 @@ def _maker_quote_mutation_materiality(trace_row: Dict[str, Any]) -> Tuple[str, D
     observed_fillprob_queue_equal = bool(
         quote_plane.get("observed_fillprob_and_queue_equal", False)
     )
-    shadow_depth_multiple = model_plane.get("depth_multiple_vs_cannon_target")
+    snapshot_depth_multiple = model_plane.get("depth_multiple_vs_cannon_target")
     submitted_depth_multiple = quote_plane.get("submitted_quote_depth_multiple_vs_cannon_target")
     depth_semantics_differ = False
-    if isinstance(shadow_depth_multiple, (int, float)) and isinstance(submitted_depth_multiple, (int, float)):
+    if isinstance(snapshot_depth_multiple, (int, float)) and isinstance(submitted_depth_multiple, (int, float)):
         depth_semantics_differ = (
-            (float(shadow_depth_multiple) >= MAKER_CANNON_MIN_DEPTH_MULTIPLE)
+            (float(snapshot_depth_multiple) >= MAKER_CANNON_MIN_DEPTH_MULTIPLE)
             != (float(submitted_depth_multiple) >= MAKER_CANNON_MIN_DEPTH_MULTIPLE)
         )
     crossing_transition = (
@@ -11211,12 +11300,12 @@ def _maker_execution_quality_semantics_bundle(
 def _maker_quote_integrity_bundle(
     *,
     events: List[Dict[str, Any]],
-    shadow_rows: List[Dict[str, Any]],
+    snapshot_rows: List[Dict[str, Any]],
     run_manifest: Dict[str, Any],
     run_id: str,
 ) -> Dict[str, Any]:
     tick_size = _maker_quote_integrity_tick_size(run_manifest)
-    shadow_index = _maker_shadow_match_index(shadow_rows)
+    snapshot_index = _maker_snapshot_match_index(snapshot_rows)
     run_profile_name = str(
         ((run_manifest.get("config") or {}).get("profile") or {}).get("name") or ""
     )
@@ -11305,13 +11394,13 @@ def _maker_quote_integrity_bundle(
         suppressed_cancel_reason_counts[requested_reason] += 1
     edge_events = events_by_type.get("edge_evaluation", [])
 
-    submitted_shadow_rows = [
+    submitted_snapshot_rows = [
         row
-        for row in shadow_rows
+        for row in snapshot_rows
         if str(row.get("decision_result") or "").strip().lower() == "submitted"
         and str(row.get("order_submit_id") or "").strip()
     ]
-    submitted_shadow_rows.sort(
+    submitted_snapshot_rows.sort(
         key=lambda item: (
             _maker_quote_integrity_event_ts(item) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
             str(item.get("order_submit_id") or ""),
@@ -11324,21 +11413,21 @@ def _maker_quote_integrity_bundle(
     mutation_class_counts: Counter[str] = Counter()
     survival_class_counts: Counter[str] = Counter()
 
-    for shadow_row in submitted_shadow_rows:
-        order_id = str(shadow_row.get("order_submit_id") or "").strip()
+    for snapshot_row in submitted_snapshot_rows:
+        order_id = str(snapshot_row.get("order_submit_id") or "").strip()
         if not order_id:
             continue
-        shadow_ts = _maker_quote_integrity_event_ts(shadow_row)
+        snapshot_ts = _maker_quote_integrity_event_ts(snapshot_row)
         submit_evt = submit_events.get(order_id)
-        submit_ts = _maker_quote_integrity_event_ts(submit_evt or shadow_row)
+        submit_ts = _maker_quote_integrity_event_ts(submit_evt or snapshot_row)
         token_id = str(
             (submit_evt or {}).get("token_id")
-            or shadow_row.get("token_id")
+            or snapshot_row.get("token_id")
             or ""
         ).strip()
         side = str(
             (submit_evt or {}).get("side")
-            or shadow_row.get("side")
+            or snapshot_row.get("side")
             or ""
         ).strip().upper()
         cross_guard_evt = _nearest_event_for_quote_integrity(
@@ -11355,9 +11444,9 @@ def _maker_quote_integrity_bundle(
             max_delta_sec=0.5,
             direction="before",
         )
-        next_shadow = _maker_next_shadow_after_submit(
-            shadow_index=shadow_index,
-            target_side_ref=str(shadow_row.get("target_side_ref") or ""),
+        next_snapshot = _maker_next_snapshot_after_submit(
+            snapshot_index=snapshot_index,
+            target_side_ref=str(snapshot_row.get("target_side_ref") or ""),
             submit_ts=submit_ts,
         )
         cancel_evt = _nearest_event_for_quote_integrity(
@@ -11381,17 +11470,17 @@ def _maker_quote_integrity_bundle(
             direction="both",
         )
 
-        shadow_quality = _maker_quality_snapshot_from_event(shadow_row)
+        snapshot_quality = _maker_quality_snapshot_from_event(snapshot_row)
         submitted_quality = _maker_quality_snapshot_from_event(submit_evt or {})
-        shadow_depth_multiple = (
-            float(shadow_row.get("depth_multiple_vs_cannon_target"))
-            if isinstance(shadow_row.get("depth_multiple_vs_cannon_target"), (int, float))
+        snapshot_depth_multiple = (
+            float(snapshot_row.get("depth_multiple_vs_cannon_target"))
+            if isinstance(snapshot_row.get("depth_multiple_vs_cannon_target"), (int, float))
             else None
         )
         submitted_depth_multiple = _maker_depth_multiple_for_price(
             price=(submit_evt or {}).get("price"),
-            visible_depth_shares=shadow_row.get("visible_depth_shares"),
-            cannon_target_notional_usd=shadow_row.get("cannon_target_notional_usd"),
+            visible_depth_shares=snapshot_row.get("visible_depth_shares"),
+            cannon_target_notional_usd=snapshot_row.get("cannon_target_notional_usd"),
         )
         quote_plane = {
             "pre_submit_cross_guard_original_price": (
@@ -11424,10 +11513,10 @@ def _maker_quote_integrity_bundle(
             "submitted_distance_to_touch": submitted_quality.get("distance_to_touch"),
             "submitted_quote_depth_multiple_vs_cannon_target": submitted_depth_multiple,
             "observed_quality_metrics_equal": bool(
-                _maker_quality_equal(shadow_quality, submitted_quality)
+                _maker_quality_equal(snapshot_quality, submitted_quality)
             ),
             "observed_fillprob_and_queue_equal": bool(
-                _maker_quality_equal_fillprob_queue(shadow_quality, submitted_quality)
+                _maker_quality_equal_fillprob_queue(snapshot_quality, submitted_quality)
             ),
         }
         quote_plane["mutation_flags"] = {
@@ -11442,22 +11531,22 @@ def _maker_quote_integrity_bundle(
             ),
             "submitted_quote_differs_from_certified_quote": bool(
                 isinstance(quote_plane["submitted_price"], (int, float))
-                and isinstance(shadow_row.get("desired_quote_price"), (int, float))
+                and isinstance(snapshot_row.get("desired_quote_price"), (int, float))
                 and abs(
                     float(quote_plane["submitted_price"])
-                    - float(shadow_row.get("desired_quote_price"))
+                    - float(snapshot_row.get("desired_quote_price"))
                 )
                 > 1e-12
             ),
         }
         quote_plane["certified_to_submitted_tick_delta"] = _maker_price_tick_delta(
-            shadow_row.get("desired_quote_price"),
+            snapshot_row.get("desired_quote_price"),
             quote_plane.get("submitted_price"),
             tick_size,
         )
         quote_plane["certified_quote_crosses_touch"] = _maker_quote_crosses_touch(
             side=side,
-            price=shadow_row.get("desired_quote_price"),
+            price=snapshot_row.get("desired_quote_price"),
             best_bid_price=quote_plane.get("best_bid_price_at_clamp_time"),
             best_ask_price=quote_plane.get("best_ask_price_at_clamp_time"),
         )
@@ -11470,91 +11559,91 @@ def _maker_quote_integrity_bundle(
 
         next_cycle_reject_reason = None
         next_cycle_reject_reasons: List[str] = []
-        if isinstance(next_shadow, dict):
+        if isinstance(next_snapshot, dict):
             next_cycle_reject_reason = _normalize_selection_reject_reason(
-                next_shadow.get("selection_gate_primary_reject_reason")
-                or next_shadow.get("decision_block_reason")
+                next_snapshot.get("selection_gate_primary_reject_reason")
+                or next_snapshot.get("decision_block_reason")
             )
             next_cycle_reject_reasons = [
                 reason
                 for reason in (
                     _normalize_selection_reject_reason(reason)
-                    for reason in list(next_shadow.get("selection_gate_all_reject_reasons") or [])
+                    for reason in list(next_snapshot.get("selection_gate_all_reject_reasons") or [])
                 )
                 if reason
             ]
         survival_plane = {
             "actual_resting_order_price": quote_plane.get("submitted_price"),
             "next_cycle_desired_quote_price": (
-                float(next_shadow.get("desired_quote_price"))
-                if isinstance((next_shadow or {}).get("desired_quote_price"), (int, float))
+                float(next_snapshot.get("desired_quote_price"))
+                if isinstance((next_snapshot or {}).get("desired_quote_price"), (int, float))
                 else None
             ),
             "next_cycle_selection_reject_reason": next_cycle_reject_reason,
             "next_cycle_selection_reject_reasons": next_cycle_reject_reasons,
             "next_cycle_depth_multiple_vs_cannon_target": (
-                float(next_shadow.get("depth_multiple_vs_cannon_target"))
-                if isinstance((next_shadow or {}).get("depth_multiple_vs_cannon_target"), (int, float))
+                float(next_snapshot.get("depth_multiple_vs_cannon_target"))
+                if isinstance((next_snapshot or {}).get("depth_multiple_vs_cannon_target"), (int, float))
                 else None
             ),
             "next_cycle_visible_depth_shares": (
-                float(next_shadow.get("visible_depth_shares"))
-                if isinstance((next_shadow or {}).get("visible_depth_shares"), (int, float))
+                float(next_snapshot.get("visible_depth_shares"))
+                if isinstance((next_snapshot or {}).get("visible_depth_shares"), (int, float))
                 else None
             ),
             "next_cycle_same_target_side_submit_count_prior": (
-                int(_safe_float(next_shadow.get("same_target_side_submit_count_prior")))
-                if isinstance((next_shadow or {}).get("same_target_side_submit_count_prior"), (int, float))
+                int(_safe_float(next_snapshot.get("same_target_side_submit_count_prior")))
+                if isinstance((next_snapshot or {}).get("same_target_side_submit_count_prior"), (int, float))
                 else None
             ),
             "next_cycle_replace_guard_would_block": (
-                bool(next_shadow.get("replace_guard_would_block"))
-                if isinstance((next_shadow or {}).get("replace_guard_would_block"), bool)
+                bool(next_snapshot.get("replace_guard_would_block"))
+                if isinstance((next_snapshot or {}).get("replace_guard_would_block"), bool)
                 else None
             ),
             "cancel_reason": str((cancel_evt or {}).get("reason") or "").strip() or None,
             "cancel_class": str((cancel_evt or {}).get("cancel_class") or "").strip() or None,
             "survival_quote_reference": (
                 "rederived_desired_quote"
-                if isinstance(next_shadow, dict)
+                if isinstance(next_snapshot, dict)
                 else "unknown"
             ),
-            "evaluated_on_actual_resting_quote": False if isinstance(next_shadow, dict) else None,
+            "evaluated_on_actual_resting_quote": False if isinstance(next_snapshot, dict) else None,
             "resting_price_counterfactual_depth_multiple": _maker_depth_multiple_for_price(
                 price=quote_plane.get("submitted_price"),
-                visible_depth_shares=(next_shadow or {}).get("visible_depth_shares"),
+                visible_depth_shares=(next_snapshot or {}).get("visible_depth_shares"),
                 cannon_target_notional_usd=(
-                    (next_shadow or {}).get("cannon_target_notional_usd")
-                    or shadow_row.get("cannon_target_notional_usd")
+                    (next_snapshot or {}).get("cannon_target_notional_usd")
+                    or snapshot_row.get("cannon_target_notional_usd")
                 ),
             ),
             "counterfactuals": {
                 "counterfactual_a_certified_quote": {
                     "depth_multiple": (
-                        float(next_shadow.get("depth_multiple_vs_cannon_target"))
-                        if isinstance((next_shadow or {}).get("depth_multiple_vs_cannon_target"), (int, float))
+                        float(next_snapshot.get("depth_multiple_vs_cannon_target"))
+                        if isinstance((next_snapshot or {}).get("depth_multiple_vs_cannon_target"), (int, float))
                         else None
                     ),
                     "depth_requirement_met": (
                         bool(
-                            float(next_shadow.get("depth_multiple_vs_cannon_target"))
+                            float(next_snapshot.get("depth_multiple_vs_cannon_target"))
                             >= float(
-                                (next_shadow or {}).get("cannon_min_depth_multiple")
-                                or shadow_row.get("cannon_min_depth_multiple")
+                                (next_snapshot or {}).get("cannon_min_depth_multiple")
+                                or snapshot_row.get("cannon_min_depth_multiple")
                                 or MAKER_CANNON_MIN_DEPTH_MULTIPLE
                             )
                         )
-                        if isinstance((next_shadow or {}).get("depth_multiple_vs_cannon_target"), (int, float))
+                        if isinstance((next_snapshot or {}).get("depth_multiple_vs_cannon_target"), (int, float))
                         else None
                     ),
                 },
                 "counterfactual_b_resting_submitted_quote": {
                     "depth_multiple": _maker_depth_multiple_for_price(
                         price=quote_plane.get("submitted_price"),
-                        visible_depth_shares=(next_shadow or {}).get("visible_depth_shares"),
+                        visible_depth_shares=(next_snapshot or {}).get("visible_depth_shares"),
                         cannon_target_notional_usd=(
-                            (next_shadow or {}).get("cannon_target_notional_usd")
-                            or shadow_row.get("cannon_target_notional_usd")
+                            (next_snapshot or {}).get("cannon_target_notional_usd")
+                            or snapshot_row.get("cannon_target_notional_usd")
                         ),
                     ),
                     "depth_requirement_met": None,
@@ -11573,8 +11662,8 @@ def _maker_quote_integrity_bundle(
             ] = bool(
                 float(cf_b_depth)
                 >= float(
-                    (next_shadow or {}).get("cannon_min_depth_multiple")
-                    or shadow_row.get("cannon_min_depth_multiple")
+                    (next_snapshot or {}).get("cannon_min_depth_multiple")
+                    or snapshot_row.get("cannon_min_depth_multiple")
                     or MAKER_CANNON_MIN_DEPTH_MULTIPLE
                 )
             )
@@ -11583,33 +11672,33 @@ def _maker_quote_integrity_bundle(
             "run_id": run_id,
             "profile_name": run_profile_name,
             "order_id": order_id,
-            "target_ref": shadow_row.get("target_ref"),
-            "target_side_ref": shadow_row.get("target_side_ref"),
+            "target_ref": snapshot_row.get("target_ref"),
+            "target_side_ref": snapshot_row.get("target_side_ref"),
             "side": side,
             "logic_pathology_specimen_only": bool(run_id == MAKER_QUOTE_INTEGRITY_PRIMARY_RUN_ID),
             "event_linkage": {
-                "certified_shadow_ts_utc": _maker_quote_integrity_event_ts_text(shadow_row),
+                "certified_snapshot_ts_utc": _maker_quote_integrity_event_ts_text(snapshot_row),
                 "submit_ts_utc": _maker_quote_integrity_event_ts_text(submit_evt or {}),
                 "cross_guard_ts_utc": _maker_quote_integrity_event_ts_text(cross_guard_evt or {}),
-                "next_shadow_ts_utc": _maker_quote_integrity_event_ts_text(next_shadow or {}),
+                "next_snapshot_ts_utc": _maker_quote_integrity_event_ts_text(next_snapshot or {}),
                 "cancel_ts_utc": _maker_quote_integrity_event_ts_text(cancel_evt or {}),
                 "edge_eval_ts_utc": _maker_quote_integrity_event_ts_text(edge_evt or {}),
             },
             "model_plane": {
                 "desired_quote_price": (
-                    float(shadow_row.get("desired_quote_price"))
-                    if isinstance(shadow_row.get("desired_quote_price"), (int, float))
+                    float(snapshot_row.get("desired_quote_price"))
+                    if isinstance(snapshot_row.get("desired_quote_price"), (int, float))
                     else None
                 ),
-                "expected_fill_prob": shadow_quality.get("expected_fill_prob"),
-                "queue_ahead_size": shadow_quality.get("queue_ahead_size"),
-                "distance_to_touch": shadow_quality.get("distance_to_touch"),
+                "expected_fill_prob": snapshot_quality.get("expected_fill_prob"),
+                "queue_ahead_size": snapshot_quality.get("queue_ahead_size"),
+                "distance_to_touch": snapshot_quality.get("distance_to_touch"),
                 "visible_depth_shares": (
-                    float(shadow_row.get("visible_depth_shares"))
-                    if isinstance(shadow_row.get("visible_depth_shares"), (int, float))
+                    float(snapshot_row.get("visible_depth_shares"))
+                    if isinstance(snapshot_row.get("visible_depth_shares"), (int, float))
                     else None
                 ),
-                "depth_multiple_vs_cannon_target": shadow_depth_multiple,
+                "depth_multiple_vs_cannon_target": snapshot_depth_multiple,
             },
             "quote_plane": quote_plane,
             "survival_plane": survival_plane,
@@ -11692,7 +11781,7 @@ def _maker_quote_integrity_bundle(
     if trace_rows:
         specimen_anchor_ts = parse_ts(
             trace_rows[0].get("event_linkage", {}).get("submit_ts_utc")
-            or trace_rows[0].get("event_linkage", {}).get("certified_shadow_ts_utc")
+            or trace_rows[0].get("event_linkage", {}).get("certified_snapshot_ts_utc")
         )
     specimen_local_central = specimen_anchor_ts.astimezone(ZoneInfo("America/Chicago")) if specimen_anchor_ts else None
     overnight_logic_specimen = bool(
@@ -11804,11 +11893,11 @@ def _maker_quote_integrity_bundle(
 
 
 def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[str, Any]) -> None:
-    rows = _normalized_shadow_support_rows(
-        list(support_artifacts.get("maker_fight_admission_shadow_rows") or [])
+    rows = _normalized_snapshot_support_rows(
+        list(support_artifacts.get("maker_market_snapshot_rows") or [])
     )
-    summary = dict(support_artifacts.get("maker_fight_admission_shadow_summary") or {})
-    calibration_audit = dict(support_artifacts.get("maker_fight_admission_calibration_audit") or {})
+    summary = dict(support_artifacts.get("maker_market_snapshot_summary") or {})
+    calibration_audit = dict(support_artifacts.get("maker_market_snapshot_calibration_audit") or {})
     cannon_probe_rows = list(support_artifacts.get("maker_cannon_late_window_probe_rows") or [])
     cannon_probe_summary = dict(support_artifacts.get("maker_cannon_late_window_probe_summary") or {})
     mid_window_probe_rows = list(support_artifacts.get("maker_mid_window_probe_rows") or [])
@@ -11874,16 +11963,16 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
         maker_zero_submit_root_cause_audit["applicability"] = "not_applicable_submit_run"
         maker_zero_submit_root_cause_audit["current_owner_artifact"] = "maker_blocker_ledger.json"
 
-    rows_path = report_dir / "maker_fight_admission_shadow.jsonl"
+    rows_path = report_dir / "maker_market_snapshot.jsonl"
     with rows_path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
-    (report_dir / "maker_fight_admission_shadow_summary.json").write_text(
+    (report_dir / "maker_market_snapshot_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (report_dir / "maker_fight_admission_calibration_audit.json").write_text(
+    (report_dir / "maker_market_snapshot_calibration_audit.json").write_text(
         json.dumps(calibration_audit, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -12003,8 +12092,8 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
                 )
                 if "packet_b_350" in named_specimens
                 else None,
-                "shadow_row_count": int(
-                    named_specimens.get("packet_b_350", {}).get("shadow_row_count", 0)
+                "snapshot_row_count": int(
+                    named_specimens.get("packet_b_350", {}).get("snapshot_row_count", 0)
                 )
                 if "packet_b_350" in named_specimens
                 else None,
@@ -12015,9 +12104,9 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
                 )
                 if "caliber_250" in named_specimens
                 else None,
-                "shadow_selection_rejected_row_count": int(
+                "snapshot_selection_rejected_row_count": int(
                     named_specimens.get("caliber_250", {}).get(
-                        "shadow_selection_rejected_row_count", 0
+                        "snapshot_selection_rejected_row_count", 0
                     )
                 )
                 if "caliber_250" in named_specimens

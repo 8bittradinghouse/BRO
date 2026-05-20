@@ -134,7 +134,7 @@ Runtime-classification value vocabulary:
 - `canonical_live_nonce_available`: `true|false`
 - `canonical_live_pending_wallet_tx_available`: `true|false`
 - `financial_posture_class`: `NORMAL`, `PREEXPIRY_REDUCE_ONLY`, `HARD_DEGRADED_REDUCE_ONLY`, `HALT_NEW_RISK`
-- `decision_result`: `submitted`, `submit_rejected`, `selection_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged`
+- `decision_result`: `submitted`, `submit_rejected`, `viability_rejected`, `replace_guard_blocked`, `action_budget_exhausted`, `quote_unchanged`
 
 ## Lifecycle And Lane Authority Split
 - Intended parent lifecycle doctrine is anchored on:
@@ -166,6 +166,22 @@ Runtime-classification value vocabulary:
   - these docs are operator/engineering control aids; they do not change runtime behavior by themselves.
   - this runbook must not silently outrank the core doctrine stack.
 
+## Suspected-Issue Triage Law
+- Before treating a gate, blocker family, or loud reject tag as a runtime
+  defect, run this question set in order:
+  1. is the lane alive?
+  2. is it producing valid action and some success?
+  3. only then ask whether the gate is a defect or correctly filtering trash
+- Interpretation rule:
+  - if the lane is alive and producing valid action or success, reject volume
+    by itself is not proof of pathology
+  - in that case, the burden shifts to proving mis-tuning, owner drift, false
+    authority, or a meaningful near-miss population of good candidates
+- Illegal shortcut:
+  - do not jump from `dominant reject reason` to `broken lane`
+  - do not treat selector strictness as a defect until liveness and success
+    have been checked first
+
 ## Modes
 - `doctrine.mode=canonical`:
   - fail-closed on missing expiry/threshold/side/fair/oracle freshness
@@ -173,9 +189,17 @@ Runtime-classification value vocabulary:
   - earlier taker stages are diagnostic/observability only unless explicitly opened in a non-canonical investigation mode
   - target-pair authority uses:
     - `owned_market_pair` for the currently owned market; this pair remains the runtime truth owner through `prepare`, `maker_window`, `taker_window`, and `resolve` while the hard ownership floor remains intact
+      - before any live maker order, taker commitment, or accepted exposure, this ownership is still provisional and may yield if actionability / candidate quality truth breaks
+      - after live commitment or accepted exposure, this ownership becomes sticky and runtime must focus on live order, exposure, and closeout truth instead of challenger churn
     - `challenger_market_pair` for one ranked candidate only; it may be transport-watched and scored, but it has zero decision authority until explicit replacement law fires
+      - after commitment, challenger truth is observational only unless explicit abandonment or shared-safety override is active
     - `lifecycle_watch_tokens` for held/open-order cleanup and settlement only; they remain watched for lifecycle safety but must not impersonate active target truth
     - current runtime may still emit `authoritative_active_pair` / `pending_prewarm_pair` during migration; treat those as implementation residue, not canonical doctrine
+  - non-actionable target rule:
+    - mathematically impossible candidates under canonical min-notional,
+      max-shares, or equivalent execution geometry are not quality contenders
+    - reject them early and move to better candidates instead of preserving them
+      for late sizing theater
   - maker market-reference uses:
     - `direct_midpoint` when both ws sides are present
     - `backfilled_paired_touch` only when midpoint is unavailable and a recent complementary ws side exists within the bounded paired-touch delta
@@ -207,6 +231,14 @@ Runtime-classification value vocabulary:
   - `clock drift` means host time is wrong relative to synchronized UTC
   - `latency/jitter` means host time is correct but BRO reacts late because of transport, CPU, websocket, signing, or order-path delay
   - do not treat a latency-chain problem as a clock problem
+- Timing authority and timing-gate application must stay distinct:
+  - timing authority is hard top-level law
+  - gate application may use bounded safe bands when stronger doctrine
+    explicitly allows it
+  - harmless small variance inside a centrally owned band is not a doctrine
+    breach
+  - larger variance outside the hard fail boundary is a real timing failure
+  - downstream surfaces may not improvise their own tolerances
 - Timing hardening is additive-first and fail-closed:
   - improve observability before tightening behavior
   - if host sync truth is unavailable, label it explicitly; do not infer “clock is fine”
@@ -237,6 +269,20 @@ Runtime-classification value vocabulary:
   - every timing change packet must be proven with a monitored short canonical run before it is trusted
   - green tests or wrapper completion alone do not close timing work
 
+## Ownership Commitment Doctrine (Canonical)
+- canonical runtime must distinguish:
+  - provisional owned-but-uncommitted markets
+  - sticky owned-and-committed markets
+- pre-commit owned markets may still drop or yield when candidate quality,
+  actionability, or ranking truth breaks before real commitment
+- post-commit owned markets stay focused on:
+  - live order management
+  - exposure truth
+  - settlement
+  - closeout / venue resolution
+- challenger scoring after commitment is descriptive only unless explicit drop,
+  abandonment, or shared-safety law overrides the market
+
 ## Historical Lineage Boundary
 - lineage-stage ancestry may still appear in replay, archaeology, and
   historical packet surfaces
@@ -256,6 +302,11 @@ Runtime-classification value vocabulary:
   - infeasible floor emits `taker_hard_min_notional_unachievable` (no under-floor submit)
 - timing windows:
   - `final_window_enabled/final_window_sec` controls the default final-window gate; canonical current lock is `7.0`
+  - top-level timing authority remains hard law; the runtime must not fake
+    clock, receive, decision, submit, or report timing truth
+  - bounded safe timing bands may exist around canonical gate edges only when
+    a stronger central owner explicitly defines them
+  - lane-local files may not invent their own early/late grace windows
   - `stage_final_window_sec_by_stage` is reserved for explicit diagnostic/non-production investigations, not canonical live taker authority
   - a taker stage window must remain semantically live against the stage interval; dead-by-construction stage windows are doctrine violations
   - `aggressive_window_enabled/aggressive_window_sec` must not silently broaden canonical live taker beyond the hard `<=7s` window

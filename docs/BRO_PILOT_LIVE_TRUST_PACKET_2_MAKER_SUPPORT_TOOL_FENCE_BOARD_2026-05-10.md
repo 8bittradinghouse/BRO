@@ -29,7 +29,7 @@
 | `scripts/outcome_truth_audit.py` | validator surface | certify outcome-population summaries and wound shape | become the sole owner of economic meaning without runtime reconciliation | `KEEP` |
 | `scripts/nightly_soak_report.py` | downstream consumer/wrapper | provide operator-facing synthesis and cross-surface summaries | outrank raw event/runtime truth or hide mixed populations | `KEEP BUT FENCE` |
 | `scripts/bro_metric_harvest.py` / `FMA` | support-only shop tool | compress report truth into reusable engineering instruments | act like BRO body steel or runtime owner-law | `KEEP BUT FENCE` |
-| `maker_fight_admission_shadow*` | research bridge / slag candidate | classify and compare candidate fights for study | gate live maker runtime or certify live trust by itself | `KEEP BUT FENCE / CHALLENGE-OPEN` |
+| `maker_market_snapshot*` | research bridge / slag candidate | classify and compare candidate fights for study | gate live maker runtime or certify live trust by itself | `KEEP BUT FENCE / CHALLENGE-OPEN` |
 | timing ladder / mid-window / late-window probes | comparative support tool | observe alternative timing bands and late-window populations | become present-tense doctrine without packet approval | `KEEP BUT FENCE` |
 | `docs/SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md` | atlas | preserve pathway, population, and overlay structure | authorize runtime tuning or leaf promotion | `KEEP BUT FENCE` |
 | `docs/SOLAR_SLUG_MAKER_TRUTH_SEMANTICS_MAP.json` | atlas / machine-readable legend | preserve map classifications and cross-run semantics | act like runtime owner or strategy law | `KEEP BUT FENCE` |

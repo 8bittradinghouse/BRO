@@ -18,7 +18,7 @@ from prodesk.historical_recovery_replay_compat import (
 )
 from scripts.nightly_soak_report import (
     _maker_blocker_ledger_bundle,
-    _maker_probe_rows_with_shadow_truth,
+    _maker_probe_rows_with_snapshot_truth,
     _maker_phase_allowed_from_row,
     _maker_quote_construction_bundle,
     _maker_selection_authority_bundle,
@@ -82,7 +82,7 @@ def _historical_recovery_runtime_config(
 class NightlySoakReportTests(unittest.TestCase):
     def test_maker_blocker_ledger_promotes_sizing_feasibility_after_steel_selection_verdicts(self):
         bundle = _maker_blocker_ledger_bundle(
-            shadow_rows=[
+            snapshot_rows=[
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 0.0},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 10.0},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 15.0},
@@ -111,8 +111,8 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertNotIn("closed_family_assertions", summary)
         self.assertEqual(summary.get("historical_family_labels_retired_from_active_owner_surfaces"), True)
 
-    def test_maker_probe_rows_with_shadow_truth_prefers_canonical_lifecycle_window(self):
-        rows = _maker_probe_rows_with_shadow_truth(
+    def test_maker_probe_rows_with_snapshot_truth_prefers_canonical_lifecycle_window(self):
+        rows = _maker_probe_rows_with_snapshot_truth(
             probe_rows=[
                 {
                     "token_id": "token-alpha",
@@ -124,7 +124,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "selection_gate_max_sec_to_expiry": None,
                 }
             ],
-            shadow_rows=[
+            snapshot_rows=[
                 {
                     "token_id": "token-alpha",
                     "target_side_ref": "target-alpha|SELL",
@@ -136,7 +136,7 @@ class NightlySoakReportTests(unittest.TestCase):
             run_manifest={
                 "config": {
                     "strategy": {
-                        "maker_competitiveness": {
+                        "maker_market_viability": {
                             "selection_gate": {
                                 "min_sec_to_expiry": 90.0,
                             }
@@ -147,14 +147,14 @@ class NightlySoakReportTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         row = rows[0]
-        self.assertEqual(row.get("matched_shadow_present"), True)
-        self.assertEqual(row.get("matched_shadow_decision_result"), "submitted")
+        self.assertEqual(row.get("matched_snapshot_present"), True)
+        self.assertEqual(row.get("matched_snapshot_decision_result"), "submitted")
         self.assertEqual(row.get("launch_safe_selection_timing_window_met"), True)
 
     def test_maker_zero_submit_root_cause_bundle_steps_aside_when_maker_participated(self):
         root_cause = _maker_zero_submit_root_cause_bundle(
             probe_rows=[],
-            shadow_rows=[
+            snapshot_rows=[
                 {
                     "decision_result": "selection_rejected",
                     "selection_gate_primary_reject_reason": "insufficient_depth_multiple",
@@ -177,7 +177,7 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertEqual(root_cause.get("decision_readiness"), "not_applicable_submit_run")
         self.assertEqual(root_cause.get("authoritative_for_canonical_selection"), False)
         self.assertEqual(root_cause.get("current_owner_artifact"), "maker_blocker_ledger.json")
-        self.assertEqual(int(root_cause.get("submitted_shadow_row_count", 0)), 1)
+        self.assertEqual(int(root_cause.get("submitted_snapshot_row_count", 0)), 1)
 
     def test_maker_phase_allowed_helper_prefers_canonical_lifecycle_truth(self):
         self.assertTrue(
@@ -191,7 +191,7 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertTrue(_maker_phase_allowed_from_row({"lifecycle_phase": "maker_window"}))
         self.assertFalse(_maker_phase_allowed_from_row({"lifecycle_phase": "prepare"}))
 
-    def test_maker_quote_construction_bundle_classifies_cleanup_and_shadow_gap_residue(self):
+    def test_maker_quote_construction_bundle_classifies_cleanup_and_snapshot_gap_residue(self):
         bundle = _maker_quote_construction_bundle(
             truth_rows=[
                 {
@@ -234,20 +234,20 @@ class NightlySoakReportTests(unittest.TestCase):
         )
         rows = bundle["rows"]
         self.assertEqual(rows[0]["quote_construction_primary_cause"], "open_order_cleanup_required")
-        self.assertEqual(rows[1]["quote_construction_primary_cause"], "resting_quote_already_live_or_shadow_gap")
+        self.assertEqual(rows[1]["quote_construction_primary_cause"], "resting_quote_already_live_or_snapshot_gap")
         self.assertEqual(
             bundle["summary"]["quote_construction_primary_cause_distribution"],
             {
                 "open_order_cleanup_required": 1,
-                "resting_quote_already_live_or_shadow_gap": 1,
+                "resting_quote_already_live_or_snapshot_gap": 1,
             },
         )
 
     def test_maker_selection_authority_counterfactual_replays_certified_keep_block_set(self):
-        shadow_rows = [
+        snapshot_rows = [
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-1",
+                "market_snapshot_id": "shadow-1",
                 "order_submit_id": "paper-order-1",
                 "target_ref": "c09c10c6949dcaee",
                 "target_side_ref": "c09c10c6949dcaee|BUY",
@@ -260,7 +260,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-2",
+                "market_snapshot_id": "shadow-2",
                 "order_submit_id": "paper-order-2",
                 "target_ref": "466f27bd7f1d3019",
                 "target_side_ref": "466f27bd7f1d3019|SELL",
@@ -273,7 +273,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-3",
+                "market_snapshot_id": "shadow-3",
                 "order_submit_id": "paper-order-3",
                 "target_ref": "55847ba47a05dc46",
                 "target_side_ref": "55847ba47a05dc46|SELL",
@@ -286,7 +286,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-4",
+                "market_snapshot_id": "shadow-4",
                 "order_submit_id": "paper-order-4",
                 "target_ref": "55847ba47a05dc46",
                 "target_side_ref": "55847ba47a05dc46|BUY",
@@ -299,7 +299,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-5",
+                "market_snapshot_id": "shadow-5",
                 "order_submit_id": "paper-order-5",
                 "target_ref": "b446a3128a6a1252",
                 "target_side_ref": "b446a3128a6a1252|SELL",
@@ -312,7 +312,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-6",
+                "market_snapshot_id": "shadow-6",
                 "order_submit_id": "paper-order-6",
                 "target_ref": "aa50e402749083c5",
                 "target_side_ref": "aa50e402749083c5|SELL",
@@ -325,7 +325,7 @@ class NightlySoakReportTests(unittest.TestCase):
             },
             {
                 "run_id": "9563888b-bca3-4073-b7ec-71752928ec67",
-                "admission_shadow_id": "shadow-7",
+                "market_snapshot_id": "shadow-7",
                 "order_submit_id": "paper-order-7",
                 "target_ref": "aa50e402749083c5",
                 "target_side_ref": "aa50e402749083c5|SELL",
@@ -337,7 +337,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "secondary_oracle_confirmation": True,
             },
         ]
-        shadow_meta_by_order_id = {
+        snapshot_meta_by_order_id = {
             "paper-order-1": {
                 "edge_abs": 0.22,
                 "one_sided_edge_threshold_abs": 0.15,
@@ -355,8 +355,8 @@ class NightlySoakReportTests(unittest.TestCase):
                 "one_sided_allowed_authority": True,
             },
         }
-        for row in shadow_rows:
-            row.update(shadow_meta_by_order_id.get(str(row.get("order_submit_id") or ""), {}))
+        for row in snapshot_rows:
+            row.update(snapshot_meta_by_order_id.get(str(row.get("order_submit_id") or ""), {}))
         events = []
         for order_id, one_sided_active, side_policy, side in [
             ("paper-order-1", True, "BUY_ONLY", "BUY"),
@@ -374,7 +374,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "order_id": order_id,
                     "submission_lane": "maker",
                     "side": side,
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "one_sided_active": one_sided_active,
                         "side_policy": side_policy,
                         "market_reference_mode": "direct_midpoint",
@@ -393,7 +393,7 @@ class NightlySoakReportTests(unittest.TestCase):
         ]
         bundle = _maker_selection_authority_bundle(
             events=events,
-            shadow_rows=shadow_rows,
+            snapshot_rows=snapshot_rows,
             outcome_truth_records=outcome_truth_records,
             run_manifest={"config": {"profile": {"name": "paper_universal"}}},
             run_id="9563888b-bca3-4073-b7ec-71752928ec67",
@@ -434,6 +434,43 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertEqual(admitted_row.get("counterfactual_decision"), "admitted")
         self.assertEqual(admitted_row.get("counterfactual_primary_reject_reason"), None)
 
+    def test_maker_selection_authority_counterfactual_blocks_insufficient_depth_multiple(self):
+        bundle = _maker_selection_authority_bundle(
+            events=[],
+            snapshot_rows=[
+                {
+                    "run_id": "rid-depth-block",
+                    "market_snapshot_id": "shadow-depth-1",
+                    "target_ref": "target-depth",
+                    "target_side_ref": "target-depth|BUY",
+                    "side": "BUY",
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                    "lifecycle_phase": "maker_window",
+                    "ts_decision_utc": "2026-04-29T11:40:04.215Z",
+                    "decision_result": "viability_rejected",
+                    "decision_block_reason": "launch_safe_selection_insufficient_depth_multiple",
+                    "selection_gate_primary_reject_reason": "insufficient_depth_multiple",
+                    "selection_gate_all_reject_reasons": ["insufficient_depth_multiple"],
+                    "secondary_oracle_confirmation": True,
+                    "cannon_depth_requirement_met": False,
+                    "cannon_min_depth_multiple": 1.5,
+                    "depth_multiple_vs_cannon_target": 0.4,
+                }
+            ],
+            outcome_truth_records=[],
+            run_manifest={"config": {"profile": {"name": "paper_universal"}}},
+            run_id="rid-depth-block",
+        )
+        summary = bundle["audit"]
+        self.assertEqual(
+            summary.get("counterfactual_decision_distribution"),
+            {"blocked": 1},
+        )
+        self.assertEqual(
+            summary.get("blocked_count_by_canonical_reject_reason"),
+            {"insufficient_depth_multiple": 1},
+        )
+
     def test_maker_survival_counterfactual_treats_commitment_window_end_as_terminal_cleanup(self):
         classification, counterfactuals = _maker_survival_counterfactual_summary(
             {
@@ -466,17 +503,17 @@ class NightlySoakReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             report_dir = Path(td)
             support_artifacts = {
-                "maker_fight_admission_shadow_rows": [
+                "maker_market_snapshot_rows": [
                     {
-                        "admission_shadow_id": "shadow-1",
+                        "market_snapshot_id": "shadow-1",
                         "decision_result": "submitted",
                         "target_ref": "target-alpha",
                         "target_side_ref": "target-alpha|BUY",
                         "side": "BUY",
                     }
                 ],
-                "maker_fight_admission_shadow_summary": {},
-                "maker_fight_admission_calibration_audit": {},
+                "maker_market_snapshot_summary": {},
+                "maker_market_snapshot_calibration_audit": {},
                 "maker_cannon_late_window_probe_rows": [],
                 "maker_cannon_late_window_probe_summary": {},
                 "maker_mid_window_probe_rows": [],
@@ -506,7 +543,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 "maker_participation_waterfall.json",
                 "maker_quote_construction_summary.json",
                 "maker_truth_reference_starvation_summary.json",
-                "maker_fight_admission_calibration_audit.json",
+                "maker_market_snapshot_calibration_audit.json",
             ):
                 payload = json.loads((report_dir / name).read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("authoritative_for_canonical_selection"), False)
@@ -1613,10 +1650,18 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(float(paths.get("maker_fills") or 0.0), 2.0)
             self.assertEqual(float(paths.get("maker_filled_orders") or 0.0), 1.0)
             self.assertAlmostEqual(float(paths.get("maker_fill_rate") or 0.0), 1.0)
+            self.assertEqual(float(report.get("maker_submits") or 0.0), 1.0)
+            self.assertEqual(float(report.get("maker_fills") or 0.0), 2.0)
+            self.assertEqual(float(report.get("maker_filled_orders") or 0.0), 1.0)
+            self.assertAlmostEqual(float(report.get("maker_fill_rate") or 0.0), 1.0)
             self.assertEqual(float(paths.get("taker_bonus_submits") or 0.0), 1.0)
             self.assertEqual(float(paths.get("taker_bonus_fills") or 0.0), 2.0)
             self.assertEqual(float(paths.get("taker_bonus_filled_orders") or 0.0), 1.0)
             self.assertAlmostEqual(float(paths.get("taker_bonus_fill_rate") or 0.0), 1.0)
+            self.assertEqual(float(report.get("taker_bonus_submits") or 0.0), 1.0)
+            self.assertEqual(float(report.get("taker_bonus_fills") or 0.0), 2.0)
+            self.assertEqual(float(report.get("taker_bonus_filled_orders") or 0.0), 1.0)
+            self.assertAlmostEqual(float(report.get("taker_bonus_fill_rate") or 0.0), 1.0)
 
     def test_build_report_run_id_filter(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1921,10 +1966,11 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path = root / "errors_2026-01-01.jsonl"
             events = [
                 {
-                    "event_type": "maker_competitiveness_decision",
+                    "event_type": "maker_market_viability_decision",
                     "run_id": "rid-competitiveness",
                     "token_id": "t1",
-                    "timing_gate_blocked": True,
+                    "viability_allowed": False,
+                    "primary_reject_reason": "phase_disallow_maker",
                     "one_sided_active": True,
                     "side_policy": "BUY_ONLY",
                 },
@@ -1940,7 +1986,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "run_id": "rid-competitiveness",
                     "order_id": "m1",
                     "reason": "mm_quote:high_vol",
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "edge_bucket": "0p10_0p20",
                         "one_sided_active": True,
                         "side_policy": "BUY_ONLY",
@@ -1967,7 +2013,7 @@ class NightlySoakReportTests(unittest.TestCase):
             errors_path.write_text("", encoding="utf-8")
 
             report = build_report(root, run_id="rid-competitiveness")
-            maker_comp = report.get("maker_competitiveness", {})
+            maker_comp = report.get("maker_market_viability", {})
             self.assertEqual(float(maker_comp.get("timing_gate_blocked_count_edge_eval") or 0.0), 1.0)
             self.assertEqual(float(maker_comp.get("timing_gate_blocked_count_decision") or 0.0), 1.0)
             self.assertEqual(float(maker_comp.get("one_sided_activation_submit_buy_count") or 0.0), 1.0)
@@ -2043,7 +2089,7 @@ class NightlySoakReportTests(unittest.TestCase):
             )
 
             report = build_report(root, run_id=run_id, include_support_artifacts=True)
-            maker_comp = report.get("maker_competitiveness", {})
+            maker_comp = report.get("maker_market_viability", {})
             self.assertNotIn("maker_queue_pressure_candidate_count", maker_comp)
             self.assertNotIn("maker_queue_pressure_adopted_count", maker_comp)
             self.assertNotIn("maker_queue_pressure_gate_conversion_count", maker_comp)
@@ -2223,7 +2269,7 @@ class NightlySoakReportTests(unittest.TestCase):
                         "maker_competitive_max_shares": 8000.0,
                     },
                     "strategy": {
-                        "maker_competitiveness": {
+                        "maker_market_viability": {
                             "timing_gate_enabled": True,
                             "timing_gate_min_sec_to_expiry": 50.0,
                             "timing_gate_max_sec_to_expiry": 60.0,
@@ -2323,7 +2369,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(target_b.get("viability_class"), "impossible_only")
             self.assertAlmostEqual(float(target_b.get("market_probability_p50") or 0.0), 0.02, places=9)
 
-    def test_build_report_emits_maker_fight_admission_shadow_support_artifacts(self):
+    def test_build_report_emits_maker_market_snapshot_support_artifacts(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "rid-admission-shadow"
@@ -2334,9 +2380,9 @@ class NightlySoakReportTests(unittest.TestCase):
             reports_dir.mkdir(parents=True, exist_ok=True)
             events = [
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "shadow-clean",
+                    "market_snapshot_id": "shadow-clean",
                     "target_side_ref": "target-a|BUY",
                     "ts_decision_utc": "2026-01-01T12:00:05Z",
                     "sec_to_expiry": 12.0,
@@ -2346,7 +2392,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": 0.0,
                     "fill_prob_margin": 0.02,
-                    "same_target_side_shadow_count_prior": 0,
+                    "same_target_side_snapshot_count_prior": 0,
                     "desired_quote_price": 0.50,
                     "visible_depth_shares": 1400.0,
                     "secondary_oracle_status": "confirmed",
@@ -2358,9 +2404,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     **_historical_recovery_lineage(active=False),
                 },
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "shadow-trash",
+                    "market_snapshot_id": "shadow-trash",
                     "target_side_ref": "target-b|SELL",
                     "ts_decision_utc": "2026-01-01T03:00:05Z",
                     "sec_to_expiry": 25.0,
@@ -2370,7 +2416,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": 70.0,
                     "fill_prob_margin": -0.02,
-                    "same_target_side_shadow_count_prior": 2,
+                    "same_target_side_snapshot_count_prior": 2,
                     "desired_quote_price": 0.60,
                     "visible_depth_shares": 400.0,
                     "secondary_oracle_status": "direction_mismatch",
@@ -2382,9 +2428,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     **_historical_recovery_lineage(active=False),
                 },
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "shadow-external",
+                    "market_snapshot_id": "shadow-external",
                     "target_side_ref": "target-c|BUY",
                     "ts_decision_utc": "2026-01-01T09:00:05Z",
                     "sec_to_expiry": 18.0,
@@ -2394,7 +2440,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": 0.0,
                     "fill_prob_margin": 0.01,
-                    "same_target_side_shadow_count_prior": 0,
+                    "same_target_side_snapshot_count_prior": 0,
                     "desired_quote_price": 0.40,
                     "visible_depth_shares": 200.0,
                     "secondary_oracle_status": "unknown",
@@ -2436,15 +2482,15 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root, run_id=run_id, include_support_artifacts=True)
             support_artifacts = report.pop("_support_artifacts", {})
-            summary = support_artifacts.get("maker_fight_admission_shadow_summary", {})
-            calibration = support_artifacts.get("maker_fight_admission_calibration_audit", {})
-            rows = support_artifacts.get("maker_fight_admission_shadow_rows", [])
+            summary = support_artifacts.get("maker_market_snapshot_summary", {})
+            calibration = support_artifacts.get("maker_market_snapshot_calibration_audit", {})
+            rows = support_artifacts.get("maker_market_snapshot_rows", [])
 
             self.assertEqual(int(summary.get("population_class_counts", {}).get("candidate", 0)), 2)
             self.assertEqual(int(summary.get("population_class_counts", {}).get("external_blocked", 0)), 1)
             self.assertEqual(int(summary.get("admission_class_counts", {}).get("clean", 0)), 1)
             self.assertEqual(int(summary.get("admission_class_counts", {}).get("trash", 0)), 1)
-            self.assertEqual(int(summary.get("maker_cannon_shadow_version", 0)), 1)
+            self.assertEqual(int(summary.get("maker_market_snapshot_version", 0)), 1)
             self.assertEqual(summary.get("cannon_window_class_distribution"), {"15_to_20s": 1, "10_to_15s": 1, "gt_20s": 1})
             self.assertEqual(
                 summary.get("maker_timing_band_class_distribution"),
@@ -2518,15 +2564,15 @@ class NightlySoakReportTests(unittest.TestCase):
                 calibration.get("maker_timing_band_class_distribution"),
                 {"10_to_15s": 1, "15_to_20s": 1, "20_to_30s": 1},
             )
-            self.assertEqual(int(calibration.get("maker_cannon_shadow_version", 0)), 1)
+            self.assertEqual(int(calibration.get("maker_market_snapshot_version", 0)), 1)
             self.assertEqual(len(rows), 3)
 
             _write_support_artifacts(reports_dir, support_artifacts)
-            self.assertTrue((reports_dir / "maker_fight_admission_shadow.jsonl").exists())
-            self.assertTrue((reports_dir / "maker_fight_admission_shadow_summary.json").exists())
-            self.assertTrue((reports_dir / "maker_fight_admission_calibration_audit.json").exists())
+            self.assertTrue((reports_dir / "maker_market_snapshot.jsonl").exists())
+            self.assertTrue((reports_dir / "maker_market_snapshot_summary.json").exists())
+            self.assertTrue((reports_dir / "maker_market_snapshot_calibration_audit.json").exists())
 
-    def test_build_report_backfills_legacy_maker_fight_admission_shadow_from_quote_and_submit(self):
+    def test_build_report_backfills_legacy_maker_market_snapshot_from_quote_and_submit(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "rid-legacy-admission-shadow"
@@ -2568,7 +2614,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "financial_posture_class": "NORMAL",
                     "decision_reference_recoverable": True,
                     "ts_decision_utc": "2026-01-01T00:00:10.050000Z",
-                    "maker_competitiveness": {
+                    "maker_market_viability": {
                         "fair_probability": 0.45,
                         "market_probability": 0.55,
                         "edge_signed": -0.10,
@@ -2659,19 +2705,19 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root, run_id=run_id, include_support_artifacts=True)
             support_artifacts = report.pop("_support_artifacts", {})
-            summary = support_artifacts.get("maker_fight_admission_shadow_summary", {})
-            calibration = support_artifacts.get("maker_fight_admission_calibration_audit", {})
-            rows = support_artifacts.get("maker_fight_admission_shadow_rows", [])
+            summary = support_artifacts.get("maker_market_snapshot_summary", {})
+            calibration = support_artifacts.get("maker_market_snapshot_calibration_audit", {})
+            rows = support_artifacts.get("maker_market_snapshot_rows", [])
 
             self.assertEqual(int(summary.get("row_count", 0)), 2)
             self.assertEqual(
-                summary.get("shadow_source_class_distribution", {}).get("legacy_quote_or_submit_backfill_v1"),
+                summary.get("snapshot_source_class_distribution", {}).get("legacy_quote_or_submit_backfill_v1"),
                 2,
             )
             self.assertEqual(int(summary.get("population_class_counts", {}).get("candidate", 0)), 2)
             self.assertEqual(int(summary.get("admission_class_counts", {}).get("clean", 0)), 1)
             self.assertEqual(int(summary.get("admission_class_counts", {}).get("trash", 0)), 1)
-            self.assertEqual(int(summary.get("maker_cannon_shadow_version", 0)), 1)
+            self.assertEqual(int(summary.get("maker_market_snapshot_version", 0)), 1)
             self.assertEqual(summary.get("secondary_oracle_status_distribution"), {"unknown": 2})
             self.assertEqual(summary.get("secondary_oracle_confirmation_distribution"), {"not_confirmed": 2})
             self.assertEqual(summary.get("cannon_window_class_distribution"), {"unknown": 2})
@@ -3160,7 +3206,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     {
                         "config": {
                             "strategy": {
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "selection_gate": {
                                         "min_sec_to_expiry": 10.0,
                                         "max_sec_to_expiry": 15.0,
@@ -3291,9 +3337,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     **_historical_recovery_lineage(active=False),
                 },
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "shadow-reject",
+                    "market_snapshot_id": "shadow-reject",
                     "token_id": "t-reject",
                     "target_ref": "target-reject",
                     "target_side_ref": "target-reject|BUY",
@@ -3307,7 +3353,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": 0.0,
                     "fill_prob_margin": 0.02,
-                    "same_target_side_shadow_count_prior": 0,
+                    "same_target_side_snapshot_count_prior": 0,
                     "same_target_side_submit_count_prior": 0,
                     "desired_quote_price": 0.50,
                     "visible_depth_shares": 100.0,
@@ -3319,7 +3365,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "selection_gate_max_sec_to_expiry": 15.0,
                     "selection_gate_primary_reject_reason": "insufficient_depth_multiple",
                     "selection_gate_all_reject_reasons": ["insufficient_depth_multiple"],
-                    "decision_result": "selection_rejected",
+                    "decision_result": "viability_rejected",
                     "decision_block_reason": "launch_safe_selection_insufficient_depth_multiple",
                     "order_submit_id": None,
                     **_historical_recovery_lineage(active=False),
@@ -3331,6 +3377,15 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root, run_id=run_id, include_support_artifacts=True)
             support_artifacts = report.pop("_support_artifacts", {})
+            self.assertIsInstance(report.get("maker_market_snapshot_summary"), dict)
+            self.assertIsInstance(report.get("maker_snapshot_summary"), dict)
+            self.assertEqual(report.get("maker_snapshot_summary"), report.get("maker_market_snapshot_summary"))
+            self.assertIsInstance(report.get("maker_viability_summary"), dict)
+            self.assertEqual(report.get("maker_viability_summary"), report.get("maker_market_viability"))
+            self.assertIsInstance(report.get("maker_participation_waterfall"), dict)
+            self.assertIsInstance(report.get("maker_participation_summary"), dict)
+            self.assertEqual(report.get("maker_participation_summary"), report.get("maker_participation_waterfall"))
+            self.assertIsInstance(report.get("maker_zero_submit_root_cause_audit"), dict)
             waterfall = support_artifacts.get("maker_participation_waterfall", {})
             quote_starvation = support_artifacts.get("maker_quote_starvation_summary", {})
             truth_reference = support_artifacts.get("maker_truth_reference_starvation_summary", {})
@@ -3350,7 +3405,7 @@ class NightlySoakReportTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(int(waterfall.get("stages", {}).get("desired_quote_missing_rows", {}).get("count", 0)), 1)
-            self.assertEqual(int(waterfall.get("stages", {}).get("shadow_rows", {}).get("count", 0)), 1)
+            self.assertEqual(int(waterfall.get("stages", {}).get("snapshot_rows", {}).get("count", 0)), 1)
             self.assertEqual(int(waterfall.get("stages", {}).get("selection_rejected_rows", {}).get("count", 0)), 1)
             self.assertEqual(
                 waterfall.get("terminal_path_counts"),
@@ -3416,8 +3471,8 @@ class NightlySoakReportTests(unittest.TestCase):
                 "ready_for_truth_packet",
             )
             self.assertIsInstance(root_cause.get("known_truths"), dict)
-            self.assertEqual(int(root_cause.get("shadow_row_count", 0)), 1)
-            self.assertEqual(int(root_cause.get("shadow_selection_rejected_row_count", 0)), 1)
+            self.assertEqual(int(root_cause.get("snapshot_row_count", 0)), 1)
+            self.assertEqual(int(root_cause.get("snapshot_selection_rejected_row_count", 0)), 1)
             contradiction_codes = {
                 entry.get("code") for entry in root_cause.get("contradiction_ledger", [])
             }
@@ -3438,7 +3493,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertTrue((reports_dir / "maker_zero_submit_specimen_comparison.json").exists())
             shadow_rows_written = [
                 json.loads(line)
-                for line in (reports_dir / "maker_fight_admission_shadow.jsonl").read_text(encoding="utf-8").splitlines()
+                for line in (reports_dir / "maker_market_snapshot.jsonl").read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
             self.assertEqual(
@@ -3482,7 +3537,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                     "distance_scale": 0.02,
                                     "adverse_selection_penalty": 0.3,
                                 },
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "selection_gate": {
                                         "min_sec_to_expiry": 10.0,
                                         "max_sec_to_expiry": 15.0,
@@ -3501,9 +3556,9 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             events = [
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "maker-shadow-56877145-S-9",
+                    "market_snapshot_id": "maker-shadow-56877145-S-9",
                     "token_id": "token-sell",
                     "target_ref": "58b3014fd8bd6ce7",
                     "target_side_ref": "58b3014fd8bd6ce7|SELL",
@@ -3523,7 +3578,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": -145.7515,
                     "fill_prob_margin": 0.047179597760081474,
-                    "same_target_side_shadow_count_prior": 3,
+                    "same_target_side_snapshot_count_prior": 3,
                     "same_target_side_submit_count_prior": 0,
                     "desired_quote_price": 0.874,
                     "visible_depth_shares": 440.71,
@@ -3576,8 +3631,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "distance_to_touch": 0.0,
                     "ts_decision_utc": "2026-04-29T07:04:48.224Z",
                     "ts_event_utc": "2026-04-29T07:04:48.224Z",
-                    "maker_competitiveness": {
-                        "admission_shadow_id": "maker-shadow-56877145-S-9",
+                    "maker_market_viability": {
+                        "market_snapshot_id": "maker-shadow-56877145-S-9",
                         "launch_safe_selection_passed": True,
                         "depth_multiple_vs_cannon_target": 1.54072216,
                     },
@@ -3611,9 +3666,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     **_historical_recovery_lineage(active=False),
                 },
                 {
-                    "event_type": "maker_fight_admission_shadow",
+                    "event_type": "maker_market_snapshot",
                     "run_id": run_id,
-                    "admission_shadow_id": "maker-shadow-56877145-S-11",
+                    "market_snapshot_id": "maker-shadow-56877145-S-11",
                     "token_id": "token-sell",
                     "target_ref": "58b3014fd8bd6ce7",
                     "target_side_ref": "58b3014fd8bd6ce7|SELL",
@@ -3633,7 +3688,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "sizing_conflict": False,
                     "queue_delta_shares": -136.8275,
                     "fill_prob_margin": 0.08480571384094183,
-                    "same_target_side_shadow_count_prior": 4,
+                    "same_target_side_snapshot_count_prior": 4,
                     "same_target_side_submit_count_prior": 1,
                     "desired_quote_price": 0.874,
                     "visible_depth_shares": 323.35,
@@ -3655,34 +3710,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "decision_block_reason": "launch_safe_selection_insufficient_depth_multiple",
                     "order_submit_id": None,
                     "replace_guard_would_block": True,
-                    **_historical_recovery_lineage(active=False),
-                },
-                {
-                    "event_type": "edge_evaluation",
-                    "evaluation_scope": "maker",
-                    "run_id": run_id,
-                    "token_id": "token-sell",
-                    "target_ref": "58b3014fd8bd6ce7",
-                    "ts_decision_utc": "2026-04-29T07:04:49.224Z",
-                    "ts_event_utc": "2026-04-29T07:04:49.224Z",
-                    "time_remaining_sec": 10.802218,
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "maker_phase_allowed": True,
-                    "action_taken": "none",
-                    "block_reason": "maker_no_submission",
-                    "maker_no_submission_cause": "one_sided_mode_disallow_side",
-                    "maker_no_submission_category": "one_sided_mode_disallow_side",
-                    "fair_probability": 0.7625117917167464,
-                    "market_probability": 0.965,
-                    "market_reference_mode": "direct_midpoint",
-                    "market_reference_source_side": "none",
-                    "market_reference_class": "authoritative",
-                    "financial_posture_class": "NORMAL",
-                    "secondary_oracle_status": "confirmed",
-                    "secondary_oracle_confirmation": True,
-                    "probe_favored_side": "SELL",
-                    "probe_visible_depth_shares": 323.35,
-                    "open_maker_orders_total": 1,
                     **_historical_recovery_lineage(active=False),
                 },
                 {
@@ -3795,7 +3822,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertTrue((reports_dir / "maker_selection_authority_audit.json").exists())
             self.assertTrue((reports_dir / "maker_selection_authority_counterfactual.json").exists())
 
-    def test_build_report_zero_shadow_reconciliation_discloses_runtime_eligible_pre_shadow_rows(self):
+    def test_build_report_zero_snapshot_reconciliation_discloses_runtime_eligible_pre_snapshot_rows(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             run_id = "rid-maker-zero-shadow"
@@ -3810,7 +3837,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     {
                         "config": {
                             "strategy": {
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "selection_gate": {
                                         "min_sec_to_expiry": 10.0,
                                         "max_sec_to_expiry": 15.0,
@@ -3864,20 +3891,20 @@ class NightlySoakReportTests(unittest.TestCase):
 
             report = build_report(root, run_id=run_id, include_support_artifacts=True)
             support_artifacts = report.pop("_support_artifacts", {})
-            shadow_rows = support_artifacts.get("maker_fight_admission_shadow_rows", [])
+            shadow_rows = support_artifacts.get("maker_market_snapshot_rows", [])
             root_cause = support_artifacts.get("maker_zero_submit_root_cause_audit", {})
             waterfall = support_artifacts.get("maker_participation_waterfall", {})
 
             self.assertEqual(shadow_rows, [])
             self.assertEqual(
-                int(waterfall.get("stages", {}).get("shadow_rows", {}).get("count", 0)),
+                int(waterfall.get("stages", {}).get("snapshot_rows", {}).get("count", 0)),
                 0,
             )
             contradiction_codes = {
                 entry.get("code") for entry in root_cause.get("contradiction_ledger", [])
             }
             self.assertIn(
-                "zero_shadow_with_runtime_eligible_pre_shadow_rows",
+                "zero_snapshot_with_runtime_eligible_pre_snapshot_rows",
                 contradiction_codes,
             )
             self.assertEqual(
@@ -5552,7 +5579,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 },
                             },
                             "strategy": {
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "timing_gate_enabled": True,
                                     "timing_gate_min_sec_to_expiry": 45.0,
                                     "timing_gate_max_sec_to_expiry": 60.0,
@@ -5691,7 +5718,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 },
                             },
                             "strategy": {
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "timing_gate_enabled": True,
                                     "timing_gate_min_sec_to_expiry": 50.0,
                                     "timing_gate_max_sec_to_expiry": 60.0,
@@ -5887,7 +5914,7 @@ class NightlySoakReportTests(unittest.TestCase):
                                 },
                             },
                             "strategy": {
-                                "maker_competitiveness": {
+                                "maker_market_viability": {
                                     "timing_gate_enabled": True,
                                     "timing_gate_min_sec_to_expiry": 50.0,
                                     "timing_gate_max_sec_to_expiry": 60.0,

@@ -838,6 +838,7 @@ class ExecutionRunner:
             wallet=self.wallet,
             tx_manager=self.tx_manager,
         )
+        self.manager.run_id = self.run_id
         self.manager.sizing_target_usd = float(self._active_target_usd)
         if self.sizing_mode == "notional":
             self.taker_target_usd = float(self._active_target_usd)
@@ -3775,6 +3776,59 @@ class ExecutionRunner:
             one_sided_active = True
 
         edge_bucket = self._maker_edge_bucket(edge_abs)
+        posture_contract = {
+            "market_probability": market_probability,
+            "fair_probability": fair,
+            "secondary_fair_probability": secondary_fair,
+            "edge_signed": (float(edge_signed) if edge_signed is not None else None),
+            "edge_abs": (float(edge_abs) if edge_abs is not None else None),
+            "edge_bucket": edge_bucket,
+            "edge_strength_normalized": float(strength),
+            "secondary_edge_value": (
+                float(secondary_edge_signed)
+                if isinstance(secondary_edge_signed, (int, float))
+                else None
+            ),
+            "secondary_oracle_status": normalized_secondary_oracle_status,
+            "secondary_oracle_confirmation": bool(secondary_oracle_confirmation),
+            "chainlink_spot_price": (
+                float(chainlink_spot_price)
+                if isinstance(chainlink_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_spot_price": (
+                float(secondary_oracle_spot_price)
+                if isinstance(secondary_oracle_spot_price, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_abs": (
+                float(secondary_oracle_price_delta_abs)
+                if isinstance(secondary_oracle_price_delta_abs, (int, float))
+                else None
+            ),
+            "secondary_oracle_price_delta_bps": (
+                float(secondary_oracle_price_delta_bps)
+                if isinstance(secondary_oracle_price_delta_bps, (int, float))
+                else None
+            ),
+            "market_reference_mode": str(
+                market_reference.get("market_reference_mode")
+                or ("direct_midpoint" if isinstance(market_probability, (int, float)) else "missing")
+            ).strip().lower(),
+            "market_reference_basis": str(
+                market_reference.get("market_reference_basis")
+                or ("direct_book_midpoint" if isinstance(market_probability, (int, float)) else "missing")
+            ).strip().lower(),
+            "market_reference_source_side": str(
+                market_reference.get("market_reference_source_side") or "none"
+            ).strip().lower(),
+            "market_reference_class": str(
+                market_reference.get("market_reference_class")
+                or ("authoritative" if isinstance(market_probability, (int, float)) else "not_available")
+            ).strip().lower(),
+            "side_policy": side_policy,
+            "one_sided_active": bool(one_sided_active),
+        }
         competitiveness_context = {
             "token_id": str(token_id),
             **lifecycle_phase_surface_fields(lifecycle_phase=normalized_lifecycle_phase),
@@ -3849,12 +3903,14 @@ class ExecutionRunner:
             "one_sided_edge_threshold_abs": float(self.maker_comp_one_sided_edge_threshold_abs),
             "side_policy": side_policy,
             "one_sided_active": bool(one_sided_active),
+            "posture_contract": dict(posture_contract),
         }
         return {
             "size_multiplier_applied": float(size_multiplier_applied),
             "spread_multiplier_applied": float(spread_multiplier_applied),
             "requote_delta_applied": float(requote_delta_applied),
             "side_policy": side_policy,
+            "posture_contract": posture_contract,
             "context": competitiveness_context,
         }
 
@@ -4883,8 +4939,8 @@ class ExecutionRunner:
             unresolved_lifecycle_obligation = bool(info.get(EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD, False))
             cancel_fail_closed = bool(info.get(EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD, False))
             top = books.get(token_id)
-            profile_context = dict(
-                (maker_competitiveness_profiles_by_token.get(token_id) or {}).get("context") or {}
+            profile_posture_contract = dict(
+                (maker_competitiveness_profiles_by_token.get(token_id) or {}).get("posture_contract") or {}
             )
             maker_prereq_failure_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip()
             market_reference = dict(maker_market_reference_by_token.get(token_id) or {})
@@ -5046,13 +5102,13 @@ class ExecutionRunner:
                 held_net_shares=info.get("held_net_shares"),
                 held_open_order_present=info.get("held_open_order_present"),
                 financial_posture_class=financial_posture_class,
-                secondary_fair_probability=profile_context.get("secondary_fair_probability"),
-                secondary_oracle_status=profile_context.get("secondary_oracle_status"),
-                secondary_oracle_confirmation=profile_context.get("secondary_oracle_confirmation"),
-                chainlink_spot_price=profile_context.get("chainlink_spot_price"),
-                secondary_oracle_spot_price=profile_context.get("secondary_oracle_spot_price"),
-                secondary_oracle_price_delta_abs=profile_context.get("secondary_oracle_price_delta_abs"),
-                secondary_oracle_price_delta_bps=profile_context.get("secondary_oracle_price_delta_bps"),
+                secondary_fair_probability=profile_posture_contract.get("secondary_fair_probability"),
+                secondary_oracle_status=profile_posture_contract.get("secondary_oracle_status"),
+                secondary_oracle_confirmation=profile_posture_contract.get("secondary_oracle_confirmation"),
+                chainlink_spot_price=profile_posture_contract.get("chainlink_spot_price"),
+                secondary_oracle_spot_price=profile_posture_contract.get("secondary_oracle_spot_price"),
+                secondary_oracle_price_delta_abs=profile_posture_contract.get("secondary_oracle_price_delta_abs"),
+                secondary_oracle_price_delta_bps=profile_posture_contract.get("secondary_oracle_price_delta_bps"),
                 open_maker_orders_total=open_maker_orders_total,
                 probe_favored_side=probe_favored_side,
                 probe_visible_depth_shares=probe_visible_depth_shares,
@@ -8059,7 +8115,7 @@ class ExecutionRunner:
                         maker_preclassified_no_submission_category_by_token[token_id] = (
                             "market_reference_not_authoritative"
                         )
-                self.telemetry.set_gauge("doctrine_maker_eligible_token_count", float(len(maker_eligible_tokens)))
+                self.telemetry.set_gauge("doctrine_maker_viable_token_count", float(len(maker_eligible_tokens)))
                 maker_books_for_evaluation = dict(books)
                 maker_books_for_evaluation.update(maker_resolved_books_by_token)
                 maker_one_sided_buy_active_count = 0
@@ -8117,6 +8173,7 @@ class ExecutionRunner:
                                 lineage_stage=lineage_stage,
                             )
                         )
+                        context_payload["posture_contract"] = dict(profile.get("posture_contract") or {})
                         maker_side_policy_by_token[token_id] = side_policy
                         maker_competitiveness_context_by_token[token_id] = context_payload
                     side_policy = str(profile.get("side_policy") or "TWO_SIDED").upper()
@@ -8125,28 +8182,6 @@ class ExecutionRunner:
                     elif side_policy == "SELL_ONLY":
                         maker_one_sided_sell_active_count += 1
 
-                if (
-                    self.maker_comp_timing_gate_enabled
-                    or self.maker_comp_edge_scale_enabled
-                    or self.maker_comp_one_sided_enabled
-                ):
-                    for token_id in sorted(maker_phase_tokens):
-                        profile = maker_competitiveness_profiles_by_token.get(token_id, {})
-                        context_payload = dict(profile.get("context") or {})
-                        block_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
-                        self.events.log_event(
-                            "maker_competitiveness_decision",
-                            {
-                                "ts_utc": utc_iso(),
-                                "run_id": self.run_id,
-                                "token_id": token_id,
-                                "maker_phase_allowed": bool(context_payload.get("maker_phase_allowed", True)),
-                                "maker_eligible": bool(token_id in maker_eligible_tokens),
-                                "block_reason": block_reason or None,
-                                "timing_gate_blocked": block_reason == "maker_timing_gate_closed",
-                                **context_payload,
-                            },
-                        )
                 maker_timing_gate_blocked_count = sum(
                     1
                     for token_id in maker_phase_tokens

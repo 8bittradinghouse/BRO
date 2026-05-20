@@ -100,7 +100,8 @@ Severity rules:
     ledger cut:
     - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
     - `quote_quality_skip_queue_depth` = `keep-now steel`
-    - `sizing_reject` = `minor residue` on that replay specimen
+    - `non_actionable_geometry` = clean upstream expression of the old
+      low-price floor/cap infeasibility on that replay specimen
     - `maker_blocker_ledger.json` = current owner artifact for blocker truth
   - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` tightened the
     current live read:
@@ -109,7 +110,8 @@ Severity rules:
       mystery
     - selection depth multiple remains `keep-now steel`
     - queue-depth quote quality remains `keep-now steel`
-    - `sizing_reject` reopened as the narrower active runtime patient
+    - upstream geometry feasibility reopened as the narrower active runtime
+      patient
     - support-schoolhouse remains subordinate to the blocker ledger
   - the active Packet 2 patient is therefore no longer a generic
     blocker-family mystery; it is support-schoolhouse cleanup plus accessory
@@ -377,7 +379,7 @@ Failure rule:
   - current blueprint sweet-spot language still points at `10-15s`
   - Packet 2 must keep doctrine/provenance tension explicit until stronger
     runtime proof says otherwise
-- `VERIFIED`: current paper selection gate still carries active maker steel:
+- `VERIFIED`: current paper selection-fact package still carries active maker steel that now feeds the single manager viability owner:
   - secondary-oracle confirmation
   - `$100` cannon target notional
   - same-target calm caps
@@ -445,16 +447,20 @@ Failure rule:
 
 ## Open Investigation Lanes
 1. diagnostic-surface hardening
-   - keep raw `maker_competitiveness_decision` truth above empty downstream
+   - keep raw `maker_market_viability_decision` truth above empty downstream
      audit comfort
    - make the existing selection audit rows carry the decisive context fields
 2. support-shadow / probe family de-fat
-   - `maker_fight_admission_shadow*`
+   - `maker_market_snapshot*`
    - late/mid-window probes
    - zero-submit root-cause
    - quote-starvation / quote-integrity / selection-authority counterfactual
    - submit-bearing support artifacts must point at
      `maker_blocker_ledger.json`, not older selection-authority owner claims
+   - current snapshot non-submit owner contract is
+     `decision_result=viability_rejected` plus `decision_block_reason`
+   - `selection_gate_*` fields are selector-only mirrors and must not retell
+     geometry or quote-quality viability reasons
 3. accessory competitiveness bundle runtime tribunal
    - `edge_scale_*`
    - `size_mult_max`
@@ -463,6 +469,8 @@ Failure rule:
 4. accessory maker sizing scaler bundle runtime tribunal
    - `maker_depth_target_*`
    - `maker_liquidity_tod_*`
+   - range-based selection-band tuning is still unresolved; current live owner
+     remains on the hard scalar `selection_gate.min_depth_multiple=1.5`
 5. recovery / unwind root-death closeout verification
    - keep cancel-only fail-close for open unfilled orders
    - keep hold-to-settlement for real accepted exposure

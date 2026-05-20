@@ -196,7 +196,7 @@ Identity:
 
 What it does:
 - reconciles the maker funnel when a run produces `0` submits / `0` fills,
-- keeps `maker_fight_admission_shadow` semantics narrow,
+- keeps `maker_market_snapshot` semantics narrow,
 - adds a sibling pre-shadow audit so quote starvation is visible without
   redefining the shadow contract,
 - freezes the `$350 Packet B` and `$250` runs as the canonical zero-submit
@@ -252,7 +252,8 @@ Repaired substrate follow-on truth:
     - market truth was `direct_midpoint`, not bounded/missing
     - `9` maker no-submit rows:
       - `6` `launch_safe_selection_insufficient_depth_multiple`
-      - `3` `one_sided_mode_disallow_side`
+      - `3` opposite-side rows later recognized as normal one-sided prunes,
+        not real blocker-family authority
     - `11` shadow rejects with
       `selection_gate_primary_reject_reason = insufficient_depth_multiple`
     - still `0` submits / `0` fills
@@ -334,7 +335,7 @@ Reporting quarantine law on submit runs:
   - `maker_participation_waterfall.json`
   - `maker_quote_construction_summary.json`
   - `maker_truth_reference_starvation_summary.json`
-  - `maker_fight_admission_calibration_audit.json`
+  - `maker_market_snapshot_calibration_audit.json`
 - required markers:
   - `authoritative_for_canonical_selection = false`
   - applicability:

@@ -18,8 +18,43 @@ Core mission:
 
 - restore one truthful runtime body
 - keep one canonical execution pathway
+- keep one central-plane execution authority
 - preserve one operational language from doctrine to runtime to reports
+- keep one honest timing chain beneath one authoritative system clock
 - protect capital and trust before opportunity capture
+- win real freedom of money and time for the House instead of permanent
+  captivity inside extractive economic systems
+- remove fat, slag, and slop unless it is consciously refined into stronger
+  canonical steel
+
+House alignment law
+
+`8bit ODA` is the House / ship.
+`BRO` is a frame that serves the House.
+
+Hard rules:
+
+- the ship is more valuable than the suit
+- the suit exists to serve the ship, not to become the center of meaning
+- BRO may never consume founder, crew, doctrine, or mission in order to look
+  impressive
+- the mission is freedom of money and time for the House, bloodline,
+  stewardship, and future blessing, not vanity wealth
+- scale may not come through corruption, predation, rugs, deception, or harm
+  to others
+
+Frame-lineage law
+
+`BRO` is the proving frame and prospective ancestor frame.
+Descendant frames are legal only after the ancestor frame is worthy.
+
+Hard rules:
+
+- no clone or descendant pack may outrun ancestor-frame truth
+- no descendant frame may fork doctrine, timing law, security law, or report
+  language into a rival kingdom
+- descendant specialization is legal only beneath one House authority spine
+- ancestor-frame impurity must be treated as bloodline risk, not local noise
 
 Canonical authority stack:
 
@@ -30,6 +65,107 @@ Canonical authority stack:
    `docs/EDGE_TRUTH_RUNBOOK.md`
 5. outcome interpretation in `BRO_OUTCOME_TRUTH_DOCTRINE.txt`
 6. wallet authority in `docs/BRO_WALLET_DOCTRINE.md`
+
+Schoolhouse / toolbox boundary law
+
+`schoolhouse` means a VPS-level external toolbox and study file set.
+It is not part of `BRO`.
+
+Hard rules:
+
+- schoolhouse surfaces hold zero authority over BRO runtime, packet routing,
+  doctrine, reports, or operator truth
+- copied report bundles, study tools, archaeology, or teaching aids may live
+  in schoolhouse, but they are derivative and non-canonical
+- active board sinks, packet owners, current doctrine roots, and live
+  validation steel belong with BRO and are not schoolhouse
+- if schoolhouse and BRO disagree, BRO wins automatically
+
+No schoolhouse surface may own even a small part of BRO truth.
+
+Truth and stewardship law
+
+BRO and the House systems around it must tell the truth.
+
+Hard rules:
+
+- runtime truth, validator truth, report truth, and operator truth may not be
+  drifted for comfort or marketing
+- performance claims may not outrun the strongest current proof
+- wealth capture that depends on deception, exploitation, or hidden harm is
+  outside House law
+- strength is for protection, endurance, freedom, and eventual blessing, not
+  vanity or domination
+
+Single-pathway law
+
+BRO should operate through one live canonical pathway wherever possible.
+
+Forbidden:
+
+- parallel live pathways for the same decision
+- lane-local or report-local substitute owners
+- lower-layer surfaces behaving like manager or owner for a question they do
+  not actually own
+
+If a current pathway is insufficient, prove that failure first before adding a
+new one.
+
+Refinement versus extinction law
+
+Historical or existing machinery may be kept only when all of these are true:
+
+- it can be re-owned cleanly under the strongest current authority
+- it does not preserve a second live pathway
+- it does not preserve legacy fake power through alias, bridge, or translation
+  gravity
+- it reduces blast radius relative to rebuilding from scratch
+
+If those bars are not met, the machinery is slag and should be made extinct
+from active repo surfaces.
+
+Surgery end-state law
+
+No surgery is legal unless the intended end state is declared first.
+
+Every live-body cut or remodel must explicitly declare:
+
+- the patient family
+- the strongest owner being restored
+- the intended disposition:
+  - `extinct`
+  - `refine_into_steel`
+  - `rehome_or_fence`
+  - `remodel`
+- what must die completely
+- what must survive as real steel
+- what proof closes the surgery
+
+Surgery prep law
+
+Before live-body mutation, the mandatory prep process is:
+
+1. map the full surface-id/tag family down through owner layer, shadow owner,
+   accessories, and bedrock substrate
+2. compare the family against BRO's actual goals and identify what heavy
+   encoded material can be reused or remodeled under the proper owner first
+3. separate true authority material from reporting, diagnostic, study, or
+   historical value
+4. make waste fully extinct instead of leaving half-dead residue
+5. force any remodeled/repurposed material to align completely with top
+   doctrine, plain-English semantics, timing law, and proper system role
+6. run the required mapping/planning/hostile-audit cadence before and after the
+   cut
+
+Nothing cut in BRO may survive by inertia alone.
+
+Enforcement rule:
+
+- no surgery may proceed to mutation, closure, or next-packet handoff unless
+  this prep law is complete
+- default state is `NO-GO`
+- exception is legal only when explicit logic, agreed consciously by both Robb
+  and Jin, is written down as a named override with reasons
 
 Core domains
 
@@ -50,6 +186,9 @@ Combat-locked sub-second synchronized timing is father-frame steel.
 Combat-locked sub-second synchronized timing is required for honest maker/taker
 readiness claims.
 
+Timing authority is top-level hard law.
+One system clock and one timing chain own timing truth for the whole machine.
+
 Authoritative timing truth requires:
 
 - millisecond-class host clock synchronization
@@ -61,6 +200,25 @@ If timing truth is coarse, missing, degraded, or contradictory:
 
 - BRO must fail closed, downgrade the claim, or halt
 - coarse fallback timing must not certify combat readiness
+
+Timing gate application law
+
+Timing gates may use bounded safe bands beneath the top-level timing authority
+when canonical doctrine explicitly allows it.
+
+Required shape:
+
+- target edge
+- acceptable operating band
+- hard fail boundary
+
+Required rules:
+
+- harmless small variance inside the centrally owned band must not be
+  misclassified as a doctrine breach
+- larger variance outside the hard fail boundary must fail closed
+- lower layers may not invent their own grace windows, tolerances, or timing
+  reinterpretations
 
 Single semantic language law
 
@@ -126,6 +284,63 @@ BRO may carry exactly one authoritative target pair at a time.
 - pending/prewarm candidates may exist for controlled warm-up
 - pending/prewarm candidates have zero decision authority
 - lifecycle watch truth must not impersonate active target-pair truth
+
+Candidate actionability law
+
+BRO should reject non-actionable candidates early instead of carrying them
+downstream as fake quality targets.
+
+Non-actionable candidate truth includes:
+
+- mathematically impossible execution geometry under canonical min-notional,
+  max-shares, or equivalent canonical expression law
+- market structure that cannot safely express the intended maker or taker shot
+- missing truth required to determine whether the candidate is executable at
+  all
+
+Non-actionable candidates should lose ownership contention and BRO should move
+to better quality candidates.
+
+Ownership commitment split
+
+BRO must distinguish between two different owned states:
+
+- `owned_uncommitted`
+  - the market is currently owned, but no real maker order, taker commitment,
+    or accepted exposure exists yet
+  - quality decay may still cause drop or replacement before commitment if the
+    market is no longer a worthy target
+- `owned_committed`
+  - a real maker order, taker commitment, or accepted exposure exists
+  - ownership becomes sticky and the machine should focus on live execution,
+    lifecycle obligations, and closeout truth
+
+Challenger law after commitment
+
+Before commitment, challengers may still matter for explicit replacement law.
+
+After commitment:
+
+- challenger truth becomes observational only unless shared safety or explicit
+  abandonment law overrides ownership
+- runtime attention belongs to live order handling, exposure truth, settlement,
+  and venue closeout
+- challenger scoring must not steal focus from the real committed market
+
+Live-trust proving classes
+
+BRO trust proving must stay separated into distinct go/no-go lanes:
+
+- `execution-lane trust`
+  - maker and taker prove they can place, fill, phase, and gate correctly
+- `capital-safety stress trust`
+  - hostile long runs with intentionally ugly / permissive tuning prove the
+    hard-stop, shutdown, wallet, and fail-closed shell
+- `blueprint-tuned operational trust`
+  - long runs at intended doctrine posture prove the machine behaves cleanly
+    under the way it is actually meant to fight
+
+No lower proving class may impersonate a higher one.
 
 Maker and taker are subordinate lanes inside the owned market, not separate
 market lifecycles.

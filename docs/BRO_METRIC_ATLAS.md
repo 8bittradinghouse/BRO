@@ -430,9 +430,9 @@ Read these when the question is:
   block/no-block behavior?
 
 Primary surfaces:
-- `maker_fight_admission_shadow_summary.json`
-- `maker_fight_admission_calibration_audit.json`
-- `maker_fight_admission_shadow_rows.jsonl`
+- `maker_market_snapshot_summary.json`
+- `maker_market_snapshot_calibration_audit.json`
+- `maker_market_snapshot_rows.jsonl`
 - `maker_admission_target_side_summary.json`
 
 High-value fields:

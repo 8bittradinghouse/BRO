@@ -181,7 +181,11 @@
 - `fair_probability_missing` was diagnosed as a maker/taker fair-map scope bug and received a targeted code patch after the latest clean run.
 - Post-patch canonical 10-minute paper run `7e0a7dcf-947a-4d88-9f0c-9a6790ed6b69` passed canonical validation with all validator exit codes `0`.
 - Post-patch run `7e0a7dcf-947a-4d88-9f0c-9a6790ed6b69` proved taker-scope `fair_probability_missing=0`; remaining `fair_probability_missing=13` rows were maker-scoped.
-- Maker `size_notional_bounds` / `sizing_reject` was diagnosed as a deterministic floor/cap feasibility constraint: maker hard floor `100.0` USDC, maker hard max `800.0` shares, infeasible below midpoint `0.125`.
+- Maker low-price geometry was diagnosed as a deterministic floor/cap
+  feasibility constraint: maker hard floor `100.0` USDC, maker hard max
+  `800.0` shares, infeasible below midpoint `0.125`. Current packet law is to
+  surface that upstream as `non_actionable_geometry` instead of treating
+  `sizing_reject` as the primary candidate-authority story.
 - Current-code report replay exposes maker sizing reject rows and min-notional/max-shares conflict rows.
 - `soak_maker_submits_too_low` was diagnosed as a maker-submit enforcement taxonomy gap, not a proven maker-execution defect. `ops/soak_budget.yaml` now counts maker-scope `fair_probability_missing` as non-actionable for this enforcement path.
 - Current-code `soak_hardening_gate.py` replays of `9d3c3225-13b6-4a12-8dd4-fb51a6d666e6` and `7e0a7dcf-947a-4d88-9f0c-9a6790ed6b69` both passed with `ok=true` and `finding_count=0`.
@@ -744,7 +748,7 @@
   - same-time null-oracle duplicates are taker-scope authority-closed rows
     (`phase_disallow_taker` on older specimens; `normal_taker_authority_closed`
     on current canonical Packet 1 code), not a proven maker-scope owner split
-  - `maker_fight_admission_shadow` matched the maker-scope rows on this
+  - `maker_market_snapshot` matched the maker-scope rows on this
     specimen
   - the broader executor/shadow owner split therefore remains unproven
 

@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "af3cc83f5cb7813f1155c0872fc2e1a988d0d603b2f096128f96a5e43e53b0ed"
+  paper_expected_config_fingerprint_sha256: "b531f50166a53e6cd928718f9fa758f35d3b37e83d5c3133ce702660f19bb356"
   held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
   held_ws_missing_or_unusable_refresh_interval_sec: 45.0
   # Doctrine-aligned handoff ladder:
@@ -43,19 +43,15 @@ runtime:
   # reduce-only recovery starts at 15s,
   # emergency taker / hard halt begin at <=7s.
 
-# Small, reversible maker-lag relaxation for diagnostic verification.
-# Scope: paper_universal profile only.
 latency_verifier:
-  min_samples: 15
-  hit_threshold_ms: 40
-  armed_min_median_ms: 40
-  armed_min_hit_rate: 0.30
-  probation_min_median_ms: 30
-  probation_min_hit_rate: 0.15
-  score_min_for_maker: 0.08
-  # Paper-only taker live-fire detune:
-  # keep canonical edge ownership intact and lower only the inherited score gate.
-  score_min_for_taker: 0.40
+  min_samples: 80
+  hit_threshold_ms: 120
+  armed_min_median_ms: 120
+  armed_min_hit_rate: 0.60
+  probation_min_median_ms: 80
+  probation_min_hit_rate: 0.45
+  score_min_for_maker: 0.35
+  score_min_for_taker: 0.60
   require_armed_for_taker: true
 
 strategy:
@@ -70,7 +66,7 @@ lifecycle:
     max_sec_to_expiry: 90.0
     min_market_age_sec: 60.0
     maker_min_depth_multiple: 1.5
-    taker_min_fill_ratio: 0.5
+    taker_min_fill_ratio: 1.0
     require_secondary_oracle_confirmation: true
     cannon_target_notional_usd: 100.0
     max_same_target_submit_count_prior: 1
@@ -86,19 +82,19 @@ lifecycle:
   lane_gates:
     maker:
       timing_gate_enabled: true
-      edge_scale_enabled: true
+      edge_scale_enabled: false
       edge_scale_start_abs: 0.05
       edge_scale_full_abs: 0.20
-      size_mult_max: 1.35
-      spread_mult_min: 0.75
-      requote_delta_mult_min: 0.50
+      size_mult_max: 1.0
+      spread_mult_min: 1.0
+      requote_delta_mult_min: 1.0
       one_sided_enabled: true
       one_sided_edge_threshold_abs: 0.15
     taker:
       final_window_enabled: true
       aggressive_window_enabled: false
       aggressive_window_sec: 7.0
-      multi_oracle_boost_enabled: true
+      multi_oracle_boost_enabled: false
       multi_oracle_boost_window_sec: 7.0
 
 # Maker competitiveness sizing: enforce desk-viable minimum quote presence and
@@ -110,13 +106,13 @@ sizing:
   maker_competitive_max_notional_usd: 101.0
   maker_competitive_min_shares: 0.0
   maker_competitive_max_shares: 8000.0
-  maker_depth_target_min_ratio: 0.15
-  maker_depth_target_max_ratio: 0.30
-  maker_depth_target_ratio: 0.20
-  maker_liquidity_tod_scaler_enabled: true
+  maker_depth_target_min_ratio: 0.0
+  maker_depth_target_max_ratio: 0.0
+  maker_depth_target_ratio: 0.0
+  maker_liquidity_tod_scaler_enabled: false
   maker_liquidity_tod_start_hour_utc: 2
   maker_liquidity_tod_end_hour_utc: 6
-  maker_liquidity_tod_depth_multiplier: 0.6
+  maker_liquidity_tod_depth_multiplier: 1.0
 
 wallet:
   paper_starting_usdc: 4000.0
@@ -185,10 +181,8 @@ secondary_oracle:
     poll_interval_sec: 0.5
     max_tick_age_sec: 15.0
 
-# Taker Masamune lock:
-# canonical normal taker is a hard last-seconds commitment lane only.
 taker:
-  require_lag_verification: false
+  require_lag_verification: true
   enabled: true
   target_usd: 20.0
   max_orders_per_cycle: 1
@@ -204,13 +198,13 @@ taker:
     conviction_model: edge_plus_latency_score
     edge_weight: 0.65
     latency_score_weight: 0.35
-    dynamic_preview_enabled: true
+    dynamic_preview_enabled: false
     price_aggress_bps_max: 8.0
     multi_oracle_edge_threshold_abs: 0.20
     multi_oracle_target_usd_cap: 20.0
     multi_oracle_capital_pct_cap: 0.18
     allow_complement_buy_route: true
-    min_visible_fill_ratio: 0.5
+    min_visible_fill_ratio: 1.0
 
 storage:
   log_dir: /logs/paper_universal

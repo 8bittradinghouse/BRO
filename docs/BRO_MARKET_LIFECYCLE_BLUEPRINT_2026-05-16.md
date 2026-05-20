@@ -35,6 +35,12 @@ The lifecycle should:
 - let maker and taker operate as independent execution lanes inside one shared lifecycle
 - keep one shared safety spine for capital, lifecycle, truth quality, and closeout discipline
 
+Central-plane law:
+- this lifecycle is the central-plane execution authority for market ownership,
+  lane timing, and lane permission
+- lower layers may consume lifecycle timing and gate truth
+- lower layers may not become substitute market-lifecycle sovereigns
+
 ## Single-Language Lifecycle Law
 One market gets:
 - one ownership model
@@ -47,6 +53,12 @@ They are subordinate execution lanes inside the market lifecycle.
 
 Old split-owner timing language should not survive as live authority.
 If migration requires compatibility labels temporarily, those labels must stay bounded to explicit compatibility seams only.
+
+Timing-window application law:
+- top-level timing authority remains hard law
+- lower-layer gate application may use bounded safe bands only when the
+  central lifecycle owner explicitly defines them
+- lower layers may not invent local grace windows or point-law exceptions
 
 ## Lifecycle Control Planes
 ### 1. Market Selection / Ownership
@@ -79,6 +91,13 @@ Arbitration rules:
 - the currently owned market keeps ownership by default unless a challenger wins by explicit replacement law
 - replacement must be hysteresis-protected; no churn on near-ties or one-cycle noise
 - once a market is in `maker_window`, `taker_window`, or `resolve`, replacement is forbidden unless shared safety requires abandonment
+
+Admission rule:
+- a market that is mathematically impossible to express under canonical
+  min-notional, max-shares, or equivalent execution geometry is not an
+  admitted candidate
+- non-actionable candidates should be rejected early so BRO can move attention
+  to better quality markets instead of carrying fake contenders downstream
 
 Ranking inputs must be explicit and machine-owned:
 - maker depth quality
@@ -131,6 +150,13 @@ Purpose:
 - taker lane may fire if its gates are open
 - maker semantics do not erase taker authority by language drift
 
+Window-band rule:
+- canonical maker and taker edges remain centrally owned doctrine
+- runtime gate application may use bounded safe bands around those edges where
+  doctrine explicitly allows it
+- those bands exist to absorb harmless micro-variance, not to create stealth
+  timing broadening
+
 #### `resolve`
 The owned market has entered closeout / settlement / hold-to-resolution behavior.
 
@@ -158,6 +184,13 @@ Admission law:
 - secondary oracle is available enough to support lane confirmation law
 - shared safety spine is green
 - the market wins arbitration against all other admitted candidates
+
+Admission-timing application note:
+- the `<=90.0` ownership-entry edge is canonical doctrine
+- runtime enforcement may use a bounded safe band around that edge only if the
+  central owner explicitly defines it and the widened band remains capital-safe
+- harmless small variance must not be mistaken for permission to widen the
+  ownership law by drift
 
 #### `advance`
 Transition:
@@ -210,6 +243,36 @@ This is the key separation:
 - market ownership is one truth
 - lane permission is a different truth
 
+### Pre-Commit Provisional Ownership
+Before any real commitment exists, owned markets remain provisional.
+
+Pre-commit means:
+- no accepted exposure exists yet
+- no live maker order exists yet
+- no real taker commitment exists yet
+
+Pre-commit rule:
+- if depth, fillability, actionability, or other candidate-quality truth
+  decays materially before commitment, BRO may drop or replace the market
+  instead of owning dead weight to the end
+- provisional ownership is allowed to re-run candidate quality and replacement
+  law because no real market commitment has been made yet
+
+### Post-Commit Sticky Ownership
+Once BRO has made a real market commitment, ownership becomes sticky.
+
+Commitment means any of:
+- live maker order with real lifecycle obligation
+- accepted taker commitment
+- accepted exposure that now requires settlement / closeout truth
+
+Post-commit rule:
+- challengers lose practical decision authority
+- the machine should focus on order management, exposure truth, settlement, and
+  venue closeout
+- replacement is no longer ordinary arbitration; it requires explicit
+  abandonment law or shared-safety override
+
 ### Stay Law
 Once owned, a market stays owned while all of these remain true:
 - the market is unresolved
@@ -223,21 +286,28 @@ Hard ownership floor:
 - market-truth substrate is not red
 - shared safety spine is not red
 
-Soft bruises that do **not** force drop by themselves:
+Soft bruises that do **not** force drop by themselves once the market is
+committed:
 - temporary lane-local gate closure
 - temporary no-edge / side flip
 - temporary depth dip
 - temporary fillability dip
 - temporary maker or taker disallow
 
-Soft bruises close lane permission.
-They do not erase ownership.
+After commitment, soft bruises close lane permission.
+They do not erase ownership by themselves.
+
+Before commitment, those same bruises may still justify drop or replacement if
+the owned market has fallen below candidate-quality/actionability truth.
 
 ### Revalidation Law
 - the hard ownership floor is rechecked every runtime decision cycle
 - selection-quality inputs are rechecked continuously while owned
 - maker and taker lane gates are re-evaluated independently every cycle
-- a one-cycle bruise may close lane permission, but it may not erase ownership unless drop law is satisfied
+- a one-cycle bruise may close lane permission, but it may not erase committed
+  ownership unless drop law is satisfied
+- before commitment, revalidation may still demote the market back to `scan`
+  when actionability or ownership-worthiness truth breaks
 
 ### Shared-Safety Precedence
 Shared safety may:
@@ -273,6 +343,13 @@ Intended taker-lane proposal shape:
   - valid fillability
   - valid side selection
   - healthy shared safety spine
+
+Lane-window timing rule:
+- these doctrine edges are target authorities, not invitations for brittle
+  point-law enforcement
+- if bounded safe timing bands are needed for harmless runtime variance, they
+  must be centrally owned here and consumed downstream
+- downstream files may not invent their own edge tolerances
 
 ## Lifecycle Compression
 Short form:
@@ -366,8 +443,13 @@ Use this blueprint to:
 - replace deadband standdown semantics with continuous market ownership plus lane-permission changes
 - align runtime, reporting, and operator truth onto one lifecycle vocabulary
 - define one exact stay law, drop law, and replacement law for the owned market
+- keep the simplest slag-free single-path ownership system until richer
+  blueprint arbitration is ready to be added cleanly
+- refine existing steel when it can be re-owned cleanly under lifecycle instead
+  of rebuilding for its own sake
 
 Do not use this blueprint to:
 - claim current runtime already matches the target
 - justify threshold loosening by narrative
 - preserve old timing vocabulary as equal authority
+- keep mathematically impossible candidates alive as fake quality contenders

@@ -375,13 +375,21 @@ def run_audit(
                     book_thread_dead_rows += 1
                 if bool(chain_status.get("enabled", False)) and (not bool(chainlink_thread_alive)):
                     chainlink_thread_dead_rows += 1
-                if bool(book.get("enabled", False)) and not _as_bool(book.get("worker_usable"), default=True):
+                if (
+                    truth_required
+                    and bool(book.get("enabled", False))
+                    and not _as_bool(book.get("worker_usable"), default=True)
+                ):
                     book_worker_unusable_rows += 1
-                if bool(chain_status.get("enabled", False)) and not _as_bool(chain_status.get("worker_usable"), default=True):
+                if (
+                    truth_required
+                    and bool(chain_status.get("enabled", False))
+                    and not _as_bool(chain_status.get("worker_usable"), default=True)
+                ):
                     chainlink_worker_unusable_rows += 1
-                if _as_bool(book.get("worker_restart_exhausted"), default=False):
+                if truth_required and _as_bool(book.get("worker_restart_exhausted"), default=False):
                     book_worker_restart_exhausted_rows += 1
-                if _as_bool(chain_status.get("worker_restart_exhausted"), default=False):
+                if truth_required and _as_bool(chain_status.get("worker_restart_exhausted"), default=False):
                     chainlink_worker_restart_exhausted_rows += 1
                 if str(book.get("worker_fatal_reason") or "").strip():
                     book_worker_fatal_rows += 1
