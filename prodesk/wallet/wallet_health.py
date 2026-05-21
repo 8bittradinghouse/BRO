@@ -26,12 +26,15 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     allowance_snapshot = _as_mapping(canonical.get("allowance_snapshot"))
     nonce_snapshot = _as_mapping(canonical.get("nonce_snapshot"))
     pending_wallet_tx_snapshot = _as_mapping(canonical.get("pending_wallet_tx_snapshot"))
+    web3_provider_health = _as_mapping(status.get("web3_provider_health"))
+    gas_reserve_policy = _as_mapping(status.get("gas_reserve_policy"))
     reconcile_state = _as_mapping(status.get("integrity_tripwire_reconcile_state"))
     reconcile = reconcile_state or _as_mapping(status.get("last_reconcile_result"))
 
     gas_balance = float(wallet_snapshot.get("pol_balance", 0.0) or 0.0)
     gas_reserve_min = float(status.get("min_pol_gas_reserve", 0.0) or 0.0)
-    gas_ok = gas_balance >= gas_reserve_min
+    gas_ok = bool(gas_reserve_policy.get("conservative_fail_floor_ok", gas_balance >= gas_reserve_min))
+    gas_target_ok = bool(gas_reserve_policy.get("conservative_target_ok", gas_ok))
 
     stable_total = float(wallet_snapshot.get("usdc_balance", 0.0) or 0.0)
     protected = float(wallet_snapshot.get("protected_reserve_usdc", 0.0) or 0.0)
@@ -72,6 +75,16 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         and _is_canonical_live_truth_surface(pending_wallet_tx_snapshot)
         and bool(pending_wallet_tx_snapshot.get("healthy", False))
     )
+    web3_provider_trustworthy = bool(
+        web3_provider_health.get("provider_trustworthy", True)
+        if web3_provider_health
+        else True
+    )
+    web3_provider_reason = str(
+        web3_provider_health.get("health_reasons", ["web3_provider_unhealthy"])[0]
+        if web3_provider_health
+        else ""
+    )
     live_truth_gap_reasons: List[str] = []
     if mode == "live" and not canonical_live_nonce_available:
         detail = canonical_live_nonce_detail or "canonical_live_nonce_unavailable"
@@ -99,6 +112,8 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         reasons.append("canonical_live_nonce_unavailable")
     if mode == "live" and order_capable_live and not canonical_live_pending_wallet_tx_available:
         reasons.append("canonical_live_pending_wallet_tx_unavailable")
+    if mode == "live" and web3_provider_health and not web3_provider_trustworthy:
+        reasons.append(web3_provider_reason or "web3_provider_unhealthy")
     if not gas_ok:
         reasons.append("gas_reserve_insufficient")
     if not approval_ok:
@@ -114,6 +129,9 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "gas_balance": gas_balance,
         "gas_reserve_min": gas_reserve_min,
         "gas_ok": bool(gas_ok),
+        "gas_target_ok": bool(gas_target_ok),
+        "gas_reserve_policy": gas_reserve_policy,
+        "gas_balance_usd_estimate": gas_reserve_policy.get("usd_balance_estimate"),
         "stable_balance_total": stable_total,
         "protected_reserve": protected,
         "open_reserved": open_reserved,
@@ -136,6 +154,8 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "canonical_live_nonce_detail": canonical_live_nonce_detail,
         "canonical_live_pending_wallet_tx_source": canonical_live_pending_wallet_tx_source,
         "canonical_live_pending_wallet_tx_detail": canonical_live_pending_wallet_tx_detail,
+        "web3_provider_health": web3_provider_health,
+        "web3_provider_trustworthy": bool(web3_provider_trustworthy),
         "live_truth_gap_reasons": live_truth_gap_reasons,
         "reconcile_scope": reconcile_scope,
         "reservation_mismatch_candidate": bool(reservation_mismatch_candidate),

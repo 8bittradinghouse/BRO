@@ -351,6 +351,9 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "max_notional_per_order_usdc": 250.0,
         "min_pol_gas_reserve": 0.1,
         "gas_reserve_target_pol": 0.2,
+        "gas_reserve_fail_floor_usd": 0.0,
+        "gas_reserve_target_usd": 0.0,
+        "gas_asset_price_usd_hint": 0.0,
         "paper_pol_balance": 10.0,
         "require_allowance": True,
         "paper_allowance_usdc": 1000000.0,
@@ -370,6 +373,14 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "provider_ambiguity_abs_tolerance": PROVIDER_AMBIGUITY_ABS_TOLERANCE_DEFAULT,
         "provider_ambiguity_rel_tolerance": PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT,
         "max_live_reconcile_mismatch_count": 2,
+        "web3_primary_rpc_url": "",
+        "web3_failover_rpc_url": "",
+        "web3_failover_max_latency_ms": 800.0,
+        "web3_failover_consecutive_high_latency": 3,
+        "web3_failover_sticky_seconds": 300.0,
+        "web3_gas_normal_min_multiplier": 1.2,
+        "web3_gas_normal_max_multiplier": 1.5,
+        "web3_gas_spike_max_multiplier": 2.0,
     },
     "risk": {
         "max_abs_position_shares": 400.0,
@@ -2059,6 +2070,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     )
     _require_positive("wallet.min_pol_gas_reserve", wallet_cfg.get("min_pol_gas_reserve"), allow_zero=True)
     _require_positive("wallet.gas_reserve_target_pol", wallet_cfg.get("gas_reserve_target_pol"), allow_zero=True)
+    _require_positive("wallet.gas_reserve_fail_floor_usd", wallet_cfg.get("gas_reserve_fail_floor_usd"), allow_zero=True)
+    _require_positive("wallet.gas_reserve_target_usd", wallet_cfg.get("gas_reserve_target_usd"), allow_zero=True)
+    _require_positive("wallet.gas_asset_price_usd_hint", wallet_cfg.get("gas_asset_price_usd_hint"), allow_zero=True)
     _require_positive("wallet.paper_pol_balance", wallet_cfg.get("paper_pol_balance"), allow_zero=True)
     _require_positive("wallet.paper_allowance_usdc", wallet_cfg.get("paper_allowance_usdc"), allow_zero=True)
     _require_positive("wallet.reconcile_tolerance_usdc", wallet_cfg.get("reconcile_tolerance_usdc"))
@@ -2080,6 +2094,30 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive(
         "wallet.max_live_reconcile_mismatch_count",
         wallet_cfg.get("max_live_reconcile_mismatch_count"),
+    )
+    _require_positive(
+        "wallet.web3_failover_max_latency_ms",
+        wallet_cfg.get("web3_failover_max_latency_ms"),
+    )
+    _require_positive(
+        "wallet.web3_failover_consecutive_high_latency",
+        wallet_cfg.get("web3_failover_consecutive_high_latency"),
+    )
+    _require_positive(
+        "wallet.web3_failover_sticky_seconds",
+        wallet_cfg.get("web3_failover_sticky_seconds"),
+    )
+    _require_positive(
+        "wallet.web3_gas_normal_min_multiplier",
+        wallet_cfg.get("web3_gas_normal_min_multiplier"),
+    )
+    _require_positive(
+        "wallet.web3_gas_normal_max_multiplier",
+        wallet_cfg.get("web3_gas_normal_max_multiplier"),
+    )
+    _require_positive(
+        "wallet.web3_gas_spike_max_multiplier",
+        wallet_cfg.get("web3_gas_spike_max_multiplier"),
     )
     if not isinstance(wallet_cfg.get("require_allowance"), bool):
         raise ValueError("wallet.require_allowance must be boolean")
@@ -2120,6 +2158,28 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     gas_reserve_target_pol = float(wallet_cfg.get("gas_reserve_target_pol", 0.0) or 0.0)
     if gas_reserve_target_pol + 1e-9 < min_pol_gas_reserve:
         raise ValueError("wallet.gas_reserve_target_pol must be >= wallet.min_pol_gas_reserve")
+    gas_reserve_fail_floor_usd = float(wallet_cfg.get("gas_reserve_fail_floor_usd", 0.0) or 0.0)
+    gas_reserve_target_usd = float(wallet_cfg.get("gas_reserve_target_usd", 0.0) or 0.0)
+    gas_asset_price_usd_hint = float(wallet_cfg.get("gas_asset_price_usd_hint", 0.0) or 0.0)
+    if gas_reserve_target_usd + 1e-9 < gas_reserve_fail_floor_usd:
+        raise ValueError("wallet.gas_reserve_target_usd must be >= wallet.gas_reserve_fail_floor_usd")
+    if (gas_reserve_fail_floor_usd > 0.0 or gas_reserve_target_usd > 0.0) and gas_asset_price_usd_hint <= 0.0:
+        raise ValueError(
+            "wallet.gas_asset_price_usd_hint must be > 0 when wallet gas reserve USD thresholds are configured"
+        )
+    gas_normal_min_multiplier = float(wallet_cfg.get("web3_gas_normal_min_multiplier", 1.0) or 0.0)
+    gas_normal_max_multiplier = float(wallet_cfg.get("web3_gas_normal_max_multiplier", 1.0) or 0.0)
+    gas_spike_max_multiplier = float(wallet_cfg.get("web3_gas_spike_max_multiplier", 1.0) or 0.0)
+    if gas_normal_min_multiplier + 1e-9 < 1.0:
+        raise ValueError("wallet.web3_gas_normal_min_multiplier must be >= 1.0")
+    if gas_normal_max_multiplier + 1e-9 < gas_normal_min_multiplier:
+        raise ValueError(
+            "wallet.web3_gas_normal_max_multiplier must be >= wallet.web3_gas_normal_min_multiplier"
+        )
+    if gas_spike_max_multiplier + 1e-9 < gas_normal_max_multiplier:
+        raise ValueError(
+            "wallet.web3_gas_spike_max_multiplier must be >= wallet.web3_gas_normal_max_multiplier"
+        )
     nonce_authority = str(wallet_cfg.get("nonce_authority", "")).strip().lower()
     if not nonce_authority:
         raise ValueError("wallet.nonce_authority must be a non-empty string")
@@ -2131,6 +2191,16 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     expected_wallet_address = str(wallet_cfg.get("expected_wallet_address", "")).strip()
     if expected_wallet_address and (not expected_wallet_address.startswith("0x") or len(expected_wallet_address) != 42):
         raise ValueError("wallet.expected_wallet_address must be empty or a 0x-prefixed 20-byte address")
+    web3_primary_rpc_url = str(wallet_cfg.get("web3_primary_rpc_url", "") or "").strip()
+    web3_failover_rpc_url = str(wallet_cfg.get("web3_failover_rpc_url", "") or "").strip()
+    if web3_primary_rpc_url and not (
+        web3_primary_rpc_url.startswith("http://") or web3_primary_rpc_url.startswith("https://")
+    ):
+        raise ValueError("wallet.web3_primary_rpc_url must be empty or an http(s) URL")
+    if web3_failover_rpc_url and not (
+        web3_failover_rpc_url.startswith("http://") or web3_failover_rpc_url.startswith("https://")
+    ):
+        raise ValueError("wallet.web3_failover_rpc_url must be empty or an http(s) URL")
     auth_cfg = cfg.get("auth")
     if not isinstance(auth_cfg, dict):
         raise ValueError("auth must be a mapping")

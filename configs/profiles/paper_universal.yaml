@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "4d52b5a3b0ae460994065a240c55a9dc84d40c0102a8b0e600d24dbc9c6caacc"
+  paper_expected_config_fingerprint_sha256: "db262d6b5f66a0aad18f0cb92adbf480a1e00c566098665952b224b104e0f401"
   held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
   held_ws_missing_or_unusable_refresh_interval_sec: 45.0
   # Doctrine-aligned handoff ladder:

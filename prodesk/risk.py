@@ -384,6 +384,54 @@ class RiskEngine:
             "near_cap": bool(effective_cap > 0.0 and ratio >= near_cap_ratio),
         }
 
+    def wallet_guardian_order_law_snapshot(
+        self,
+        *,
+        intent: OrderIntent,
+        open_orders_all: Optional[List[object]] = None,
+        reference_mid_by_token: Optional[Dict[str, Optional[float]]] = None,
+        risk_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        context = risk_context if isinstance(risk_context, dict) else {}
+        effective_multiplier, dynamic_scaling_basis = self._resolve_dynamic_scaling(risk_context=context)
+        snapshot = self._global_exposure_snapshot(
+            intent=intent,
+            open_orders_all=list(open_orders_all or []),
+            reference_mid_by_token=(
+                dict(reference_mid_by_token) if isinstance(reference_mid_by_token, dict) else {intent.token_id: intent.price}
+            ),
+            effective_multiplier=float(effective_multiplier),
+            risk_context=context,
+        )
+        return {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "order_submission",
+            "dynamic_scaling": dynamic_scaling_basis,
+            "global_exposure_guard": snapshot,
+        }
+
+    def wallet_guardian_drawdown_snapshot(
+        self,
+        mid_by_token: Dict[str, Optional[float]],
+    ) -> Dict[str, Any]:
+        total_pnl, pnl_by_token = self.mark_to_market(mid_by_token)
+        max_total_loss = self.cfg.get("max_total_loss")
+        threshold = float(max_total_loss) if max_total_loss is not None else None
+        within_limit = bool(threshold is None or total_pnl > -threshold)
+        return {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "drawdown_pause",
+            "law_name": "daily_loss_hard_pause",
+            "legacy_reason": "max_total_loss",
+            "enabled": bool(threshold is not None),
+            "threshold_usd": threshold,
+            "total_pnl": float(total_pnl),
+            "within_limit": bool(within_limit),
+            "pnl_by_token": dict(pnl_by_token),
+        }
+
     def _prune(self, window_sec: float = 60.0) -> None:
         now = self._monotonic()
         while self.order_timestamps and now - self.order_timestamps[0] > window_sec:
@@ -559,6 +607,7 @@ class RiskEngine:
         lifecycle_context_mismatch = bool(context.get("lifecycle_context_mismatch", False))
         context_lifecycle_phase = str(lifecycle_phase_from_payload(context) or "").strip().lower() or "scan"
         context_submission_lane = str(context.get("submission_lane") or "").strip().lower() or "unknown"
+        wallet_guardian_primary_submit_laws = bool(context.get("wallet_guardian_primary_submit_laws", False))
         market_truth_required = bool(context.get(EDGE_MARKET_TRUTH_REQUIRED_FIELD, False))
         maker_phase_allowed = bool(
             context.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, context_lifecycle_phase == "maker_window")
@@ -586,6 +635,7 @@ class RiskEngine:
             "lifecycle_context_missing_reason": str(lifecycle_context_missing_reason),
             "lifecycle_context_mismatch": bool(lifecycle_context_mismatch),
             "require_lifecycle_context_for_decisions": bool(require_lifecycle_context_for_decisions),
+            "wallet_guardian_primary_submit_laws": bool(wallet_guardian_primary_submit_laws),
         }
         if open_order_cleanup_required:
             return RiskDecision(
@@ -911,27 +961,28 @@ class RiskEngine:
                 },
             )
 
-        global_snapshot = self._global_exposure_snapshot(
+        guardian_order_law_snapshot = self.wallet_guardian_order_law_snapshot(
             intent=intent,
             open_orders_all=list(open_orders_all or open_orders_for_token),
             reference_mid_by_token=(
                 dict(reference_mid_by_token) if isinstance(reference_mid_by_token, dict) else {intent.token_id: intent.price}
             ),
-            effective_multiplier=float(effective_multiplier),
             risk_context=context,
         )
+        global_snapshot = dict(guardian_order_law_snapshot.get("global_exposure_guard") or {})
         if bool(global_snapshot.get("enabled", False)) and not bool(global_snapshot.get("within_cap", True)):
-            return RiskDecision(
-                False,
-                "global_exposure_cap",
-                (
-                    "projected_global_notional="
-                    + f"{float(global_snapshot.get('projected_total_notional', 0.0)):.2f},"
-                    + "effective_global_cap="
-                    + f"{float(global_snapshot.get('effective_cap_usd', 0.0)):.2f}"
-                ),
-                basis={**basis_base, "global_exposure_guard": global_snapshot},
-            )
+            if not wallet_guardian_primary_submit_laws:
+                return RiskDecision(
+                    False,
+                    "global_exposure_cap",
+                    (
+                        "projected_global_notional="
+                        + f"{float(global_snapshot.get('projected_total_notional', 0.0)):.2f},"
+                        + "effective_global_cap="
+                        + f"{float(global_snapshot.get('effective_cap_usd', 0.0)):.2f}"
+                    ),
+                    basis={**basis_base, "global_exposure_guard": global_snapshot},
+                )
 
         return RiskDecision(True, "ok", basis={**basis_base, "global_exposure_guard": global_snapshot})
 
@@ -1002,9 +1053,10 @@ class RiskEngine:
         return total, pnl_by_token
 
     def evaluate_loss_limits(self, mid_by_token: Dict[str, Optional[float]]) -> RiskDecision:
-        total_pnl, pnl_by_token = self.mark_to_market(mid_by_token)
-        max_total_loss = self.cfg.get("max_total_loss")
-        if max_total_loss is not None and total_pnl <= -float(max_total_loss):
+        drawdown_snapshot = self.wallet_guardian_drawdown_snapshot(mid_by_token)
+        total_pnl = float(drawdown_snapshot.get("total_pnl", 0.0) or 0.0)
+        pnl_by_token = dict(drawdown_snapshot.get("pnl_by_token") or {})
+        if bool(drawdown_snapshot.get("enabled", False)) and not bool(drawdown_snapshot.get("within_limit", True)):
             return RiskDecision(False, "max_total_loss", f"total_pnl={total_pnl:.4f}")
 
         max_loss_per_token = self.cfg.get("max_loss_per_token")

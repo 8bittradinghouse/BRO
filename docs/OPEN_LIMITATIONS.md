@@ -23,8 +23,8 @@
   - a later `schoolhouse clearing / deauth` lane is expected, but it is
     architecture/authority hygiene debt rather than the active runtime blocker
 
-## Packet 3 Pre-Open Owner Map (2026-05-21)
-- locked planning surfaces for this pre-open map now include:
+## Packet 3 Owner Map And Current Build State (2026-05-21)
+- locked planning surfaces for this owner map now include:
   - `docs/BRO_WALLET_GUARDIAN_BLUEPRINT_WEB3PY_2026-05-21.md`
   - `docs/WALLET_GUARDIAN_READONLY_MAPPING_2026-05-21.md`
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
@@ -53,7 +53,8 @@
   - `canonical_live_pending_wallet_tx_available=false`
   - that is paper-authoritative only and must not be misread as live readiness
 - deprecated top-level wallet / allowance / nonce / pending surfaces are
-  compatibility-only and must not outrank `canonical_live_wallet_truth`
+  retired from the live authority status contract; historical artifacts may
+  still contain them, but they must not outrank `canonical_live_wallet_truth`
 
 ## Current Packet Boundary Addendum (2026-05-21)
 - Current Packet 2 maker/taker selector families are not presently proven broken by reject volume alone.
@@ -73,9 +74,11 @@
   - high reject volume alone is not authorization for selector retuning
   - no generic maker/taker gate mutation is authorized without blueprint mismatch proof or a proved near-miss opportunity band
 - Current immediate move:
-  - truth-routing sync and stale Packet 2 residue extinction
-  - Packet 3 wallet doctrine lock / surgical cut-plan sync
-  - no Packet 3 runtime/code slice opened yet
+  - Packet 3 wallet guardian implementation body is now open in current code
+  - owner/mechanics/residue slices through compatibility retirement are in
+    place
+  - strict live wallet truth remains fail-closed until an approved live hookup
+    path is configured and proven
   - blueprint-alignment audit remains downstream
   - not emergency blocker surgery
 

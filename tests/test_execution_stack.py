@@ -1004,6 +1004,41 @@ class ExecutionStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
+    def test_config_rejects_wallet_usd_gas_target_below_fail_floor(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["gas_reserve_fail_floor_usd"] = 20.0
+        cfg["wallet"]["gas_reserve_target_usd"] = 15.0
+        cfg["wallet"]["gas_asset_price_usd_hint"] = 1.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_usd_gas_threshold_without_price_hint(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["gas_reserve_fail_floor_usd"] = 15.0
+        cfg["wallet"]["gas_reserve_target_usd"] = 20.0
+        cfg["wallet"]["gas_asset_price_usd_hint"] = 0.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_web3_gas_multiplier_ordering_violation(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["web3_gas_normal_min_multiplier"] = 1.3
+        cfg["wallet"]["web3_gas_normal_max_multiplier"] = 1.2
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_web3_spike_gas_multiplier_below_normal_max(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["web3_gas_normal_min_multiplier"] = 1.2
+        cfg["wallet"]["web3_gas_normal_max_multiplier"] = 1.5
+        cfg["wallet"]["web3_gas_spike_max_multiplier"] = 1.4
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
     def test_config_rejects_wallet_provider_ambiguity_abs_tolerance_non_positive(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
@@ -1015,6 +1050,27 @@ class ExecutionStackTests(unittest.TestCase):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["targets"]["token_ids"] = ["tok1"]
         cfg["wallet"]["provider_ambiguity_rel_tolerance"] = -PROVIDER_AMBIGUITY_REL_TOLERANCE_DEFAULT
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_web3_failover_latency_non_positive(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["web3_failover_max_latency_ms"] = 0.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_web3_failover_consecutive_high_latency_non_positive(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["web3_failover_consecutive_high_latency"] = 0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_wallet_web3_primary_rpc_url_without_http_scheme(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["wallet"]["web3_primary_rpc_url"] = "quicknode.example"
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -1202,6 +1258,69 @@ class ExecutionStackTests(unittest.TestCase):
                 )
             self.assertIsNone(placed)
             self.assertTrue(str(reason or "").startswith("risk_reject"))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_wallet_guardian_primary_exposure_law_vetoes_before_risk_mirror(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            risk_cfg["max_book_age_sec"] = 100.0
+            risk_cfg["global_exposure_guard"]["enabled"] = True
+            risk_cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {
+                "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
+                "t2": Position(token_id="t2"),
+            }
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(gateway, strategy, risk, events, telemetry, runtime_cfg, strategy_cfg)
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.49,
+                best_bid_size=100,
+                best_ask_price=0.51,
+                best_ask_size=100,
+            )
+            gateway.on_book(top)
+            resting = LiveOrder(
+                order_id="o-1",
+                token_id="t2",
+                side="BUY",
+                price=0.5,
+                size=30.0,
+                remaining_size=30.0,
+                status="OPEN",
+            )
+            placed, reason = manager._place_order(
+                OrderIntent(token_id="t1", side="BUY", price=0.5, size=20.0, tif="GTC", post_only=True, reason="test"),
+                top,
+                open_orders_for_token=[],
+                open_orders_total=1,
+                open_orders_all=[resting],
+                reference_mid_by_token={"t1": 0.5, "t2": 0.5},
+                competitiveness_context=self._maker_submit_viability_context(),
+            )
+            self.assertIsNone(placed)
+            self.assertEqual(reason, "wallet_reject")
+            order_law_state = (
+                manager.wallet.status().get("wallet_guardian_law_state", {}).get("order_submission", {})
+            )
+            self.assertTrue(bool(order_law_state.get("enabled")))
+            self.assertFalse(bool((order_law_state.get("global_exposure_guard") or {}).get("within_cap", True)))
         finally:
             if events is not None:
                 events.close()

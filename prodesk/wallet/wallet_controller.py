@@ -11,16 +11,16 @@ from ..gateway import BaseGateway, GatewayError, LiveClobGateway
 from ..models import FillEvent, OrderIntent
 from .wallet_config import load_wallet_config
 from .wallet_health import build_wallet_health_contract
-from .wallet_nonce import nonce_snapshot_from_provider
 from .wallet_provider import GatewayLiveWalletTruthSource
 from .wallet_reservations import WalletReservations
-from .wallet_tx_state import pending_tx_snapshot_from_provider
+from .wallet_tx_state import nonce_snapshot_from_provider, pending_tx_snapshot_from_provider
 from .wallet_types import (
     AUTHORITY_CLASS_BOOTSTRAP,
     AUTHORITY_CLASS_DERIVED,
     AUTHORITY_CLASS_LIVE,
     AUTHORITY_CLASS_LOCAL,
     AllowanceSnapshot,
+    LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
     LiveWalletTruthSource,
     NonceSnapshot,
     OpenOrderStateSnapshot,
@@ -33,8 +33,12 @@ from .wallet_types import (
     TRUTH_DOMAIN_OPEN_ORDER_STATE,
     TRUTH_DOMAIN_PAPER_WALLET,
     WalletAuthorization,
+    WalletRedemptionExecutor,
+    WalletRedemptionRequest,
+    WalletRedemptionResult,
     WalletSnapshot,
 )
+from .web3_adapter import WalletWeb3Adapter
 
 
 WALLET_TRUTH_EXCEPTIONS = (
@@ -69,6 +73,9 @@ class WalletDoctrineBase(ABC):
         self._wallet_cfg = load_wallet_config(self._cfg)
         self._min_pol_gas_reserve = float(self._wallet_cfg.min_pol_gas_reserve)
         self._gas_reserve_target_pol = float(self._wallet_cfg.gas_reserve_target_pol)
+        self._gas_reserve_fail_floor_usd = float(self._wallet_cfg.gas_reserve_fail_floor_usd)
+        self._gas_reserve_target_usd = float(self._wallet_cfg.gas_reserve_target_usd)
+        self._gas_asset_price_usd_hint = float(self._wallet_cfg.gas_asset_price_usd_hint)
         self._protected_reserve_usdc = float(self._wallet_cfg.protected_reserve_usdc)
         self._max_notional_per_order_usdc = float(self._wallet_cfg.max_notional_per_order_usdc)
         self._require_allowance = bool(self._wallet_cfg.require_allowance)
@@ -88,6 +95,7 @@ class WalletDoctrineBase(ABC):
 
         self._nonce_authority_registered = ""
         self._pending_tx_provider: Optional[Callable[[], Mapping[str, Any]]] = None
+        self._redemption_executor: Optional[WalletRedemptionExecutor] = None
         self._event_logger: Optional[Callable[[str, Dict[str, Any]], None]] = None
         self._halted = False
         self._halt_reason = ""
@@ -157,6 +165,7 @@ class WalletDoctrineBase(ABC):
             detail="local_pending_tx_lifecycle_uninitialized",
             truth_domain=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             authority_class=AUTHORITY_CLASS_LOCAL,
+            lifecycle_plane=LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
         )
         self._open_order_state_snapshot = OpenOrderStateSnapshot(
             open_count=0,
@@ -187,6 +196,38 @@ class WalletDoctrineBase(ABC):
         self._event_emit_failure_count = 0
         self._event_emit_last_error = ""
         self._event_emit_last_error_ts_utc = ""
+        self._web3_provider_health: Dict[str, Any] = {}
+        self._last_guardian_order_law_state: Dict[str, Any] = {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "order_submission",
+            "enabled": False,
+            "detail": "wallet_guardian_order_law_state_uninitialized",
+            "global_exposure_guard": {"enabled": False, "within_cap": True},
+        }
+        self._last_guardian_drawdown_state: Dict[str, Any] = {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "drawdown_pause",
+            "law_name": "daily_loss_hard_pause",
+            "legacy_reason": "max_total_loss",
+            "enabled": False,
+            "detail": "wallet_guardian_drawdown_state_uninitialized",
+            "within_limit": True,
+        }
+        self._last_redemption_state: Dict[str, Any] = {
+            "successful": False,
+            "action": "idle",
+            "reason": "wallet_redemption_not_run",
+            "detail": "wallet_redemption_not_run",
+            "tx_hash": "",
+            "receipt_confirmed": False,
+            "payout_usdc": 0.0,
+            "settlement_applied": False,
+            "market_id": "",
+            "token_id": "",
+            "ts_utc": now,
+        }
 
     def register_nonce_authority(self, authority_tag: str) -> None:
         self._nonce_authority_registered = str(authority_tag or "").strip().lower()
@@ -195,6 +236,9 @@ class WalletDoctrineBase(ABC):
     def register_pending_tx_provider(self, provider: Callable[[], Mapping[str, Any]]) -> None:
         self._pending_tx_provider = provider
         self._attempt_startup_authoritative_refresh()
+
+    def register_redemption_executor(self, executor: WalletRedemptionExecutor) -> None:
+        self._redemption_executor = executor
 
     def register_event_logger(self, logger: Callable[[str, Dict[str, Any]], None]) -> None:
         self._event_logger = logger
@@ -338,7 +382,7 @@ class WalletDoctrineBase(ABC):
             {
                 "ts_utc": utc_iso(),
                 "local_nonce_snapshot": dataclasses.asdict(self._local_nonce_lifecycle_snapshot),
-                "local_pending_tx_snapshot": dataclasses.asdict(self._local_pending_tx_lifecycle_snapshot),
+                "exchange_intent_snapshot": self._local_exchange_intent_snapshot(),
             },
         )
         self._emit(
@@ -388,9 +432,10 @@ class WalletDoctrineBase(ABC):
             "nonce_snapshot": dataclasses.asdict(self._nonce_snapshot),
             "pending_wallet_tx_snapshot": dataclasses.asdict(self._pending_tx_snapshot),
         }
+        local_exchange_intent_snapshot = self._local_exchange_intent_snapshot()
         local_tx_lifecycle_state = {
             "nonce_snapshot": dataclasses.asdict(self._local_nonce_lifecycle_snapshot),
-            "pending_tx_snapshot": dataclasses.asdict(self._local_pending_tx_lifecycle_snapshot),
+            "exchange_intent_snapshot": local_exchange_intent_snapshot,
         }
         open_order_state = dataclasses.asdict(self._open_order_state_snapshot)
         integrity_tripwire_reconcile_state = {
@@ -422,6 +467,10 @@ class WalletDoctrineBase(ABC):
             "deployable_usdc": self._deployable_usdc(),
             "min_pol_gas_reserve": self._min_pol_gas_reserve,
             "gas_reserve_target_pol": self._gas_reserve_target_pol,
+            "gas_reserve_fail_floor_usd": self._gas_reserve_fail_floor_usd,
+            "gas_reserve_target_usd": self._gas_reserve_target_usd,
+            "gas_asset_price_usd_hint": self._gas_asset_price_usd_hint,
+            "gas_reserve_policy": self._gas_reserve_policy_state(),
             "wallet_chain": self._wallet_chain,
             "gas_asset_symbol": self._gas_asset_symbol,
             "stable_asset_symbol": self._stable_asset_symbol,
@@ -433,27 +482,27 @@ class WalletDoctrineBase(ABC):
             "nonce_authority_registered": self._nonce_authority_registered,
             "last_reconcile_ts_mono": self._last_reconcile_ts_mono,
             "last_reconcile_result": dataclasses.asdict(self._last_reconcile_result),
+            "web3_provider_health": dict(self._web3_provider_health),
+            "wallet_guardian_law_state": {
+                "order_submission": dict(self._last_guardian_order_law_state),
+                "drawdown_pause": dict(self._last_guardian_drawdown_state),
+            },
+            "wallet_redemption_state": dict(self._last_redemption_state),
             "integrity_tripwire_reconcile_state": integrity_tripwire_reconcile_state,
             "canonical_live_wallet_truth": canonical_live_wallet_truth,
             "local_tx_lifecycle_state": local_tx_lifecycle_state,
             "open_order_state": open_order_state,
-            # Deprecated compatibility surfaces (non-authoritative, boundary-only).
-            "wallet_snapshot": dataclasses.asdict(self._wallet_snapshot),
-            "allowance_snapshot": dataclasses.asdict(self._allowance_snapshot),
-            "nonce_snapshot": dataclasses.asdict(self._nonce_snapshot),
-            "pending_tx_snapshot": dataclasses.asdict(self._pending_tx_snapshot),
-            "deprecated_surface_classification": {
-                "wallet_snapshot": "deprecated",
-                "allowance_snapshot": "deprecated",
-                "nonce_snapshot": "deprecated",
-                "pending_tx_snapshot": "deprecated",
-            },
         }
 
     def status_contract(self, *, enforce_startup_barrier: bool = True) -> Dict[str, Any]:
         return build_wallet_health_contract(status=self.status(), enforce_startup_barrier=enforce_startup_barrier)
 
-    def authorize_intent(self, intent: OrderIntent) -> WalletAuthorization:
+    def authorize_intent(
+        self,
+        intent: OrderIntent,
+        *,
+        guardian_context: Optional[Mapping[str, Any]] = None,
+    ) -> WalletAuthorization:
         if self.mode == "live" and not self._order_capable_live:
             health_contract = self.status_contract()
             self._emit(
@@ -591,14 +640,46 @@ class WalletDoctrineBase(ABC):
                 halt=bool(reconcile.halt),
             )
 
-        if self._wallet_snapshot.pol_balance < self._min_pol_gas_reserve:
-            self._halt("insufficient_pol_gas_reserve")
+        guardian_order_law_state = self._guardian_order_law_state(guardian_context=guardian_context)
+        self._last_guardian_order_law_state = dict(guardian_order_law_state)
+        global_exposure_guard = dict(guardian_order_law_state.get("global_exposure_guard") or {})
+        if bool(global_exposure_guard.get("enabled", False)) and not bool(global_exposure_guard.get("within_cap", True)):
+            detail = (
+                "projected_global_notional="
+                + f"{float(global_exposure_guard.get('projected_total_notional', 0.0) or 0.0):.2f},"
+                + "effective_global_cap="
+                + f"{float(global_exposure_guard.get('effective_cap_usd', 0.0) or 0.0):.2f}"
+            )
+            self._emit(
+                "wallet_guardian_order_law_veto",
+                {
+                    "ts_utc": utc_iso(),
+                    "reason": "global_exposure_cap",
+                    "detail": detail,
+                    "law_domain": "order_submission",
+                    "primary_owner": "wallet_guardian",
+                    "mirror_owner": "risk_engine_transition",
+                    "global_exposure_guard": dict(global_exposure_guard),
+                },
+            )
+            return WalletAuthorization(
+                allowed=False,
+                action="reject",
+                approved_size=0.0,
+                reason="global_exposure_cap",
+                detail=detail,
+                halt=False,
+            )
+
+        gas_reserve_policy = self._gas_reserve_policy_state()
+        if not bool(gas_reserve_policy.get("conservative_fail_floor_ok", False)):
+            self._halt("wallet_gas_reserve_insufficient")
             return WalletAuthorization(
                 allowed=False,
                 action="halt",
                 approved_size=0.0,
                 reason="wallet_gas_reserve_insufficient",
-                detail=f"balance={self._wallet_snapshot.pol_balance:.6f}<min={self._min_pol_gas_reserve:.6f}",
+                detail=str(gas_reserve_policy.get("detail") or "gas_reserve_fail_floor_breached"),
                 halt=True,
             )
 
@@ -640,30 +721,44 @@ class WalletDoctrineBase(ABC):
                 },
             )
             if self.mode == "live" and not self._approval_spender_targets:
+                self._emit(
+                    "wallet_approval_alert",
+                    {
+                        "ts_utc": utc_iso(),
+                        "result": "halt",
+                        "reason": "wallet_approval_target_unknown",
+                        "approval_spender_targets": [],
+                    },
+                )
+                self._halt("wallet_approval_target_unknown")
                 return WalletAuthorization(
                     allowed=False,
-                    action="reject",
+                    action="halt",
                     approved_size=0.0,
                     reason="wallet_approval_target_unknown",
                     detail="approval_spender_targets_missing",
+                    halt=True,
                 )
             approved_notional = min(approved_notional, max(0.0, float(self._allowance_snapshot.allowance_usdc)))
             if approved_notional <= self._reconcile_tolerance_usdc:
                 self._emit(
-                    "wallet_approval_submitted",
+                    "wallet_approval_alert",
                     {
                         "ts_utc": utc_iso(),
-                        "result": "skipped_not_modeled",
+                        "result": "halt" if self.mode == "live" else "reject",
                         "reason": "wallet_allowance_insufficient",
                         "allowance_usdc": float(self._allowance_snapshot.allowance_usdc),
                     },
                 )
+                if self.mode == "live":
+                    self._halt("wallet_allowance_insufficient")
                 return WalletAuthorization(
                     allowed=False,
-                    action="reject",
+                    action="halt" if self.mode == "live" else "reject",
                     approved_size=0.0,
                     reason="wallet_allowance_insufficient",
                     detail=f"allowance={self._allowance_snapshot.allowance_usdc:.6f}",
+                    halt=bool(self.mode == "live"),
                 )
 
         approved_size = approved_notional / price if price > 0 else 0.0
@@ -781,6 +876,214 @@ class WalletDoctrineBase(ABC):
         )
         self.reconcile(pre_execution=False)
 
+    @staticmethod
+    def _normalize_redemption_result(
+        result: WalletRedemptionResult | Mapping[str, Any],
+        *,
+        request: WalletRedemptionRequest,
+    ) -> WalletRedemptionResult:
+        if isinstance(result, WalletRedemptionResult):
+            return result
+        raw = dict(result or {})
+        receipt_contract = WalletWeb3Adapter.normalize_redemption_receipt(raw)
+        successful = bool(raw.get("successful", receipt_contract.get("receipt_confirmed", False)))
+        action = str(raw.get("action") or ("redeem_positions" if successful else "reject")).strip() or "reject"
+        reason = str(raw.get("reason") or ("wallet_redemption_ok" if successful else "wallet_redemption_failed")).strip()
+        detail = str(raw.get("detail") or receipt_contract.get("detail") or "").strip()
+        payout_usdc = float(raw.get("payout_usdc", receipt_contract.get("payout_usdc", request.expected_payout_usd)) or 0.0)
+        tx_hash = str(raw.get("tx_hash") or receipt_contract.get("tx_hash") or "").strip()
+        receipt_confirmed = bool(raw.get("receipt_confirmed", receipt_contract.get("receipt_confirmed", False)))
+        ts_utc = str(raw.get("ts_utc") or request.ts_utc or utc_iso())
+        settlement_applied = bool(raw.get("settlement_applied", False))
+        metadata = raw.get("metadata")
+        return WalletRedemptionResult(
+            successful=bool(successful),
+            action=action,
+            reason=reason,
+            detail=detail,
+            tx_hash=tx_hash,
+            receipt_confirmed=bool(receipt_confirmed),
+            payout_usdc=max(0.0, float(payout_usdc)),
+            settlement_applied=bool(settlement_applied),
+            ts_utc=ts_utc,
+            metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+        )
+
+    def _record_redemption_state(
+        self,
+        *,
+        request: WalletRedemptionRequest,
+        result: WalletRedemptionResult,
+    ) -> None:
+        self._last_redemption_state = {
+            "successful": bool(result.successful),
+            "action": str(result.action),
+            "reason": str(result.reason),
+            "detail": str(result.detail),
+            "tx_hash": str(result.tx_hash),
+            "receipt_confirmed": bool(result.receipt_confirmed),
+            "payout_usdc": float(result.payout_usdc),
+            "settlement_applied": bool(result.settlement_applied),
+            "market_id": str(request.market_id),
+            "token_id": str(request.token_id),
+            "ts_utc": str(result.ts_utc or request.ts_utc),
+            "payout_symbol": str(request.payout_symbol),
+            "metadata": dict(result.metadata),
+        }
+
+    def redeem_winnings(
+        self,
+        *,
+        market_id: str,
+        token_id: str,
+        settlement_side: str,
+        size_shares: float,
+        settlement_price: float = 1.0,
+        payout_symbol: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
+        ts_utc: Optional[str] = None,
+    ) -> WalletRedemptionResult:
+        market = str(market_id or "").strip()
+        token = str(token_id or "").strip()
+        side = str(settlement_side or "").strip().upper()
+        size = max(0.0, float(size_shares))
+        price = max(0.0, min(1.0, float(settlement_price)))
+        expected_payout_usd = float(size * price)
+        request = WalletRedemptionRequest(
+            market_id=market,
+            token_id=token,
+            settlement_side=side,
+            size_shares=float(size),
+            settlement_price=float(price),
+            expected_payout_usd=float(expected_payout_usd),
+            payout_symbol=str(payout_symbol or self._stable_asset_symbol),
+            ts_utc=str(ts_utc or utc_iso()),
+            metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+        )
+        self._emit(
+            "wallet_redemption_requested",
+            {
+                "ts_utc": request.ts_utc,
+                "market_id": str(request.market_id),
+                "token_id": str(request.token_id),
+                "settlement_side": str(request.settlement_side),
+                "settlement_size_shares": float(request.size_shares),
+                "settlement_price": float(request.settlement_price),
+                "expected_payout_usd": float(request.expected_payout_usd),
+                "payout_symbol": str(request.payout_symbol),
+                "metadata": dict(request.metadata),
+            },
+        )
+        if not market or not token or not side or size <= 0.0 or price <= 0.0:
+            result = WalletRedemptionResult(
+                successful=False,
+                action="reject",
+                reason="wallet_redemption_invalid_request",
+                detail="market_id/token_id/settlement_side/size_shares/settlement_price required",
+                ts_utc=request.ts_utc,
+            )
+            self._record_redemption_state(request=request, result=result)
+            self._emit(
+                "wallet_redemption_failed",
+                {
+                    "ts_utc": request.ts_utc,
+                    "market_id": str(request.market_id),
+                    "token_id": str(request.token_id),
+                    "reason": str(result.reason),
+                    "detail": str(result.detail),
+                },
+            )
+            return result
+
+        if self.mode == "live" and self._redemption_executor is None:
+            result = WalletRedemptionResult(
+                successful=False,
+                action="reject",
+                reason="wallet_redemption_executor_unavailable",
+                detail="live_redemption_executor_not_registered",
+                ts_utc=request.ts_utc,
+            )
+            self._record_redemption_state(request=request, result=result)
+            self._emit(
+                "wallet_redemption_failed",
+                {
+                    "ts_utc": request.ts_utc,
+                    "market_id": str(request.market_id),
+                    "token_id": str(request.token_id),
+                    "reason": str(result.reason),
+                    "detail": str(result.detail),
+                },
+            )
+            return result
+
+        if self._redemption_executor is None:
+            result = WalletRedemptionResult(
+                successful=True,
+                action="redeem_positions",
+                reason="paper_redemption_emulated",
+                detail="paper_wallet_redemption_emulated",
+                tx_hash="",
+                receipt_confirmed=False,
+                payout_usdc=float(expected_payout_usd),
+                settlement_applied=False,
+                ts_utc=request.ts_utc,
+            )
+        else:
+            try:
+                raw_result = self._redemption_executor(request)
+            except Exception as exc:
+                raw_result = {
+                    "successful": False,
+                    "action": "reject",
+                    "reason": "wallet_redemption_executor_error",
+                    "detail": f"{exc.__class__.__name__}:{exc}",
+                    "ts_utc": request.ts_utc,
+                }
+            result = self._normalize_redemption_result(raw_result, request=request)
+
+        if not result.successful:
+            self._record_redemption_state(request=request, result=result)
+            self._emit(
+                "wallet_redemption_failed",
+                {
+                    "ts_utc": str(result.ts_utc or request.ts_utc),
+                    "market_id": str(request.market_id),
+                    "token_id": str(request.token_id),
+                    "reason": str(result.reason),
+                    "detail": str(result.detail),
+                    "tx_hash": str(result.tx_hash),
+                },
+            )
+            return result
+
+        settlement_payload = self.settle_binary_position(
+            token_id=request.token_id,
+            settlement_side=request.settlement_side,
+            size_shares=request.size_shares,
+            settlement_price=request.settlement_price,
+            ts_utc=request.ts_utc,
+        )
+        finalized = dataclasses.replace(result, settlement_applied=True, payout_usdc=max(0.0, float(result.payout_usdc or expected_payout_usd)))
+        self._record_redemption_state(request=request, result=finalized)
+        self._emit(
+            "wallet_redemption_completed",
+            {
+                "ts_utc": str(finalized.ts_utc or request.ts_utc),
+                "market_id": str(request.market_id),
+                "token_id": str(request.token_id),
+                "reason": str(finalized.reason),
+                "detail": str(finalized.detail),
+                "tx_hash": str(finalized.tx_hash),
+                "receipt_confirmed": bool(finalized.receipt_confirmed),
+                "payout_usdc": float(finalized.payout_usdc),
+                "payout_symbol": str(request.payout_symbol),
+                "settlement_applied": bool(finalized.settlement_applied),
+                "wallet_settlement": dict(settlement_payload),
+                "metadata": dict(finalized.metadata),
+            },
+        )
+        return finalized
+
     def settle_binary_position(
         self,
         *,
@@ -818,6 +1121,60 @@ class WalletDoctrineBase(ABC):
         free = max(0.0, float(self._wallet_snapshot.usdc_balance) - float(self._protected_reserve_usdc))
         return free - self._locked_usdc_total()
 
+    def _gas_reserve_policy_state(self) -> Dict[str, Any]:
+        raw_balance_pol = max(0.0, float(self._wallet_snapshot.pol_balance or 0.0))
+        raw_fail_floor_pol = max(0.0, float(self._min_pol_gas_reserve))
+        raw_target_pol = max(raw_fail_floor_pol, float(self._gas_reserve_target_pol))
+        usd_fail_floor = max(0.0, float(self._gas_reserve_fail_floor_usd))
+        usd_target = max(usd_fail_floor, float(self._gas_reserve_target_usd))
+        price_hint_usd = max(0.0, float(self._gas_asset_price_usd_hint))
+        usd_policy_enabled = bool(usd_fail_floor > 0.0 or usd_target > 0.0)
+        price_hint_available = bool(price_hint_usd > 0.0)
+        usd_balance_estimate = raw_balance_pol * price_hint_usd if price_hint_available else None
+        raw_fail_floor_ok = bool(raw_balance_pol + 1e-9 >= raw_fail_floor_pol)
+        raw_target_ok = bool(raw_balance_pol + 1e-9 >= raw_target_pol)
+        usd_fail_floor_ok = (
+            None
+            if not usd_policy_enabled
+            else bool(usd_balance_estimate is not None and usd_balance_estimate + 1e-9 >= usd_fail_floor)
+        )
+        usd_target_ok = (
+            None
+            if not usd_policy_enabled
+            else bool(usd_balance_estimate is not None and usd_balance_estimate + 1e-9 >= usd_target)
+        )
+        conservative_fail_floor_ok = bool(
+            raw_fail_floor_ok and ((not usd_policy_enabled) or bool(usd_fail_floor_ok))
+        )
+        conservative_target_ok = bool(
+            raw_target_ok and ((not usd_policy_enabled) or bool(usd_target_ok))
+        )
+        detail = "gas_reserve_policy_ok"
+        if usd_policy_enabled and not price_hint_available:
+            detail = "gas_asset_price_usd_hint_missing"
+        elif not conservative_fail_floor_ok:
+            detail = "gas_reserve_fail_floor_breached"
+        elif not conservative_target_ok:
+            detail = "gas_reserve_target_not_met"
+        return {
+            "raw_balance_pol": float(raw_balance_pol),
+            "raw_fail_floor_pol": float(raw_fail_floor_pol),
+            "raw_target_pol": float(raw_target_pol),
+            "usd_balance_estimate": usd_balance_estimate,
+            "usd_fail_floor": float(usd_fail_floor),
+            "usd_target": float(usd_target),
+            "price_hint_usd": float(price_hint_usd),
+            "price_hint_available": bool(price_hint_available),
+            "usd_policy_enabled": bool(usd_policy_enabled),
+            "raw_fail_floor_ok": bool(raw_fail_floor_ok),
+            "raw_target_ok": bool(raw_target_ok),
+            "usd_fail_floor_ok": usd_fail_floor_ok,
+            "usd_target_ok": usd_target_ok,
+            "conservative_fail_floor_ok": bool(conservative_fail_floor_ok),
+            "conservative_target_ok": bool(conservative_target_ok),
+            "detail": detail,
+        }
+
     @staticmethod
     def _is_canonical_live_surface(*, truth_domain: str, authority_class: str) -> bool:
         return (
@@ -844,6 +1201,122 @@ class WalletDoctrineBase(ABC):
                 authority_class=self._pending_tx_snapshot.authority_class,
             )
             and bool(self._pending_tx_snapshot.healthy)
+        )
+
+    def _local_exchange_intent_snapshot(self) -> Dict[str, Any]:
+        snapshot = dataclasses.asdict(self._local_pending_tx_lifecycle_snapshot)
+        exchange_order_ids = tuple(
+            str(x)
+            for x in (
+                self._local_pending_tx_lifecycle_snapshot.exchange_order_ids
+                or self._local_pending_tx_lifecycle_snapshot.order_ids
+            )
+            if str(x).strip()
+        )
+        exchange_client_order_ids = tuple(
+            str(x)
+            for x in self._local_pending_tx_lifecycle_snapshot.exchange_client_order_ids
+            if str(x).strip()
+        )
+        snapshot["exchange_order_ids"] = list(exchange_order_ids)
+        snapshot["exchange_client_order_ids"] = list(exchange_client_order_ids)
+        snapshot["tx_ids"] = list(self._local_pending_tx_lifecycle_snapshot.tx_ids)
+        snapshot["order_ids"] = list(exchange_order_ids)
+        snapshot["lifecycle_plane"] = (
+            str(snapshot.get("lifecycle_plane") or "").strip()
+            or LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX
+        )
+        snapshot["canonical_pending_wallet_tx"] = False
+        return snapshot
+
+    def _guardian_order_law_state(self, *, guardian_context: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        context = guardian_context if isinstance(guardian_context, Mapping) else {}
+        snapshot = context.get("order_law_snapshot")
+        raw = snapshot if isinstance(snapshot, Mapping) else {}
+        global_exposure_guard = raw.get("global_exposure_guard")
+        global_guard_raw = global_exposure_guard if isinstance(global_exposure_guard, Mapping) else {}
+        enabled = bool(global_guard_raw.get("enabled", False))
+        return {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "order_submission",
+            "enabled": bool(enabled),
+            "detail": str(raw.get("detail") or ""),
+            "dynamic_scaling": dict(raw.get("dynamic_scaling") or {}) if isinstance(raw.get("dynamic_scaling"), Mapping) else {},
+            "global_exposure_guard": {
+                "enabled": bool(enabled),
+                "base_cap_usd": float(global_guard_raw.get("base_cap_usd", 0.0) or 0.0),
+                "effective_cap_usd": float(global_guard_raw.get("effective_cap_usd", 0.0) or 0.0),
+                "taker_reserved_notional_usd": float(global_guard_raw.get("taker_reserved_notional_usd", 0.0) or 0.0),
+                "taker_reserve_applied": bool(global_guard_raw.get("taker_reserve_applied", False)),
+                "near_cap_ratio": float(global_guard_raw.get("near_cap_ratio", 0.0) or 0.0),
+                "projected_total_notional": float(global_guard_raw.get("projected_total_notional", 0.0) or 0.0),
+                "projected_to_cap_ratio": float(global_guard_raw.get("projected_to_cap_ratio", 0.0) or 0.0),
+                "position_notional": float(global_guard_raw.get("position_notional", 0.0) or 0.0),
+                "resting_open_order_notional": float(global_guard_raw.get("resting_open_order_notional", 0.0) or 0.0),
+                "incoming_intent_notional": float(global_guard_raw.get("incoming_intent_notional", 0.0) or 0.0),
+                "unknown_position_tokens": list(global_guard_raw.get("unknown_position_tokens", []) or []),
+                "within_cap": bool(global_guard_raw.get("within_cap", True)),
+                "near_cap": bool(global_guard_raw.get("near_cap", False)),
+            },
+        }
+
+    def evaluate_drawdown_guard(
+        self,
+        *,
+        guardian_context: Optional[Mapping[str, Any]] = None,
+    ) -> ReconciliationResult:
+        context = guardian_context if isinstance(guardian_context, Mapping) else {}
+        snapshot = context.get("drawdown_snapshot")
+        raw = snapshot if isinstance(snapshot, Mapping) else {}
+        enabled = bool(raw.get("enabled", False))
+        threshold = raw.get("threshold_usd")
+        threshold_usd = float(threshold) if isinstance(threshold, (int, float)) else None
+        total_pnl = float(raw.get("total_pnl", 0.0) or 0.0)
+        within_limit = bool(raw.get("within_limit", True))
+        self._last_guardian_drawdown_state = {
+            "primary_owner": "wallet_guardian",
+            "mirror_owner": "risk_engine_transition",
+            "law_domain": "drawdown_pause",
+            "law_name": str(raw.get("law_name") or "daily_loss_hard_pause"),
+            "legacy_reason": str(raw.get("legacy_reason") or "max_total_loss"),
+            "enabled": bool(enabled),
+            "threshold_usd": threshold_usd,
+            "total_pnl": float(total_pnl),
+            "within_limit": bool(within_limit),
+            "detail": f"total_pnl={total_pnl:.4f}",
+        }
+        self._emit(
+            "wallet_guardian_drawdown_guard",
+            {
+                "ts_utc": utc_iso(),
+                "enabled": bool(enabled),
+                "threshold_usd": threshold_usd,
+                "total_pnl": float(total_pnl),
+                "within_limit": bool(within_limit),
+                "primary_owner": "wallet_guardian",
+                "mirror_owner": "risk_engine_transition",
+                "legacy_reason": str(raw.get("legacy_reason") or "max_total_loss"),
+            },
+        )
+        if enabled and not within_limit:
+            detail = f"total_pnl={total_pnl:.4f}"
+            self._halt("max_total_loss")
+            return ReconciliationResult(
+                healthy=False,
+                action="halt",
+                reason="max_total_loss",
+                detail=detail,
+                halt=True,
+                ts_utc=utc_iso(),
+            )
+        return ReconciliationResult(
+            healthy=True,
+            action="ok",
+            reason="ok",
+            detail=f"total_pnl={total_pnl:.4f}",
+            halt=False,
+            ts_utc=utc_iso(),
         )
 
     def _nonce_snapshot_from_provider(self) -> Optional[NonceSnapshot]:
@@ -881,6 +1354,7 @@ class WalletDoctrineBase(ABC):
                 detail=f"pending_tx_provider_error:{exc}",
                 truth_domain=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
                 authority_class=AUTHORITY_CLASS_LOCAL,
+                lifecycle_plane=LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
             )
         return pending_tx_snapshot_from_provider(payload, source_default=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE)
 
@@ -985,16 +1459,21 @@ class PaperWalletDoctrine(WalletDoctrineBase):
             self._local_pending_tx_lifecycle_snapshot = PendingTxSnapshot(
                 pending_count=len(self._reservations.order_locks),
                 order_ids=tuple(sorted(self._reservations.order_locks.keys())),
+                exchange_order_ids=tuple(sorted(self._reservations.order_locks.keys())),
                 ts_utc=now,
                 source=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
                 healthy=True,
-                detail="derived_from_order_locks",
+                detail="exchange_intent_derived_from_order_locks",
                 truth_domain=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
                 authority_class=AUTHORITY_CLASS_LOCAL,
+                lifecycle_plane=LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
             )
         self._open_order_state_snapshot = OpenOrderStateSnapshot(
             open_count=int(self._local_pending_tx_lifecycle_snapshot.pending_count),
-            order_ids=tuple(self._local_pending_tx_lifecycle_snapshot.order_ids),
+            order_ids=tuple(
+                self._local_pending_tx_lifecycle_snapshot.exchange_order_ids
+                or self._local_pending_tx_lifecycle_snapshot.order_ids
+            ),
             ts_utc=now,
             source=TRUTH_DOMAIN_OPEN_ORDER_STATE,
             healthy=True,
@@ -1061,12 +1540,19 @@ class LiveWalletDoctrine(WalletDoctrineBase):
             self._allowance_snapshot = self._truth_source.allowance_snapshot()
             self._nonce_snapshot = self._truth_source.nonce_snapshot()
             self._pending_tx_snapshot = self._truth_source.pending_tx_snapshot()
+            if hasattr(self._truth_source, "web3_provider_health_status"):
+                self._web3_provider_health = dict(self._truth_source.web3_provider_health_status())  # type: ignore[attr-defined]
+            else:
+                self._web3_provider_health = {}
             if hasattr(self._truth_source, "open_order_state_snapshot"):
                 self._open_order_state_snapshot = self._truth_source.open_order_state_snapshot()  # type: ignore[assignment]
             else:
                 self._open_order_state_snapshot = OpenOrderStateSnapshot(
                     open_count=int(self._pending_tx_snapshot.pending_count),
-                    order_ids=tuple(self._pending_tx_snapshot.order_ids),
+                    order_ids=tuple(
+                        self._pending_tx_snapshot.exchange_order_ids
+                        or self._pending_tx_snapshot.order_ids
+                    ),
                     ts_utc=now,
                     source=TRUTH_DOMAIN_OPEN_ORDER_STATE,
                     healthy=False,
@@ -1085,6 +1571,7 @@ class LiveWalletDoctrine(WalletDoctrineBase):
                     detail="local_pending_tx_lifecycle_unavailable",
                     truth_domain=TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
                     authority_class=AUTHORITY_CLASS_LOCAL,
+                    lifecycle_plane=LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
                 )
             )
             self._local_nonce_lifecycle_snapshot = (
@@ -1101,6 +1588,7 @@ class LiveWalletDoctrine(WalletDoctrineBase):
                 )
             )
         except WALLET_TRUTH_EXCEPTIONS as exc:
+            self._web3_provider_health = {}
             return ReconciliationResult(
                 healthy=False,
                 action="halt",
@@ -1143,9 +1631,10 @@ class LiveWalletDoctrine(WalletDoctrineBase):
         if self._require_allowance and not self._allowance_snapshot.healthy:
             return ReconciliationResult(
                 healthy=False,
-                action="reject",
+                action="halt" if self.mode == "live" else "reject",
                 reason="wallet_allowance_snapshot_unhealthy",
                 detail=self._allowance_snapshot.detail,
+                halt=bool(self.mode == "live"),
                 ts_utc=now,
             )
 

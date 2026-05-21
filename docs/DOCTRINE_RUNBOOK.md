@@ -568,7 +568,7 @@ Required wallet events:
 - `wallet_reservation_released`
 - `wallet_reservation_settled`
 - `wallet_approval_check`
-- `wallet_approval_submitted`
+- `wallet_approval_alert`
 - `wallet_nonce_state`
 - `wallet_reconcile_result`
 - `wallet_integrity_warning`

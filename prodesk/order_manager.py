@@ -1938,6 +1938,22 @@ class OrderManager:
             _canonical_lifecycle_phase_from_payload(risk_context_payload)
             or "scan",
         )
+        wallet_guardian_order_law_snapshot = self.risk.wallet_guardian_order_law_snapshot(
+            intent=intent_sized,
+            open_orders_all=list(open_orders_all or open_orders_for_token),
+            reference_mid_by_token=(
+                dict(reference_mid_by_token) if isinstance(reference_mid_by_token, dict) else {intent_sized.token_id: intent_sized.price}
+            ),
+            risk_context=risk_context_payload,
+        )
+        global_exposure_guard_snapshot = (
+            dict(wallet_guardian_order_law_snapshot.get("global_exposure_guard") or {})
+            if isinstance(wallet_guardian_order_law_snapshot, dict)
+            else {}
+        )
+        wallet_guardian_primary_submit_laws_enabled = bool(global_exposure_guard_snapshot.get("enabled", False))
+        if wallet_guardian_primary_submit_laws_enabled:
+            risk_context_payload["wallet_guardian_primary_submit_laws"] = True
         decision = self.risk.validate_order(
             intent_sized,
             top,
@@ -2093,7 +2109,10 @@ class OrderManager:
                     },
                 )
 
-        wallet_auth = self.wallet.authorize_intent(intent_sized)
+        wallet_auth = self.wallet.authorize_intent(
+            intent_sized,
+            guardian_context={"order_law_snapshot": wallet_guardian_order_law_snapshot},
+        )
         if not wallet_auth.allowed:
             self.telemetry.incr("wallet_rejects")
             if wallet_auth.halt or self.wallet.is_halted():
@@ -2155,11 +2174,17 @@ class OrderManager:
                 "lock_id": wallet_auth.lock_id,
             },
         )
+        post_wallet_revalidation_required = bool(wallet_guardian_primary_submit_laws_enabled)
         if float(intent_authorized.size) + 1e-9 < float(intent_sized.size):
+            post_wallet_revalidation_required = True
+        if post_wallet_revalidation_required:
             post_wallet_context = dict(risk_context_payload)
+            post_wallet_context.pop("wallet_guardian_primary_submit_laws", None)
             post_wallet_context["post_wallet_authorization_resize"] = True
             post_wallet_context["requested_size_before_wallet"] = float(intent_sized.size)
             post_wallet_context["approved_size_after_wallet"] = float(intent_authorized.size)
+            if float(intent_authorized.size) + 1e-9 >= float(intent_sized.size):
+                post_wallet_context["post_wallet_authorization_resize"] = False
             post_wallet_decision = self.risk.validate_order(
                 intent_authorized,
                 top,

@@ -1,8 +1,20 @@
-from .wallet_controller import (
+from .guardian import (
     LiveWalletDoctrine,
+    LiveWalletGuardian,
     PaperWalletDoctrine,
+    PaperWalletGuardian,
     WalletDoctrine,
     WalletDoctrineBase,
+    WalletGuardianBase,
+    create_wallet_guardian,
+    create_wallet_guardian_controller,
+)
+from .web3_adapter import (
+    WalletWeb3Adapter,
+    WalletWeb3ProviderHealth,
+    create_wallet_web3_adapter,
+)
+from .wallet_controller import (
     create_wallet_controller,
     create_wallet_doctrine,
 )
@@ -25,6 +37,9 @@ from .wallet_types import (
     TRUTH_DOMAIN_OPEN_ORDER_STATE,
     TRUTH_DOMAIN_PAPER_WALLET,
     WalletAuthorization,
+    WalletRedemptionExecutor,
+    WalletRedemptionRequest,
+    WalletRedemptionResult,
     WalletSnapshot,
 )
 
@@ -36,10 +51,12 @@ __all__ = [
     "AUTHORITY_CLASS_LOCAL",
     "AllowanceSnapshot",
     "LiveWalletDoctrine",
+    "LiveWalletGuardian",
     "LiveWalletTruthSource",
     "NonceSnapshot",
     "OpenOrderStateSnapshot",
     "PaperWalletDoctrine",
+    "PaperWalletGuardian",
     "PendingTxSnapshot",
     "ReconciliationResult",
     "TRUTH_DOMAIN_BOOTSTRAP_NON_AUTHORITATIVE",
@@ -49,9 +66,18 @@ __all__ = [
     "TRUTH_DOMAIN_OPEN_ORDER_STATE",
     "TRUTH_DOMAIN_PAPER_WALLET",
     "WalletAuthorization",
+    "WalletRedemptionExecutor",
+    "WalletRedemptionRequest",
+    "WalletRedemptionResult",
     "WalletDoctrine",
     "WalletDoctrineBase",
+    "WalletGuardianBase",
+    "WalletWeb3Adapter",
+    "WalletWeb3ProviderHealth",
     "WalletSnapshot",
     "create_wallet_controller",
     "create_wallet_doctrine",
+    "create_wallet_guardian",
+    "create_wallet_guardian_controller",
+    "create_wallet_web3_adapter",
 ]

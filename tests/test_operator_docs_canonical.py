@@ -759,9 +759,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("contradiction compression pass", sink_text)
         self.assertIn("negative-proof pass", sink_text)
         self.assertIn("Current packet:", sink_text)
-        self.assertIn("Packet 2 `Maker-Live / Economic Trust Qualification`", sink_text)
+        self.assertIn("Packet 3 `Grip-Live / Wallet Live Trust Qualification`", sink_text)
         self.assertIn("Packet 2 is already active", program_text)
-        self.assertIn("Packet 3 through Packet 5 remain sequenced and inactive behind Packet 2", sink_text)
+        self.assertIn("Packet 2 remains closeout-routed and no longer owns the active implementation body.", sink_text)
+        self.assertIn("Packet 3 is now the active implementation body.", sink_text)
         self.assertNotIn("Packet 2 is next to open", program_text)
         self.assertNotIn("Next packet:\n- Packet 1 `Taker Live / Economic and Firing Trust Qualification`", sink_text)
 

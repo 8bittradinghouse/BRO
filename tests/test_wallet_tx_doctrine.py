@@ -2,7 +2,7 @@ import dataclasses
 import unittest
 from unittest import mock
 
-from prodesk.gateway import BaseGateway, GatewayError, PostOnlyRejectError
+from prodesk.gateway import BaseGateway, GatewayError, LiveClobGateway, PostOnlyRejectError
 from prodesk.models import FillEvent, LiveOrder, OrderIntent
 from prodesk.tx_manager import TransactionManager
 from prodesk.wallet.wallet_reservations import WalletReservations
@@ -20,6 +20,13 @@ from prodesk.wallet_doctrine import (
     WalletSnapshot,
     create_wallet_doctrine,
 )
+from prodesk.wallet.guardian import (
+    LiveWalletGuardian,
+    PaperWalletGuardian,
+    WalletGuardianBase,
+    create_wallet_guardian,
+)
+from prodesk.wallet.wallet_types import LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX
 
 
 class _DummyGateway(BaseGateway):
@@ -183,6 +190,81 @@ class _UnavailablePendingTxTruthSource(_StaticTruthSource):
         )
 
 
+class _HealthyLiveTruthSource(_StaticTruthSource):
+    def __init__(
+        self,
+        *,
+        chain_id: int = 137,
+        address: str = "0x1111111111111111111111111111111111111111",
+        allowance_usdc: float = 1000.0,
+        pol_balance: float = 10.0,
+        current_nonce: int = 9,
+        pending_count: int = 0,
+    ) -> None:
+        super().__init__(chain_id=chain_id, address=address)
+        self._allowance_usdc = float(allowance_usdc)
+        self._pol_balance = float(pol_balance)
+        self._current_nonce = int(current_nonce)
+        self._pending_count = int(pending_count)
+
+    def wallet_snapshot(self) -> WalletSnapshot:
+        snap = super().wallet_snapshot()
+        return WalletSnapshot(
+            address=snap.address,
+            chain_id=snap.chain_id,
+            pol_balance=self._pol_balance,
+            usdc_balance=snap.usdc_balance,
+            locked_usdc=snap.locked_usdc,
+            protected_reserve_usdc=snap.protected_reserve_usdc,
+            deployable_usdc=snap.deployable_usdc,
+            ts_utc=snap.ts_utc,
+            source="canonical_live_wallet_truth",
+            healthy=True,
+            detail="",
+        )
+
+    def allowance_snapshot(self) -> AllowanceSnapshot:
+        return AllowanceSnapshot(
+            allowance_usdc=self._allowance_usdc,
+            ts_utc="2026-03-14T00:00:00.000Z",
+            source="canonical_live_wallet_truth",
+            healthy=True,
+            detail="",
+        )
+
+    def nonce_snapshot(self) -> NonceSnapshot:
+        return NonceSnapshot(
+            current_nonce=self._current_nonce,
+            pending_nonces=tuple(range(self._current_nonce, self._current_nonce + self._pending_count)),
+            ts_utc="2026-03-14T00:00:00.000Z",
+            source="canonical_live_wallet_truth",
+            healthy=True,
+            detail="",
+        )
+
+    def pending_tx_snapshot(self) -> PendingTxSnapshot:
+        return PendingTxSnapshot(
+            pending_count=self._pending_count,
+            order_ids=tuple(),
+            tx_ids=tuple(f"0x{idx:064x}" for idx in range(self._pending_count)),
+            ts_utc="2026-03-14T00:00:00.000Z",
+            source="canonical_live_wallet_truth",
+            healthy=True,
+            detail="",
+        )
+
+
+class _UnhealthyAllowanceTruthSource(_HealthyLiveTruthSource):
+    def allowance_snapshot(self) -> AllowanceSnapshot:
+        return AllowanceSnapshot(
+            allowance_usdc=0.0,
+            ts_utc="2026-03-14T00:00:00.000Z",
+            source="canonical_live_wallet_truth",
+            healthy=False,
+            detail="allowance_ambiguous",
+        )
+
+
 class _FailingTruthSource(_StaticTruthSource):
     def wallet_snapshot(self) -> WalletSnapshot:
         raise RuntimeError("simulated canonical wallet source failure")
@@ -203,17 +285,49 @@ class _SpoofedLocalNonceTruthSource(_StaticTruthSource):
 
 
 class WalletDoctrineBoundaryTests(unittest.TestCase):
+    def test_wallet_guardian_owner_surface_matches_existing_paper_doctrine(self) -> None:
+        wallet = create_wallet_guardian(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        self.assertIsInstance(wallet, WalletGuardianBase)
+        self.assertIsInstance(wallet, PaperWalletGuardian)
+
+    def test_wallet_guardian_owner_surface_matches_existing_live_doctrine(self) -> None:
+        wallet = create_wallet_guardian(
+            {
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+            },
+            mode="live",
+            gateway=object.__new__(LiveClobGateway),
+        )
+        self.assertIsInstance(wallet, WalletGuardianBase)
+        self.assertIsInstance(wallet, LiveWalletGuardian)
+
     @staticmethod
     def _register_local_lifecycle_provider(wallet: PaperWalletDoctrine | LiveWalletDoctrine, *, nonce: int = 7) -> None:
         wallet.register_pending_tx_provider(
             lambda: {
                 "pending_count": 0,
                 "order_ids": [],
+                "exchange_order_ids": [],
+                "exchange_client_order_ids": [],
+                "tx_ids": [],
                 "current_nonce": nonce,
                 "pending_nonces": [nonce] if nonce >= 0 else [],
                 "healthy": True,
                 "source": "local_tx_lifecycle_state",
-                "detail": "",
+                "detail": "exchange_intent_only:provider_ok",
+                "lifecycle_plane": LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
             }
         )
 
@@ -379,7 +493,7 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
                 "require_live_nonce_value": True,
                 "require_live_pending_tx_snapshot": True,
             },
-            truth_source=_StaticTruthSource(chain_id=137),
+            truth_source=_HealthyLiveTruthSource(chain_id=137, allowance_usdc=1000.0, current_nonce=9),
             mode="live",
             auth_cfg={"live_order_submission_enabled": True},
         )
@@ -387,8 +501,11 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self._register_local_lifecycle_provider(wallet)
         auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
         self.assertFalse(auth.allowed)
-        self.assertEqual(auth.reason, "wallet_startup_authority_not_ready")
-        self.assertIn("bootstrap_non_authoritative", wallet.status_contract().get("wallet_health_reasons", []))
+        self.assertEqual(auth.reason, "wallet_approval_target_unknown")
+        self.assertEqual(auth.action, "halt")
+        self.assertTrue(auth.halt)
+        self.assertTrue(wallet.is_halted())
+        self.assertEqual(wallet.halt_reason(), "wallet_approval_target_unknown")
 
     def test_live_wallet_rejects_fallback_pol_snapshot_when_required(self) -> None:
         wallet = LiveWalletDoctrine(
@@ -433,6 +550,58 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertEqual(auth.reason, "wallet_startup_authority_not_ready")
         self.assertEqual(wallet.status().get("last_reconcile_result", {}).get("reason"), "wallet_nonce_value_missing")
 
+    def test_live_wallet_allowance_insufficiency_halts_fail_closed(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_HealthyLiveTruthSource(chain_id=137, allowance_usdc=0.0, current_nonce=9),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "wallet_allowance_insufficient")
+        self.assertEqual(auth.action, "halt")
+        self.assertTrue(auth.halt)
+        self.assertTrue(wallet.is_halted())
+        self.assertEqual(wallet.halt_reason(), "wallet_allowance_insufficient")
+
+    def test_live_wallet_unhealthy_allowance_snapshot_halts_during_refresh(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_UnhealthyAllowanceTruthSource(chain_id=137),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "wallet_startup_authority_not_ready")
+        last_reconcile = wallet.status().get("last_reconcile_result", {})
+        self.assertEqual(last_reconcile.get("reason"), "wallet_allowance_snapshot_unhealthy")
+        self.assertEqual(last_reconcile.get("action"), "halt")
+        self.assertTrue(bool(last_reconcile.get("halt")))
+
     def test_wallet_status_contract_exposes_required_fields(self) -> None:
         wallet = PaperWalletDoctrine(
             {
@@ -450,6 +619,8 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             "gas_balance",
             "gas_reserve_min",
             "gas_ok",
+            "gas_target_ok",
+            "gas_reserve_policy",
             "stable_balance_total",
             "protected_reserve",
             "open_reserved",
@@ -461,6 +632,143 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             "wallet_health_reasons",
         }
         self.assertTrue(expected_keys.issubset(set(contract.keys())))
+
+    def test_wallet_gas_reserve_fail_floor_usd_halts_fail_closed(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_pol_balance": 10.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+                "gas_reserve_fail_floor_usd": 20.0,
+                "gas_reserve_target_usd": 20.0,
+                "gas_asset_price_usd_hint": 1.0,
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "wallet_startup_authority_not_ready")
+        contract = wallet.status_contract(enforce_startup_barrier=False)
+        self.assertFalse(bool(contract.get("gas_ok")))
+        self.assertEqual(
+            (contract.get("gas_reserve_policy") or {}).get("detail"),
+            "gas_reserve_fail_floor_breached",
+        )
+        self.assertIn("gas_reserve_insufficient", list(contract.get("wallet_health_reasons") or []))
+
+    def test_paper_wallet_redemption_emits_first_class_lifecycle(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        emitted: list[str] = []
+        wallet.register_event_logger(lambda event_type, payload: emitted.append(str(event_type)))
+
+        result = wallet.redeem_winnings(
+            market_id="mkt-1",
+            token_id="tok",
+            settlement_side="SELL",
+            size_shares=5.0,
+            settlement_price=1.0,
+        )
+
+        self.assertTrue(result.successful)
+        self.assertTrue(result.settlement_applied)
+        self.assertEqual(result.reason, "paper_redemption_emulated")
+        self.assertIn("wallet_redemption_requested", emitted)
+        self.assertIn("wallet_redemption_completed", emitted)
+        self.assertIn("wallet_position_settled", emitted)
+        redemption_state = wallet.status().get("wallet_redemption_state", {})
+        self.assertTrue(bool(redemption_state.get("successful")))
+        self.assertTrue(bool(redemption_state.get("settlement_applied")))
+        self.assertEqual(str(redemption_state.get("market_id") or ""), "mkt-1")
+
+    def test_live_wallet_redemption_requires_executor_until_hookup_exists(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_HealthyLiveTruthSource(chain_id=137, allowance_usdc=1000.0, current_nonce=9),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+
+        result = wallet.redeem_winnings(
+            market_id="mkt-1",
+            token_id="tok",
+            settlement_side="SELL",
+            size_shares=5.0,
+            settlement_price=1.0,
+        )
+
+        self.assertFalse(result.successful)
+        self.assertEqual(result.reason, "wallet_redemption_executor_unavailable")
+        self.assertFalse(bool(wallet.status().get("wallet_redemption_state", {}).get("successful")))
+
+    def test_live_wallet_redemption_executor_confirms_receipt_and_applies_settlement(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_HealthyLiveTruthSource(chain_id=137, allowance_usdc=1000.0, current_nonce=9),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        wallet.register_redemption_executor(
+            lambda request: {
+                "successful": True,
+                "action": "redeem_positions",
+                "reason": "wallet_redemption_ok",
+                "transactionHash": "0xabc",
+                "status": 1,
+                "payout_amount_usdc": request.expected_payout_usd,
+            }
+        )
+
+        result = wallet.redeem_winnings(
+            market_id="mkt-1",
+            token_id="tok",
+            settlement_side="SELL",
+            size_shares=5.0,
+            settlement_price=1.0,
+        )
+
+        self.assertTrue(result.successful)
+        self.assertTrue(result.receipt_confirmed)
+        self.assertTrue(result.settlement_applied)
+        self.assertEqual(result.tx_hash, "0xabc")
+        redemption_state = wallet.status().get("wallet_redemption_state", {})
+        self.assertTrue(bool(redemption_state.get("successful")))
+        self.assertEqual(str(redemption_state.get("tx_hash") or ""), "0xabc")
 
     def test_wallet_emits_reservation_lifecycle_events(self) -> None:
         wallet = PaperWalletDoctrine(
@@ -531,6 +839,69 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertTrue(auth_after.allowed)
         self.assertIn(auth_after.action, {"approve", "reduce"})
 
+    def test_wallet_guardian_primary_order_law_vetoes_global_exposure(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(
+            OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0),
+            guardian_context={
+                "order_law_snapshot": {
+                    "global_exposure_guard": {
+                        "enabled": True,
+                        "within_cap": False,
+                        "projected_total_notional": 45.0,
+                        "effective_cap_usd": 30.0,
+                    }
+                }
+            },
+        )
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "global_exposure_cap")
+        law_state = wallet.status().get("wallet_guardian_law_state", {}).get("order_submission", {})
+        self.assertTrue(bool(law_state.get("enabled")))
+        self.assertFalse(bool((law_state.get("global_exposure_guard") or {}).get("within_cap", True)))
+
+    def test_wallet_guardian_drawdown_hard_pause_halts_wallet(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        result = wallet.evaluate_drawdown_guard(
+            guardian_context={
+                "drawdown_snapshot": {
+                    "enabled": True,
+                    "threshold_usd": 25.0,
+                    "total_pnl": -30.0,
+                    "within_limit": False,
+                    "law_name": "daily_loss_hard_pause",
+                    "legacy_reason": "max_total_loss",
+                }
+            }
+        )
+        self.assertFalse(result.healthy)
+        self.assertEqual(result.reason, "max_total_loss")
+        self.assertTrue(wallet.is_halted())
+        self.assertEqual(wallet.halt_reason(), "max_total_loss")
+        drawdown_state = wallet.status().get("wallet_guardian_law_state", {}).get("drawdown_pause", {})
+        self.assertTrue(bool(drawdown_state.get("enabled")))
+        self.assertFalse(bool(drawdown_state.get("within_limit", True)))
+
     def test_live_wallet_strict_pending_tx_gate_rejects_local_lifecycle_substitute(self) -> None:
         wallet = LiveWalletDoctrine(
             {
@@ -555,12 +926,17 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             status.get("canonical_live_wallet_truth", {})
             .get("pending_wallet_tx_snapshot", {})
         )
-        local_pending = (
+        exchange_intent = (
             status.get("local_tx_lifecycle_state", {})
-            .get("pending_tx_snapshot", {})
+            .get("exchange_intent_snapshot", {})
         )
         self.assertFalse(bool(canonical_pending.get("healthy")))
-        self.assertTrue(bool(local_pending.get("healthy")))
+        self.assertTrue(bool(exchange_intent.get("healthy")))
+        self.assertFalse(bool(exchange_intent.get("canonical_pending_wallet_tx")))
+        self.assertEqual(
+            str(exchange_intent.get("lifecycle_plane") or ""),
+            LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
+        )
         self.assertEqual(
             status.get("last_reconcile_result", {}).get("reason"),
             "wallet_pending_tx_snapshot_unhealthy",
@@ -799,7 +1175,7 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         status = wallet.status()
         local_pending = (
             status.get("local_tx_lifecycle_state", {})
-            .get("pending_tx_snapshot", {})
+            .get("exchange_intent_snapshot", {})
         )
         self.assertFalse(bool(local_pending.get("healthy")))
         self.assertIn("pending_tx_provider_error", str(local_pending.get("detail") or ""))
@@ -913,6 +1289,11 @@ class TransactionManagerBoundaryTests(unittest.TestCase):
         snap = tx.pending_tx_snapshot()
         self.assertEqual(snap["pending_count"], 1)
         self.assertIn(order.order_id, snap["order_ids"])
+        self.assertIn(order.order_id, snap["exchange_order_ids"])
+        self.assertIn("cid-1", snap["exchange_client_order_ids"])
+        self.assertEqual(snap["tx_ids"], [])
+        self.assertEqual(snap["lifecycle_plane"], LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX)
+        self.assertIn("exchange_intent_only", str(snap.get("detail") or ""))
         self.assertEqual(snap["current_nonce"], 1)
         self.assertIn(1, snap["pending_nonces"])
 

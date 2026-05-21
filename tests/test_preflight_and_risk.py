@@ -7,7 +7,7 @@ from pathlib import Path
 
 from prodesk.common import utc_iso
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
-from prodesk.models import BookTop, FillEvent, LiveOrder, Position
+from prodesk.models import BookTop, FillEvent, LiveOrder, OrderIntent, Position
 from prodesk.preflight import run_preflight_checks
 from prodesk.risk import RiskEngine
 
@@ -142,6 +142,18 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertLess(pnl_by_token["t1"], 0)
         decision = risk.evaluate_loss_limits({"t1": 0.2})
         self.assertFalse(decision.allowed)
+
+    def test_wallet_guardian_drawdown_snapshot_reports_threshold_breach(self):
+        cfg = self._risk_cfg()
+        cfg["max_total_loss"] = 5.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        risk.on_fill(FillEvent(trade_id="x1", token_id="t1", side="BUY", price=0.9, size=10, ts_utc="2026-01-01T00:00:00Z"))
+        snapshot = risk.wallet_guardian_drawdown_snapshot({"t1": 0.2})
+        self.assertTrue(bool(snapshot.get("enabled")))
+        self.assertFalse(bool(snapshot.get("within_limit", True)))
+        self.assertEqual(str(snapshot.get("law_name") or ""), "daily_loss_hard_pause")
+        self.assertEqual(str(snapshot.get("legacy_reason") or ""), "max_total_loss")
 
     def test_mark_to_market_keeps_realized_pnl_for_flat_position_without_mid(self):
         cfg = self._risk_cfg()
@@ -947,6 +959,37 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertIsInstance(decision.basis, dict)
         guard = decision.basis.get("global_exposure_guard") if isinstance(decision.basis, dict) else {}
         self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
+
+    def test_wallet_guardian_order_law_snapshot_reports_global_exposure(self):
+        cfg = self._risk_cfg()
+        cfg["max_book_age_sec"] = 5.0
+        cfg["global_exposure_guard"]["enabled"] = True
+        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+        positions = {
+            "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
+            "t2": Position(token_id="t2"),
+        }
+        risk = RiskEngine(cfg, positions)
+        resting = LiveOrder(
+            order_id="o-1",
+            token_id="t2",
+            side="BUY",
+            price=0.5,
+            size=30.0,
+            remaining_size=30.0,
+            status="OPEN",
+        )
+        snapshot = risk.wallet_guardian_order_law_snapshot(
+            intent=OrderIntent(token_id="t1", side="BUY", price=0.5, size=20.0),
+            open_orders_all=[resting],
+            reference_mid_by_token={"t1": 0.5, "t2": 0.5},
+            risk_context={"submission_lane": "maker", "edge_abs": 0.2, "sec_to_expiry": 90.0},
+        )
+        guard = snapshot.get("global_exposure_guard") or {}
+        self.assertTrue(bool(guard.get("enabled")))
+        self.assertFalse(bool(guard.get("within_cap", True)))
+        self.assertEqual(str(snapshot.get("primary_owner") or ""), "wallet_guardian")
+        self.assertEqual(str(snapshot.get("mirror_owner") or ""), "risk_engine_transition")
 
     def test_global_exposure_taker_reserve_applies_to_all_taker_submissions(self):
         cfg = self._risk_cfg()

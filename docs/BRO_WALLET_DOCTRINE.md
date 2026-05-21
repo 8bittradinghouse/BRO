@@ -335,16 +335,17 @@ normalize chain reads
 
 No doctrine here. Just data access.
 
-D. wallet_state.py
+D. guardian.py / wallet_controller.py
 
-Build canonical wallet state.
+Build and enforce canonical wallet state.
 
 Responsibilities:
 
 combine provider reads
 normalize assets
 compute capital buckets
-expose one canonical wallet snapshot
+expose one canonical wallet health/truth contract
+enforce fail-closed guardian law
 
 This is the “source of truth” layer.
 
@@ -422,7 +423,7 @@ wallet_reservation_created
 wallet_reservation_released
 wallet_reservation_settled
 wallet_approval_check
-wallet_approval_submitted
+wallet_approval_alert
 wallet_nonce_state
 wallet_reconcile_result
 wallet_integrity_warning

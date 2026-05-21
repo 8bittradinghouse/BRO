@@ -46,7 +46,7 @@
 - Latest timing-spine closeout proof code fingerprint: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed workspace runtime code fingerprint exact-match to timing closeout proof: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed branch: `consultant/full-snapshot-public-20260402T055838Z`
-- Current `HEAD` commit: `e24fc34`
+- Latest clean Packet 3 opening checkpoint: `3e27630`
 - Current direct local artifact-availability note:
   - latest timing closeout / lane-closeout / smoke / contrast artifacts remain locally readable
   - the referenced broad clean-anchor `7bbde42c-003a-4f57-b59a-7ce138224075` report/session path is not currently present on disk in this workspace
@@ -54,9 +54,9 @@
 - Current packet state: peak-hours paper confirmation is materially achieved on
   current proof; Packet 1 now closes `bounded-live-test ready` on watched
   proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the bounded `pilot_live`
-  lane has moved beyond emergency execution-lane surgery and is now in Packet 2
-  closeout-routing / selector-family truth-sync with Packet 3 wallet owner
-  mapping authorized as read-only pre-open work; this file stays broad
+  lane has moved beyond emergency execution-lane surgery and is now in an
+  active Packet 3 wallet-guardian implementation body after Packet 2
+  closeout-routing / selector-family truth-sync; this file stays broad
   whole-repo truth only while packet-local pickup still lives in the packet
   queue, board sink, and packet owner boards; verify current tree cleanliness
   with `git status` instead of reading older continuity wording as
@@ -67,16 +67,19 @@
 ## Current Addendum (2026-05-21)
 - Current pushed branch remains:
   - `consultant/full-snapshot-public-20260402T055838Z`
-- Latest committed checkpoint is now:
-  - `e24fc34`
-  - `docs: refresh current truth and pickup anchors`
-- Current tree state is:
-  - dirty / in-flight transition packet
-  - current modified body includes:
-    - maker depth-band support (`1.45-1.5`)
-    - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
-    - truth-routing sync and Packet 3 wallet doctrine lock / surgical cut plan
-  - verify live cleanliness with `git status`
+- Latest clean Packet 3 opening checkpoint is:
+  - `3e27630`
+  - `Lock Packet 3 wallet plan and retire stale lane semantics`
+- Current Packet 3 implementation body includes:
+  - maker depth-band support (`1.45-1.5`)
+  - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
+  - wallet guardian owner surface
+  - `web3.py` wallet mechanics adapter
+  - exchange-intent vs on-chain pending truth separation
+  - canonical nonce / pending provider path hardening
+  - guardian-owned exposure / drawdown law migration
+  - approval / gas reserve / redemption lifecycle hardening
+  - wallet compatibility residue retirement
 - Strongest current broad lane-health anchor is now:
   - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
   - `runtime_classification=VALID_ACTIVE`
@@ -96,12 +99,10 @@
   - maker stayed selective with `0 submits`
   - this specimen is shoulder-band structural truth, not a maker-lane failure anchor
 - Current immediate move is:
-  - truth-routing sync on the broad truth / pickup / board surfaces
-  - stale Packet 2 residue extinction on active packet language
-  - Packet 3 wallet doctrine lock / surgical cut-plan sync
-  - no Packet 3 runtime/code slice opened yet
-  - blueprint tuning alignment remains downstream once the routing layer is
-    clean again
+  - keep Packet 3 wallet guardian proof and routing honest
+  - reclose the current Packet 3 body to a clean commit boundary
+  - preserve strict live-wallet fail-closed posture until approved hookup proof
+  - bounded live qualification remains downstream after Packet 3 closes cleanly
 - Current operator rule now enforced in doctrine/docs is:
   1. ask whether the lane is alive
   2. ask whether it is producing valid action and some success

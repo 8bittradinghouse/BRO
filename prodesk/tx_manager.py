@@ -6,7 +6,11 @@ from typing import Any, Dict, List, Optional
 from .common import utc_iso
 from .gateway import BaseGateway, GatewayError, PostOnlyRejectError
 from .models import BookTop, FillEvent, LiveOrder, OrderIntent
-from .wallet.wallet_types import AUTHORITY_CLASS_LOCAL, TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE
+from .wallet.wallet_types import (
+    AUTHORITY_CLASS_LOCAL,
+    LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
+    TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
+)
 from .wallet_doctrine import WalletAuthorization
 
 
@@ -272,22 +276,28 @@ class TransactionManager:
         current_nonce = int(self._next_nonce) if self._next_nonce > 0 else None
         healthy = len(critical_failure_records) == 0
         detail = (
-            "tx_lifecycle_ok"
+            "exchange_intent_only:tx_lifecycle_ok"
             if healthy
-            else "tx_lifecycle_critical_failures:"
+            else "exchange_intent_only:tx_lifecycle_critical_failures:"
             + f"count={len(critical_failure_records)}:"
             + f"classes={','.join(failure_classes) or 'unknown'}"
         )
+        exchange_order_ids = [str(record.order_id) for record in pending if record.order_id]
+        exchange_client_order_ids = [record.client_order_id for record in pending if str(record.client_order_id or "").strip()]
         return {
             "pending_count": len(pending),
-            "order_ids": [str(record.order_id) for record in pending if record.order_id],
-            "client_order_ids": [record.client_order_id for record in pending],
+            "order_ids": list(exchange_order_ids),
+            "exchange_order_ids": list(exchange_order_ids),
+            "client_order_ids": list(exchange_client_order_ids),
+            "exchange_client_order_ids": list(exchange_client_order_ids),
+            "tx_ids": [],
             "pending_nonces": pending_nonces,
             "current_nonce": current_nonce,
             "healthy": bool(healthy),
             "source": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "truth_domain": TRUTH_DOMAIN_LOCAL_TX_LIFECYCLE,
             "authority_class": AUTHORITY_CLASS_LOCAL,
+            "lifecycle_plane": LIFECYCLE_PLANE_EXCHANGE_INTENT_LOCAL_TX,
             "detail": str(detail),
             "failure_count": int(len(failure_records)),
             "critical_failure_count": int(len(critical_failure_records)),

@@ -8286,6 +8286,12 @@ class ExecutionRunner:
                     for token_id, token_pnl in pnl_by_token.items():
                         self.telemetry.set_gauge(f"token_pnl.{token_id}", token_pnl)
 
+                    wallet_drawdown_snapshot = self.risk.wallet_guardian_drawdown_snapshot(mids)
+                    wallet_drawdown_check = self.wallet.evaluate_drawdown_guard(
+                        guardian_context={"drawdown_snapshot": wallet_drawdown_snapshot}
+                    )
+                    if not wallet_drawdown_check.healthy:
+                        self.risk.set_kill_switch(f"{wallet_drawdown_check.reason}:{wallet_drawdown_check.detail}")
                     loss_check = self.risk.evaluate_loss_limits(mids)
                     if not loss_check.allowed:
                         self.risk.set_kill_switch(f"{loss_check.reason}:{loss_check.detail}")
@@ -8497,6 +8503,12 @@ class ExecutionRunner:
                         for token_id, token_pnl in pnl_by_token.items():
                             self.telemetry.set_gauge(f"token_pnl.{token_id}", token_pnl)
 
+                        wallet_drawdown_snapshot = self.risk.wallet_guardian_drawdown_snapshot(mids)
+                        wallet_drawdown_check = self.wallet.evaluate_drawdown_guard(
+                            guardian_context={"drawdown_snapshot": wallet_drawdown_snapshot}
+                        )
+                        if not wallet_drawdown_check.healthy:
+                            self.risk.set_kill_switch(f"{wallet_drawdown_check.reason}:{wallet_drawdown_check.detail}")
                         loss_check = self.risk.evaluate_loss_limits(mids)
                         if not loss_check.allowed:
                             self.risk.set_kill_switch(f"{loss_check.reason}:{loss_check.detail}")

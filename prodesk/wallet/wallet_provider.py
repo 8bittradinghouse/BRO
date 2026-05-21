@@ -4,6 +4,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from ..common import parse_float, utc_iso
 from ..gateway import GatewayError, LiveClobGateway
+from .web3_adapter import WalletWeb3Adapter
 from .wallet_truth_policy import (
     ALLOWANCE_FIELD_POLICY,
     POL_BALANCE_FIELD_POLICY,
@@ -18,6 +19,7 @@ from .wallet_types import (
     AUTHORITY_CLASS_DERIVED,
     AUTHORITY_CLASS_LIVE,
     AllowanceSnapshot,
+    LIFECYCLE_PLANE_ON_CHAIN_PENDING_WALLET_TX,
     LiveWalletTruthSource,
     NonceSnapshot,
     OpenOrderStateSnapshot,
@@ -31,9 +33,26 @@ from .wallet_types import (
 class GatewayLiveWalletTruthSource:
     """Live wallet truth source backed by the authenticated CLOB gateway client."""
 
-    def __init__(self, gateway: LiveClobGateway, cfg: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        gateway: LiveClobGateway,
+        cfg: Mapping[str, Any],
+        *,
+        web3_adapter: Optional[WalletWeb3Adapter] = None,
+    ) -> None:
         self._gateway = gateway
         self._cfg = dict(cfg or {})
+        self._web3_adapter: Optional[WalletWeb3Adapter] = web3_adapter
+        if self._web3_adapter is None:
+            try:
+                from .wallet_config import load_wallet_config
+
+                wallet_cfg = load_wallet_config(self._cfg)
+                adapter = WalletWeb3Adapter(wallet_cfg)
+                self._web3_adapter = adapter if adapter.is_configured() else None
+            except Exception:
+                self._web3_adapter = None
+        self._wallet_address_override = str(self._cfg.get("expected_wallet_address", "") or "").strip()
         self._pol_balance_fallback = max(0.0, float(self._cfg.get("live_pol_balance_fallback", 1.0)))
         self._require_live_pol_balance_snapshot = bool(self._cfg.get("require_live_pol_balance_snapshot", False))
         self._ambiguity_abs_tolerance = max(
@@ -264,32 +283,44 @@ class GatewayLiveWalletTruthSource:
         )
 
     def nonce_snapshot(self) -> NonceSnapshot:
-        # The official CLOB clients are not the canonical owner of on-chain nonce truth.
-        # Deposit-wallet / relayer lanes must source nonce truth from the relayer surface instead.
-        return NonceSnapshot(
-            current_nonce=None,
-            pending_nonces=tuple(),
-            ts_utc=utc_iso(),
-            source="canonical_live_wallet_truth",
-            healthy=False,
-            detail="nonce_snapshot_unavailable",
-            truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
-            authority_class=AUTHORITY_CLASS_LIVE,
-        )
+        adapter = self._web3_adapter
+        if adapter is None:
+            return NonceSnapshot(
+                current_nonce=None,
+                pending_nonces=tuple(),
+                ts_utc=utc_iso(),
+                source="canonical_live_wallet_truth",
+                healthy=False,
+                detail="web3_nonce_snapshot_unavailable",
+                truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
+                authority_class=AUTHORITY_CLASS_LIVE,
+            )
+        return adapter.canonical_nonce_snapshot(self._canonical_wallet_address())
 
     def pending_tx_snapshot(self) -> PendingTxSnapshot:
-        # Open orders are not canonical pending-wallet-transaction truth.
-        # Keep this surface explicit fail-closed for strict live pending-tx truth.
-        return PendingTxSnapshot(
-            pending_count=0,
-            order_ids=tuple(),
-            ts_utc=utc_iso(),
-            source="canonical_live_wallet_truth",
-            healthy=False,
-            detail="pending_wallet_tx_snapshot_unavailable",
-            truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
-            authority_class=AUTHORITY_CLASS_LIVE,
-        )
+        adapter = self._web3_adapter
+        if adapter is None:
+            return PendingTxSnapshot(
+                pending_count=0,
+                order_ids=tuple(),
+                tx_ids=tuple(),
+                exchange_order_ids=tuple(),
+                exchange_client_order_ids=tuple(),
+                ts_utc=utc_iso(),
+                source="canonical_live_wallet_truth",
+                healthy=False,
+                detail="web3_pending_wallet_tx_snapshot_unavailable",
+                truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
+                authority_class=AUTHORITY_CLASS_LIVE,
+                lifecycle_plane=LIFECYCLE_PLANE_ON_CHAIN_PENDING_WALLET_TX,
+            )
+        return adapter.canonical_pending_tx_snapshot(self._canonical_wallet_address())
+
+    def web3_provider_health_status(self) -> Mapping[str, Any]:
+        adapter = self._web3_adapter
+        if adapter is None:
+            return {}
+        return adapter.health_status_mapping()
 
     def open_order_state_snapshot(self) -> OpenOrderStateSnapshot:
         open_orders = self._gateway.get_open_orders()
@@ -304,3 +335,9 @@ class GatewayLiveWalletTruthSource:
             truth_domain=TRUTH_DOMAIN_OPEN_ORDER_STATE,
             authority_class=AUTHORITY_CLASS_DERIVED,
         )
+
+    def _canonical_wallet_address(self) -> str:
+        preferred = str(self._wallet_address_override or "").strip()
+        if preferred:
+            return preferred
+        return str(self._gateway.wallet_address() or "").strip()

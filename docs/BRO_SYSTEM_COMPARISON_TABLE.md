@@ -20,7 +20,7 @@ Semantic ABI rule:
 | TCU | Risk authority | `prodesk/risk.py` | Legal vs illegal action decisions; fail-closed controls. |
 | Transmission actuator | Order policy/execution | `prodesk/order_manager.py` | Converts intent into bounded submit/cancel behavior. |
 | Fuel system | Wallet capital authority | `prodesk/wallet/*`, `prodesk/wallet_doctrine.py` | Deployable/reserved capital truth and reservation integrity. |
-| Starter/ignition | Tx lifecycle + nonce | `prodesk/tx_manager.py`, `prodesk/wallet/wallet_nonce.py` | Sequencing and transaction-state truth. |
+| Starter/ignition | Tx lifecycle + nonce | `prodesk/tx_manager.py`, `prodesk/wallet/wallet_tx_state.py` | Sequencing and transaction-state truth. |
 | Air + sensors | Market/oracle feeds | `prodesk/book_feed.py`, `prodesk/chainlink_feed.py`, `prodesk/pyth_feed.py`, `prodesk/market_data.py` | Priceability and freshness signal integrity. |
 | Cooling system | Mode + ramp controls | `prodesk/operating_mode.py`, `prodesk/ramp_controller.py` | Stabilizes runtime under stress and reject waves. |
 | Brake system | Hard stop controls | `prodesk/risk.py`, `prodesk/alerts.py`, `scripts/guardian_*` | Safety halts and automatic containment. |

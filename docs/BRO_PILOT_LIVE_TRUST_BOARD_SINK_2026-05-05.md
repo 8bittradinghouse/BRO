@@ -37,7 +37,12 @@
 - current in-flight packet body carries:
   - maker depth-band support (`1.45-1.5`)
   - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
-  - truth-routing sync and Packet 3 wallet doctrine lock / surgical cut plan
+  - Packet 3 wallet guardian owner + mechanics surfaces
+  - exchange-intent vs canonical on-chain pending separation
+  - canonical nonce / pending provider-path hardening
+  - guardian-owned exposure / drawdown migration
+  - approval / gas reserve / redemption hardening
+  - wallet compatibility residue retirement
 - last watched current-tree canon before this transition packet:
   `4f843da4-16ec-4616-948c-c7b19e7f5aea`
   - `runtime_classification=VALID_ACTIVE`
@@ -56,7 +61,7 @@
 - macro lane: `live trust qualification`
 - current lane status: `open`
 - current active implementation lane:
-  `Packet 2 maker live trust closeout-routing / selector-family truth-sync / Packet 3 doctrine lock and cut-plan transition prep`
+  `Packet 3 wallet guardian implementation / live-truth hardening / compatibility residue retirement`
 - active Packet 2 entry artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
   - companion board + hardening stack:
@@ -90,8 +95,8 @@ Board law:
 
 ## Packet Status Board
 - Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
-- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / closeout routing + selector-family truth sync`
-- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / doctrine lock + surgical cut plan ready`
+- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / closeout routed + selector-family truth synced`
+- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `active / wallet guardian implementation in flight`
 - Packet 4 `Bounded Live Hookup / Controlled Arming Qualification`: `sequenced / inactive`
 - Packet 5 `Immediate-Performance Proof`: `sequenced / inactive`
 
@@ -105,7 +110,7 @@ Board law:
 
 ## Jin Self-Hardening Status
 - current status:
-  `current for Packet 2 closeout routing, stale-residue extinction, Packet 3 doctrine lock + surgical cut plan, and anti-drift relock`
+  `current for Packet 3 wallet guardian implementation, residue retirement, and anti-drift relock`
 - BRO-wide anti-drift relock front door:
   - `docs/JIN_RELOCK_PACK_2026-05-12.md`
 - active packet-local lock card:
@@ -475,7 +480,9 @@ Current board use:
   - then remeasure the real surviving maker blockers before opening smaller
     downstream families
 - Packet 1 remains closed `bounded-live-test ready`.
-- Packet 3 through Packet 5 remain sequenced and inactive behind Packet 2.
+- Packet 2 remains closeout-routed and no longer owns the active implementation body.
+- Packet 3 is now the active implementation body.
+- Packet 4 through Packet 5 remain sequenced behind Packet 3.
 - Every packet in this lane must include:
   - forward semantics sweep
   - reverse semantics sweep
@@ -486,23 +493,19 @@ Current board use:
 
 ## Current Packet Recommendation
 Current packet:
-- Packet 2 `Maker-Live / Economic Trust Qualification`
+- Packet 3 `Grip-Live / Wallet Live Trust Qualification`
 - active artifact:
-  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
 
 Why this is first:
-- it is already the active packet and owns the current post-audit truth-owner /
-  proof-semantics closeout
-- stale pickup and packet-order drift still existed in current-owner docs and
-  had to be hardened before broader runtime surgery
-- the current next runtime patient still sits inside Packet 2:
-  - maker selection timing-authority collision
-  - then rerun and surviving-blocker remeasurement
-- Packet 1 is already closed `bounded-live-test ready` and now belongs to
-  historical closeout truth plus bounded ancestry only for current pickup
+- Packet 2 execution-lane surgery is no longer the main patient
+- the active runtime/doctrine body is now wallet live-truth hardening
+- Packet 3 owns the current owner/mechanics/law migration and live-truth
+  separation work
+- Packet 1 is already closed `bounded-live-test ready`, and Packet 2 is now
+  closeout truth plus bounded ancestry rather than the live implementation lane
 
 Follow-on order:
-1. Packet 2 `Maker-Live`
-2. Packet 3 `Grip-Live`
-3. Packet 4 `Bounded Live Hookup`
-4. Packet 5 `Immediate-Performance Proof`
+1. Packet 3 `Grip-Live`
+2. Packet 4 `Bounded Live Hookup`
+3. Packet 5 `Immediate-Performance Proof`
