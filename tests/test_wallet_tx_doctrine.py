@@ -89,6 +89,7 @@ class _StaticTruthSource:
             allowance_usdc=1000.0,
             ts_utc="2026-03-14T00:00:00.000Z",
             source="test",
+            target_identity_verified=True,
             healthy=True,
             detail="",
         )
@@ -228,6 +229,7 @@ class _HealthyLiveTruthSource(_StaticTruthSource):
             allowance_usdc=self._allowance_usdc,
             ts_utc="2026-03-14T00:00:00.000Z",
             source="canonical_live_wallet_truth",
+            target_identity_verified=True,
             healthy=True,
             detail="",
         )
@@ -262,6 +264,18 @@ class _UnhealthyAllowanceTruthSource(_HealthyLiveTruthSource):
             source="canonical_live_wallet_truth",
             healthy=False,
             detail="allowance_ambiguous",
+        )
+
+
+class _UnverifiedAllowanceTargetTruthSource(_HealthyLiveTruthSource):
+    def allowance_snapshot(self) -> AllowanceSnapshot:
+        return AllowanceSnapshot(
+            allowance_usdc=self._allowance_usdc,
+            ts_utc="2026-03-14T00:00:00.000Z",
+            source="canonical_live_wallet_truth",
+            target_identity_verified=False,
+            healthy=True,
+            detail="live_allowance_target_identity_unverified:0x2222222222222222222222222222222222222222",
         )
 
 
@@ -602,6 +616,34 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertEqual(last_reconcile.get("action"), "halt")
         self.assertTrue(bool(last_reconcile.get("halt")))
 
+    def test_live_wallet_unverified_approval_target_halts_fail_closed(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_UnverifiedAllowanceTargetTruthSource(chain_id=137, allowance_usdc=1000.0, current_nonce=9),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="BUY", price=1.0, size=1.0))
+
+        self.assertFalse(auth.allowed)
+        self.assertEqual(auth.reason, "wallet_approval_target_unverified")
+        self.assertEqual(auth.action, "halt")
+        self.assertTrue(auth.halt)
+        self.assertTrue(wallet.is_halted())
+        self.assertEqual(wallet.halt_reason(), "wallet_approval_target_unverified")
+
     def test_wallet_status_contract_exposes_required_fields(self) -> None:
         wallet = PaperWalletDoctrine(
             {
@@ -769,6 +811,51 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         redemption_state = wallet.status().get("wallet_redemption_state", {})
         self.assertTrue(bool(redemption_state.get("successful")))
         self.assertEqual(str(redemption_state.get("tx_hash") or ""), "0xabc")
+
+    def test_live_wallet_redemption_requires_confirmed_receipt_before_settlement(self) -> None:
+        wallet = LiveWalletDoctrine(
+            {
+                "expected_chain_id": 137,
+                "expected_wallet_address": "0x1111111111111111111111111111111111111111",
+                "nonce_authority": "tx_manager",
+                "require_allowance": True,
+                "approval_spender_targets": ["0x2222222222222222222222222222222222222222"],
+                "require_live_nonce_snapshot": True,
+                "require_live_nonce_value": True,
+                "require_live_pending_tx_snapshot": True,
+            },
+            truth_source=_HealthyLiveTruthSource(chain_id=137, allowance_usdc=1000.0, current_nonce=9),
+            mode="live",
+            auth_cfg={"live_order_submission_enabled": True},
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        wallet.register_redemption_executor(
+            lambda _request: {
+                "successful": True,
+                "action": "redeem_positions",
+                "reason": "wallet_redemption_submitted",
+                "transactionHash": "0xdef",
+                "status": 0,
+                "detail": "receipt_pending",
+            }
+        )
+
+        result = wallet.redeem_winnings(
+            market_id="mkt-1",
+            token_id="tok",
+            settlement_side="SELL",
+            size_shares=5.0,
+            settlement_price=1.0,
+        )
+
+        self.assertFalse(result.successful)
+        self.assertFalse(result.receipt_confirmed)
+        self.assertFalse(result.settlement_applied)
+        self.assertEqual(result.reason, "wallet_redemption_receipt_unconfirmed")
+        redemption_state = wallet.status().get("wallet_redemption_state", {})
+        self.assertFalse(bool(redemption_state.get("successful")))
+        self.assertFalse(bool(redemption_state.get("settlement_applied")))
 
     def test_wallet_emits_reservation_lifecycle_events(self) -> None:
         wallet = PaperWalletDoctrine(

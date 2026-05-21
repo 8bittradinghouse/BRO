@@ -41,7 +41,16 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     open_reserved = float(status.get("locked_usdc", 0.0) or 0.0)
     deployable = float(status.get("deployable_usdc", 0.0) or 0.0)
 
-    approval_ok = bool(allowance_snapshot.get("healthy", True))
+    approval_target_identity_verified = bool(allowance_snapshot.get("target_identity_verified", False))
+    approval_spender_targets_matched = list(allowance_snapshot.get("matched_spender_targets") or [])
+    approval_spender_targets_required = list(allowance_snapshot.get("required_spender_targets") or [])
+    approval_ok = bool(
+        allowance_snapshot.get("healthy", True)
+        and (
+            not approval_spender_targets_required
+            or approval_target_identity_verified
+        )
+    )
     nonce_ok = bool(nonce_snapshot.get("healthy", False))
     reconcile_ok = bool(reconcile.get("healthy", False))
     halted = bool(status.get("halted", False))
@@ -137,6 +146,9 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "open_reserved": open_reserved,
         "deployable_capital": deployable,
         "approval_ok": bool(approval_ok),
+        "approval_target_identity_verified": bool(approval_target_identity_verified),
+        "approval_spender_targets_matched": approval_spender_targets_matched,
+        "approval_spender_targets_required": approval_spender_targets_required,
         "nonce_ok": bool(nonce_ok),
         "reconcile_ok": bool(reconcile_ok),
         "wallet_health_ok": bool(wallet_health_ok),

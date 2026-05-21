@@ -312,6 +312,46 @@ class WalletProviderTests(unittest.TestCase):
         self.assertTrue(allowance.healthy)
         self.assertEqual(allowance.detail, "")
 
+    def test_allowance_snapshot_requires_configured_spender_target_identity(self) -> None:
+        gateway = _StubLiveGateway(_fixture_payload("live_balance_allowance_primary.json"))
+        source = GatewayLiveWalletTruthSource(
+            gateway,
+            {"approval_spender_targets": ["0x2222222222222222222222222222222222222222"]},
+        )  # type: ignore[arg-type]
+
+        allowance_snapshot = source.allowance_snapshot()
+
+        self.assertFalse(allowance_snapshot.healthy)
+        self.assertFalse(allowance_snapshot.target_identity_verified)
+        self.assertIn("live_allowance_target_identity_unverified", allowance_snapshot.detail)
+
+    def test_allowance_snapshot_verifies_bounded_spender_target_mapping(self) -> None:
+        gateway = _StubLiveGateway(
+            {
+                "balance": 100.25,
+                "allowances": {
+                    "0x2222222222222222222222222222222222222222": {
+                        "allowance": "80.5",
+                    }
+                },
+                "polBalance": "5.0",
+            }
+        )
+        source = GatewayLiveWalletTruthSource(
+            gateway,
+            {"approval_spender_targets": ["0x2222222222222222222222222222222222222222"]},
+        )  # type: ignore[arg-type]
+
+        allowance_snapshot = source.allowance_snapshot()
+
+        self.assertTrue(allowance_snapshot.healthy)
+        self.assertTrue(allowance_snapshot.target_identity_verified)
+        self.assertEqual(
+            allowance_snapshot.matched_spender_targets,
+            ("0x2222222222222222222222222222222222222222",),
+        )
+        self.assertAlmostEqual(allowance_snapshot.allowance_usdc, 80.5, places=9)
+
     def test_live_truth_source_uses_web3_adapter_for_nonce_and_pending(self) -> None:
         gateway = _StubLiveGateway(_fixture_payload("live_balance_allowance_primary.json"))
         cfg = {

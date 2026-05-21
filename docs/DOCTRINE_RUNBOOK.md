@@ -553,7 +553,8 @@ Truth-domain naming is explicit and non-interchangeable:
 Required wallet status contract fields:
 - `gas_balance`, `gas_reserve_min`, `gas_ok`
 - `stable_balance_total`, `protected_reserve`, `open_reserved`, `deployable_capital`
-- `approval_ok`, `nonce_ok`, `reconcile_ok`, `wallet_health_ok`, `wallet_health_reasons`
+- `approval_ok`, `approval_target_identity_verified`, `approval_spender_targets_matched`, `approval_spender_targets_required`
+- `nonce_ok`, `reconcile_ok`, `wallet_health_ok`, `wallet_health_reasons`
 - `reservation_mismatch_candidate`, `reservation_mismatch_delta_usdc`, `reservation_mismatch_detail`
 - `authority_status_class`, `order_capable_live`, `order_submit_eligible`
 - `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`
@@ -577,6 +578,13 @@ Required wallet events:
 - `wallet_health_gate_veto`
 - `wallet_local_tx_lifecycle_state`
 - `wallet_open_order_state`
+- `wallet_redemption_requested`
+- `wallet_redemption_failed`
+- `wallet_redemption_completed`
+
+Redemption settlement rule:
+- live redemption remains fail closed until the receipt is actually confirmed
+- `wallet_redemption_receipt_unconfirmed` must fail without applying settlement
 
 ## New-Market Observe-First
 - Market identity is propagated via `market_key`.

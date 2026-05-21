@@ -404,6 +404,9 @@ protected_reserve
 open_reserved
 deployable_capital
 approval_ok
+approval_target_identity_verified
+approval_spender_targets_matched
+approval_spender_targets_required
 nonce_ok
 reconcile_ok
 wallet_health_ok
@@ -428,8 +431,17 @@ wallet_nonce_state
 wallet_reconcile_result
 wallet_integrity_warning
 wallet_integrity_fail_closed
+wallet_redemption_requested
+wallet_redemption_failed
+wallet_redemption_completed
 
 These should be boring, explicit, and easy to audit.
+
+Redemption must also stay fail closed:
+
+- live redemption is not complete just because an executor says "successful"
+- settlement only applies after a confirmed receipt
+- `wallet_redemption_receipt_unconfirmed` must fail without mutating wallet settlement
 
 The biggest mistakes to avoid
 1. Treating wallet balance as deployable capital

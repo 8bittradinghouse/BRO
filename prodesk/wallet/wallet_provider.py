@@ -55,6 +55,15 @@ class GatewayLiveWalletTruthSource:
         self._wallet_address_override = str(self._cfg.get("expected_wallet_address", "") or "").strip()
         self._pol_balance_fallback = max(0.0, float(self._cfg.get("live_pol_balance_fallback", 1.0)))
         self._require_live_pol_balance_snapshot = bool(self._cfg.get("require_live_pol_balance_snapshot", False))
+        self._approval_spender_targets = tuple(
+            sorted(
+                {
+                    self._normalize_target(item)
+                    for item in self._cfg.get("approval_spender_targets", ())
+                    if self._normalize_target(item)
+                }
+            )
+        )
         self._ambiguity_abs_tolerance = max(
             1e-9,
             float(
@@ -73,6 +82,10 @@ class GatewayLiveWalletTruthSource:
                 )
             ),
         )
+
+    @staticmethod
+    def _normalize_target(value: Any) -> str:
+        return str(value or "").strip().lower()
 
     @staticmethod
     def _extract_float(payload: Mapping[str, Any], paths: Sequence[Sequence[str]]) -> Optional[float]:
@@ -176,6 +189,109 @@ class GatewayLiveWalletTruthSource:
             )
         return float(candidates[0][1]), None
 
+    def _resolve_target_allowance(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        target: str,
+    ) -> tuple[Optional[float], Optional[str], bool]:
+        target_key = self._normalize_target(target)
+        mapping_roots: list[Mapping[str, Any]] = []
+        for path in (
+            ("allowances",),
+            ("allowancesBySpender",),
+            ("allowanceBySpender",),
+            ("spenderAllowances",),
+            ("data", "allowances"),
+            ("data", "allowancesBySpender"),
+            ("data", "allowanceBySpender"),
+        ):
+            node: Any = payload
+            ok = True
+            for part in path:
+                if not isinstance(node, Mapping) or part not in node:
+                    ok = False
+                    break
+                node = node.get(part)
+            if ok and isinstance(node, Mapping):
+                mapping_roots.append(node)
+
+        found_target_mapping = False
+        target_candidates: list[tuple[tuple[str, ...], float]] = []
+        for mapping in mapping_roots:
+            for raw_key, raw_value in mapping.items():
+                if self._normalize_target(raw_key) != target_key:
+                    continue
+                found_target_mapping = True
+                if isinstance(raw_value, Mapping):
+                    candidates = self._extract_float_candidates(
+                        raw_value,
+                        [
+                            ("allowance",),
+                            ("allowanceDecimal",),
+                            ("approved",),
+                            ("available",),
+                            ("data", "allowance"),
+                        ],
+                    )
+                else:
+                    parsed = parse_float(raw_value)
+                    candidates = [(("value",), float(parsed))] if parsed is not None else []
+                target_candidates.extend(candidates)
+
+        if target_candidates:
+            values = [value for _, value in target_candidates]
+            if provider_has_material_disagreement(
+                values,
+                abs_tolerance=self._ambiguity_abs_tolerance,
+                rel_tolerance=self._ambiguity_rel_tolerance,
+            ):
+                path_values = ",".join(".".join(path) + f"={value:.12f}" for path, value in target_candidates)
+                low = min(values)
+                high = max(values)
+                allowed_span = provider_allowed_disagreement_span(
+                    low=low,
+                    high=high,
+                    abs_tolerance=self._ambiguity_abs_tolerance,
+                    rel_tolerance=self._ambiguity_rel_tolerance,
+                )
+                return (
+                    None,
+                    "live_allowance_target_ambiguous:"
+                    f"{target_key}:allowed_span={allowed_span:.12f}:span={(high - low):.12f}:{path_values}",
+                    True,
+                )
+            return float(target_candidates[0][1]), None, True
+
+        payload_data = payload.get("data")
+        explicit_target = self._normalize_target(
+            payload.get("spender")
+            or payload.get("approvalTarget")
+            or payload.get("allowanceTarget")
+            or (payload_data.get("spender") if isinstance(payload_data, Mapping) else None)
+            or (payload_data.get("approvalTarget") if isinstance(payload_data, Mapping) else None)
+            or (payload_data.get("allowanceTarget") if isinstance(payload_data, Mapping) else None)
+        )
+        if explicit_target and explicit_target == target_key:
+            allowance, allowance_ambiguity = self._resolve_optional_field(
+                payload=payload,
+                policy=ALLOWANCE_FIELD_POLICY,
+                paths=[
+                    ("allowance",),
+                    ("allowanceDecimal",),
+                    ("approved",),
+                    ("allowance", "available"),
+                    ("data", "allowance"),
+                ],
+            )
+            if allowance_ambiguity:
+                return None, allowance_ambiguity, True
+            if allowance is None:
+                return None, f"live_allowance_target_missing:{target_key}", True
+            return float(allowance), None, True
+
+        return None, None, found_target_mapping or bool(explicit_target)
+
     def _balance_allowance_payload(self) -> Mapping[str, Any]:
         payload = self._gateway.get_collateral_balance_allowance()
         if not isinstance(payload, Mapping):
@@ -240,6 +356,60 @@ class GatewayLiveWalletTruthSource:
 
     def allowance_snapshot(self) -> AllowanceSnapshot:
         payload = self._balance_allowance_payload()
+        if self._approval_spender_targets:
+            matched_targets: list[str] = []
+            per_target_allowances: list[float] = []
+            saw_identity_surface = False
+            for target in self._approval_spender_targets:
+                allowance, detail, saw_target_identity = self._resolve_target_allowance(payload, target=target)
+                saw_identity_surface = saw_identity_surface or saw_target_identity
+                if detail:
+                    return AllowanceSnapshot(
+                        allowance_usdc=0.0,
+                        ts_utc=utc_iso(),
+                        source="canonical_live_wallet_truth",
+                        target_identity_verified=False,
+                        matched_spender_targets=tuple(matched_targets),
+                        required_spender_targets=self._approval_spender_targets,
+                        healthy=False,
+                        detail=detail,
+                        truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
+                        authority_class=AUTHORITY_CLASS_LIVE,
+                    )
+                if allowance is None:
+                    detail = (
+                        f"live_allowance_target_missing:{target}"
+                        if saw_identity_surface
+                        else f"live_allowance_target_identity_unverified:{target}"
+                    )
+                    return AllowanceSnapshot(
+                        allowance_usdc=0.0,
+                        ts_utc=utc_iso(),
+                        source="canonical_live_wallet_truth",
+                        target_identity_verified=False,
+                        matched_spender_targets=tuple(matched_targets),
+                        required_spender_targets=self._approval_spender_targets,
+                        healthy=False,
+                        detail=detail,
+                        truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
+                        authority_class=AUTHORITY_CLASS_LIVE,
+                    )
+                matched_targets.append(target)
+                per_target_allowances.append(max(0.0, float(allowance)))
+
+            return AllowanceSnapshot(
+                allowance_usdc=min(per_target_allowances) if per_target_allowances else 0.0,
+                ts_utc=utc_iso(),
+                source="canonical_live_wallet_truth",
+                target_identity_verified=True,
+                matched_spender_targets=tuple(matched_targets),
+                required_spender_targets=self._approval_spender_targets,
+                healthy=True,
+                detail="",
+                truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
+                authority_class=AUTHORITY_CLASS_LIVE,
+            )
+
         allowance, allowance_ambiguity = self._resolve_optional_field(
             payload=payload,
             policy=ALLOWANCE_FIELD_POLICY,
@@ -257,6 +427,7 @@ class GatewayLiveWalletTruthSource:
                 allowance_usdc=0.0,
                 ts_utc=utc_iso(),
                 source="canonical_live_wallet_truth",
+                target_identity_verified=False,
                 healthy=False,
                 detail=allowance_ambiguity,
                 truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
@@ -267,6 +438,7 @@ class GatewayLiveWalletTruthSource:
                 allowance_usdc=0.0,
                 ts_utc=utc_iso(),
                 source="canonical_live_wallet_truth",
+                target_identity_verified=False,
                 healthy=False,
                 detail="live_allowance_missing",
                 truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,
@@ -276,6 +448,7 @@ class GatewayLiveWalletTruthSource:
             allowance_usdc=max(0.0, allowance),
             ts_utc=utc_iso(),
             source="canonical_live_wallet_truth",
+            target_identity_verified=False,
             healthy=True,
             detail="",
             truth_domain=TRUTH_DOMAIN_CANONICAL_LIVE_WALLET,

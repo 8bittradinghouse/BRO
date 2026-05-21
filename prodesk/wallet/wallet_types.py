@@ -55,6 +55,9 @@ class AllowanceSnapshot:
     allowance_usdc: float
     ts_utc: str
     source: str
+    target_identity_verified: bool = False
+    matched_spender_targets: tuple[str, ...] = tuple()
+    required_spender_targets: tuple[str, ...] = tuple()
     healthy: bool = True
     detail: str = ""
     truth_domain: str = TRUTH_DOMAIN_CANONICAL_LIVE_WALLET

@@ -717,6 +717,9 @@ class WalletDoctrineBase(ABC):
                     "ts_utc": utc_iso(),
                     "allowance_usdc": float(self._allowance_snapshot.allowance_usdc),
                     "allowance_healthy": bool(self._allowance_snapshot.healthy),
+                    "target_identity_verified": bool(self._allowance_snapshot.target_identity_verified),
+                    "matched_spender_targets": list(self._allowance_snapshot.matched_spender_targets),
+                    "required_spender_targets": list(self._allowance_snapshot.required_spender_targets),
                     "approval_spender_targets": list(self._approval_spender_targets),
                 },
             )
@@ -737,6 +740,33 @@ class WalletDoctrineBase(ABC):
                     approved_size=0.0,
                     reason="wallet_approval_target_unknown",
                     detail="approval_spender_targets_missing",
+                    halt=True,
+                )
+            if self.mode == "live" and not self._allowance_snapshot.target_identity_verified:
+                self._emit(
+                    "wallet_approval_alert",
+                    {
+                        "ts_utc": utc_iso(),
+                        "result": "halt",
+                        "reason": "wallet_approval_target_unverified",
+                        "allowance_detail": str(self._allowance_snapshot.detail),
+                        "matched_spender_targets": list(self._allowance_snapshot.matched_spender_targets),
+                        "required_spender_targets": list(
+                            self._allowance_snapshot.required_spender_targets
+                            or self._approval_spender_targets
+                        ),
+                    },
+                )
+                self._halt("wallet_approval_target_unverified")
+                return WalletAuthorization(
+                    allowed=False,
+                    action="halt",
+                    approved_size=0.0,
+                    reason="wallet_approval_target_unverified",
+                    detail=(
+                        str(self._allowance_snapshot.detail)
+                        or "approval_spender_target_identity_unverified"
+                    ),
                     halt=True,
                 )
             approved_notional = min(approved_notional, max(0.0, float(self._allowance_snapshot.allowance_usdc)))
@@ -1055,6 +1085,29 @@ class WalletDoctrineBase(ABC):
                 },
             )
             return result
+
+        if self.mode == "live" and not result.receipt_confirmed:
+            failed = dataclasses.replace(
+                result,
+                successful=False,
+                action="reject",
+                reason="wallet_redemption_receipt_unconfirmed",
+                detail=str(result.detail or "live_redemption_receipt_unconfirmed"),
+                settlement_applied=False,
+            )
+            self._record_redemption_state(request=request, result=failed)
+            self._emit(
+                "wallet_redemption_failed",
+                {
+                    "ts_utc": str(failed.ts_utc or request.ts_utc),
+                    "market_id": str(request.market_id),
+                    "token_id": str(request.token_id),
+                    "reason": str(failed.reason),
+                    "detail": str(failed.detail),
+                    "tx_hash": str(failed.tx_hash),
+                },
+            )
+            return failed
 
         settlement_payload = self.settle_binary_position(
             token_id=request.token_id,
