@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Tuple
 
-from .lineage_stage import normalize_lineage_stage
+from .lineage_stage import STAGE_LINEAGE_ONLY_0_TO_20S, normalize_lineage_stage
 
 STAGE_OBSERVE = "OBSERVE"
 STAGE_EVALUATE = "EVALUATE"
@@ -12,7 +12,7 @@ STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
 STAGE_LATE_DIAGNOSTIC = "LATE_DIAGNOSTIC"
 STAGE_MAKER_LATE_WINDOW = "MAKER_LATE_WINDOW"
 STAGE_TAKER_COMMITMENT = "TAKER_COMMITMENT"
-STAGE_EXTREME_ONLY = "EXTREME_ONLY"
+STAGE_EXTREME_ONLY = STAGE_LINEAGE_ONLY_0_TO_20S
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
 

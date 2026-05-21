@@ -18,9 +18,10 @@ from .wallet.wallet_truth_policy import (
 )
 
 
-# Only dormant compatibility-era taker overlays may still mention raw
-# EXTREME_ONLY lineage. Current live taker authority must use the explicit
-# TAKER_COMMITMENT lane instead of stage-local owner surfaces.
+# Only dormant compatibility-era taker overlays may still mention the legacy
+# raw `EXTREME_ONLY` lineage label. Current live taker authority must use the
+# explicit TAKER_COMMITMENT lane instead of stage-local owner surfaces, and the
+# current raw late bucket is emitted as `LINEAGE_ONLY_0_TO_20S`.
 CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset({"TAKER_COMMITMENT"})
 
 
@@ -677,9 +678,19 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
     selection["enabled"] = bool(selection.get("enabled", True))
     selection["max_sec_to_expiry"] = float(selection.get("max_sec_to_expiry", 90.0))
     selection["min_market_age_sec"] = float(selection.get("min_market_age_sec", 60.0))
-    selection["maker_min_depth_multiple"] = float(
-        selection.get("maker_min_depth_multiple", 1.5)
-    )
+    depth_band_raw = selection.get("maker_min_depth_multiple_band")
+    if depth_band_raw is not None:
+        depth_low, depth_high = _require_positive_band(
+            "lifecycle.selection.maker_min_depth_multiple_band",
+            depth_band_raw,
+            allow_zero=True,
+        )
+        selection["maker_min_depth_multiple_band"] = [float(depth_low), float(depth_high)]
+        selection["maker_min_depth_multiple"] = float(depth_low)
+    else:
+        selection["maker_min_depth_multiple"] = float(
+            selection.get("maker_min_depth_multiple", 1.5)
+        )
     selection["taker_min_fill_ratio"] = float(
         selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))
     )
@@ -1021,6 +1032,18 @@ def _require_positive(name: str, value: Any, allow_zero: bool = False) -> float:
     if parsed <= 0:
         raise ValueError(f"{name} must be > 0, got {parsed}")
     return parsed
+
+
+def _require_positive_band(name: str, value: Any, *, allow_zero: bool = False) -> tuple[float, float]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be a two-value list, got {value!r}")
+    if len(value) != 2:
+        raise ValueError(f"{name} must contain exactly two numeric values")
+    low = _require_positive(f"{name}[0]", value[0], allow_zero=allow_zero)
+    high = _require_positive(f"{name}[1]", value[1], allow_zero=allow_zero)
+    if high < low:
+        raise ValueError(f"{name}[1] must be >= {name}[0], got {high} < {low}")
+    return low, high
 
 
 def _require_fraction(name: str, value: Any, *, allow_zero: bool = False) -> float:
@@ -1664,6 +1687,19 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         lifecycle_selection_cfg.get("maker_min_depth_multiple"),
         allow_zero=True,
     )
+    depth_band_cfg = lifecycle_selection_cfg.get("maker_min_depth_multiple_band")
+    if depth_band_cfg is not None:
+        depth_low, depth_high = _require_positive_band(
+            "lifecycle.selection.maker_min_depth_multiple_band",
+            depth_band_cfg,
+            allow_zero=True,
+        )
+        scalar_depth = parse_float(lifecycle_selection_cfg.get("maker_min_depth_multiple"))
+        if scalar_depth is None or abs(float(scalar_depth) - float(depth_low)) > 1e-9:
+            raise ValueError(
+                "lifecycle.selection.maker_min_depth_multiple must equal the lower edge of "
+                "lifecycle.selection.maker_min_depth_multiple_band"
+            )
     _require_fraction(
         "lifecycle.selection.taker_min_fill_ratio",
         lifecycle_selection_cfg.get("taker_min_fill_ratio"),

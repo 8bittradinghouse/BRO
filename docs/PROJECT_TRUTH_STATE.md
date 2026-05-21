@@ -46,31 +46,37 @@
 - Latest timing-spine closeout proof code fingerprint: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed workspace runtime code fingerprint exact-match to timing closeout proof: `d546a054cf2b77f6335b9c5461e6c95ecf87737be6366f14d975311878487be7`
 - Current pushed branch: `consultant/full-snapshot-public-20260402T055838Z`
-- Current `HEAD` commit: `000a7f4c1c605abbf0892edd790e6ee6cf809394`
+- Current `HEAD` commit: `e24fc34`
 - Current direct local artifact-availability note:
   - latest timing closeout / lane-closeout / smoke / contrast artifacts remain locally readable
   - the referenced broad clean-anchor `7bbde42c-003a-4f57-b59a-7ce138224075` report/session path is not currently present on disk in this workspace
   - current belief in that anchor is therefore doc-backed and fingerprint-backed, not directly artifact-readable locally
 - Current packet state: peak-hours paper confirmation is materially achieved on
   current proof; Packet 1 now closes `bounded-live-test ready` on watched
-  proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the active next move inside the
-  bounded `pilot_live` live-trust qualification lane is `Packet 2 Maker-Live`;
-  this file stays broad whole-repo truth only while the active Packet 2
-  maker-local pickup lives in the packet queue, board sink, and maker owner
-  boards; verify current tree cleanliness with `git status` instead of reading
-  older continuity wording as present-tense truth:
+  proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the bounded `pilot_live`
+  lane has moved beyond emergency execution-lane surgery and is now in Packet 2
+  closeout-routing / selector-family truth-sync with Packet 3 wallet owner
+  mapping authorized as read-only pre-open work; this file stays broad
+  whole-repo truth only while packet-local pickup still lives in the packet
+  queue, board sink, and packet owner boards; verify current tree cleanliness
+  with `git status` instead of reading older continuity wording as
+  present-tense truth:
   - companion deep relock audit:
     - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
-## Current Addendum (2026-05-20)
+## Current Addendum (2026-05-21)
 - Current pushed branch remains:
   - `consultant/full-snapshot-public-20260402T055838Z`
-- Current `HEAD` commit is now:
-  - `af00d02`
-  - `Harden maker/taker authority and paper profile`
+- Latest committed checkpoint is now:
+  - `e24fc34`
+  - `docs: refresh current truth and pickup anchors`
 - Current tree state is:
-  - pushed
-  - clean
+  - dirty / in-flight transition packet
+  - current modified body includes:
+    - maker depth-band support (`1.45-1.5`)
+    - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
+    - truth-routing sync and Packet 3 wallet doctrine lock / surgical cut plan
+  - verify live cleanliness with `git status`
 - Strongest current broad lane-health anchor is now:
   - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
   - `runtime_classification=VALID_ACTIVE`
@@ -89,9 +95,13 @@
   - taker fired `1 submit / 1 fill`
   - maker stayed selective with `0 submits`
   - this specimen is shoulder-band structural truth, not a maker-lane failure anchor
-- Current next move is:
-  - blueprint-defined maker/taker tuning alignment audit on the now-clean owner body
-  - not emergency blocker surgery
+- Current immediate move is:
+  - truth-routing sync on the broad truth / pickup / board surfaces
+  - stale Packet 2 residue extinction on active packet language
+  - Packet 3 wallet doctrine lock / surgical cut-plan sync
+  - no Packet 3 runtime/code slice opened yet
+  - blueprint tuning alignment remains downstream once the routing layer is
+    clean again
 - Current operator rule now enforced in doctrine/docs is:
   1. ask whether the lane is alive
   2. ask whether it is producing valid action and some success
@@ -571,8 +581,10 @@
   - `bounded-live-test ready`
   - one-brain owner collapse is materially achieved on current code
   - recovery/handoff owner classification is now explicitly keep-now dead power
-  - active `EXTREME_ONLY` surgery packet now enters through
+  - legacy `EXTREME_ONLY` lineage-cleanup packet now enters through
     `docs/EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md`
+  - current raw late-window lineage bucket is `LINEAGE_ONLY_0_TO_20S`; it is
+    explicit ancestry only and carries zero live taker authority
   - current first bounded paper slice is:
     - canonical top-level `taker.min_edge=0.11`
     - fixed `$20` taker proving shot remains active

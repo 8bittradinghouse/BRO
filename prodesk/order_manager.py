@@ -299,16 +299,31 @@ class OrderManager:
             1e-9,
             float(selection_owner_cfg.get("cannon_target_notional_usd", 350.0) or 350.0),
         )
-        self.maker_selection_gate_min_depth_multiple = max(
-            0.0,
-            float(
-                selection_owner_cfg.get(
-                    "maker_min_depth_multiple",
-                    selection_owner_cfg.get("min_depth_multiple", 1.5),
-                )
-                or 0.0
-            ),
-        )
+        depth_multiple_band = selection_owner_cfg.get("maker_min_depth_multiple_band")
+        self.maker_selection_gate_depth_multiple_ceiling = None
+        if isinstance(depth_multiple_band, (list, tuple)) and len(depth_multiple_band) == 2:
+            self.maker_selection_gate_min_depth_multiple = max(
+                0.0,
+                float(depth_multiple_band[0] or 0.0),
+            )
+            self.maker_selection_gate_depth_multiple_ceiling = max(
+                float(self.maker_selection_gate_min_depth_multiple),
+                float(depth_multiple_band[1] or 0.0),
+            )
+        else:
+            self.maker_selection_gate_min_depth_multiple = max(
+                0.0,
+                float(
+                    selection_owner_cfg.get(
+                        "maker_min_depth_multiple",
+                        selection_owner_cfg.get("min_depth_multiple", 1.5),
+                    )
+                    or 0.0
+                ),
+            )
+            self.maker_selection_gate_depth_multiple_ceiling = float(
+                self.maker_selection_gate_min_depth_multiple
+            )
         max_same_target_submit_count_prior = selection_owner_cfg.get(
             "max_same_target_submit_count_prior",
             1,
@@ -648,6 +663,11 @@ class OrderManager:
             "one_sided_active": bool(one_sided_active),
             "cannon_target_notional_usd": float(self.maker_selection_gate_cannon_target_notional_usd),
             "cannon_min_depth_multiple": float(self.maker_selection_gate_min_depth_multiple),
+            "cannon_depth_multiple_tuning_ceiling": (
+                float(self.maker_selection_gate_depth_multiple_ceiling)
+                if isinstance(self.maker_selection_gate_depth_multiple_ceiling, (int, float))
+                else None
+            ),
             "visible_depth_notional_usd": (
                 float(visible_depth_notional_usd)
                 if isinstance(visible_depth_notional_usd, (int, float))
@@ -749,6 +769,7 @@ class OrderManager:
             "launch_safe_selection_timing_window_met": facts.get("timing_window_met"),
             "cannon_target_notional_usd": facts.get("cannon_target_notional_usd"),
             "cannon_min_depth_multiple": facts.get("cannon_min_depth_multiple"),
+            "cannon_depth_multiple_tuning_ceiling": facts.get("cannon_depth_multiple_tuning_ceiling"),
             "visible_depth_notional_usd": facts.get("visible_depth_notional_usd"),
             "depth_multiple_vs_cannon_target": facts.get("depth_multiple_vs_cannon_target"),
             "cannon_depth_requirement_met": facts.get("cannon_depth_requirement_met"),
@@ -1241,6 +1262,9 @@ class OrderManager:
             "visible_depth_notional_usd": selection_payload.get("visible_depth_notional_usd"),
             "depth_multiple_vs_cannon_target": selection_payload.get("depth_multiple_vs_cannon_target"),
             "cannon_depth_requirement_met": selection_payload.get("cannon_depth_requirement_met"),
+            "cannon_depth_multiple_tuning_ceiling": selection_payload.get(
+                "cannon_depth_multiple_tuning_ceiling"
+            ),
             "expected_fill_prob": snapshot_payload.get("expected_fill_prob"),
             "min_expected_fill_prob": snapshot_payload.get("min_expected_fill_prob"),
             "fill_prob_margin": snapshot_payload.get("fill_prob_margin"),

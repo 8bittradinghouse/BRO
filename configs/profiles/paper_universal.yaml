@@ -34,7 +34,7 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "b531f50166a53e6cd928718f9fa758f35d3b37e83d5c3133ce702660f19bb356"
+  paper_expected_config_fingerprint_sha256: "4d52b5a3b0ae460994065a240c55a9dc84d40c0102a8b0e600d24dbc9c6caacc"
   held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
   held_ws_missing_or_unusable_refresh_interval_sec: 45.0
   # Doctrine-aligned handoff ladder:
@@ -65,7 +65,8 @@ lifecycle:
     enabled: true
     max_sec_to_expiry: 90.0
     min_market_age_sec: 60.0
-    maker_min_depth_multiple: 1.5
+    maker_min_depth_multiple_band: [1.45, 1.5]
+    maker_min_depth_multiple: 1.45
     taker_min_fill_ratio: 1.0
     require_secondary_oracle_confirmation: true
     cannon_target_notional_usd: 100.0

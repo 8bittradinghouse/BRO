@@ -840,11 +840,11 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("`dynamic_preview_enabled`", sink_text)
         self.assertIn("EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md", sink_text)
         self.assertIn("canonical top-level `taker.min_edge=0.11`", sink_text)
-        self.assertIn("raw `EXTREME_ONLY` bucket still exists, but it no longer owns", sink_text)
-        self.assertIn("no longer lets maker timing steal late `EXTREME_ONLY`", sink_text)
+        self.assertIn("raw `LINEAGE_ONLY_0_TO_20S` bucket is the current emitted late-window", sink_text)
+        self.assertIn("no longer lets maker timing steal late", sink_text)
         self.assertIn("no longer lets legacy `execution_cutoff_sec` suppress", sink_text)
         self.assertIn("taker activation and `_run_taker()` now share one canonical stage-window", sink_text)
-        self.assertIn("raw `EXTREME_ONLY` stage policy is no longer the live owner", sink_text)
+        self.assertIn("raw `LINEAGE_ONLY_0_TO_20S` lineage is not the live owner", sink_text)
         self.assertIn("Packet 1 removed taker-driven shared `OrderManager` soft-rate budget", sink_text)
         self.assertIn("maker-side `tracked_token_cleanup` / orphan cleanup still runs", sink_text)
         self.assertIn("one lifecycle contract for live authority", sink_text)
@@ -899,7 +899,11 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("SOLAR_SLUG_MAKER_CIRCUIT_SCHEMATIC.md", packet_text)
         self.assertIn("GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md", packet_text)
         self.assertIn("surviving-blocker runtime tribunal", packet_text)
-        self.assertIn("support-shadow / probe family truth cleanup", packet_text)
+        self.assertIn("support-shadow / probe family de-fat", packet_text)
+        self.assertIn(
+            "closeout routing + selector-family truth-sync + Packet 3 transition prep",
+            packet_text,
+        )
         self.assertIn("accessory competitiveness + sizing tribunals", packet_text)
         self.assertIn("diagnostic-surface hardening", packet_text)
         self.assertIn("Recurring self-hardening cadence", program_text)
@@ -938,10 +942,13 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn(recovery_extinction_rel, next_plan_text)
         self.assertIn(recovery_extinction_rel, limits_text)
         self.assertIn("current packet = `Packet 2 Maker-Live / Economic Trust Qualification`", packet_text)
-        self.assertIn("current mode = `support-shadow cleanup + accessory maker sizing tribunal`", packet_text)
-        self.assertIn("current first work = support-shadow / probe family truth cleanup", packet_text)
-        self.assertIn("current second work = accessory maker sizing tribunal", packet_text)
-        self.assertIn("current third work = accessory competitiveness tribunal", packet_text)
+        self.assertIn(
+            "current mode =\n  `closeout routing + selector-family truth-sync + Packet 3 transition prep`",
+            packet_text,
+        )
+        self.assertIn("current first work = top truth / pickup / board routing sync", packet_text)
+        self.assertIn("current second work = stale Packet 2 residue extinction", packet_text)
+        self.assertIn("current third work = read-only Packet 3 wallet owner audit", packet_text)
         self.assertIn("cancel-only fail-close for open", packet_text)
         self.assertIn("`docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen", packet_text)
         self.assertIn("maker gate opens at `15s`", sink_text)

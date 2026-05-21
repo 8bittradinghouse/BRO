@@ -209,15 +209,16 @@ Forbidden answers from historical closeout:
 | Concept | Conflicting owners | Current canonical owner | Demoted historical owner | Consequence for runtime mapping |
 | --- | --- | --- | --- | --- |
 | `SNIPER_PRIMARY` live authority | historical `BRO_CANONICAL_DOCTRINE.txt` taker-only wording had conflicted with `DOCTRINE_RUNBOOK.md`, `edge_truth_contract.py`, and active board owners | `DOCTRINE_RUNBOOK.md` + `prodesk/edge_truth_contract.py` + synchronized `BRO_CANONICAL_DOCTRINE.txt` + active board owners | pre-`2026-05-06` taker-only wording in `BRO_CANONICAL_DOCTRINE.txt` | any runtime/config/report surface treating `SNIPER_PRIMARY` as current canonical live taker authority is compatibility legacy, not closure authority |
-| raw `EXTREME_ONLY` stage vs true live-fire window | runtime stage bucket maps `0-20s`; doctrine says canonical live taker fire window is hard `<=7s` | `DOCTRINE_RUNBOOK.md` + current config final window + active board owners | raw stage bucket by itself | `EXTREME_ONLY` remains a compatibility bucket; actual live authority still depends on tighter window and downstream gates |
+| legacy `EXTREME_ONLY` / current `LINEAGE_ONLY_0_TO_20S` raw stage vs true live-fire window | runtime stage bucket maps `0-20s`; doctrine says canonical live taker fire window is hard `<=7s` | `DOCTRINE_RUNBOOK.md` + current config final window + active board owners | raw stage bucket by itself | current runtime emits `LINEAGE_ONLY_0_TO_20S`; legacy `EXTREME_ONLY` remains a compatibility alias only; actual live authority still depends on tighter window and downstream gates |
 | stage-local taker windows outside `<=7s` | older doctrine/config mechanisms allow stage-local windows; current doctrine says broader windows are diagnostic-only | `DOCTRINE_RUNBOOK.md` + current empty `stage_final_window_sec_by_stage` + active board owners | older stage-local live-authority assumptions | stage-local noncanonical windows are audit/diagnostic material, not present live authority |
 
 Current doctrine-root verdict:
 - doctrine-root `SNIPER_PRIMARY` wording is now source-corrected.
 - `SNIPER_PRIMARY` is not current canonical live taker authority.
 - canonical live taker authority is the explicit `<=7s` taker commitment lane,
-  surfaced as `TAKER_COMMITMENT` on `effective_stage`; raw `EXTREME_ONLY`
-  remains lineage only.
+  surfaced as `TAKER_COMMITMENT` on `effective_stage`; raw
+  `LINEAGE_ONLY_0_TO_20S` remains lineage only and legacy `EXTREME_ONLY` is a
+  compatibility alias.
 - any stage-local or naming surfaces that imply broader live authority are
   compatibility legacy until explicitly repaired.
 
@@ -227,10 +228,11 @@ Current doctrine-root verdict:
    - stage-permission contract lives in `prodesk/edge_truth_contract.py`
 2. Stage bucket production:
    - `executor._stage_name_for_sec_to_expiry()`
-   - outputs `SNIPER_PRIMARY` for `20-30s`, `EXTREME_ONLY` for `0-20s`
+   - outputs `SNIPER_PRIMARY` for `20-30s`, `LINEAGE_ONLY_0_TO_20S` for
+     `0-20s`
 3. Stage permission owner:
    - `edge_stage_policy()` / `CANONICAL_EDGE_STAGE_POLICY`
-   - forbids taker in `SNIPER_PRIMARY` and in raw `EXTREME_ONLY`
+   - forbids taker in `SNIPER_PRIMARY` and in raw `LINEAGE_ONLY_0_TO_20S`
    - current live late-window authority instead comes from the explicit runtime
      authority fields:
      `maker_new_risk_allowed`, `normal_taker_allowed`,
@@ -288,7 +290,7 @@ Current doctrine-root verdict:
 | Surface | Purpose | Initial class | Duplicate-risk | Notes |
 | --- | --- | --- | --- | --- |
 | `SNIPER_PRIMARY` | raw late-stage bucket name | compatibility legacy | high | conflicts with current doctrine-root meaning |
-| `EXTREME_ONLY` | raw late-window lineage bucket | compatibility lineage bucket beneath explicit effective-stage authority labels | medium | must not be mistaken for “all `0-20s` are live-fire eligible” |
+| `LINEAGE_ONLY_0_TO_20S` | raw late-window lineage bucket | compatibility lineage bucket beneath explicit effective-stage authority labels; legacy `EXTREME_ONLY` is alias-only | medium | must not be mistaken for “all `0-20s` are live-fire eligible” |
 | `taker_enabled` | canonical taker enablement view | canonical runtime owner | low | current runtime owner is source-collapsed onto effective `taker_enabled` |
 | `_run_taker` | main taker controller | canonical runtime owner | low | current code has no live sniper wrapper sibling |
 | `_taker_context` | canonical taker context owner | canonical runtime owner | low | current code has no live sniper context wrapper sibling |
@@ -350,7 +352,7 @@ Presumption law for this map:
 
 | Surface / family | Current job | Presumed status | Keep proof required / current proof | Current call |
 | --- | --- | --- | --- | --- |
-| raw stage buckets `SNIPER_PRIMARY` / `EXTREME_ONLY` in `_stage_name_for_sec_to_expiry()` | produce raw time-bucket lineage before any remap | presumed non-steel compatibility naming | current runtime still needs raw bucket lineage to explain remap versus authority; bucket names still do not own live authority | keep now as lineage only; rename/collapse later if remap model changes |
+| raw stage buckets `SNIPER_PRIMARY` / `LINEAGE_ONLY_0_TO_20S` in `_stage_name_for_sec_to_expiry()` | produce raw time-bucket lineage before any remap | presumed non-steel compatibility naming | current runtime still needs raw bucket lineage to explain remap versus authority; bucket names still do not own live authority | keep now as lineage only; legacy `EXTREME_ONLY` survives only as compatibility alias |
 | `taker.*` namespace and `TakerCompetitivenessConfig` container | hold active taker config under canonical taker naming | keep-now canonical housing | current loaders, validators, and runtime owners depend on this tree shape | keep now |
 | retired stage-local taker threshold leaves | older taker fire-threshold housing | retired current authority | canonical live taker threshold now lives only on top-level `taker.min_edge`; stage-local threshold leaves must not re-arm current fire permission | historical quarantine only |
 | `stage_final_window_sec_by_stage` | per-stage taker window override mechanism | presumed non-steel dormant add-on | canonical taker engine now ignores it for live authority; no keep proof remains beyond compatibility parsing | compatibility-only purge candidate |
@@ -1129,9 +1131,11 @@ Current strongest findings:
     - the pre-surgery `EXTREME_ONLY` recovery rows carried
       `required_min_edge=0.25`
     - canonical report truth now records
-      `required_min_edge_by_intent_stage.normal_competitiveness.EXTREME_ONLY`
-      and `required_min_edge_by_intent_stage.recovery_override.EXTREME_ONLY`
-  - the active `EXTREME_ONLY` surgery packet now adds:
+      `required_min_edge_by_intent_stage.normal_competitiveness.LINEAGE_ONLY_0_TO_20S`
+      and
+      `required_min_edge_by_intent_stage.recovery_override.LINEAGE_ONLY_0_TO_20S`
+  - the active legacy-`EXTREME_ONLY` / current-`LINEAGE_ONLY_0_TO_20S`
+    lineage-cleanup packet now adds:
     - packet-entry hardening through
       `docs/EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md`
     - canonical paper fixed-shot behavior with no dynamic-size authority

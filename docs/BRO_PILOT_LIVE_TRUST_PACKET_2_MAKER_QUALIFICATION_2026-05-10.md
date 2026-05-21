@@ -670,10 +670,11 @@ If a new thread must open now, re-anchor in this order:
 
 Then restate:
 - current packet = `Packet 2 Maker-Live / Economic Trust Qualification`
-- current mode = `support-shadow cleanup + accessory maker sizing tribunal`
+- current mode =
+  `closeout routing + selector-family truth-sync + Packet 3 transition prep`
 - current no-change list = the list above
-- current first work = support-shadow / probe family truth cleanup
-- current second work = accessory maker sizing tribunal
-- current third work = accessory competitiveness tribunal
+- current first work = top truth / pickup / board routing sync
+- current second work = stale Packet 2 residue extinction
+- current third work = read-only Packet 3 wallet owner audit
 - current recovery/unwind replacement truth = cancel-only fail-close for open
   unfilled orders; hold real accepted exposure to settlement

@@ -7,7 +7,8 @@
 - old stage-family language here is ancestry only
 
 ## Purpose
-- `VERIFIED`: this is the packet-entry hardening pack for all current `EXTREME_ONLY` surgery.
+- `VERIFIED`: this is the packet-entry hardening pack for the legacy
+  `EXTREME_ONLY` / current `LINEAGE_ONLY_0_TO_20S` lineage-cleanup family.
 - `VERIFIED`: it is the first document to load before changing code, tests, or current board truth for this family.
 - `VERIFIED`: it is not a substitute doctrine root; it is the anti-drift ritual for this packet.
 
@@ -37,7 +38,9 @@
 - `docs/EXTREME_ONLY_FAMILY_SURGERY_PLAN_2026-05-08.md`
 
 ## Packet Disease Statement
-- `VERIFIED`: raw `EXTREME_ONLY` no longer owns live late-window fire authority.
+- `VERIFIED`: raw late-window lineage no longer owns live late-window fire authority.
+- `VERIFIED`: current runtime emits `LINEAGE_ONLY_0_TO_20S`; legacy
+  `EXTREME_ONLY` survives only as compatibility ancestry.
 - `VERIFIED`: the remaining disease is accessory and compatibility mass clustered around that lineage bucket:
   - threshold leaf over-tightness
   - dynamic-size bridge behavior
@@ -81,7 +84,8 @@
 These may remain parseable for compatibility, but they must not be taught as current canonical taker owners.
 
 ## Null Hypothesis
-- `EXTREME_ONLY` accessory mass is still keeping taker sheathed even after root authority cleanup.
+- late-window lineage accessory mass is still keeping taker sheathed even
+  after root authority cleanup.
 
 ## Wire Map
 1. `paper_universal.yaml` establishes the current canonical paper packet posture.

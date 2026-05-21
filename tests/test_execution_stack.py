@@ -389,7 +389,11 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertEqual(bool(selection.get("require_secondary_oracle_confirmation")), True)
         self.assertNotIn("require_one_sided_active", selection)
         self.assertAlmostEqual(float(selection.get("cannon_target_notional_usd") or 0.0), 100.0, places=9)
-        self.assertAlmostEqual(float(selection.get("maker_min_depth_multiple") or 0.0), 1.5, places=9)
+        self.assertAlmostEqual(float(selection.get("maker_min_depth_multiple") or 0.0), 1.45, places=9)
+        self.assertEqual(
+            list(selection.get("maker_min_depth_multiple_band") or []),
+            [1.45, 1.5],
+        )
         self.assertEqual(
             int(float(selection.get("max_same_target_submit_count_prior"))),
             1,
@@ -426,6 +430,12 @@ class ExecutionStackTests(unittest.TestCase):
             )
             self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 7.0, places=9)
             self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 15.0, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_min_depth_multiple or 0.0), 1.45, places=9)
+            self.assertAlmostEqual(
+                float(manager.maker_selection_gate_depth_multiple_ceiling or 0.0),
+                1.5,
+                places=9,
+            )
         finally:
             events.close()
             tmp.cleanup()
@@ -819,6 +829,14 @@ class ExecutionStackTests(unittest.TestCase):
         cfg["targets"]["token_ids"] = ["tok1"]
         cfg["sizing"]["maker_depth_target_min_ratio"] = 0.3
         cfg["sizing"]["maker_depth_target_max_ratio"] = 0.2
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_invalid_maker_min_depth_multiple_band(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["targets"]["token_ids"] = ["tok1"]
+        cfg["lifecycle"]["selection"]["maker_min_depth_multiple_band"] = [1.5, 1.45]
+        cfg["lifecycle"]["selection"]["maker_min_depth_multiple"] = 1.5
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -10852,7 +10870,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.token_market_key_by_token[token_id] = "mk-late-maker"
                 stage_info = runner._token_lifecycle_info(token_id)  # pylint: disable=protected-access
                 self.assertEqual(str(stage_info.get("lifecycle_phase") or ""), "maker_window")
-                self.assertEqual(str(stage_info.get("lineage_stage") or ""), "EXTREME_ONLY")
+                self.assertEqual(str(stage_info.get("lineage_stage") or ""), "LINEAGE_ONLY_0_TO_20S")
                 self.assertNotIn("effective_stage", stage_info)
                 self.assertNotIn("stage_bucket", stage_info)
                 self.assertNotIn("raw_stage", stage_info)
@@ -10923,7 +10941,7 @@ class ExecutionStackTests(unittest.TestCase):
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
-                    lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
+                    lineage_stage=str(stage_info.get("lineage_stage") or "LINEAGE_ONLY_0_TO_20S"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
                     base_size_multiplier=1.0,
                     base_spread_multiplier=1.0,
@@ -10940,7 +10958,7 @@ class ExecutionStackTests(unittest.TestCase):
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
-                    lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
+                    lineage_stage=str(stage_info.get("lineage_stage") or "LINEAGE_ONLY_0_TO_20S"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
                     base_size_multiplier=1.0,
                     base_spread_multiplier=1.0,
@@ -10957,7 +10975,7 @@ class ExecutionStackTests(unittest.TestCase):
                     chainlink_spot_price=None,
                     secondary_oracle_spot_price=None,
                     lifecycle_phase=str(stage_info.get("lifecycle_phase") or "maker_window"),
-                    lineage_stage=str(stage_info.get("lineage_stage") or "EXTREME_ONLY"),
+                    lineage_stage=str(stage_info.get("lineage_stage") or "LINEAGE_ONLY_0_TO_20S"),
                     sec_to_expiry=float(stage_info.get("sec_to_expiry") or 0.0),
                     base_size_multiplier=1.0,
                     base_spread_multiplier=1.0,
@@ -10969,7 +10987,10 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertFalse(bool((without_authority.get("context") or {}).get("one_sided_allowed_phase")))
                 self.assertFalse(bool((without_authority.get("context") or {}).get("one_sided_allowed_authority")))
                 self.assertEqual(str((with_authority.get("context") or {}).get("lifecycle_phase") or ""), "maker_window")
-                self.assertEqual(str((with_authority.get("context") or {}).get("lineage_stage") or ""), "EXTREME_ONLY")
+                self.assertEqual(
+                    str((with_authority.get("context") or {}).get("lineage_stage") or ""),
+                    "LINEAGE_ONLY_0_TO_20S",
+                )
                 self.assertIsInstance(with_authority.get("posture_contract"), dict)
                 posture = dict(with_authority.get("posture_contract") or {})
                 self.assertEqual(str(posture.get("side_policy") or ""), "BUY_ONLY")

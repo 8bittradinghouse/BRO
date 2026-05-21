@@ -15,13 +15,31 @@
 ## Evidence Lock
 - active branch: `consultant/full-snapshot-public-20260402T055838Z`
 - latest Packet 1 closeout packet commit: `7bf765ecd8f83cd08955e9bce80d813bbf77d221`
-- current tree cleanliness: `dirty / Packet 2 documentation hardening in progress`
+- current tree cleanliness: `dirty / transition packet in progress`
 - current broad proof anchor: `7bbde42c-003a-4f57-b59a-7ce138224075`
 - current timing closeout anchor: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
 - current grip closeout anchor: `33e30bd8-e416-488e-83ce-f99c8665e7fc`
-- current watched current-tree canon anchor:
+- strongest current watched lane-health anchor:
+  `b6336854-b2f6-44a7-862a-71b41b6ac60f`
+  - `runtime_classification=VALID_ACTIVE`
+  - `highest_passing_stage=pilot_live`
+  - `blocking_stage=scaled_live`
+  - `promotion_eligible=true`
+  - maker `15 submits / 25 fills`
+  - taker `7 submits / 7 fills`
+  - lifecycle / timing / websocket audits clean
+- current quiet-time contrast anchor:
+  `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `runtime_classification=VALID_ACTIVE`
+  - taker fired `1 submit / 1 fill`
+  - maker stayed selective with `0 submits`
+  - this is low-opportunity shoulder truth, not default maker choke proof
+- current in-flight packet body carries:
+  - maker depth-band support (`1.45-1.5`)
+  - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
+  - truth-routing sync and Packet 3 wallet doctrine lock / surgical cut plan
+- last watched current-tree canon before this transition packet:
   `4f843da4-16ec-4616-948c-c7b19e7f5aea`
-- current watched current-tree canon read:
   - `runtime_classification=VALID_ACTIVE`
   - owned markets stayed inside the final `90s`
   - maker and taker both fired
@@ -37,7 +55,8 @@
 - phase: `pilot_live`
 - macro lane: `live trust qualification`
 - current lane status: `open`
-- current active implementation lane: `Packet 2 maker live trust qualification (support-shadow cleanup + accessory maker sizing tribunal)`
+- current active implementation lane:
+  `Packet 2 maker live trust closeout-routing / selector-family truth-sync / Packet 3 doctrine lock and cut-plan transition prep`
 - active Packet 2 entry artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
   - companion board + hardening stack:
@@ -71,8 +90,8 @@ Board law:
 
 ## Packet Status Board
 - Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
-- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / support-shadow cleanup + accessory maker sizing tribunal`
-- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / inactive`
+- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / closeout routing + selector-family truth sync`
+- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `sequenced / doctrine lock + surgical cut plan ready`
 - Packet 4 `Bounded Live Hookup / Controlled Arming Qualification`: `sequenced / inactive`
 - Packet 5 `Immediate-Performance Proof`: `sequenced / inactive`
 
@@ -86,7 +105,7 @@ Board law:
 
 ## Jin Self-Hardening Status
 - current status:
-  `current for Packet 2 post-audit truth-owner / proof-semantics closeout and anti-drift relock`
+  `current for Packet 2 closeout routing, stale-residue extinction, Packet 3 doctrine lock + surgical cut plan, and anti-drift relock`
 - BRO-wide anti-drift relock front door:
   - `docs/JIN_RELOCK_PACK_2026-05-12.md`
 - active packet-local lock card:
@@ -388,16 +407,16 @@ Current board use:
     remaining residue is doc/test/history cleanup, not runtime ownership
   - Packet 1 now explicitly records that current BRO still does **not** provide
     independent concurrent maker/taker authority:
-    - the raw `EXTREME_ONLY` bucket still exists, but it no longer owns
-      concurrent maker+taker authority at the stage-policy root; it remains
-      lineage only
-    - current code no longer lets maker timing steal late `EXTREME_ONLY`
-      authority back into `MAKER_TAKER_SELECTIVE`
+    - the raw `LINEAGE_ONLY_0_TO_20S` bucket is the current emitted late-window
+      lineage label; legacy `EXTREME_ONLY` survives only as compatibility
+      ancestry and owns zero concurrent maker+taker authority
+    - current code no longer lets maker timing steal late
+      `LINEAGE_ONLY_0_TO_20S` lineage back into `MAKER_TAKER_SELECTIVE`
     - `_taker_context()` no longer lets legacy `execution_cutoff_sec` suppress
       true late-window taker reachability
     - taker activation and `_run_taker()` now share one canonical stage-window
       token set
-    - raw `EXTREME_ONLY` stage policy is no longer the live owner; current late
+    - raw `LINEAGE_ONLY_0_TO_20S` lineage is not the live owner; current late
       authority now rides explicit runtime fields and effective-stage labels
     - Packet 1 removed taker-driven shared `OrderManager` soft-rate budget
       mutation; final-window taker cadence remains lane-local instead

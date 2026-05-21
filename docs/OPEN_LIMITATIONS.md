@@ -23,7 +23,39 @@
   - a later `schoolhouse clearing / deauth` lane is expected, but it is
     architecture/authority hygiene debt rather than the active runtime blocker
 
-## Current Packet Boundary Addendum (2026-05-20)
+## Packet 3 Pre-Open Owner Map (2026-05-21)
+- locked planning surfaces for this pre-open map now include:
+  - `docs/BRO_WALLET_GUARDIAN_BLUEPRINT_WEB3PY_2026-05-21.md`
+  - `docs/WALLET_GUARDIAN_READONLY_MAPPING_2026-05-21.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
+- wallet/startup owner surfaces on current code are:
+  - `prodesk/wallet/wallet_health.py`
+  - `prodesk/wallet/wallet_controller.py`
+- canonical live wallet authority lives under:
+  - `canonical_live_wallet_truth`
+- local and derived surfaces stay subordinate:
+  - `local_tx_lifecycle_state`
+  - `open_order_state`
+  - `integrity_tripwire_reconcile_state`
+- in live mode, submit readiness requires all of:
+  - `auth.live_order_submission_enabled=true`
+  - authoritative startup refresh
+  - `canonical_live_nonce_available=true`
+  - `canonical_live_pending_wallet_tx_available=true`
+- current `live_pilot` posture remains fail-closed by default:
+  - `auth.live_order_submission_enabled` is not armed by default
+  - strict live nonce / pending-wallet-tx truth flags become mandatory if live
+    order submission is enabled
+- current paper posture may honestly show:
+  - `order_submit_eligible=true`
+  - `order_capable_live=false`
+  - `canonical_live_nonce_available=false`
+  - `canonical_live_pending_wallet_tx_available=false`
+  - that is paper-authoritative only and must not be misread as live readiness
+- deprecated top-level wallet / allowance / nonce / pending surfaces are
+  compatibility-only and must not outrank `canonical_live_wallet_truth`
+
+## Current Packet Boundary Addendum (2026-05-21)
 - Current Packet 2 maker/taker selector families are not presently proven broken by reject volume alone.
 - Strong health anchor:
   - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
@@ -40,8 +72,11 @@
 - Current doctrine call:
   - high reject volume alone is not authorization for selector retuning
   - no generic maker/taker gate mutation is authorized without blueprint mismatch proof or a proved near-miss opportunity band
-- Current next move:
-  - blueprint-alignment audit
+- Current immediate move:
+  - truth-routing sync and stale Packet 2 residue extinction
+  - Packet 3 wallet doctrine lock / surgical cut-plan sync
+  - no Packet 3 runtime/code slice opened yet
+  - blueprint-alignment audit remains downstream
   - not emergency blocker surgery
 
 ## Launch-Window Limitations

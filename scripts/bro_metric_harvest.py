@@ -161,6 +161,7 @@ _LEGACY_STAGE_TO_LIFECYCLE_PHASE = {
     "SNIPER_PRIMARY": "prepare",
     "LATE_DIAGNOSTIC": "prepare",
     "EXTREME_ONLY": "prepare",
+    "LINEAGE_ONLY_0_TO_20S": "prepare",
     "MAKER_LATE_WINDOW": "maker_window",
     "TAKER_COMMITMENT": "taker_window",
     "EXPIRED": "resolve",

@@ -46,6 +46,7 @@ from prodesk.historical_recovery_replay_compat import (
     HISTORICAL_RECOVERY_REASON_FIELD as _HISTORICAL_RECOVERY_REASON_FIELD,
 )
 from prodesk.jsonl_utils import load_jsonl
+from prodesk.lineage_stage import normalize_lineage_stage
 from prodesk.models import BookTop, OrderIntent
 from prodesk.run_contract import (
     apply_contract_bounds,
@@ -3432,8 +3433,7 @@ def _execution_quality_lane_attribution(
         return value if isinstance(value, dict) else {}
 
     def _normalize_lineage_stage(value: Any) -> str:
-        lineage_stage = str(value or "").strip().upper()
-        return lineage_stage or "UNKNOWN"
+        return normalize_lineage_stage(value)
 
     def _is_lifecycle_residue_override_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         candidate_payloads = [
@@ -3733,8 +3733,7 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
         return value if isinstance(value, dict) else {}
 
     def _normalize_lineage_stage(value: Any) -> str:
-        lineage_stage = str(value or "").strip().upper()
-        return lineage_stage or "UNKNOWN"
+        return normalize_lineage_stage(value)
 
     def _is_lifecycle_residue_submit(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
         for payload in (
@@ -3944,8 +3943,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         return value if isinstance(value, dict) else {}
 
     def _normalize_lineage_stage(value: Any) -> str:
-        lineage_stage = str(value or "").strip().upper()
-        return lineage_stage or "UNKNOWN"
+        return normalize_lineage_stage(value)
 
     def _counter_for(mapping: Dict[str, Counter[str]], key: str) -> Counter[str]:
         counter = mapping.get(key)
@@ -8898,8 +8896,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     lineage_stage_inter_submit_deltas: Dict[str, List[float]] = {}
 
     def _normalize_lineage_stage(stage_value: Any) -> str:
-        stage = str(stage_value or "").strip().upper()
-        return stage or "UNKNOWN"
+        return normalize_lineage_stage(stage_value)
 
     def _lineage_stage_row(stage_name: str) -> Dict[str, float]:
         row = lineage_stage_funnel.get(stage_name)

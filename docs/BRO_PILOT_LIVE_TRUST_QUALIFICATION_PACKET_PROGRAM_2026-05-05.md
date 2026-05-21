@@ -74,10 +74,11 @@ Ancestor-frame graduation bar:
 
 ## Current Program Lock
 - `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
-- `Packet 2` is now active in support-shadow cleanup and accessory maker
-  sizing / shaping tribunal after current-code replay cut the first blocker
-  ledger and the fresh watched specimen narrowed the remaining live patient to
-  sizing-feasibility conflict.
+- `Packet 2` remains active, but the body has moved beyond emergency
+  support-shadow cleanup. Current work is closeout routing, selector-family
+  truth-sync, and transition prep for `Packet 3` after owner collapse,
+  false-authority cleanup, report seam cleanup, and healthy maker/taker proof
+  materially landed.
 - `Packet 3` through `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`

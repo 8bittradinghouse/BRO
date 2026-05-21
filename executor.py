@@ -89,6 +89,7 @@ from prodesk.latency_verifier import (
     LatencySnapshot,
     LatencyVerifier,
 )
+from prodesk.lineage_stage import STAGE_LINEAGE_ONLY_0_TO_20S
 from prodesk.market_discovery import MarketDiscovery
 from prodesk.models import BookTop, Position, book_source_is_ws, decision_input_type_from_book_source
 from prodesk.operating_mode import (
@@ -132,7 +133,9 @@ STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
 STAGE_LATE_DIAGNOSTIC = "LATE_DIAGNOSTIC"
 STAGE_MAKER_LATE_WINDOW = "MAKER_LATE_WINDOW"
 STAGE_TAKER_COMMITMENT = "TAKER_COMMITMENT"
-STAGE_EXTREME_ONLY = "EXTREME_ONLY"
+# Legacy identifier name retained internally; the emitted raw late bucket is
+# explicitly lineage-only and carries no live authority by itself.
+STAGE_EXTREME_ONLY = STAGE_LINEAGE_ONLY_0_TO_20S
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
 CANONICAL_LIVE_TAKER_STAGE_NAMES = frozenset(

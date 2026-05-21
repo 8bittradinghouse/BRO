@@ -2724,7 +2724,10 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(summary.get("maker_timing_band_class_distribution"), {"unknown": 2})
             self.assertTrue(bool(rows))
             rows_by_target = {str(row.get("target_ref") or ""): row for row in rows}
-            self.assertEqual(str(rows_by_target["target-clean"].get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertEqual(
+                str(rows_by_target["target-clean"].get("lineage_stage") or ""),
+                "LINEAGE_ONLY_0_TO_20S",
+            )
             self.assertEqual(str(rows_by_target["target-trash"].get("lineage_stage") or ""), "UNKNOWN")
             self.assertEqual(str(rows_by_target["target-clean"].get("lifecycle_phase") or ""), "prepare")
             self.assertNotIn("effective_stage", rows_by_target["target-clean"])
@@ -3028,7 +3031,10 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(summary.get("cannon_depth_requirement_counts"), {"met": 2, "not_met": 2, "unknown": 1})
             self.assertEqual(len(rows), 5)
             clean_row = next(row for row in rows if str(row.get("token_id")) == "t-clean")
-            self.assertEqual(str(clean_row.get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertEqual(
+                str(clean_row.get("lineage_stage") or ""),
+                "LINEAGE_ONLY_0_TO_20S",
+            )
             self.assertEqual(bool(clean_row.get("maker_phase_allowed")), True)
             self.assertNotIn("stage", clean_row)
             self.assertNotIn("effective_stage", clean_row)
@@ -5320,7 +5326,9 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(matrix.get("submit_event_distribution"), {})
             self.assertEqual(float(matrix.get("normal_below_required_min_edge_count") or 0.0), 1.0)
             required_min_edge = matrix.get("required_min_edge_by_intent_lineage_stage", {})
-            normal_extreme = (required_min_edge.get("normal_competitiveness") or {}).get("EXTREME_ONLY", {})
+            normal_extreme = (
+                (required_min_edge.get("normal_competitiveness") or {}).get("LINEAGE_ONLY_0_TO_20S", {})
+            )
             self.assertEqual(float(normal_extreme.get("min") or 0.0), 0.11)
             self.assertEqual(float(normal_extreme.get("max") or 0.0), 0.11)
             summary = render_human_summary(report)

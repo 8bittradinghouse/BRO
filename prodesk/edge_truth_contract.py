@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from .lineage_stage import normalize_lineage_stage
+from .lineage_stage import STAGE_LINEAGE_ONLY_0_TO_20S, normalize_lineage_stage
 
 EDGE_EVAL_SCOPE_MAKER = "maker"
 EDGE_EVAL_SCOPE_TAKER = "taker"
@@ -126,7 +126,7 @@ STAGE_SNIPER_PRIMARY = "SNIPER_PRIMARY"
 STAGE_LATE_DIAGNOSTIC = "LATE_DIAGNOSTIC"
 STAGE_MAKER_LATE_WINDOW = "MAKER_LATE_WINDOW"
 STAGE_TAKER_COMMITMENT = "TAKER_COMMITMENT"
-STAGE_EXTREME_ONLY = "EXTREME_ONLY"
+STAGE_EXTREME_ONLY = STAGE_LINEAGE_ONLY_0_TO_20S
 STAGE_EXPIRED = "EXPIRED"
 STAGE_UNKNOWN = "UNKNOWN"
 EDGE_STAGE_LINEAGE_FIELD = "lineage_stage"

@@ -7,14 +7,21 @@ This document now serves two jobs:
 1. preserve the immediate active pickup point,
 2. preserve the next macro lanes so they do not get lost after maintenance or side packets.
 
-## Current Pickup Addendum (2026-05-20)
+## Current Pickup Addendum (2026-05-21)
+- latest committed checkpoint is now:
+  - `e24fc34`
+  - `docs: refresh current truth and pickup anchors`
+- `af00d02` remains the last clean maker/taker hardening checkpoint described
+  by older pickup surfaces; it is not the current present-tense body
 - packet body is now:
-  - committed
-  - pushed
-  - clean at `af00d02`
+  - dirty / in-flight
+  - not yet reclosed to a clean commit boundary
 - the active immediate pickup is no longer emergency Packet 2 surgery cleanup
 - current active next move is:
-  - read-only blueprint alignment audit for maker/taker tunings and surviving shaper authority
+  - truth-routing sync on broad truth / board / pickup surfaces
+  - stale Packet 2 residue extinction
+  - Packet 3 wallet doctrine lock and surgical cut-plan sync
+  - no Packet 3 runtime/code slice opened yet
 - strongest health anchor to use first is:
   - `b6336854-b2f6-44a7-862a-71b41b6ac60f`
   - maker and taker both alive
@@ -24,6 +31,8 @@ This document now serves two jobs:
   - `c519e785-598c-4cd1-83af-51f0c37592b5`
   - healthy runtime, low-opportunity shoulder specimen
   - do not overread no-submit maker there as lane failure
+- blueprint-defined maker/taker tuning alignment remains downstream once the
+  routing layer is reclosed cleanly again
 - do not reopen the prior depth / one-sided panic lane from reject volume alone
 - if the next thread sees a loud gate family, force the SOP first:
   1. is the lane alive?
@@ -696,9 +705,10 @@ Current truth:
 - taker remains the primary engineering lane
 - the current packet is taker doctrine forging with maker/taker interaction and end-state-shape still in scope where it affects taker truth
 - this is still not a broad maker review
-- for the active `EXTREME_ONLY` surgery packet, this file is historical/reference
-  only and does not outrank the current packet-local self-hardening pack or
-  active Packet 1 board owners
+- for the legacy `EXTREME_ONLY` / current `LINEAGE_ONLY_0_TO_20S`
+  lineage-cleanup packet, this file is historical/reference only and does not
+  outrank the current packet-local self-hardening pack or active Packet 1 board
+  owners
 - accepted normal taker is now hard-canonical:
   - hard `<=7s` window
   - fixed `$150` shot
