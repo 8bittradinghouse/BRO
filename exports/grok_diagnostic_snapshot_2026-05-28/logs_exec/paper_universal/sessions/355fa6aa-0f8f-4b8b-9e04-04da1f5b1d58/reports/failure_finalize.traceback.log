@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 2087, in run
+    self.phase_preflight()
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1123, in phase_preflight
+    cfg = load_execution_config(self.ctx.config_path)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/odah/bro/base/prodesk/config.py", line 1021, in load_execution_config
+    validate_execution_config(cfg)
+  File "/home/odah/bro/base/prodesk/config.py", line 2471, in validate_execution_config
+    raise ValueError(
+ValueError: runtime.paper_expected_config_fingerprint_sha256 does not match _meta.effective_config_sha256

@@ -1,0 +1,179 @@
+{
+  "checked_event_rows": 4969,
+  "checked_status_rows": 41,
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "configured_log_dir": "/logs/paper_universal",
+  "configured_max_clock_skew_sec": 0.25,
+  "configured_time_policy_skew_tolerance_ms": 120.0,
+  "contract_authority_level": "authoritative",
+  "critical_timing_evidence": {
+    "accepted_submit_missing_decision_anchor_rows": 0,
+    "accepted_submit_missing_submit_latency_rows": 0,
+    "accepted_submit_rows": 3,
+    "accepted_taker_submit_missing_context_rows": 0,
+    "accepted_taker_submit_rows": 0,
+    "maker_timing_missing_context_rows": 0,
+    "maker_timing_rows_observed": 149,
+    "taker_decision_missing_decision_ts_rows": 0,
+    "taker_decision_missing_sec_to_expiry_rows": 0,
+    "taker_decision_missing_timing_window_rows": 0,
+    "taker_decision_rows": 0
+  },
+  "error_codes": [],
+  "event_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/slices/events_slice.jsonl"
+  ],
+  "event_timestamp_domain_audit": {
+    "cross_domain_skew_checked_rows": 0,
+    "cross_domain_skew_exceeded_rows": 0,
+    "cross_domain_skew_exempt_rows": 1213,
+    "cross_domain_skew_exemption_policy": "chainlink_tick[source_ts_is_oracle_publication_time]",
+    "cross_domain_skew_tolerance_ms": 120.0,
+    "decision_after_event_rows": 0,
+    "event_rows_considered": 4969,
+    "invalid_decision_ts_rows": 0,
+    "invalid_event_ts_rows": 0,
+    "invalid_receive_ts_rows": 0,
+    "invalid_source_ts_rows": 0,
+    "required_domain_fields": [
+      "ts_event_utc",
+      "ts_receive_utc",
+      "ts_source_utc",
+      "ts_decision_utc"
+    ],
+    "required_presence_missing_rows": 0,
+    "timing_capable_cross_domain_rows": 0,
+    "ts_event_mismatch_rows": 0
+  },
+  "finding_count": 0,
+  "findings": [],
+  "host_time_sync": {
+    "active_start": {
+      "clock_state": "synced",
+      "jitter_ms": 3.615,
+      "offset_ms": -3.77,
+      "root_distance_ms": 35.369,
+      "stratum": 2
+    },
+    "active_stop": {
+      "clock_state": "synced",
+      "jitter_ms": 3.888,
+      "offset_ms": 6.171,
+      "root_distance_ms": 20.293,
+      "stratum": 2
+    },
+    "max_abs_offset_ms": 6.171,
+    "max_jitter_ms": 3.888,
+    "max_root_distance_ms": 35.369,
+    "max_stratum": 2,
+    "report_root": "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/reports",
+    "sample_count": 21,
+    "sample_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/reports/host_time_sync_active_samples.jsonl",
+    "start_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/reports/host_time_sync_active_start.json",
+    "stop_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/reports/host_time_sync_active_stop.json",
+    "thresholds": {
+      "max_clock_jitter_ms": 10.0,
+      "max_clock_offset_ms": 10.0,
+      "max_clock_root_distance_ms": 100.0,
+      "max_clock_stratum": 3.0
+    }
+  },
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "non_monotonic_rows": 0,
+  "ok": true,
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_9becda89-a20c-4fa9-996d-6668a3407bf9.json",
+  "run_id_filter": "9becda89-a20c-4fa9-996d-6668a3407bf9",
+  "run_id_resolution": "explicit",
+  "session_phase": "validate_postrun",
+  "status_age_sec": 33.083984,
+  "status_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/27d216be-3b9e-4821-b7d7-7f2fb98b0d6d/slices/status_slice.jsonl"
+  ],
+  "time_policy": {
+    "invalid_rows": 0,
+    "missing_rows": 0,
+    "observed_specs": [
+      {
+        "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
+        "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
+        "skew_tolerance_ms": 120.0,
+        "source_of_truth": "utc_wall_clock"
+      }
+    ],
+    "required_keys": [
+      "source_of_truth",
+      "fallback_logic",
+      "skew_tolerance_ms",
+      "monotonicity_rule"
+    ],
+    "selected_policy": {
+      "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
+      "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
+      "skew_tolerance_ms": 120.0,
+      "source_of_truth": "utc_wall_clock"
+    }
+  },
+  "timing_watchboard": {
+    "freshness": {
+      "book_last_msg_age_summary_sec": {
+        "max_sec": 2.465520496480167e-05,
+        "median_sec": 2.0311458501964807e-06,
+        "p90_sec": 1.0376955848187209e-05,
+        "p95_sec": 1.0376955848187209e-05,
+        "sample_count": 12.0
+      },
+      "chainlink_last_tick_age_summary_sec": {
+        "max_sec": 0.0018593008059542627,
+        "median_sec": 0.0004759901899378747,
+        "p90_sec": 0.000993516153888777,
+        "p95_sec": 0.0010578773668967188,
+        "sample_count": 40.0
+      },
+      "status_row_count": 41,
+      "thresholds_sec": {
+        "book_last_msg_age_sec": 12.0,
+        "chainlink_last_tick_age_sec": 30.0
+      }
+    },
+    "host_sync": {
+      "max_abs_offset_ms": 6.171,
+      "max_jitter_ms": 3.888,
+      "max_root_distance_ms": 35.369,
+      "max_stratum": 2,
+      "thresholds": {
+        "max_clock_jitter_ms": 10.0,
+        "max_clock_offset_ms": 10.0,
+        "max_clock_root_distance_ms": 100.0,
+        "max_clock_stratum": 3.0
+      }
+    },
+    "maker_timing_authority": {
+      "layered_left_edge_split_active": false,
+      "risk_min_sec_to_expiry_for_new_exposure_global": 12.0,
+      "risk_min_sec_to_expiry_for_new_exposure_maker_effective": 8.0,
+      "selection_gate_timing_duplicate_owner_active": false,
+      "selection_gate_timing_max_sec_to_expiry": 12.0,
+      "selection_gate_timing_min_sec_to_expiry": 8.0,
+      "timing_gate_enabled": true,
+      "timing_gate_max_sec_to_expiry": 12.0,
+      "timing_gate_min_sec_to_expiry": 8.0
+    },
+    "ownership_entry_authority": {
+      "enabled": true,
+      "max_sec_to_expiry": 90.0,
+      "min_market_age_sec": 60.0
+    },
+    "submit_latency": {
+      "accepted_submit_latency_ms_summary": {
+        "max_ms": 6.0,
+        "median_ms": 5.0,
+        "p90_ms": 6.0,
+        "p95_ms": 6.0,
+        "sample_count": 3.0
+      }
+    },
+    "warning_band_ratio": 0.75
+  },
+  "warning_count": 0,
+  "warnings": []
+}

@@ -1,0 +1,167 @@
+{
+  "aggregate_band_name": "aggregate_10_to_20s",
+  "bands": {
+    "10_to_15s": {
+      "band_kind": "atomic",
+      "observational_candidate_quality": {
+        "authoritative_reference_count": 20,
+        "depth_met_count": 3,
+        "desired_quote_presence_distribution": {
+          "unknown": 20
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 20,
+        "full_cannon_candidate_count": 3,
+        "geometry_viable_count": 15,
+        "maker_phase_allowed_count": 20,
+        "market_reference_class_distribution": {
+          "authoritative": 20
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 0,
+        "row_count": 20
+      },
+      "runtime_eligible_active_band_quality": {
+        "authoritative_reference_count": 20,
+        "depth_met_count": 3,
+        "desired_quote_presence_distribution": {
+          "unknown": 20
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 20,
+        "full_cannon_candidate_count": 3,
+        "geometry_viable_count": 15,
+        "maker_phase_allowed_count": 20,
+        "market_reference_class_distribution": {
+          "authoritative": 20
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 0,
+        "row_count": 20
+      }
+    },
+    "15_to_20s": {
+      "band_kind": "atomic",
+      "observational_candidate_quality": {
+        "authoritative_reference_count": 20,
+        "depth_met_count": 2,
+        "desired_quote_presence_distribution": {
+          "unknown": 20
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 20,
+        "full_cannon_candidate_count": 2,
+        "geometry_viable_count": 17,
+        "maker_phase_allowed_count": 0,
+        "market_reference_class_distribution": {
+          "authoritative": 20
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 2,
+        "row_count": 20
+      },
+      "runtime_eligible_active_band_quality": {
+        "authoritative_reference_count": 0,
+        "depth_met_count": 0,
+        "desired_quote_presence_distribution": {},
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 0,
+        "full_cannon_candidate_count": 0,
+        "geometry_viable_count": 0,
+        "maker_phase_allowed_count": 0,
+        "market_reference_class_distribution": {},
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 0,
+        "row_count": 0
+      }
+    },
+    "aggregate_10_to_20s": {
+      "band_kind": "derived_aggregate",
+      "observational_candidate_quality": {
+        "authoritative_reference_count": 40,
+        "depth_met_count": 5,
+        "desired_quote_presence_distribution": {
+          "unknown": 40
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 40,
+        "full_cannon_candidate_count": 5,
+        "geometry_viable_count": 32,
+        "maker_phase_allowed_count": 20,
+        "market_reference_class_distribution": {
+          "authoritative": 40
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 2,
+        "row_count": 40
+      },
+      "runtime_eligible_active_band_quality": {
+        "authoritative_reference_count": 20,
+        "depth_met_count": 3,
+        "desired_quote_presence_distribution": {
+          "unknown": 20
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 20,
+        "full_cannon_candidate_count": 3,
+        "geometry_viable_count": 15,
+        "maker_phase_allowed_count": 20,
+        "market_reference_class_distribution": {
+          "authoritative": 20
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 0,
+        "row_count": 20
+      }
+    },
+    "le_10s": {
+      "band_kind": "atomic",
+      "observational_candidate_quality": {
+        "authoritative_reference_count": 123,
+        "depth_met_count": 18,
+        "desired_quote_presence_distribution": {
+          "unknown": 124
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 123,
+        "full_cannon_candidate_count": 18,
+        "geometry_viable_count": 86,
+        "maker_phase_allowed_count": 12,
+        "market_reference_class_distribution": {
+          "authoritative": 123,
+          "not_available": 1
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 17,
+        "row_count": 124
+      },
+      "runtime_eligible_active_band_quality": {
+        "authoritative_reference_count": 12,
+        "depth_met_count": 1,
+        "desired_quote_presence_distribution": {
+          "unknown": 12
+        },
+        "desired_quote_present_count": 0,
+        "dual_oracle_confirmed_count": 12,
+        "full_cannon_candidate_count": 1,
+        "geometry_viable_count": 9,
+        "maker_phase_allowed_count": 12,
+        "market_reference_class_distribution": {
+          "authoritative": 12
+        },
+        "matched_snapshot_decision_distribution": {},
+        "no_submit_cause_distribution": {},
+        "off_band_opportunity_count": 0,
+        "row_count": 12
+      }
+    }
+  },
+  "maker_zero_submit_audit_version": 1
+}

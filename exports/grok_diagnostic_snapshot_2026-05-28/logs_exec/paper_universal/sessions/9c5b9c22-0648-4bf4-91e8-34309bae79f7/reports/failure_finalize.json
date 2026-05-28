@@ -1,0 +1,16 @@
+{
+  "closeout_elapsed_sec": 2.155,
+  "error": "RuntimeError:concurrent_open_canonical_session:session=8f4c9f17-6715-434f-b5b9-814143bbff9b:run=8d87570c-220c-4ad5-943b-7b6b964a9724:phase=active:contract_phase=start",
+  "error_message": "concurrent_open_canonical_session:session=8f4c9f17-6715-434f-b5b9-814143bbff9b:run=8d87570c-220c-4ad5-943b-7b6b964a9724:phase=active:contract_phase=start",
+  "error_type": "RuntimeError",
+  "phase": "preflight",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_error": "ValueError:run_contract_schema_version_invalid:0<min:2",
+  "run_contract_closeout_ok": false,
+  "run_id": "b4a892b7-dd50-4f87-b858-4934b903d3b8",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/9c5b9c22-0648-4bf4-91e8-34309bae79f7/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-27T05:26:14.358Z"
+}

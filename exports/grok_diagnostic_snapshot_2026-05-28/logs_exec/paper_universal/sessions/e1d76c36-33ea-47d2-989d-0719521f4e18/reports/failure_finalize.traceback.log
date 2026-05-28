@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 2044, in run
+    self.phase_validate_postrun()
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1963, in phase_validate_postrun
+    not bool(postrun_validation.get("execution_error", True)),
+             ^^^^^^^^^^^^^^^^^^
+NameError: name 'postrun_validation' is not defined

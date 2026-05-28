@@ -1,0 +1,16 @@
+{
+  "closeout_elapsed_sec": 0.073,
+  "error": "ValueError:run_contract_schema_version_invalid:0<min:2",
+  "error_message": "run_contract_schema_version_invalid:0<min:2",
+  "error_type": "ValueError",
+  "phase": "preflight",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_error": "ValueError:run_contract_schema_version_invalid:0<min:2",
+  "run_contract_closeout_ok": false,
+  "run_id": "d930b705-6b1d-422e-b037-73767439ecb5",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/32729a8e-884f-42a6-9c45-55059f1e2936/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-16T03:03:37.120Z"
+}

@@ -1,0 +1,16 @@
+{
+  "closeout_elapsed_sec": 0.076,
+  "error": "ValueError:runtime.paper_expected_config_fingerprint_sha256 does not match _meta.effective_config_sha256",
+  "error_message": "runtime.paper_expected_config_fingerprint_sha256 does not match _meta.effective_config_sha256",
+  "error_type": "ValueError",
+  "phase": "preflight",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_error": "ValueError:run_contract_schema_version_invalid:0<min:2",
+  "run_contract_closeout_ok": false,
+  "run_id": "3e5d73b6-8252-4587-808b-c350c197c081",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/355fa6aa-0f8f-4b8b-9e04-04da1f5b1d58/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-26T08:47:41.043Z"
+}

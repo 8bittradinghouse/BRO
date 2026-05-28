@@ -1,0 +1,15 @@
+{
+  "closeout_elapsed_sec": 11.616,
+  "error": "CalledProcessError:Command '['/home/odah/bro/base/scripts/deploy_paper_clean.sh', '--wait-sec', '25', '--no-verify', '--run-id', '442c6464-4752-4ce1-b778-f27b421efbfd', '--build']' returned non-zero exit status 1.",
+  "error_message": "Command '['/home/odah/bro/base/scripts/deploy_paper_clean.sh', '--wait-sec', '25', '--no-verify', '--run-id', '442c6464-4752-4ce1-b778-f27b421efbfd', '--build']' returned non-zero exit status 1.",
+  "error_type": "CalledProcessError",
+  "phase": "start",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_ok": true,
+  "run_id": "442c6464-4752-4ce1-b778-f27b421efbfd",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/c2dff72f-5693-4640-ac80-348cc034ec53/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-27T09:46:16.813Z"
+}

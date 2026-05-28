@@ -1,0 +1,29 @@
+{
+  "allowed_actions": [
+    "validate_postrun",
+    "archive_export"
+  ],
+  "authority_level": "authoritative",
+  "code_fingerprint_file_count": 62,
+  "code_fingerprint_sha256": "9edc0623b96cb2ed071489ad98c07dea32aa0c65274e77e40e5155b2aaf4941e",
+  "config_fingerprint_sha256": "4544b37dd455aef373da2d25652037e942246ccb449e49a1cf092d37d9ba5fa1",
+  "errors_path": "/home/odah/bro/base/logs_exec/paper_universal/errors_2026-05-26.jsonl",
+  "errors_slice_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/84b699c1-850d-4614-bab9-c7cb0da6f4df/slices/errors_slice.jsonl",
+  "events_path": "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-26.jsonl",
+  "events_slice_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/84b699c1-850d-4614-bab9-c7cb0da6f4df/slices/events_slice.jsonl",
+  "evidence_slice_end_ts": "2026-05-26T06:54:38.171Z",
+  "evidence_slice_start_ts": "2026-05-26T06:44:03.556Z",
+  "git_commit": "ef50707ca1df62f4fa8e9f5721d5316fc84132b8",
+  "log_root": "/home/odah/bro/base/logs_exec/paper_universal",
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_a9a6a62d-e544-4130-b4fb-002bef86bc2b.json",
+  "phase": "validate_postrun",
+  "run_id": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+  "schema_version": 2,
+  "session_id": "84b699c1-850d-4614-bab9-c7cb0da6f4df",
+  "session_type": "paper_canonical",
+  "start_ts": "2026-05-26T06:44:03.556Z",
+  "state_root": "/home/odah/bro/base/data/paper_universal",
+  "status_path": "/home/odah/bro/base/logs_exec/paper_universal/status_2026-05-26.jsonl",
+  "status_slice_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/84b699c1-850d-4614-bab9-c7cb0da6f4df/slices/status_slice.jsonl",
+  "stop_ts": "2026-05-26T06:54:38.171Z"
+}

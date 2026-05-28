@@ -1,0 +1,69 @@
+{
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "error_codes": [],
+  "evidence": {
+    "book_feed_down_ratio": 0.0,
+    "book_feed_last_msg_age_max_sec": 0.009589191060513258,
+    "book_feed_reconnects_max": 0.0,
+    "book_feed_reconnects_per_hour": 0.0,
+    "book_feed_thread_dead_rows": 0,
+    "book_feed_worker_fatal_rows": 0,
+    "book_feed_worker_restart_exhausted_rows": 0,
+    "book_feed_worker_unusable_rows": 0,
+    "chainlink_down_ratio": 0.0,
+    "chainlink_dropped_ticks_max": 0.0,
+    "chainlink_last_tick_age_max_sec": 0.6472761430777609,
+    "chainlink_queue_size_max": 1.0,
+    "chainlink_reconnects_max": 0.0,
+    "chainlink_reconnects_per_hour": 0.0,
+    "chainlink_thread_dead_rows": 0,
+    "chainlink_worker_fatal_rows": 0,
+    "chainlink_worker_restart_exhausted_rows": 0,
+    "chainlink_worker_unusable_rows": 0,
+    "duration_sec": 304.651,
+    "ordering_class_required_keys": [
+      "ordered",
+      "out_of_order",
+      "duplicate",
+      "revision",
+      "missing_source_time"
+    ],
+    "ordering_classification_invalid_rows": 0,
+    "ordering_classification_missing_rows": 0,
+    "ordering_classification_totals": {
+      "duplicate": 0,
+      "missing_source_time": 0,
+      "ordered": 299,
+      "out_of_order": 0,
+      "revision": 0
+    },
+    "ordering_policy_invalid_rows": 0,
+    "ordering_policy_missing_rows": 0,
+    "ordering_policy_observed_specs": [
+      {
+        "fallback": "receive_monotonic",
+        "primary": "source_timestamp",
+        "tie_breaker": "same_timestamp_price_revision",
+        "tolerance_ms": 0
+      }
+    ],
+    "ordering_policy_required_keys": [
+      "primary",
+      "fallback",
+      "tolerance_ms",
+      "tie_breaker"
+    ],
+    "status_rows": 11,
+    "websocket_truth_required_rows": 2
+  },
+  "finding_count": 0,
+  "findings": [],
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "ok": true,
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_ba284dd7-5a5d-4c45-8e21-ee31cff30f61.json",
+  "run_id": "ba284dd7-5a5d-4c45-8e21-ee31cff30f61",
+  "run_id_resolution": "explicit",
+  "session_phase": "validate_postrun",
+  "warning_count": 0,
+  "warnings": []
+}

@@ -1,0 +1,15 @@
+{
+  "closeout_elapsed_sec": 0.214,
+  "error": "RuntimeError:phase_exit_failed:validate_active:active_actionable_validations_passed",
+  "error_message": "phase_exit_failed:validate_active:active_actionable_validations_passed",
+  "error_type": "RuntimeError",
+  "phase": "validate_active",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_ok": true,
+  "run_id": "6acb4597-8b7d-404f-a8ae-a4f2398c6e28",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/77b49226-092b-4222-a290-6c3f8a9cd260/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-20T01:26:08.491Z"
+}

@@ -1,0 +1,9 @@
+{
+  "reason": "stale_open_session_no_pid",
+  "recovered_ts_utc": "2026-05-16T03:02:16.344Z",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_7be1a962-eb78-4e13-a223-71e9e3a01efa.json",
+  "run_id": "7be1a962-eb78-4e13-a223-71e9e3a01efa",
+  "schema_version": 1,
+  "session_id": "9332cfc6-81c4-472b-bcba-e7e0712acf9d",
+  "state_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/9332cfc6-81c4-472b-bcba-e7e0712acf9d/session_state.json"
+}

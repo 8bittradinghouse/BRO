@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1983, in run
+    self.phase_start()
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1211, in phase_start
+    _recover_abandoned_canonical_session(
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 375, in _recover_abandoned_canonical_session
+    write_run_contract(contract_path, existing_contract, allow_open=False)
+  File "/home/odah/bro/base/prodesk/run_contract.py", line 191, in write_run_contract
+    validated = validate_run_contract(payload, allow_open=allow_open)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/odah/bro/base/prodesk/run_contract.py", line 124, in validate_run_contract
+    raise ValueError(f"run_contract_schema_version_invalid:{schema}<min:{RUN_CONTRACT_SCHEMA_VERSION}")
+ValueError: run_contract_schema_version_invalid:0<min:2

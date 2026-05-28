@@ -1,0 +1,39 @@
+{
+  "desired_quote_presence_distribution": {
+    "unknown": 51
+  },
+  "fair_probability_presence_distribution": {
+    "present": 51
+  },
+  "favored_side_depth_truth_state_distribution": {
+    "zero_visible": 51
+  },
+  "geometry_viability_distribution": {
+    "viable": 51
+  },
+  "maker_no_submission_category_distribution": {
+    "maker_single_market_expression_pruned": 51
+  },
+  "maker_no_submission_cause_distribution": {
+    "maker_single_market_expression_pruned": 51
+  },
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {
+    "present": 51
+  },
+  "market_reference_class_distribution": {
+    "authoritative": 51
+  },
+  "market_reference_mode_distribution": {
+    "direct_midpoint": 51
+  },
+  "market_reference_source_side_distribution": {
+    "none": 51
+  },
+  "primary_starvation_cause": "maker_single_market_expression_pruned",
+  "quote_starvation_row_count": 51,
+  "row_count": 51,
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 51
+  }
+}

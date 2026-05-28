@@ -1,0 +1,122 @@
+{
+  "cannon_depth_requirement_counts": {
+    "met": 40,
+    "not_met": 80
+  },
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 120.0,
+    "max": 76.582545,
+    "mean": 9.604174995833334,
+    "median": 0.64512675,
+    "min": 0.0,
+    "p50": 0.6451439999999999,
+    "p90": 42.364456
+  },
+  "effective_stage_distribution": {
+    "MAKER_TAKER_SELECTIVE": 120
+  },
+  "external_blocked_latent_full_examples": [],
+  "external_blocked_latent_market_evaluable_count": 0,
+  "external_blocked_latent_market_full_candidate_count": 0,
+  "external_blocked_latent_market_reject_reason_distribution": {},
+  "favored_side_depth_class_distribution": {
+    "positive": 118,
+    "zero_reported": 2
+  },
+  "financial_posture_class_distribution": {
+    "NORMAL": 120
+  },
+  "full_candidate_runtime_stage_disallow_count": 0,
+  "full_mid_window_candidate_count": 36,
+  "geometry_viable_counts": {
+    "viable": 120
+  },
+  "ignored_non_mid_window_row_count": 688,
+  "latent_market_dominant_reject_reason_distribution": {
+    "insufficient_depth_multiple": 78,
+    "secondary_oracle_direction_mismatch": 6
+  },
+  "latent_market_full_candidate_population_class_distribution": {
+    "candidate": 36
+  },
+  "latent_market_full_mid_window_candidate_count": 36,
+  "latent_market_reject_reason_distribution": {
+    "insufficient_depth_multiple": 80,
+    "secondary_oracle_direction_mismatch": 6
+  },
+  "latent_market_truth_class_counts": {
+    "evaluable": 120
+  },
+  "lineage_stage_distribution": {
+    "MAKER_TAKER_SELECTIVE": 120
+  },
+  "maker_mid_window_probe_version": 1,
+  "maker_new_risk_allowed_distribution": {
+    "allowed": 120
+  },
+  "maker_timing_band_class_distribution": {
+    "30_to_45s": 120
+  },
+  "market_probability_band_distribution": {
+    "0p01_to_0p05": 15,
+    "0p95_to_0p99": 15,
+    "interior": 90
+  },
+  "market_reference_class_distribution": {
+    "authoritative": 120
+  },
+  "market_reference_mode_distribution": {
+    "direct_midpoint": 120
+  },
+  "market_reference_source_side_distribution": {
+    "none": 120
+  },
+  "mid_window_raw_row_count": 120,
+  "population_class_counts": {
+    "candidate": 120
+  },
+  "probe_visible_depth_fail_closed_zero_distribution": {
+    "reported_or_not_needed": 120
+  },
+  "reject_reason_distribution": {
+    "insufficient_depth_multiple": 80,
+    "secondary_oracle_direction_mismatch": 6
+  },
+  "row_count": 120,
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 114,
+    "not_confirmed": 6
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 114,
+    "direction_mismatch": 6
+  },
+  "session_regime_class_distribution": {
+    "usa_europe_peak_heuristic": 120
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 120
+  },
+  "top_full_candidate_target_side_ref_counts": {
+    "2459147e32fed81f|SELL": 6,
+    "7d2a4d9ce7b714ef|SELL": 8,
+    "a643ade45d621355|BUY": 7,
+    "b8ce3e2084c1c07d|SELL": 7,
+    "d52f12aa0cdf1016|SELL": 2,
+    "dd653183fba71555|BUY": 2,
+    "fec6299b948170a0|BUY": 4
+  },
+  "top_reject_target_side_ref_counts": {
+    "2459147e32fed81f|SELL": 9,
+    "7d2a4d9ce7b714ef|BUY": 6,
+    "7d2a4d9ce7b714ef|SELL": 1,
+    "8dbb3889721c7d0c|BUY": 15,
+    "a643ade45d621355|BUY": 2,
+    "a643ade45d621355|SELL": 6,
+    "b8ce3e2084c1c07d|SELL": 7,
+    "d52f12aa0cdf1016|SELL": 13,
+    "dd653183fba71555|BUY": 13,
+    "fec6299b948170a0|BUY": 10
+  },
+  "total_maker_edge_eval_rows": 808
+}

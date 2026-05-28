@@ -1,0 +1,164 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "canonical_gate_truth": {
+    "maker_gate_owner_family_distribution": {
+      "executor_truth_reference": 6,
+      "lifecycle_phase": 84,
+      "order_manager_feasibility": 2,
+      "order_manager_quote_quality": 4,
+      "order_manager_selection": 8,
+      "shared_lifecycle_safety": 23,
+      "submitted_population": 3
+    },
+    "maker_gate_reason_distribution": {
+      "launch_safe_selection_insufficient_depth_multiple": 8,
+      "non_actionable_geometry": 2,
+      "open_order_cleanup_required": 14,
+      "oracle_unavailable_or_stale": 6,
+      "phase_disallow_maker": 84,
+      "quote_quality_skip_queue_depth": 4,
+      "settlement_hold_required": 9,
+      "submitted": 3
+    },
+    "maker_gate_reason_distribution_by_stage": {
+      "feasibility_gate": {
+        "non_actionable_geometry": 2
+      },
+      "phase_gate": {
+        "phase_disallow_maker": 84
+      },
+      "quote_quality_gate": {
+        "quote_quality_skip_queue_depth": 4
+      },
+      "selection_gate": {
+        "launch_safe_selection_insufficient_depth_multiple": 8
+      },
+      "shared_safety_lifecycle_gate": {
+        "open_order_cleanup_required": 14,
+        "settlement_hold_required": 9
+      },
+      "submitted": {
+        "submitted": 3
+      },
+      "truth_reference_gate": {
+        "oracle_unavailable_or_stale": 6
+      }
+    },
+    "maker_gate_stage_distribution": {
+      "feasibility_gate": 2,
+      "phase_gate": 84,
+      "quote_quality_gate": 4,
+      "selection_gate": 8,
+      "shared_safety_lifecycle_gate": 23,
+      "submitted": 3,
+      "truth_reference_gate": 6
+    }
+  },
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "maker_zero_submit_audit_version": 1,
+  "reconciliation": {
+    "accounting_closed": true,
+    "maker_rows_total": 130,
+    "terminal_rows_accounted": 130,
+    "unaccounted_rows": 0
+  },
+  "stages": {
+    "desired_quote_missing_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "desired_quote_present_rows": {
+      "count": 17,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "fill_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "submit_success_rows"
+    },
+    "pre_snapshot_unmatched_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "prequote_prereq_pass_rows": {
+      "count": 23,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "stage_band_allowed_rows"
+    },
+    "selection_rejected_rows": {
+      "count": 14,
+      "loss_reason_distribution": {
+        "insufficient_depth_multiple": 14
+      },
+      "percent_of_prior_stage": 0.8235294117647058,
+      "prior_stage": "snapshot_rows"
+    },
+    "snapshot_rows": {
+      "count": 17,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "stage_band_allowed_rows": {
+      "count": 23,
+      "loss_reason_distribution": {
+        "earlier_or_post_window_outside_active_maker_band": 76,
+        "outside_active_maker_band": 31
+      },
+      "percent_of_prior_stage": 0.17692307692307693,
+      "prior_stage": "total_maker_rows"
+    },
+    "submit_attempt_rows": {
+      "count": 3,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.17647058823529413,
+      "prior_stage": "snapshot_rows"
+    },
+    "submit_success_rows": {
+      "count": 3,
+      "loss_reason_distribution": {
+        "unfilled_or_missing_outcome": 3
+      },
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "submit_attempt_rows"
+    },
+    "total_maker_rows": {
+      "count": 130,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": null
+    },
+    "truth_reference_insufficient_rows": {
+      "count": 6,
+      "loss_reason_distribution": {
+        "missing_probability_inputs": 6
+      },
+      "percent_of_prior_stage": 0.2608695652173913,
+      "prior_stage": "prequote_prereq_pass_rows"
+    },
+    "truth_reference_sufficient_rows": {
+      "count": 17,
+      "loss_reason_distribution": {
+        "missing_probability_inputs": 6
+      },
+      "percent_of_prior_stage": 0.7391304347826086,
+      "prior_stage": "prequote_prereq_pass_rows"
+    }
+  },
+  "terminal_path_counts": {
+    "selection_rejected": 14,
+    "stage_band_excluded": 107,
+    "submit_success_unfilled": 3,
+    "truth_reference_insufficient": 6
+  }
+}

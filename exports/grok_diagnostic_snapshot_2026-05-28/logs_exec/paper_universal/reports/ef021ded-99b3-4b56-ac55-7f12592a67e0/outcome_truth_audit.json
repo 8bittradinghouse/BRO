@@ -1,0 +1,326 @@
+{
+  "adverse_selection_summary": {
+    "count": 0.0,
+    "max": null,
+    "mean": null,
+    "min": null,
+    "p50": null
+  },
+  "attribution_usability_ratio": 0.0,
+  "audit_rule_set_sha256": "c19f8deef7f08f3c8a4657b36f78fcfd094be3887dfa4635fcd1a091965dcf26",
+  "book_top_events_considered": 410,
+  "claim_boundary": {
+    "does_not_prove": [
+      "strategy optimality",
+      "long_term_profitability",
+      "live_venue_equivalence",
+      "runtime_feedback_or_control_adjustments"
+    ],
+    "non_goals": [
+      "no_strategy_optimality_proof",
+      "no_long_term_profitability_proof",
+      "no_live_venue_equivalence_proof",
+      "no_runtime_feedback"
+    ],
+    "proves": [
+      "directional correctness at fixed 5000ms horizon using decision/eval midpoint references",
+      "execution price quality at decision reference midpoint",
+      "bounded realized edge measurement from fill/eval references",
+      "explicit unknown handling for missing linkage or market references",
+      "explicit basis disclosure for direct midpoint vs reconstructed midpoint references"
+    ],
+    "reference_basis_boundaries": [
+      "direct_book_midpoint means direct midpoint observation path",
+      "edge_market_midpoint and edge_market_midpoint_series are bounded reconstructed midpoint references",
+      "deterministic reconstruction does not imply raw venue-book replay equivalence"
+    ]
+  },
+  "claim_boundary_sha256": "c04f5bfe7d7ed2bb97cdcc35cf3a72bd1a9b71fdb52bf9e1f821791f5b6143aa",
+  "classification_tolerances": {
+    "decision_quality": 0.0,
+    "execution_quality": 0.0
+  },
+  "combined_outcome_distribution": {
+    "correct_decision_good_execution": 0,
+    "correct_decision_poor_execution": 0,
+    "incorrect_decision_good_execution": 0,
+    "incorrect_decision_poor_execution": 0,
+    "neutral_decision_neutral_execution": 0,
+    "unknown": 3
+  },
+  "commitment_lane_outcome_truth": {},
+  "complete_classification_ratio": 0.0,
+  "complete_outcome_records": 0,
+  "decision_quality_distribution": {
+    "correct": 2,
+    "incorrect": 0,
+    "neutral": 1,
+    "unknown": 0
+  },
+  "decision_reference_basis_distribution": {
+    "direct_book_midpoint": 3,
+    "edge_market_midpoint": 0,
+    "edge_market_midpoint_series": 0,
+    "other_explicit": 0,
+    "unknown": 0
+  },
+  "decision_reference_missing_count": 0,
+  "decision_reference_recovered_count": 3,
+  "edge_action_events_considered": 3,
+  "edge_expected_summary": {
+    "count": 3.0,
+    "max": 0.2001101022638796,
+    "mean": 0.0013333333333333346,
+    "min": -0.2001101022638796,
+    "p50": 0.0040000000000000036
+  },
+  "edge_realized_summary": {
+    "count": 0.0,
+    "max": null,
+    "mean": null,
+    "min": null,
+    "p50": null
+  },
+  "error_codes": [],
+  "eval_reference_basis_distribution": {
+    "direct_book_midpoint": 0,
+    "edge_market_midpoint": 0,
+    "edge_market_midpoint_series": 3,
+    "other_explicit": 0,
+    "unknown": 0
+  },
+  "eval_reference_missing_count": 0,
+  "eval_reference_recovered_count": 3,
+  "eval_reference_selection_rule": "latest_at_or_before_target",
+  "eval_reference_timestamp_domain": "event_time",
+  "eval_reference_tolerance_ms": 0,
+  "evaluation_horizon_ms": 5000,
+  "event_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/slices/events_slice.jsonl"
+  ],
+  "events_considered": 585,
+  "execution_quality_distribution": {
+    "favorable": 0,
+    "neutral": 0,
+    "unfavorable": 0,
+    "unknown": 3
+  },
+  "expected_vs_realized_summary": {
+    "count": 0.0,
+    "max": null,
+    "mean": null,
+    "min": null,
+    "p50": null
+  },
+  "fill_events_considered": 0,
+  "filled_complete": 0,
+  "filled_complete_ratio": 0.0,
+  "filled_total": 0,
+  "filled_unknown": 0,
+  "finding_count": 0,
+  "findings": [],
+  "horizon_consistency_check": "pass",
+  "horizon_enforced": true,
+  "incomplete_lifecycle_records": 3,
+  "lane_outcome_truth": {
+    "maker": {
+      "adverse_selection_x_size_sum": 0.0,
+      "claim_boundary": {
+        "interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+        "scope": "lane_outcome_truth_observational"
+      },
+      "combined_outcome_distribution": {
+        "correct_decision_good_execution": 0,
+        "correct_decision_poor_execution": 0,
+        "incorrect_decision_good_execution": 0,
+        "incorrect_decision_poor_execution": 0,
+        "neutral_decision_neutral_execution": 0,
+        "unknown": 3
+      },
+      "complete_outcome_records": 0,
+      "decision_component_x_size_sum": 0.0,
+      "decision_quality_distribution": {
+        "correct": 2,
+        "incorrect": 0,
+        "neutral": 1,
+        "unknown": 0
+      },
+      "edge_expected_summary": {
+        "count": 3.0,
+        "max": 0.2001101022638796,
+        "mean": 0.0013333333333333346,
+        "min": -0.2001101022638796,
+        "p50": 0.0040000000000000036
+      },
+      "edge_realized_summary": {
+        "count": 0.0,
+        "max": null,
+        "mean": null,
+        "min": null,
+        "p50": null
+      },
+      "edge_realized_x_size_sum": 0.0,
+      "execution_component_x_size_sum": 0.0,
+      "execution_quality_distribution": {
+        "favorable": 0,
+        "neutral": 0,
+        "unfavorable": 0,
+        "unknown": 3
+      },
+      "fill_notional_sum": 0.0,
+      "filled_complete": 0,
+      "filled_complete_ratio": 0.0,
+      "filled_total": 0,
+      "filled_unknown": 0,
+      "lifecycle_residue_records": 0,
+      "market_component_x_size_sum": 0.0,
+      "outcome_truth_status_distribution": {
+        "complete": 0,
+        "unknown_incomplete_lifecycle": 3,
+        "unknown_missing_data": 0,
+        "unknown_missing_decision_reference": 0,
+        "unknown_missing_eval_reference": 0,
+        "unknown_missing_linkage": 0
+      },
+      "record_claim_boundary_distribution": {
+        "complete": 0,
+        "incomplete_lifecycle": 3,
+        "missing_decision_reference": 0,
+        "missing_eval_reference": 0,
+        "partial_missing_data": 0,
+        "unknown": 0
+      },
+      "slippage_x_size_sum": 0.0,
+      "total_outcome_records": 3,
+      "unknown_outcome_records": 3
+    }
+  },
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "maker_edge_linkage_ambiguous_count": 0,
+  "maker_edge_linkage_attempted_count": 0,
+  "maker_edge_linkage_missing_count": 0,
+  "maker_edge_linkage_resolved_count": 0,
+  "missingness": {
+    "decision_reference_missing_count": 0,
+    "eval_reference_missing_count": 0,
+    "missing_decision_midpoint_count": 0,
+    "missing_edge_expected_count": 0,
+    "missing_eval_midpoint_count": 0,
+    "missing_linkage_count": 0,
+    "recoverable_but_missing_count": 0
+  },
+  "ok": true,
+  "order_submit_events_considered": 3,
+  "outcome_records_path": "/home/odah/bro/base/logs_exec/paper_universal/reports/ef021ded-99b3-4b56-ac55-7f12592a67e0/outcome_truth_records.jsonl",
+  "outcome_records_sha256": "9b8ff8ce9b644b26b7025c9f90176ee4d89d010d6f86120ab596c5b1ed7ffb0c",
+  "outcome_truth_policy": {
+    "adverse_selection_basis": "fill_vs_eval_mid_directional",
+    "claim_boundary": {
+      "does_not_prove": [
+        "strategy optimality",
+        "long_term_profitability",
+        "live_venue_equivalence",
+        "runtime_feedback_or_control_adjustments"
+      ],
+      "non_goals": [
+        "no_strategy_optimality_proof",
+        "no_long_term_profitability_proof",
+        "no_live_venue_equivalence_proof",
+        "no_runtime_feedback"
+      ],
+      "proves": [
+        "directional correctness at fixed 5000ms horizon using decision/eval midpoint references",
+        "execution price quality at decision reference midpoint",
+        "bounded realized edge measurement from fill/eval references",
+        "explicit unknown handling for missing linkage or market references",
+        "explicit basis disclosure for direct midpoint vs reconstructed midpoint references"
+      ],
+      "reference_basis_boundaries": [
+        "direct_book_midpoint means direct midpoint observation path",
+        "edge_market_midpoint and edge_market_midpoint_series are bounded reconstructed midpoint references",
+        "deterministic reconstruction does not imply raw venue-book replay equivalence"
+      ]
+    },
+    "decision_direction_source": "order_submit.side",
+    "decision_reference": "mid_price_decision",
+    "decision_reference_selection": "latest_book_top_at_or_before_decision_ts",
+    "edge_realized_basis": "eval_mid_vs_fill_directional",
+    "eval_reference": "mid_price_eval",
+    "eval_reference_selection": "latest_book_top_at_or_before_eval_ts",
+    "eval_reference_selection_rule": "latest_at_or_before_target",
+    "eval_reference_timestamp_domain": "event_time",
+    "eval_reference_tolerance_ms": 0,
+    "evaluation_horizon_ms": 5000,
+    "multi_fill_aggregation": {
+      "fill_price": "vwap",
+      "fill_timestamp": "latest_fill_ts",
+      "fill_trade_id": "single_trade_or_deterministic_aggregate"
+    },
+    "neutral_tolerance": {
+      "decision_quality": 0.0,
+      "execution_quality": 0.0
+    },
+    "policy_version": "outcome_truth_v1",
+    "reference_recovery_priority": [
+      "explicit_decision_reference",
+      "target_ref_linkage",
+      "timestamp_bound_artifact_lookup",
+      "token_lookup_non_redacted",
+      "unknown"
+    ],
+    "slippage_basis": "fill_vs_decision_mid_directional"
+  },
+  "outcome_truth_policy_path": "/home/odah/bro/base/ops/outcome_truth_policy.json",
+  "outcome_truth_status_distribution": {
+    "complete": 0,
+    "unknown_incomplete_lifecycle": 3,
+    "unknown_missing_data": 0,
+    "unknown_missing_decision_reference": 0,
+    "unknown_missing_eval_reference": 0,
+    "unknown_missing_linkage": 0
+  },
+  "partial_outcome_records": 3,
+  "policy_sha256": "e3577a1d9751e7d6fcd1ac821fa9120d5261acd173d5cd6ed00a38975697a673",
+  "record_claim_boundary_distribution": {
+    "complete": 0,
+    "incomplete_lifecycle": 3,
+    "missing_decision_reference": 0,
+    "missing_eval_reference": 0,
+    "partial_missing_data": 0,
+    "unknown": 0
+  },
+  "record_scope_policy": {
+    "emit_for_no_action_edge_rows": false,
+    "emit_for_order_submit": true,
+    "incomplete_lifecycle_record_status": "unknown_incomplete_lifecycle"
+  },
+  "recoverable_but_missing_count": 0,
+  "reference_recovery_priority": [
+    "explicit_decision_reference",
+    "target_ref_linkage",
+    "timestamp_bound_artifact_lookup",
+    "token_lookup_non_redacted",
+    "unknown"
+  ],
+  "run_claim_boundary": {
+    "claim_scope": "observational_only_fixed_horizon_outcome_truth",
+    "complete_records": 0,
+    "completeness_ratio": 0.0,
+    "partial_records": 0,
+    "unknown_records": 3
+  },
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_ef021ded-99b3-4b56-ac55-7f12592a67e0.json",
+  "run_id": "ef021ded-99b3-4b56-ac55-7f12592a67e0",
+  "session_phase": "validate_postrun",
+  "slippage_summary": {
+    "count": 0.0,
+    "max": null,
+    "mean": null,
+    "min": null,
+    "p50": null
+  },
+  "total_outcome_records": 3,
+  "unknown_outcome_records": 3,
+  "warning_count": 0,
+  "warnings": []
+}

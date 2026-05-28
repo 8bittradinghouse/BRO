@@ -1,0 +1,10 @@
+{
+  "active_wait_sec": 1200.0,
+  "effective_active_sec": 1200.0,
+  "elapsed_source": "active_phase",
+  "pre_active_elapsed_sec": 338.165403,
+  "requested_active_sec": 1200.0,
+  "runtime_capped": false,
+  "runtime_cutoff_buffer_sec": 30.0,
+  "runtime_duration_sec": 7800.0
+}

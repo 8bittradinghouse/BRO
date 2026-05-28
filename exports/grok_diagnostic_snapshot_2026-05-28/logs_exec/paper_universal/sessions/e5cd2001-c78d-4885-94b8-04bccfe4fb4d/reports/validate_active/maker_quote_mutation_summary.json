@@ -1,0 +1,22 @@
+{
+  "dominant_mutation_classification": "minor_non_material",
+  "maker_quote_integrity_audit_version": 1,
+  "mutation_classification_distribution": {
+    "minor_non_material": 1
+  },
+  "row_count": 1,
+  "rows": [
+    {
+      "certified_to_submitted_tick_delta": 0.0,
+      "crossing_transition": false,
+      "depth_semantics_differ": false,
+      "material": false,
+      "mutation_classification": "minor_non_material",
+      "observed_fillprob_and_queue_equal": true,
+      "observed_quality_metrics_equal": false,
+      "order_id": "paper-order-1",
+      "quality_blind_mutation": false,
+      "target_side_ref": "b4acdc14c4c7ddc5|SELL"
+    }
+  ]
+}

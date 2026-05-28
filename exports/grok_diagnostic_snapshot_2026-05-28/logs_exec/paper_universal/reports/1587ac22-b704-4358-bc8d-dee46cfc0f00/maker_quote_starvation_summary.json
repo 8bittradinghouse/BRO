@@ -1,0 +1,17 @@
+{
+  "desired_quote_presence_distribution": {},
+  "fair_probability_presence_distribution": {},
+  "favored_side_depth_truth_state_distribution": {},
+  "geometry_viability_distribution": {},
+  "maker_no_submission_category_distribution": {},
+  "maker_no_submission_cause_distribution": {},
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {},
+  "market_reference_class_distribution": {},
+  "market_reference_mode_distribution": {},
+  "market_reference_source_side_distribution": {},
+  "primary_starvation_cause": "none",
+  "quote_starvation_row_count": 0,
+  "row_count": 0,
+  "secondary_oracle_confirmation_distribution": {}
+}

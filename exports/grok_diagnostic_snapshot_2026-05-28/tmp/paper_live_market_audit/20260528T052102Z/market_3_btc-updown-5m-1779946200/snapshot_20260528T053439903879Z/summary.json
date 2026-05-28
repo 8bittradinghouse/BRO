@@ -1,0 +1,31 @@
+{
+  "books": {
+    "26686868961554555830726231734053471977296928690176640701939600092624403080356": {
+      "ask_levels": 99,
+      "bid_levels": 0,
+      "status_code": 200,
+      "top_ask": {
+        "price": "0.01",
+        "size": "2838.9"
+      },
+      "top_bid": null
+    },
+    "39381703327589063412294689805742321748615389495981537572266411806534763331904": {
+      "ask_levels": 1,
+      "bid_levels": 98,
+      "status_code": 200,
+      "top_ask": {
+        "price": "0.99",
+        "size": "1353.31"
+      },
+      "top_bid": {
+        "price": "0.98",
+        "size": "1833.57"
+      }
+    }
+  },
+  "bro_event": {},
+  "captured_at_utc": "2026-05-28T05:34:39.903Z",
+  "condition_id": "0x2af81161db2ef8ebc9c69052d6bcd3eb5dc3f1493de876d2edc228e1c5b7cf6c",
+  "reason": "cadence"
+}

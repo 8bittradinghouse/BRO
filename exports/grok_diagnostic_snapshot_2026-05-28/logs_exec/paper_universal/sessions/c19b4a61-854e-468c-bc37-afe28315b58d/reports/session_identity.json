@@ -1,0 +1,20 @@
+{
+  "compatibility_warning_count": 0,
+  "compatibility_warnings": [],
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "container_config_path": "/config/profiles/paper_universal.yaml",
+  "container_guard_stop_path": "/logs/paper_universal/guard_stop.txt",
+  "container_log_dir": "/logs/paper_universal",
+  "effective_config_sha256": "5b61aa27923c915fff110c4fae2e67f68f70115385314c13b481d7a900646397",
+  "expected_profile_name": "paper_universal",
+  "ignored_compatibility_fields": [],
+  "run_id": "6b0cbcdf-b197-4992-9e81-f9d27262dd2b",
+  "schema_version": 1,
+  "selected_log_root": "/home/odah/bro/base/logs_exec/paper_universal",
+  "selected_profile_name": "paper_universal",
+  "selected_state_path": "/home/odah/bro/base/data/paper_universal/state.json",
+  "session_id": "c19b4a61-854e-468c-bc37-afe28315b58d",
+  "session_type": "paper_canonical",
+  "ts_utc": "2026-05-27T04:45:48.036Z",
+  "validation_script_path": "/home/odah/bro/base/scripts/canonical_paper_validation.sh"
+}

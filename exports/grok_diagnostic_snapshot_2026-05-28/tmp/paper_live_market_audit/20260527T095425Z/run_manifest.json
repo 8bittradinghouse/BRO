@@ -1,0 +1,7 @@
+{
+  "broctl_stdout_log": "/home/odah/bro/base/tmp/paper_live_market_audit/launch_tmp/broctl_stdout.log",
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_cfa77513-0a1a-458b-a340-db5a16c3a0d4.json",
+  "out_dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260527T095425Z",
+  "run_id": "cfa77513-0a1a-458b-a340-db5a16c3a0d4",
+  "started_at_utc": "2026-05-27T09:54:25.238Z"
+}

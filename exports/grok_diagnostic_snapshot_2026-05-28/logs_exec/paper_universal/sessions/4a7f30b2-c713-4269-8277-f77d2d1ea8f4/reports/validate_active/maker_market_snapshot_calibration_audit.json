@@ -1,0 +1,92 @@
+{
+  "admission_class_counts": {
+    "borderline": 0,
+    "clean": 2,
+    "trash": 6
+  },
+  "admission_class_distribution_by_timing_band": {
+    "le_10s": {
+      "borderline": 0,
+      "clean": 2,
+      "trash": 6
+    }
+  },
+  "admission_rubric_version": 1,
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "candidate_count_by_timing_band": {
+    "le_10s": 8
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 3,
+    "not_met": 5
+  },
+  "cannon_window_class_distribution": {
+    "le_10s": 8
+  },
+  "claim_boundary_class_distribution_by_class": {},
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 8.0,
+    "max": 39.46607,
+    "mean": 5.5280375,
+    "median": 0.10149210000000002,
+    "min": 0.0,
+    "p50": 0.20298420000000003,
+    "p90": 2.7388158000000002
+  },
+  "evaluation_horizon_ms_distribution_by_class": {},
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 8
+  },
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {
+    "le_10s": 8
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "le_10s": 0.0
+  },
+  "outcome_truth_status_distribution_by_class": {},
+  "population_class_counts": {
+    "candidate": 8
+  },
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 8
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 8
+  },
+  "session_regime_class_distribution": {
+    "transition_heuristic": 8
+  },
+  "snapshot_source_class_distribution": {
+    "runtime_raw": 8
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 8
+  },
+  "submitted_count_by_timing_band": {
+    "le_10s": 1
+  },
+  "trash_but_okay_examples": []
+}

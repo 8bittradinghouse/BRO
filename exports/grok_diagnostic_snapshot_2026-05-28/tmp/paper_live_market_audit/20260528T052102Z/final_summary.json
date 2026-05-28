@@ -1,0 +1,91 @@
+{
+  "conditions": {
+    "0x2af81161db2ef8ebc9c69052d6bcd3eb5dc3f1493de876d2edc228e1c5b7cf6c": {
+      "close_detected_utc": "2026-05-28T05:35:01.467Z",
+      "close_reason": "bro_transition_scan",
+      "closed": true,
+      "condition_id": "0x2af81161db2ef8ebc9c69052d6bcd3eb5dc3f1493de876d2edc228e1c5b7cf6c",
+      "dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_3_btc-updown-5m-1779946200",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-28T05:33:31.565Z",
+      "last_snapshot_reason": "transition_scan",
+      "last_snapshot_utc": "2026-05-28T05:35:01.864Z",
+      "market_slug": "btc-updown-5m-1779946200",
+      "metadata_path": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_3_btc-updown-5m-1779946200/market_metadata.json",
+      "owned_market_ref": "0x2af81161db2ef8ebc9c69052d6bcd3eb5dc3f1493de876d2edc228e1c5b7cf6c|2026-05-28T05:35:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 28, 1:30AM-1:35AM ET",
+      "snapshots": 23,
+      "tokens": [
+        "39381703327589063412294689805742321748615389495981537572266411806534763331904",
+        "26686868961554555830726231734053471977296928690176640701939600092624403080356"
+      ]
+    },
+    "0xb73fdec94241bb34cc36a8dab43ec10eb6a5497326765b37e4135466e2e550b3": {
+      "close_detected_utc": "2026-05-28T05:30:01.478Z",
+      "close_reason": "bro_transition_scan",
+      "closed": true,
+      "condition_id": "0xb73fdec94241bb34cc36a8dab43ec10eb6a5497326765b37e4135466e2e550b3",
+      "dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_2_btc-updown-5m-1779945900",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-28T05:28:31.997Z",
+      "last_snapshot_reason": "transition_scan",
+      "last_snapshot_utc": "2026-05-28T05:30:01.919Z",
+      "market_slug": "btc-updown-5m-1779945900",
+      "metadata_path": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_2_btc-updown-5m-1779945900/market_metadata.json",
+      "owned_market_ref": "0xb73fdec94241bb34cc36a8dab43ec10eb6a5497326765b37e4135466e2e550b3|2026-05-28T05:30:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 28, 1:25AM-1:30AM ET",
+      "snapshots": 24,
+      "tokens": [
+        "84571403953522467298861898766441110092986118556445388915408677426356591755136",
+        "112469127719700923297768274462526288395325432476511061799718025389798982797093"
+      ]
+    },
+    "0xbe523f2f989748eeac9bae9a5e394ab4b88a13a97d9f9307c9640569403bad32": {
+      "close_detected_utc": "2026-05-28T05:40:02.059Z",
+      "close_reason": "bro_transition_scan",
+      "closed": true,
+      "condition_id": "0xbe523f2f989748eeac9bae9a5e394ab4b88a13a97d9f9307c9640569403bad32",
+      "dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_4_btc-updown-5m-1779946500",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-28T05:38:31.304Z",
+      "last_snapshot_reason": "transition_scan",
+      "last_snapshot_utc": "2026-05-28T05:40:02.239Z",
+      "market_slug": "btc-updown-5m-1779946500",
+      "metadata_path": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_4_btc-updown-5m-1779946500/market_metadata.json",
+      "owned_market_ref": "0xbe523f2f989748eeac9bae9a5e394ab4b88a13a97d9f9307c9640569403bad32|2026-05-28T05:40:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 28, 1:35AM-1:40AM ET",
+      "snapshots": 28,
+      "tokens": [
+        "60231649070654247614777186226754708548908238722282449409984842665542690104863",
+        "80698255122187642263520443099647894984295686386022052129575217874347960659161"
+      ]
+    },
+    "0xd21ee91a03eae796dbda324651aa3fbd1e246af90da65d9031b6683038be4193": {
+      "close_detected_utc": "2026-05-28T05:25:01.504Z",
+      "close_reason": "bro_transition_scan",
+      "closed": true,
+      "condition_id": "0xd21ee91a03eae796dbda324651aa3fbd1e246af90da65d9031b6683038be4193",
+      "dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_1_btc-updown-5m-1779945600",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-28T05:23:33.427Z",
+      "last_snapshot_reason": "transition_scan",
+      "last_snapshot_utc": "2026-05-28T05:25:01.684Z",
+      "market_slug": "btc-updown-5m-1779945600",
+      "metadata_path": "/home/odah/bro/base/tmp/paper_live_market_audit/20260528T052102Z/market_1_btc-updown-5m-1779945600/market_metadata.json",
+      "owned_market_ref": "0xd21ee91a03eae796dbda324651aa3fbd1e246af90da65d9031b6683038be4193|2026-05-28T05:25:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 28, 1:20AM-1:25AM ET",
+      "snapshots": 22,
+      "tokens": [
+        "35193842899725778562496640702664021122447499061764710058667671893311027054193",
+        "82425745435040038763830153686750031613268459817242361053259072343851877322232"
+      ]
+    }
+  },
+  "conditions_seen": 4,
+  "matching_counts": {
+    "errors": 0,
+    "events": 4989,
+    "status": 41
+  },
+  "run_id": "9becda89-a20c-4fa9-996d-6668a3407bf9"
+}

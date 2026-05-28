@@ -1,0 +1,54 @@
+{
+  "admission_class_counts": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "admission_class_distribution_by_timing_band": {},
+  "admission_rubric_version": 1,
+  "candidate_count_by_timing_band": {},
+  "cannon_depth_requirement_counts": {},
+  "cannon_window_class_distribution": {},
+  "claim_boundary_class_distribution_by_class": {},
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {},
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 0.0,
+    "max": 0.0,
+    "mean": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "p50": 0.0,
+    "p90": 0.0
+  },
+  "evaluation_horizon_ms_distribution_by_class": {},
+  "launch_safe_selection_timing_window_met_distribution": {},
+  "maker_cannon_shadow_version": 1,
+  "maker_timing_band_class_distribution": {},
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {},
+  "outcome_truth_status_distribution_by_class": {},
+  "population_class_counts": {},
+  "secondary_oracle_confirmation_distribution": {},
+  "secondary_oracle_status_distribution": {},
+  "session_regime_class_distribution": {},
+  "shadow_source_class_distribution": {},
+  "stack_pressure_class_distribution": {},
+  "submitted_count_by_timing_band": {},
+  "trash_but_okay_examples": []
+}

@@ -1,0 +1,26 @@
+{
+  "cmd": [
+    "/home/odah/bro/base/scripts/deploy_paper_clean.sh",
+    "--wait-sec",
+    "25",
+    "--no-verify",
+    "--run-id",
+    "c519e785-598c-4cd1-83af-51f0c37592b5",
+    "--build"
+  ],
+  "cwd": "/home/odah/bro/base",
+  "env_keys": [
+    "BRO_CANONICAL_SESSION_CONTEXT_FILE",
+    "BRO_CANONICAL_SESSION_CONTEXT_FILE_HOST",
+    "BRO_CANONICAL_SESSION_TOKEN",
+    "BRO_CONFIG_CONTAINER_PATH",
+    "BRO_CONFIG_PATH",
+    "BRO_DATA_DIR",
+    "BRO_GUARDIAN_GUARD_STOP_FILE",
+    "BRO_GUARDIAN_LOG_DIR",
+    "BRO_GUARDIAN_SESSION_CONTEXT_FILE",
+    "BRO_INTERNAL_SESSION_CALL",
+    "BRO_LOG_DIR",
+    "BRO_RUN_ID"
+  ]
+}

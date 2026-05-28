@@ -1,0 +1,14 @@
+{
+  "contract_phase": "validate_postrun",
+  "contract_stop_ts": "2026-05-21T03:20:17.975Z",
+  "normalized_by": "maintenance_closed_session_normalization",
+  "normalized_from_phase": "complete",
+  "normalized_to_phase": "complete",
+  "normalized_ts_utc": "2026-05-25T23:28:50.510Z",
+  "reason": "run_contract_already_closed",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_62c5deb9-cc5e-4c81-999b-70426fabadc9.json",
+  "run_id": "62c5deb9-cc5e-4c81-999b-70426fabadc9",
+  "schema_version": 1,
+  "session_id": "10840e34-1d2f-43a4-a35f-e32a4313e9e1",
+  "state_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/10840e34-1d2f-43a4-a35f-e32a4313e9e1/session_state.json"
+}

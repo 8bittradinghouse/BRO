@@ -1,0 +1,45 @@
+{
+  "authoritative_for_runtime_blocker_truth": true,
+  "claim_boundary": "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census",
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "dominant_runtime_blocker_bucket": "selection_gate",
+  "dominant_runtime_blocker_reason": "launch_safe_selection_insufficient_depth_multiple",
+  "historical_family_labels_retired_from_active_owner_surfaces": true,
+  "maker_blocker_ledger_version": 1,
+  "next_packet2_patient": "support_snapshot_schoolhouse_cleanup",
+  "quote_quality_summary": {
+    "max_queue_ahead_size": 10046.09,
+    "min_queue_ahead_size": 10046.09,
+    "row_count": 1
+  },
+  "quote_quality_verdict": "keep_now_steel",
+  "runtime_blocker_family_status": "closed_keep_now_steel_or_minor_residue",
+  "runtime_bucket_distribution": {
+    "other": 1,
+    "quote_quality": 1,
+    "selection_gate": 2
+  },
+  "runtime_reason_distribution": {
+    "launch_safe_selection_insufficient_depth_multiple": 2,
+    "non_actionable_geometry": 1,
+    "quote_quality_skip_queue_depth": 1
+  },
+  "selection_gate_depth_summary": {
+    "lt_20_notional_count": 2,
+    "lt_30_notional_count": 2,
+    "lt_50_notional_count": 2,
+    "max_visible_depth_notional_usd": 0.0,
+    "median_visible_depth_notional_usd": 0.0,
+    "row_count": 2,
+    "zero_visible_depth_count": 2
+  },
+  "selection_gate_verdict": "keep_now_steel",
+  "sizing_summary": {
+    "row_count": 0
+  },
+  "sizing_verdict": "not_present",
+  "submitted_summary": {
+    "row_count": 0
+  },
+  "support_snapshot_verdict": "support_only"
+}

@@ -1,0 +1,25 @@
+{
+  "accepted_maker_submit_count": 2,
+  "accepted_then_canceled_count": 0,
+  "disclosures": [
+    "The repaired $250 specimen occurred around 02:04 AM Central, so economic fill-rate and PnL conclusions remain non-authoritative.",
+    "Logic findings from quote certification, launch mutation, execution-quality semantics, and submit-to-cancel survival remain authoritative."
+  ],
+  "dominant_quote_mutation_class": "minor_non_material",
+  "dominant_survival_classification": "none",
+  "logic_pathology_specimen_only": false,
+  "maker_quote_integrity_audit_version": 1,
+  "next_repair_lane": "D. Peak-hours confirmation specimen",
+  "next_repair_lane_reason": "Model, quote, and survival planes came back internally consistent; peak-hours confirmation is the next clean proof step.",
+  "order_cancel_class_distribution": {},
+  "order_cancel_suppressed_requested_reason_distribution": {
+    "phase_disallow_maker": 2,
+    "settlement_hold_required": 1
+  },
+  "peak_hours_economic_conclusion_allowed": false,
+  "primary_run_id": "62c5deb9-cc5e-4c81-999b-70426fabadc9",
+  "quality_model_semantics": "distance_sensitive_inside_spread",
+  "specimen_local_time_central": "2026-05-20T22:09:52.949000-05:00",
+  "specimen_regime_class": "non_overnight_logic_specimen",
+  "suppressed_routine_cancel_request_count": 3
+}

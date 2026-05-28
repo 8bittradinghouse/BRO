@@ -1,0 +1,22 @@
+{
+  "books": {
+    "6354965314454543795044922186072402080358522806725842320169515479522517687424": {
+      "ask_levels": 0,
+      "bid_levels": 0,
+      "status_code": 404,
+      "top_ask": null,
+      "top_bid": null
+    },
+    "96463805387248143604166616064001480786567400097574296926592516519238732647797": {
+      "ask_levels": 0,
+      "bid_levels": 0,
+      "status_code": 404,
+      "top_ask": null,
+      "top_bid": null
+    }
+  },
+  "bro_event": {},
+  "captured_at_utc": "2026-05-27T10:56:41.710Z",
+  "condition_id": "0x3bf7201ff3952a9b3b042ced89d19ab397ae8b0ba289db43055147779f961102",
+  "reason": "cadence"
+}

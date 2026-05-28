@@ -1,0 +1,224 @@
+{
+  "closed_session_normalization": {
+    "contract_phase": "stop",
+    "contract_stop_ts": "2026-05-28T03:19:40.679Z",
+    "normalized_by": "phase_start_open_session_recovery",
+    "normalized_from_phase": "validate_active",
+    "normalized_to_phase": "complete",
+    "normalized_ts_utc": "2026-05-28T03:19:40.679Z",
+    "reason": "runner_pid_dead_open_session",
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+    "run_id": "968da623-ae60-49e9-ba21-6aa6006e50d7",
+    "schema_version": 1,
+    "session_id": "e6fe8bff-85f1-422f-ba94-ec6180a70081",
+    "state_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/e6fe8bff-85f1-422f-ba94-ec6180a70081/session_state.json"
+  },
+  "compatibility_warning_count": 0,
+  "compatibility_warnings": [],
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "container_config_path": "/config/profiles/paper_universal.yaml",
+  "container_guard_stop_path": "/logs/paper_universal/guard_stop.txt",
+  "container_log_dir": "/logs/paper_universal",
+  "effective_config_sha256": "978ad43b33ded9e5fae9f82e2312713f649863156a020d1d043eb78233447fd3",
+  "expected_profile_name": "paper_universal",
+  "ignored_compatibility_fields": [],
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_ts": "2026-05-27T13:46:56.819Z",
+      "entry_conditions": [
+        {
+          "detail": "current_phase=none",
+          "name": "session_not_started",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+          "name": "canonical_config_exists",
+          "passed": true
+        }
+      ],
+      "exit_conditions": [
+        {
+          "detail": "mode=paper",
+          "name": "mode_is_paper",
+          "passed": true
+        },
+        {
+          "detail": "profile=paper_universal expected=paper_universal",
+          "name": "profile_matches_expected",
+          "passed": true
+        },
+        {
+          "detail": "paper_enforce_setup_lock=True",
+          "name": "setup_lock_enabled",
+          "passed": true
+        },
+        {
+          "detail": "expected=paper_universal observed=paper_universal",
+          "name": "setup_lock_profile_matches_expected",
+          "passed": true
+        },
+        {
+          "detail": "expected=978ad43b33ded9e5fae9f82e2312713f649863156a020d1d043eb78233447fd3 observed=978ad43b33ded9e5fae9f82e2312713f649863156a020d1d043eb78233447fd3",
+          "name": "setup_lock_fingerprint_matches_meta",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/scripts/canonical_paper_validation.sh",
+          "name": "validation_script_exists",
+          "passed": true
+        },
+        {
+          "detail": "resolved=/home/odah/bro/base/logs_exec/paper_universal",
+          "name": "canonical_log_root",
+          "passed": true
+        },
+        {
+          "detail": "resolved=/home/odah/bro/base/data/paper_universal/state.json",
+          "name": "canonical_state_root",
+          "passed": true
+        }
+      ],
+      "exited_ts": "2026-05-27T13:46:56.868Z",
+      "phase": "preflight",
+      "status": "completed"
+    },
+    {
+      "entered_ts": "2026-05-27T13:46:57.106Z",
+      "entry_conditions": [
+        {
+          "detail": "current=preflight",
+          "name": "preflight_completed",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/scripts/deploy_paper_clean.sh",
+          "name": "deploy_script_exists",
+          "passed": true
+        },
+        {
+          "detail": "run_id=968da623-ae60-49e9-ba21-6aa6006e50d7",
+          "name": "run_id_present",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+          "name": "run_manifest_not_preexisting",
+          "passed": true
+        }
+      ],
+      "exit_conditions": [
+        {
+          "detail": "run_id=968da623-ae60-49e9-ba21-6aa6006e50d7",
+          "name": "run_id_bound",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+          "name": "run_contract_written",
+          "passed": true
+        },
+        {
+          "detail": "observed=968da623-ae60-49e9-ba21-6aa6006e50d7 expected=968da623-ae60-49e9-ba21-6aa6006e50d7 observed_manifest=True",
+          "name": "manifest_consistency_non_authoritative",
+          "passed": true
+        },
+        {
+          "detail": "manifest_evidence_available=True manifest_load_error=none manifest_hash=ccd101068438dd378223c348ce9d2044eb2cd971f85767022df4b59998035ce2 workspace_hash=ccd101068438dd378223c348ce9d2044eb2cd971f85767022df4b59998035ce2 manifest_count=62 workspace_count=62",
+          "name": "runtime_code_fingerprint_matches_workspace",
+          "passed": true
+        }
+      ],
+      "exited_ts": "2026-05-27T13:47:52.653Z",
+      "phase": "start",
+      "status": "completed"
+    },
+    {
+      "entered_ts": "2026-05-27T13:47:52.655Z",
+      "entry_conditions": [
+        {
+          "detail": "current=start",
+          "name": "start_completed",
+          "passed": true
+        },
+        {
+          "detail": "run_id=968da623-ae60-49e9-ba21-6aa6006e50d7",
+          "name": "run_id_present",
+          "passed": true
+        }
+      ],
+      "exit_conditions": [
+        {
+          "detail": "requested_sec=600.00 effective_sec=600.00 runtime_duration_sec=7800.0",
+          "name": "active_duration_elapsed",
+          "passed": true
+        },
+        {
+          "detail": "docker compose ps (before stop)",
+          "name": "bro_maker_up_before_freeze",
+          "passed": true
+        },
+        {
+          "detail": "docker compose ps (before stop)",
+          "name": "bro_guardian_up_before_freeze",
+          "passed": true
+        },
+        {
+          "detail": "docker compose stop bro-maker bro-guardian",
+          "name": "runtime_frozen_before_validate_active",
+          "passed": true
+        }
+      ],
+      "exited_ts": "2026-05-27T13:57:58.504Z",
+      "phase": "active",
+      "status": "completed"
+    },
+    {
+      "entered_ts": "2026-05-27T13:57:58.507Z",
+      "entry_conditions": [
+        {
+          "detail": "current=active",
+          "name": "active_completed",
+          "passed": true
+        },
+        {
+          "detail": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+          "name": "run_contract_exists",
+          "passed": true
+        }
+      ],
+      "exit_conditions": [],
+      "exited_ts": "",
+      "phase": "validate_active",
+      "status": "running"
+    }
+  ],
+  "phase_validation_surface": {
+    "actionable_failures": [],
+    "informational_failures": [],
+    "legal_validations": []
+  },
+  "postrun_validation": {},
+  "recovered_abandoned_session": {
+    "closed_run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+    "reason": "runner_pid_dead_open_session",
+    "recovered_by": "phase_start_open_session_recovery",
+    "recovered_ts_utc": "2026-05-28T03:19:40.679Z"
+  },
+  "resolved_profile_name": "paper_universal",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+  "run_id": "968da623-ae60-49e9-ba21-6aa6006e50d7",
+  "run_manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_968da623-ae60-49e9-ba21-6aa6006e50d7.json",
+  "runner_pid": null,
+  "schema_version": 1,
+  "session_id": "e6fe8bff-85f1-422f-ba94-ec6180a70081",
+  "session_type": "paper_canonical",
+  "state_path": "/home/odah/bro/base/data/paper_universal/state.json",
+  "stop_ts": "2026-05-28T03:19:40.679Z",
+  "terminal_closeout_written": true,
+  "ts_utc": "2026-05-28T03:19:40.679Z",
+  "validation_artifact_name": "canonical_paper_validation.json",
+  "validation_script_path": "/home/odah/bro/base/scripts/canonical_paper_validation.sh"
+}

@@ -1,0 +1,15 @@
+{
+  "closeout_elapsed_sec": 0.078,
+  "error": "NameError:name 'postrun_validation' is not defined",
+  "error_message": "name 'postrun_validation' is not defined",
+  "error_type": "NameError",
+  "phase": "validate_postrun",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_ok": true,
+  "run_id": "1a2df724-9c22-4c6b-af0d-65c84617913b",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/e1d76c36-33ea-47d2-989d-0719521f4e18/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-16T17:33:34.109Z"
+}

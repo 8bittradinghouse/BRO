@@ -1,0 +1,74 @@
+{
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "error_codes": [
+    "BRO-2201"
+  ],
+  "evidence": {
+    "book_feed_down_ratio": 0.5,
+    "book_feed_last_msg_age_max_sec": 0.012513424037024379,
+    "book_feed_reconnects_max": 0.0,
+    "book_feed_reconnects_per_hour": 0.0,
+    "book_feed_thread_dead_rows": 0,
+    "book_feed_worker_fatal_rows": 0,
+    "book_feed_worker_restart_exhausted_rows": 0,
+    "book_feed_worker_unusable_rows": 0,
+    "chainlink_down_ratio": 0.5,
+    "chainlink_dropped_ticks_max": 0.0,
+    "chainlink_last_tick_age_max_sec": 0.6960128550417721,
+    "chainlink_queue_size_max": 0.0,
+    "chainlink_reconnects_max": 0.0,
+    "chainlink_reconnects_per_hour": 0.0,
+    "chainlink_thread_dead_rows": 0,
+    "chainlink_worker_fatal_rows": 0,
+    "chainlink_worker_restart_exhausted_rows": 0,
+    "chainlink_worker_unusable_rows": 0,
+    "duration_sec": 134.649,
+    "ordering_class_required_keys": [
+      "ordered",
+      "out_of_order",
+      "duplicate",
+      "revision",
+      "missing_source_time"
+    ],
+    "ordering_classification_invalid_rows": 0,
+    "ordering_classification_missing_rows": 0,
+    "ordering_classification_totals": {
+      "duplicate": 0,
+      "missing_source_time": 0,
+      "ordered": 133,
+      "out_of_order": 0,
+      "revision": 0
+    },
+    "ordering_policy_invalid_rows": 0,
+    "ordering_policy_missing_rows": 0,
+    "ordering_policy_observed_specs": [
+      {
+        "fallback": "receive_monotonic",
+        "primary": "source_timestamp",
+        "tie_breaker": "same_timestamp_price_revision",
+        "tolerance_ms": 0
+      }
+    ],
+    "ordering_policy_required_keys": [
+      "primary",
+      "fallback",
+      "tolerance_ms",
+      "tie_breaker"
+    ],
+    "status_rows": 5,
+    "websocket_truth_required_rows": 2
+  },
+  "finding_count": 2,
+  "findings": [
+    "websocket_evidence_book_feed_down_ratio_too_high:0.500000>max:0.200000",
+    "websocket_evidence_chainlink_down_ratio_too_high:0.500000>max:0.200000"
+  ],
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "ok": false,
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_1eb34754-dbbe-4cdf-b5be-ca48cdfb710b.json",
+  "run_id": "1eb34754-dbbe-4cdf-b5be-ca48cdfb710b",
+  "run_id_resolution": "explicit",
+  "session_phase": "validate_postrun",
+  "warning_count": 0,
+  "warnings": []
+}

@@ -1,0 +1,58 @@
+{
+  "dominant_mutation_classification": "minor_non_material",
+  "maker_quote_integrity_audit_version": 1,
+  "mutation_classification_distribution": {
+    "minor_non_material": 4
+  },
+  "row_count": 4,
+  "rows": [
+    {
+      "certified_to_submitted_tick_delta": 0.0,
+      "crossing_transition": false,
+      "depth_semantics_differ": false,
+      "material": false,
+      "mutation_classification": "minor_non_material",
+      "observed_fillprob_and_queue_equal": true,
+      "observed_quality_metrics_equal": false,
+      "order_id": "paper-order-1",
+      "quality_blind_mutation": false,
+      "target_side_ref": "a5ab6c95dc9fbe98|BUY"
+    },
+    {
+      "certified_to_submitted_tick_delta": 0.0,
+      "crossing_transition": false,
+      "depth_semantics_differ": false,
+      "material": false,
+      "mutation_classification": "minor_non_material",
+      "observed_fillprob_and_queue_equal": true,
+      "observed_quality_metrics_equal": false,
+      "order_id": "paper-order-2",
+      "quality_blind_mutation": false,
+      "target_side_ref": "4926fdd028572605|SELL"
+    },
+    {
+      "certified_to_submitted_tick_delta": 0.0,
+      "crossing_transition": false,
+      "depth_semantics_differ": false,
+      "material": false,
+      "mutation_classification": "minor_non_material",
+      "observed_fillprob_and_queue_equal": true,
+      "observed_quality_metrics_equal": false,
+      "order_id": "paper-order-4",
+      "quality_blind_mutation": false,
+      "target_side_ref": "73ded6c980a6ed50|BUY"
+    },
+    {
+      "certified_to_submitted_tick_delta": 0.0,
+      "crossing_transition": false,
+      "depth_semantics_differ": false,
+      "material": false,
+      "mutation_classification": "minor_non_material",
+      "observed_fillprob_and_queue_equal": true,
+      "observed_quality_metrics_equal": false,
+      "order_id": "paper-order-5",
+      "quality_blind_mutation": false,
+      "target_side_ref": "f2114db58ba52941|SELL"
+    }
+  ]
+}

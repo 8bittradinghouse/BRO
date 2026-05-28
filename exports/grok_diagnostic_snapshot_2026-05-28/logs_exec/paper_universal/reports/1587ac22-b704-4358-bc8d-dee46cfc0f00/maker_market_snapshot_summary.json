@@ -1,0 +1,117 @@
+{
+  "admission_class_counts": {
+    "borderline": 10,
+    "clean": 4,
+    "trash": 16
+  },
+  "admission_class_distribution_by_timing_band": {
+    "10_to_15s": {
+      "borderline": 7,
+      "clean": 4,
+      "trash": 10
+    },
+    "le_10s": {
+      "borderline": 3,
+      "clean": 0,
+      "trash": 6
+    }
+  },
+  "admission_rubric_version": 1,
+  "candidate_count_by_timing_band": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 7,
+    "not_met": 23
+  },
+  "cannon_window_class_distribution": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "complete_bad_ratio_by_class": {
+    "borderline": 1.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "10_to_15s": 1.0,
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 1,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {
+    "10_to_15s": 1
+  },
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 30.0,
+    "max": 43.02334600000001,
+    "mean": 1.9972677466666668,
+    "median": 0.18572525,
+    "min": 0.0,
+    "p50": 0.15839999999999999,
+    "p90": 2.200154
+  },
+  "dominant_driver_distribution": {
+    "non_viable_geometry_or_sizing_conflict": 16,
+    "repeat_target_side_pressure": 8,
+    "size_liquidity_pressure": 6
+  },
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 30
+  },
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 1.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "10_to_15s": 1.0,
+    "le_10s": 0.0
+  },
+  "population_class_counts": {
+    "candidate": 30
+  },
+  "row_count": 30,
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 30
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 30
+  },
+  "session_regime_class_distribution": {
+    "asia_dominant_heuristic": 30
+  },
+  "snapshot_source_class_distribution": {
+    "runtime_raw": 30
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 30
+  },
+  "submit_rate_by_class": {
+    "borderline": 0.1,
+    "clean": 0.25,
+    "trash": 0.0
+  },
+  "submitted_count_by_timing_band": {
+    "10_to_15s": 2
+  },
+  "top_clean_target_side_ref_counts": {
+    "65093d9a4eb2937e|BUY": 1,
+    "6a07e953bf06b691|SELL": 1,
+    "f2f81d669f0e0e7b|BUY": 1,
+    "f2f81d669f0e0e7b|SELL": 1
+  },
+  "top_trash_target_side_ref_counts": {
+    "68b7a3706d0ef2ab|BUY": 8,
+    "68b7a3706d0ef2ab|SELL": 8
+  }
+}

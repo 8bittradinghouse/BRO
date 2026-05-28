@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 2042, in run
+    self.phase_active()
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1544, in phase_active
+    time.sleep(min(5.0, max(0.5, max(1.0, active_wait_sec) / 12.0)))
+KeyboardInterrupt

@@ -1,0 +1,87 @@
+{
+  "admission_class_counts": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 4
+  },
+  "admission_class_distribution_by_timing_band": {
+    "le_10s": {
+      "borderline": 0,
+      "clean": 0,
+      "trash": 4
+    }
+  },
+  "admission_rubric_version": 1,
+  "candidate_count_by_timing_band": {
+    "le_10s": 4
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 2,
+    "not_met": 2
+  },
+  "cannon_window_class_distribution": {
+    "le_10s": 4
+  },
+  "claim_boundary_class_distribution_by_class": {},
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 4.0,
+    "max": 43.526615,
+    "mean": 11.76395,
+    "median": 1.7645925,
+    "min": 0.0,
+    "p50": 3.529185,
+    "p90": 43.526615
+  },
+  "evaluation_horizon_ms_distribution_by_class": {},
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 4
+  },
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {
+    "le_10s": 4
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "le_10s": 0.0
+  },
+  "outcome_truth_status_distribution_by_class": {},
+  "population_class_counts": {
+    "candidate": 4
+  },
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 4
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 4
+  },
+  "session_regime_class_distribution": {
+    "transition_heuristic": 4
+  },
+  "snapshot_source_class_distribution": {
+    "runtime_raw": 4
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 4
+  },
+  "submitted_count_by_timing_band": {},
+  "trash_but_okay_examples": []
+}

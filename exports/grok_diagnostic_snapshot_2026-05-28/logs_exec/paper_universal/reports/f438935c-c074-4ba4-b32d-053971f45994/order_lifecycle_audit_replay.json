@@ -1,0 +1,49 @@
+{
+  "audit_rule_set_sha256": "5926e97468e6507e7dddbd250d0a071afff726e87b091aefa10b1d6e945de993",
+  "cancel_suppressed_without_submit_order_ids": [],
+  "cancel_without_submit_order_ids": [],
+  "chainlink_tick_events_considered": 42,
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "configured_log_dir": "/logs/paper_universal",
+  "duplicate_fill_trade_ids": [],
+  "duplicate_order_submit_ids": [],
+  "edge_action_events_considered": 0,
+  "edge_decision_ingest_missing_count": 0,
+  "edge_decision_submit_missing_count": 0,
+  "error_codes": [],
+  "event_source_mode": "run_contract_slice_full_scan",
+  "event_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/e37c251a-9db4-4b62-b73f-f20d3554c64f/slices/events_slice.jsonl"
+  ],
+  "events_considered": 80,
+  "events_max_lines_per_file": 0,
+  "fill_without_submit_order_ids": [],
+  "finding_count": 0,
+  "findings": [],
+  "lifecycle_counts": {
+    "cancel_all_on_exit": 1,
+    "fill": 0,
+    "kill_switch_cancel_all": 0,
+    "lifecycle_phase_transition": 2,
+    "operating_mode_transition": 0,
+    "order_cancel": 0,
+    "order_cancel_suppressed": 0,
+    "order_submit": 0,
+    "ws_slo_state": 0
+  },
+  "lifecycle_events_considered": 3,
+  "lifecycle_records_sha256": "c033945a59d66c5f19b10fd151c744f383c95fa4ac6548c95706f3b0ffb831a6",
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "ok": true,
+  "order_submit_decision_linked_count": 0,
+  "order_submit_decision_missing_count": 0,
+  "required_fields_sha256": "911559118cc124c6b7d4541dcaca86e31a6830c527d2791846c786b480b3bab1",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_f438935c-c074-4ba4-b32d-053971f45994.json",
+  "run_id_filter": "f438935c-c074-4ba4-b32d-053971f45994",
+  "run_id_resolution": "explicit",
+  "session_phase": "validate_postrun",
+  "warning_count": 1,
+  "warnings": [
+    "edge_action_events_missing_for_lifecycle_linkage"
+  ]
+}

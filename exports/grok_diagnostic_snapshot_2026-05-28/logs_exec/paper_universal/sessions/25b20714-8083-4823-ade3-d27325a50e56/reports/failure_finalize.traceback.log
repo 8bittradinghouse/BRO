@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1876, in run
+    self.phase_start()
+  File "/home/odah/bro/base/scripts/canonical_paper_session.py", line 1118, in phase_start
+    raise RuntimeError("concurrent_open_canonical_session:" + ";".join(open_conflicts))
+RuntimeError: concurrent_open_canonical_session:session=9332cfc6-81c4-472b-bcba-e7e0712acf9d:run=7be1a962-eb78-4e13-a223-71e9e3a01efa:phase=active:contract_phase=start

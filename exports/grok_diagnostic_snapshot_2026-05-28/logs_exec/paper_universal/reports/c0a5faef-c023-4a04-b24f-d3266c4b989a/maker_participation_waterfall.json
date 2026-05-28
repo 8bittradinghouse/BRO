@@ -1,0 +1,149 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "canonical_gate_truth": {
+    "maker_gate_owner_family_distribution": {
+      "lifecycle_phase": 75,
+      "order_manager_feasibility": 2,
+      "order_manager_selection": 12,
+      "shared_lifecycle_safety": 42,
+      "submitted_population": 5
+    },
+    "maker_gate_reason_distribution": {
+      "launch_safe_selection_insufficient_depth_multiple": 12,
+      "non_actionable_geometry": 2,
+      "open_order_cleanup_required": 29,
+      "phase_disallow_maker": 75,
+      "settlement_hold_required": 13,
+      "submitted": 5
+    },
+    "maker_gate_reason_distribution_by_stage": {
+      "feasibility_gate": {
+        "non_actionable_geometry": 2
+      },
+      "phase_gate": {
+        "phase_disallow_maker": 75
+      },
+      "selection_gate": {
+        "launch_safe_selection_insufficient_depth_multiple": 12
+      },
+      "shared_safety_lifecycle_gate": {
+        "open_order_cleanup_required": 29,
+        "settlement_hold_required": 13
+      },
+      "submitted": {
+        "submitted": 5
+      }
+    },
+    "maker_gate_stage_distribution": {
+      "feasibility_gate": 2,
+      "phase_gate": 75,
+      "selection_gate": 12,
+      "shared_safety_lifecycle_gate": 42,
+      "submitted": 5
+    }
+  },
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "maker_zero_submit_audit_version": 1,
+  "reconciliation": {
+    "accounting_closed": true,
+    "maker_rows_total": 136,
+    "terminal_rows_accounted": 136,
+    "unaccounted_rows": 0
+  },
+  "stages": {
+    "desired_quote_missing_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "desired_quote_present_rows": {
+      "count": 19,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "fill_rows": {
+      "count": 1,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.3333333333333333,
+      "prior_stage": "submit_success_rows"
+    },
+    "pre_snapshot_unmatched_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "prequote_prereq_pass_rows": {
+      "count": 19,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "stage_band_allowed_rows"
+    },
+    "selection_rejected_rows": {
+      "count": 16,
+      "loss_reason_distribution": {
+        "insufficient_depth_multiple": 16
+      },
+      "percent_of_prior_stage": 0.8421052631578947,
+      "prior_stage": "snapshot_rows"
+    },
+    "snapshot_rows": {
+      "count": 19,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "stage_band_allowed_rows": {
+      "count": 19,
+      "loss_reason_distribution": {
+        "earlier_or_post_window_outside_active_maker_band": 56,
+        "outside_active_maker_band": 61
+      },
+      "percent_of_prior_stage": 0.13970588235294118,
+      "prior_stage": "total_maker_rows"
+    },
+    "submit_attempt_rows": {
+      "count": 3,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.15789473684210525,
+      "prior_stage": "snapshot_rows"
+    },
+    "submit_success_rows": {
+      "count": 3,
+      "loss_reason_distribution": {
+        "filled": 1,
+        "unfilled_or_missing_outcome": 2
+      },
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "submit_attempt_rows"
+    },
+    "total_maker_rows": {
+      "count": 136,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": null
+    },
+    "truth_reference_insufficient_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    },
+    "truth_reference_sufficient_rows": {
+      "count": 19,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    }
+  },
+  "terminal_path_counts": {
+    "fill": 1,
+    "selection_rejected": 16,
+    "stage_band_excluded": 117,
+    "submit_success_unfilled": 2
+  }
+}

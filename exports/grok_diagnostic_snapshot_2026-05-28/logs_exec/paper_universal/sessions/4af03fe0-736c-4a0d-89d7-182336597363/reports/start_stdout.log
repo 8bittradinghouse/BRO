@@ -1,0 +1,120 @@
+[deploy] validating paper setup lock in /home/odah/bro/base/configs/profiles/paper_universal.yaml...
+setup_lock_verified paper_universal 4fa46456681765f163324c21bce7163499cbf6cbcaa262ceb9336243c9ba1a58
+[deploy] resolved log_dir=/home/odah/bro/base/logs_exec/paper_universal
+[deploy] resolved state_path=/home/odah/bro/base/data/paper_universal/state.json
+[deploy] resolved guard_stop_file=/home/odah/bro/base/logs_exec/paper_universal/guard_stop.txt
+canonical_deploy_authority_verified 4af03fe0-736c-4a0d-89d7-182336597363 start c3ef6e5a-e019-4fdf-a6da-3c50cd51f291
+[deploy] git identity commit=ef50707ca1df62f4fa8e9f5721d5316fc84132b8 dirty=1
+[deploy] building images...
+#1 [internal] load local bake definitions
+#1 reading from stdin 953B done
+#1 DONE 0.0s
+
+#2 [bro-guardian internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.00kB done
+#2 DONE 0.0s
+
+#3 [bro-maker internal] load metadata for docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
+#3 DONE 1.0s
+
+#4 [bro-maker internal] load metadata for docker.io/library/rust:1.88.0-slim-bookworm
+#4 DONE 1.0s
+
+#5 [bro-guardian internal] load .dockerignore
+#5 transferring context: 260B done
+#5 DONE 0.0s
+
+#6 [bro-maker worker-builder 1/6] FROM docker.io/library/rust:1.88.0-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89
+#6 resolve docker.io/library/rust:1.88.0-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 0.0s done
+#6 DONE 0.0s
+
+#7 [bro-maker python-deps-builder 1/5] FROM docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
+#7 resolve docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47 0.0s done
+#7 DONE 0.0s
+
+#8 [bro-guardian internal] load build context
+#8 transferring context: 6.01MB 0.7s done
+#8 DONE 0.7s
+
+#9 [bro-guardian worker-builder 4/6] COPY workers/Cargo.lock /build/workers/Cargo.lock
+#9 CACHED
+
+#10 [bro-guardian worker-builder 5/6] COPY workers/src /build/workers/src
+#10 CACHED
+
+#11 [bro-guardian worker-builder 3/6] COPY workers/Cargo.toml /build/workers/Cargo.toml
+#11 CACHED
+
+#12 [bro-guardian worker-builder 2/6] WORKDIR /build/workers
+#12 CACHED
+
+#13 [bro-guardian worker-builder 6/6] RUN cargo build --release --locked
+#13 CACHED
+
+#14 [bro-guardian stage-2 4/9] COPY --from=python-deps-builder /wheelhouse /wheelhouse
+#14 CACHED
+
+#15 [bro-guardian stage-2 3/9] COPY requirements.txt /app/requirements.txt
+#15 CACHED
+
+#16 [bro-guardian stage-2 2/9] WORKDIR /app
+#16 CACHED
+
+#17 [bro-guardian python-deps-builder 3/5] RUN apt-get update     && apt-get install -y --no-install-recommends git     && rm -rf /var/lib/apt/lists/*
+#17 CACHED
+
+#18 [bro-guardian python-deps-builder 5/5] RUN python -m pip wheel --no-cache-dir --wheel-dir /wheelhouse -r /build/python/requirements.txt
+#18 CACHED
+
+#19 [bro-guardian python-deps-builder 4/5] COPY requirements.txt /build/python/requirements.txt
+#19 CACHED
+
+#20 [bro-guardian python-deps-builder 2/5] WORKDIR /build/python
+#20 CACHED
+
+#21 [bro-guardian stage-2 5/9] RUN pip install --no-cache-dir /wheelhouse/*     && rm -rf /wheelhouse
+#21 CACHED
+
+#22 [bro-guardian stage-2 6/9] COPY . /app
+#22 DONE 1.3s
+
+#23 [bro-guardian stage-2 7/9] COPY --from=worker-builder /build/workers/target/release/bro-market-stream-worker /app/workers/bin/bro-market-stream-worker
+#23 DONE 0.1s
+
+#24 [bro-maker stage-2 8/9] COPY --from=worker-builder /build/workers/target/release/bro-rtds-stream-worker /app/workers/bin/bro-rtds-stream-worker
+#24 DONE 0.0s
+
+#25 [bro-guardian stage-2 9/9] RUN addgroup --system bro && adduser --system --ingroup bro --home /home/bro --shell /usr/sbin/nologin bro     && mkdir -p /data /logs /tmp /config     && chown -R bro:bro /app /data /logs /tmp /config
+#25 DONE 3.5s
+
+#26 [bro-maker] exporting to image
+#26 exporting layers
+#26 exporting layers 2.7s done
+#26 exporting manifest sha256:be7a3fd08c8f6e9e0092b718bfbabeb1429a9a38be3385e85badeb111f0edd6c done
+#26 exporting config sha256:dee2fd88a8b665779181d800531c068aa5cc799fdefdc9c0f06660e74a58d493 done
+#26 exporting attestation manifest sha256:b9e7b789b893dfd8f360cd6a7e4298a8bf1e182e3cc2ed455838f4ef9be52146 0.0s done
+#26 exporting manifest list sha256:8de26d4bda1d55a0690ac8eb2354a5e29e9de9b6b632505a26a058a96021b2d2 done
+#26 naming to docker.io/library/bro_btc_paper-bro-maker:latest done
+#26 unpacking to docker.io/library/bro_btc_paper-bro-maker:latest
+#26 unpacking to docker.io/library/bro_btc_paper-bro-maker:latest 3.5s done
+#26 DONE 6.3s
+
+#27 [bro-guardian] exporting to image
+#27 exporting layers 2.7s done
+#27 exporting manifest sha256:746dfefde175ee9c910d6f2380133625e89a30cea9159c109a762f6c6743e98b done
+#27 exporting config sha256:a47dda3941dfd7b52f288d180698f38c93af0bb0da50c47d5d4a02ad375f8e1e done
+#27 exporting attestation manifest sha256:d20f177b4586f1ba9ec300fa8e64c9899e2f3e3721cf4edd7ce56229c4f2d857 0.0s done
+#27 exporting manifest list sha256:118c1b65b727e8bbf90e60ca83a84729cc2a887e171b061d901951812be15ba1 done
+#27 naming to docker.io/library/bro_btc_paper-bro-guardian:latest done
+#27 unpacking to docker.io/library/bro_btc_paper-bro-guardian:latest 3.5s done
+#27 DONE 6.3s
+
+#28 [bro-maker] resolving provenance for metadata file
+#28 DONE 0.0s
+
+#29 [bro-guardian] resolving provenance for metadata file
+#29 DONE 0.0s
+[deploy] docker image identity maker_ref=bro_btc_paper-bro-maker hash=sha256:8de26d4bda1d55a0690ac8eb2354a5e29e9de9b6b632505a26a058a96021b2d2
+[deploy] stopping stack...
+[deploy] clearing state and guard artifacts...
+[deploy] starting stack...

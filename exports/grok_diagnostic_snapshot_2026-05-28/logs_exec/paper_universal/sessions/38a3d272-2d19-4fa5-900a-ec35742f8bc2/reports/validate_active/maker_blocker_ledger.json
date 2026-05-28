@@ -1,0 +1,45 @@
+{
+  "authoritative_for_runtime_blocker_truth": true,
+  "claim_boundary": "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census",
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "dominant_runtime_blocker_bucket": "selection_gate",
+  "dominant_runtime_blocker_reason": "launch_safe_selection_insufficient_depth_multiple",
+  "historical_family_labels_retired_from_active_owner_surfaces": true,
+  "maker_blocker_ledger_version": 1,
+  "next_packet2_patient": "accessory_maker_sizing_feasibility",
+  "quote_quality_summary": {
+    "max_queue_ahead_size": 0.0,
+    "min_queue_ahead_size": 0.0,
+    "row_count": 0
+  },
+  "quote_quality_verdict": "not_present",
+  "runtime_blocker_family_status": "open_runtime_patient",
+  "runtime_bucket_distribution": {
+    "selection_gate": 27,
+    "sizing": 2,
+    "submitted": 1
+  },
+  "runtime_reason_distribution": {
+    "launch_safe_selection_insufficient_depth_multiple": 27,
+    "sizing_reject": 2,
+    "submitted": 1
+  },
+  "selection_gate_depth_summary": {
+    "lt_20_notional_count": 24,
+    "lt_30_notional_count": 24,
+    "lt_50_notional_count": 24,
+    "max_visible_depth_notional_usd": 133.29053000000002,
+    "median_visible_depth_notional_usd": 0.0,
+    "row_count": 27,
+    "zero_visible_depth_count": 23
+  },
+  "selection_gate_verdict": "keep_now_steel",
+  "sizing_summary": {
+    "row_count": 2
+  },
+  "sizing_verdict": "active_patient",
+  "submitted_summary": {
+    "row_count": 1
+  },
+  "support_shadow_verdict": "support_only"
+}

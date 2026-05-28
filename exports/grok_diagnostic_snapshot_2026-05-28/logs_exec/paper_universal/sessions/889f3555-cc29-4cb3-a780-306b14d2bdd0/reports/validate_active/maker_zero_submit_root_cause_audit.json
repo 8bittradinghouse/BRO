@@ -1,0 +1,130 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 150,
+    "depth_met_count": 34,
+    "desired_quote_present_count": 0,
+    "dual_oracle_confirmed_count": 150,
+    "full_cannon_candidate_count": 32,
+    "reject_reason_distribution": {
+      "insufficient_depth_multiple": 116,
+      "non_viable_geometry": 57
+    },
+    "row_count": 150
+  },
+  "applicability": "support_only_zero_submit_diagnostic",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "classification_factors": [
+    "upstream_starvation",
+    "timing_band_mismatch"
+  ],
+  "contradiction_ledger": [
+    {
+      "code": "zero_snapshot_with_runtime_eligible_pre_snapshot_rows",
+      "detail": "snapshot_rows=0 while runtime_eligible_pre_snapshot_rows=150",
+      "severity": "high"
+    },
+    {
+      "code": "off_band_full_cannon_opportunities_present",
+      "detail": "off_band_full_cannon_candidate_count=29",
+      "severity": "high"
+    },
+    {
+      "code": "active_band_dual_oracle_confirmed_but_no_desired_quote_presence",
+      "detail": "active_band_dual_oracle_confirmed=150, desired_quote_present=0",
+      "severity": "high"
+    }
+  ],
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "decision_readiness": "ready_for_truth_packet",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 29,
+      "quote_starvation_row_count": null,
+      "snapshot_selection_rejected_row_count": null
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "snapshot_row_count": 0
+    },
+    "row_universe_caveats": []
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [],
+  "off_band_full_cannon_candidate_count": 29,
+  "off_band_full_cannon_candidate_examples": [
+    {
+      "depth_multiple_vs_cannon_target": 25.8661985,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 19.879008,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "13b06c52a833f731|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 25.1491185,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 18.872531,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "13b06c52a833f731|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 24.484933,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 17.876461,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "13b06c52a833f731|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 20.7436075,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 16.874711,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "13b06c52a833f731|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 19.502409,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 15.871266,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "13b06c52a833f731|SELL"
+    }
+  ],
+  "probe_matched_selection_rejected_row_count": 0,
+  "ranked_cause_stack": [
+    {
+      "count": 114,
+      "reason": "window_geometry_hard_pinned",
+      "stage": "desired_quote_missing"
+    },
+    {
+      "count": 64,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 64,
+      "reason": "outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 22,
+      "reason": "window_geometry_near_pinned",
+      "stage": "desired_quote_missing"
+    },
+    {
+      "count": 14,
+      "reason": "maker_edge_below_min",
+      "stage": "desired_quote_missing"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "snapshot_row_count": 0,
+  "snapshot_selection_rejected_row_count": 0,
+  "unmatched_selection_rejected_snapshot_row_count": 0,
+  "zero_submit_classification": "mixed-cause starvation"
+}

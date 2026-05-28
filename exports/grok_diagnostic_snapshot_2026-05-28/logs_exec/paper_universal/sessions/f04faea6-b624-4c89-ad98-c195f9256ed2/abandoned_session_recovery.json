@@ -1,0 +1,9 @@
+{
+  "reason": "runner_pid_dead_prestart",
+  "recovered_ts_utc": "2026-05-16T03:05:17.897Z",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_e9e17949-8309-4006-918d-3029db2a0666.json",
+  "run_id": "e9e17949-8309-4006-918d-3029db2a0666",
+  "schema_version": 1,
+  "session_id": "f04faea6-b624-4c89-ad98-c195f9256ed2",
+  "state_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/f04faea6-b624-4c89-ad98-c195f9256ed2/session_state.json"
+}

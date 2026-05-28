@@ -1,0 +1,33 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "fair_probability_presence_distribution": {
+    "present": 26
+  },
+  "favored_side_depth_truth_state_distribution": {
+    "nonzero_visible": 3,
+    "zero_visible": 23
+  },
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {
+    "present": 26
+  },
+  "market_reference_mode_distribution": {
+    "direct_midpoint": 26
+  },
+  "market_reference_source_side_distribution": {
+    "none": 26
+  },
+  "primary_truth_starvation_cause": "none",
+  "row_count": 26,
+  "truth_primary_deprivation_reason_distribution": {
+    "none": 26
+  },
+  "truth_readiness_distribution": {
+    "authoritative_complete": 26
+  },
+  "truth_readiness_state_distribution": {
+    "authoritative_complete": 26
+  }
+}

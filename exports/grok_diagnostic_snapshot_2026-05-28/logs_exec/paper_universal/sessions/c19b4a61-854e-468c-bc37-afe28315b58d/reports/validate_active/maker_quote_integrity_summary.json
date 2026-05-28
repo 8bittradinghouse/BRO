@@ -1,0 +1,30 @@
+{
+  "accepted_maker_submit_count": 2,
+  "accepted_then_canceled_count": 0,
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_current_owner_law": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "disclosures": [
+    "This artifact is support-only and may not outrank canonical runtime blocker truth.",
+    "Economic fill-rate and PnL conclusions remain non-authoritative until a dedicated peak-hours confirmation specimen is earned.",
+    "Logic findings from quote certification, launch mutation, execution-quality semantics, and submit-to-cancel survival remain bounded support evidence only."
+  ],
+  "dominant_quote_mutation_class": "minor_non_material",
+  "dominant_survival_classification": "none",
+  "logic_pathology_specimen_only": false,
+  "maker_quote_integrity_audit_version": 1,
+  "next_repair_lane": "D. Peak-hours confirmation follow-up",
+  "next_repair_lane_reason": "Model, quote, and survival planes came back internally consistent; peak-hours confirmation is the next clean proof step.",
+  "order_cancel_class_distribution": {},
+  "order_cancel_suppressed_requested_reason_distribution": {
+    "phase_disallow_maker": 10
+  },
+  "peak_hours_economic_conclusion_allowed": false,
+  "primary_run_id": "6b0cbcdf-b197-4992-9e81-f9d27262dd2b",
+  "quality_model_semantics": "distance_sensitive_inside_spread",
+  "specimen_local_time_central": "2026-05-26T23:39:45.693000-05:00",
+  "specimen_regime_class": "non_overnight_logic_specimen",
+  "suppressed_routine_cancel_request_count": 10
+}

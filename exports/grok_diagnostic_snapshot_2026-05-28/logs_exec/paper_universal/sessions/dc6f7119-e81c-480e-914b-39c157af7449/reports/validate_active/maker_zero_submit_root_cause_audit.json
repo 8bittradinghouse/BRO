@@ -1,0 +1,101 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 0,
+    "depth_met_count": 0,
+    "desired_quote_present_count": 0,
+    "dual_oracle_confirmed_count": 0,
+    "full_cannon_candidate_count": 0,
+    "reject_reason_distribution": {},
+    "row_count": 0
+  },
+  "classification_factors": [
+    "timing_band_mismatch"
+  ],
+  "contradiction_ledger": [
+    {
+      "code": "off_band_full_cannon_opportunities_present",
+      "detail": "off_band_full_cannon_candidate_count=13",
+      "severity": "high"
+    }
+  ],
+  "decision_readiness": "measurement_incomplete",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 13,
+      "quote_starvation_row_count": null,
+      "shadow_selection_rejected_row_count": 33
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "shadow_row_count": null
+    },
+    "row_universe_caveats": [
+      "unmatched_shadow_selection_rejections"
+    ]
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [
+    "unmatched_shadow_selection_rejections"
+  ],
+  "off_band_full_cannon_candidate_count": 13,
+  "off_band_full_cannon_candidate_examples": [
+    {
+      "depth_multiple_vs_cannon_target": 3.2895725000000002,
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 18.301029,
+      "secondary_oracle_status": "confirmed",
+      "stage": "",
+      "target_side_ref": "191359005c6c9726|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 4.478043,
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 17.300851,
+      "secondary_oracle_status": "confirmed",
+      "stage": "",
+      "target_side_ref": "191359005c6c9726|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 1.734831,
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 15.30944,
+      "secondary_oracle_status": "confirmed",
+      "stage": "",
+      "target_side_ref": "191359005c6c9726|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 77.66345,
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 14.304199,
+      "secondary_oracle_status": "confirmed",
+      "stage": "",
+      "target_side_ref": "191359005c6c9726|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 6.5978085,
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 12.302507,
+      "secondary_oracle_status": "confirmed",
+      "stage": "",
+      "target_side_ref": "191359005c6c9726|SELL"
+    }
+  ],
+  "probe_matched_selection_rejected_row_count": 0,
+  "ranked_cause_stack": [
+    {
+      "count": 80,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 20,
+      "reason": "outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "shadow_row_count": 35,
+  "shadow_selection_rejected_row_count": 33,
+  "unmatched_selection_rejected_shadow_row_count": 33,
+  "zero_submit_classification": "timing_band_mismatch"
+}

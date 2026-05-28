@@ -1,0 +1,41 @@
+{
+  "authoritative_for_canonical_selection": true,
+  "blocked_count_by_canonical_reject_reason": {},
+  "counterfactual_block_order_submit_ids": [],
+  "counterfactual_decision_distribution": {},
+  "counterfactual_keep_order_submit_ids": [],
+  "counterfactual_policy": {
+    "allowed_lifecycle_phases": [
+      "maker_window"
+    ],
+    "authority_contract": "maker_phase_allowed",
+    "market_family_authority": "deferred_missing_clean_truth_surface",
+    "max_same_target_side_submit_count_prior": 1,
+    "max_same_target_submit_count_prior": 1,
+    "min_depth_multiple": 1.5,
+    "policy_name": "paper_universal_runtime_aligned_selection_authority",
+    "require_secondary_oracle_confirmation": true,
+    "timing_authority": "external_existing_maker_timing_gate_only",
+    "version": 1
+  },
+  "current_decision_distribution": {},
+  "maker_selection_authority_audit_version": 1,
+  "profile_name": "paper_universal",
+  "row_count": 0,
+  "rows": [],
+  "runtime_selector_config": {
+    "allowed_lifecycle_phases": [
+      "maker_window"
+    ],
+    "authority_contract": "maker_phase_allowed",
+    "cannon_target_notional_usd": 100.0,
+    "enabled": true,
+    "max_same_target_side_submit_count_prior": 1,
+    "max_same_target_submit_count_prior": 1,
+    "min_depth_multiple": 1.45,
+    "one_sided_edge_threshold_abs": 0.15,
+    "require_secondary_oracle_confirmation": true
+  },
+  "runtime_selector_enabled": true,
+  "submitted_count_by_one_sided_active": {}
+}

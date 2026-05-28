@@ -1,0 +1,85 @@
+{
+  "applicability": "support_only_cross_surface_reconciliation",
+  "authoritative_for_runtime_or_strategy": false,
+  "by_lane": {
+    "maker": {
+      "available": true,
+      "count_equality_expected": false,
+      "fill_notional_reconciles": true,
+      "financial_closed_trade_count": 1,
+      "financial_gross_filled_notional_usd": 101.5574,
+      "financial_lane": "maker",
+      "financial_net_pnl_usd": -2.0725999999999942,
+      "numeric_pnl_equivalence_expected": false,
+      "outcome_complete_outcome_records": 1,
+      "outcome_decision_component_x_size_sum": 2.0726000000000018,
+      "outcome_edge_realized_x_size_sum": 3.6270500000000148,
+      "outcome_execution_component_x_size_sum": 1.5544500000000128,
+      "outcome_fill_notional_sum": 101.5574,
+      "outcome_lane": "maker",
+      "outcome_total_outcome_records": 1,
+      "outcome_unknown_outcome_records": 0
+    },
+    "taker": {
+      "available": true,
+      "count_equality_expected": false,
+      "fill_notional_reconciles": true,
+      "financial_closed_trade_count": 1,
+      "financial_gross_filled_notional_usd": 5.0,
+      "financial_lane": "taker",
+      "financial_net_pnl_usd": -5.0,
+      "numeric_pnl_equivalence_expected": false,
+      "outcome_complete_outcome_records": 1,
+      "outcome_decision_component_x_size_sum": -4.0,
+      "outcome_edge_realized_x_size_sum": -4.500000000000001,
+      "outcome_execution_component_x_size_sum": -0.5000000000000004,
+      "outcome_fill_notional_sum": 5.0,
+      "outcome_lane": "normal_taker",
+      "outcome_total_outcome_records": 1,
+      "outcome_unknown_outcome_records": 0
+    }
+  },
+  "claim_boundary": {
+    "financial_unit": "target_ref_campaign",
+    "lane_name_mapping": {
+      "maker": "maker",
+      "taker": "normal_taker"
+    },
+    "numeric_equality_expected": false,
+    "outcome_unit": "outcome_record_fixed_horizon_observation",
+    "reason": "financial_performance is realized campaign cashflow through settlement; outcome_truth is observational fixed-horizon edge realization and should not numerically equal ledger pnl.",
+    "same_aggregation_unit_expected": false,
+    "same_fill_notional_alignment_expected": true
+  },
+  "financial_surface": {
+    "accounting_basis": "fill_cashflow_plus_wallet_position_settled",
+    "closed_trade_unit": "target_ref_campaign",
+    "interpretation": "realized_cashflow_plus_wallet_position_settled",
+    "lane_mapping_basis": "order_submit.submission_lane_with_reason_fallback",
+    "latest_status_total_pnl_usd": -7.072599999999994,
+    "latest_total_pnl_source": "status_gauge_total_pnl_reconciled",
+    "latest_total_pnl_usd": -7.072599999999994
+  },
+  "outcome_surface": {
+    "available": true,
+    "lane_outcome_interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+    "reference_policy": "directional correctness at fixed 5000ms horizon using decision/eval midpoint references",
+    "run_claim_scope": "observational_only_fixed_horizon_outcome_truth"
+  },
+  "overall": {
+    "count_equality_expected": false,
+    "fill_notional_reconciles": true,
+    "financial_closed_trade_count": 2,
+    "financial_gross_filled_notional_usd": 106.5574,
+    "financial_net_pnl_usd": -7.072599999999994,
+    "outcome_complete_outcome_records": 2,
+    "outcome_fill_notional_sum": 106.5574
+  },
+  "status": "quantities_distinct_fill_notional_reconciled",
+  "surface_class": "support_only_cross_surface_reconciliation",
+  "unmapped_financial_lanes": [
+    "mixed",
+    "unknown"
+  ],
+  "unmapped_outcome_lanes": []
+}

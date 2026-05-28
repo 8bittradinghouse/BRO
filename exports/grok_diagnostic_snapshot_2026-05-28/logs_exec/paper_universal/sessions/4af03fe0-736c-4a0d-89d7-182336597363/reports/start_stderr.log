@@ -1,0 +1,15 @@
+ Image bro_btc_paper-bro-maker Building 
+ Image bro_btc_paper-bro-guardian Building 
+ Image bro_btc_paper-bro-guardian Built 
+ Image bro_btc_paper-bro-maker Built 
+ Network bro_btc_paper_default Creating 
+ Network bro_btc_paper_default Created 
+ Container bro_btc_paper-bro-maker-1 Creating 
+ Container bro_btc_paper-bro-maker-1 Created 
+ Container bro_btc_paper-bro-guardian-1 Creating 
+ Container bro_btc_paper-bro-guardian-1 Created 
+ Container bro_btc_paper-bro-maker-1 Starting 
+ Container bro_btc_paper-bro-maker-1 Started 
+ Container bro_btc_paper-bro-maker-1 Waiting 
+ Container bro_btc_paper-bro-maker-1 Error dependency bro-maker failed to start
+dependency failed to start: container bro_btc_paper-bro-maker-1 is unhealthy

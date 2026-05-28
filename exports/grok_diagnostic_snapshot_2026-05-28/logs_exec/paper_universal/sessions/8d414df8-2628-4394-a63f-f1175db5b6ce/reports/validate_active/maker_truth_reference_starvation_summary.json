@@ -1,0 +1,30 @@
+{
+  "fair_probability_presence_distribution": {
+    "present": 32
+  },
+  "favored_side_depth_truth_state_distribution": {
+    "nonzero_visible": 6,
+    "zero_visible": 26
+  },
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {
+    "present": 32
+  },
+  "market_reference_mode_distribution": {
+    "direct_midpoint": 32
+  },
+  "market_reference_source_side_distribution": {
+    "none": 32
+  },
+  "primary_truth_starvation_cause": "none",
+  "row_count": 32,
+  "truth_primary_deprivation_reason_distribution": {
+    "none": 32
+  },
+  "truth_readiness_distribution": {
+    "authoritative_complete": 32
+  },
+  "truth_readiness_state_distribution": {
+    "authoritative_complete": 32
+  }
+}

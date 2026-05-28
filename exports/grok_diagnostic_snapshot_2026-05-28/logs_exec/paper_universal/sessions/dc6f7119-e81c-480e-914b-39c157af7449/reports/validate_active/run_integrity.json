@@ -1,0 +1,34 @@
+{
+  "allow_legacy_manifest": false,
+  "cancel_all_event_count": 1,
+  "context_hints": {
+    "candidate_log_dirs_for_run": [
+      "/home/odah/bro/base/logs_exec/paper_universal"
+    ]
+  },
+  "duplicate_fill_trade_id_count": 0,
+  "error_codes": [],
+  "error_unreadable_count": 0,
+  "event_row_count": 800,
+  "event_unreadable_count": 0,
+  "events_json_parse_error_count": 0,
+  "events_json_parse_error_paths": {},
+  "fill_event_count": 1,
+  "finding_count": 0,
+  "findings": [],
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_ae3bdf9e-6eee-4c99-8e3b-6e021136125c.json",
+  "monotonic_violations": {},
+  "ok": true,
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_ae3bdf9e-6eee-4c99-8e3b-6e021136125c.json",
+  "run_id": "ae3bdf9e-6eee-4c99-8e3b-6e021136125c",
+  "session_phase": "validate_active",
+  "status_json_parse_error_count": 0,
+  "status_json_parse_error_paths": {},
+  "status_row_count": 21,
+  "status_unreadable_count": 0,
+  "warning_count": 1,
+  "warnings": [
+    "fill_count_check_tail_scoped:events_tail=1:status_counter=4"
+  ]
+}

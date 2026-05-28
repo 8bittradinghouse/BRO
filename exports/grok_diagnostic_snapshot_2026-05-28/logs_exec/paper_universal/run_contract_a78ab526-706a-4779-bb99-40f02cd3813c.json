@@ -1,0 +1,29 @@
+{
+  "allowed_actions": [
+    "validate_postrun",
+    "archive_export"
+  ],
+  "authority_level": "observational",
+  "code_fingerprint_file_count": "",
+  "code_fingerprint_sha256": "",
+  "config_fingerprint_sha256": "",
+  "errors_path": "",
+  "errors_slice_path": "",
+  "events_path": "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-28.jsonl",
+  "events_slice_path": "",
+  "evidence_slice_end_ts": "2026-05-28T06:31:19.750Z",
+  "evidence_slice_start_ts": "2026-05-28T06:28:32.935Z",
+  "git_commit": "",
+  "log_root": "/home/odah/bro/base/logs_exec/paper_universal",
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_a78ab526-706a-4779-bb99-40f02cd3813c.json",
+  "phase": "stop",
+  "run_id": "a78ab526-706a-4779-bb99-40f02cd3813c",
+  "schema_version": 2,
+  "session_id": "c30f4ca4-fc81-4892-85f3-5f50ca8556dc",
+  "session_type": "paper_canonical",
+  "start_ts": "2026-05-28T06:28:32.935Z",
+  "state_root": "/home/odah/bro/base/data/paper_universal",
+  "status_path": "/home/odah/bro/base/logs_exec/paper_universal/status_2026-05-28.jsonl",
+  "status_slice_path": "",
+  "stop_ts": "2026-05-28T06:31:19.750Z"
+}

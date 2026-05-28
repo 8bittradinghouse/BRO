@@ -1,0 +1,41 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 0,
+    "depth_met_count": 0,
+    "desired_quote_present_count": 0,
+    "dual_oracle_confirmed_count": 0,
+    "full_cannon_candidate_count": 0,
+    "reject_reason_distribution": {},
+    "row_count": 0
+  },
+  "applicability": "support_only_zero_submit_diagnostic",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "classification_factors": [],
+  "contradiction_ledger": [],
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "decision_readiness": "ready_for_truth_packet",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 0,
+      "quote_starvation_row_count": null,
+      "snapshot_selection_rejected_row_count": null
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "snapshot_row_count": 0
+    },
+    "row_universe_caveats": []
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [],
+  "off_band_full_cannon_candidate_count": 0,
+  "off_band_full_cannon_candidate_examples": [],
+  "probe_matched_selection_rejected_row_count": 0,
+  "ranked_cause_stack": [],
+  "runtime_classification": "UNKNOWN",
+  "snapshot_row_count": 0,
+  "snapshot_selection_rejected_row_count": 0,
+  "unmatched_selection_rejected_snapshot_row_count": 0,
+  "zero_submit_classification": "unknown"
+}

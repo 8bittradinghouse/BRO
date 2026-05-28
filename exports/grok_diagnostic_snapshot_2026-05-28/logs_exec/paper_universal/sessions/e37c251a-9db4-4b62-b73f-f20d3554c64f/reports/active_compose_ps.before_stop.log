@@ -1,0 +1,3 @@
+NAME                           IMAGE                        COMMAND                  SERVICE        CREATED              STATUS                        PORTS
+bro_btc_paper-bro-guardian-1   bro_btc_paper-bro-guardian   "python scripts/guar…"   bro-guardian   About a minute ago   Up 12 seconds (healthy)       
+bro_btc_paper-bro-maker-1      bro_btc_paper-bro-maker      "python executor.py …"   bro-maker      About a minute ago   Up About a minute (healthy)   127.0.0.1:9108->9108/tcp

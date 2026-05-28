@@ -1,0 +1,2 @@
+[broctl] timeout: /home/odah/bro/base/scripts/canonical_paper_session.sh --active-minutes 60 --wait-sec 25 --build exceeded 1800.0s
+[broctl] exec: /home/odah/bro/base/scripts/canonical_paper_session.sh --active-minutes 60 --wait-sec 25 --build

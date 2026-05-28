@@ -1,0 +1,31 @@
+{
+  "conditions": {
+    "0x2af6ab9fa4c596def5d4b330e1c30c9411647f11acf0762b1a2a75c0006a3211": {
+      "close_detected_utc": "",
+      "close_reason": "",
+      "closed": false,
+      "condition_id": "0x2af6ab9fa4c596def5d4b330e1c30c9411647f11acf0762b1a2a75c0006a3211",
+      "dir": "/home/odah/bro/base/tmp/paper_live_market_audit/20260527T065655Z/market_1_btc-updown-5m-1779864900",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-27T06:58:38.875Z",
+      "last_snapshot_reason": "transition_scan",
+      "last_snapshot_utc": "2026-05-27T07:00:08.548Z",
+      "market_slug": "btc-updown-5m-1779864900",
+      "metadata_path": "/home/odah/bro/base/tmp/paper_live_market_audit/20260527T065655Z/market_1_btc-updown-5m-1779864900/market_metadata.json",
+      "owned_market_ref": "0x2af6ab9fa4c596def5d4b330e1c30c9411647f11acf0762b1a2a75c0006a3211|2026-05-27T07:00:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 27, 2:55AM-3:00AM ET",
+      "snapshots": 29,
+      "tokens": [
+        "45229003611198223050603725546729761655149985729043416836360560749241395616352",
+        "104010448355951063803675345061566966972980296811766208684676492937011214479477"
+      ]
+    }
+  },
+  "conditions_seen": 1,
+  "matching_counts": {
+    "errors": 0,
+    "events": 637,
+    "status": 5
+  },
+  "run_id": "352504bb-58d6-4be9-bea9-391a38fedd81"
+}

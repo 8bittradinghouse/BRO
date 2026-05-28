@@ -1,0 +1,16 @@
+ Image bro_btc_paper-bro-maker Building 
+ Image bro_btc_paper-bro-guardian Building 
+ Image bro_btc_paper-bro-guardian Built 
+ Image bro_btc_paper-bro-maker Built 
+ Network bro_btc_paper_default Creating 
+ Network bro_btc_paper_default Created 
+ Container bro_btc_paper-bro-maker-1 Creating 
+ Container bro_btc_paper-bro-maker-1 Created 
+ Container bro_btc_paper-bro-maker-1 Starting 
+ Container bro_btc_paper-bro-maker-1 Started 
+deploy_maker_health_timeout:unhealthy
+NAME                        IMAGE                     COMMAND                  SERVICE     CREATED         STATUS                     PORTS
+bro_btc_paper-bro-maker-1   bro_btc_paper-bro-maker   "python executor.py …"   bro-maker   2 minutes ago   Up 2 minutes (unhealthy)   127.0.0.1:9108->9108/tcp
+2026-05-27 09:44:14,408 | INFO | executor | Active profile: paper_universal | Config fingerprint: 4fa46456681765f163324c21bce7163499cbf6cbcaa262ceb9336243c9ba1a58 | Config sources: ['/config/profiles/execution_defaults.yaml', '/config/profiles/base.yaml', '/config/profiles/paper_universal.yaml']
+2026-05-27 09:44:27,773 | WARNING | urllib3.connectionpool | Retrying (Retry(total=0, connect=2, read=1, redirect=None, status=1)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='gamma-api.polymarket.com', port=443): Read timed out. (read timeout=8.0)")': /markets?slug=btc-updown-5m-1779874800&limit=5&offset=0
+2026-05-27 09:45:50,454 | WARNING | urllib3.connectionpool | Retrying (Retry(total=1, connect=2, read=1, redirect=None, status=2)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='gamma-api.polymarket.com', port=443): Read timed out. (read timeout=8.0)")': /markets?slug=btc-updown-5m-1779875400&limit=5&offset=0

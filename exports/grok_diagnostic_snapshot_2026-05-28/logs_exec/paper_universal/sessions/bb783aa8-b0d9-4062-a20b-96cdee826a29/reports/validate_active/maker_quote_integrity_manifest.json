@@ -1,0 +1,63 @@
+{
+  "consulted_event_types": [
+    "maker_fight_admission_shadow",
+    "pre_submit_cross_guard_adjusted",
+    "order_submit",
+    "order_cancel",
+    "order_cancel_suppressed",
+    "edge_evaluation"
+  ],
+  "field_provenance": {
+    "direct_logged_fields": [
+      "desired_quote_price",
+      "expected_fill_prob",
+      "queue_ahead_size",
+      "visible_depth_shares",
+      "depth_multiple_vs_cannon_target",
+      "pre_submit_cross_guard_original_price",
+      "pre_submit_cross_guard_adjusted_price",
+      "best_bid_price",
+      "best_ask_price",
+      "order_submit.price",
+      "order_cancel.reason",
+      "selection_gate_primary_reject_reason",
+      "selection_gate_all_reject_reasons",
+      "replace_guard_would_block",
+      "same_target_side_submit_count_prior"
+    ],
+    "report_reconstructed_fields": [
+      "submitted_quote_differs_from_certified_quote",
+      "certified_to_submitted_tick_delta",
+      "certified_quote_crosses_touch",
+      "submitted_quote_crosses_touch",
+      "submitted_quote_depth_multiple_vs_cannon_target",
+      "resting_price_counterfactual_depth_multiple",
+      "quote_mutation_classification",
+      "survival_classification",
+      "next_repair_lane"
+    ]
+  },
+  "historical_only_lineage_event_counts": {},
+  "historical_only_lineage_event_summaries": {},
+  "logic_pathology_specimen_only": false,
+  "maker_quote_integrity_audit_version": 1,
+  "observed_event_type_counts": {
+    "edge_evaluation": 576,
+    "maker_fight_admission_shadow": 112,
+    "order_cancel": 1,
+    "order_cancel_suppressed": 36,
+    "order_submit": 2,
+    "pre_submit_cross_guard_adjusted": 0
+  },
+  "order_cancel_class_distribution": {
+    "terminal_window_end": 1
+  },
+  "order_cancel_suppressed_requested_reason_distribution": {
+    "phase_disallow_maker": 36
+  },
+  "peak_hours_economic_conclusion_allowed": false,
+  "primary_run_id": "fbf0fff0-4452-40e6-83dc-fd64f62f0a72",
+  "profile_name": "paper_universal",
+  "required_minimal_runtime_fields": false,
+  "used_existing_events_only": true
+}

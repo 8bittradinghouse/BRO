@@ -1,0 +1,15 @@
+{
+  "closeout_elapsed_sec": 1.605,
+  "error": "KeyboardInterrupt:",
+  "error_message": "",
+  "error_type": "KeyboardInterrupt",
+  "phase": "start",
+  "run_contract_closeout_attempted": true,
+  "run_contract_closeout_ok": true,
+  "run_id": "cf949779-b365-419d-98a8-7ea9c79c16a9",
+  "stack_shutdown_attempted": true,
+  "stack_shutdown_exit_code": 0,
+  "stack_shutdown_ok": true,
+  "traceback_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/6475e77e-d194-4eb1-b9c4-54a518661b4a/reports/failure_finalize.traceback.log",
+  "ts_utc": "2026-05-12T06:38:53.263Z"
+}

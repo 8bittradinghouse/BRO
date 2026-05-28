@@ -1,0 +1,51 @@
+{
+  "books": {
+    "100109747129944425590427968498055525127114376623767060592293090881225659351965": {
+      "ask_levels": 76,
+      "bid_levels": 0,
+      "status_code": 200,
+      "top_ask": {
+        "price": "0.01",
+        "size": "73086.26"
+      },
+      "top_bid": null
+    },
+    "114550573834249269370374382446218272876407689348721629886554741417379726244787": {
+      "ask_levels": 0,
+      "bid_levels": 76,
+      "status_code": 200,
+      "top_ask": null,
+      "top_bid": {
+        "price": "0.99",
+        "size": "73099.26"
+      }
+    }
+  },
+  "bro_event": {
+    "action_taken": "maker",
+    "block_reason": "",
+    "edge": null,
+    "edge_value": 0.0040000000000000036,
+    "evaluation_scope": "maker",
+    "event_type": "edge_evaluation",
+    "fair_probability": 0.999,
+    "lifecycle_phase": "maker_window",
+    "lineage_stage": "MAKER_LATE_WINDOW",
+    "maker_gate_reason": "submitted",
+    "market_key": "",
+    "market_probability": 0.995,
+    "outcome_hint": "",
+    "owned_market_ref": "0x15fc855dbe4e79cca4e2fa385b5528275f5e76fcc8afefcc13400e20ebe63aa8|2026-05-28T03:30:00.000Z|na",
+    "price": null,
+    "side": "",
+    "size": null,
+    "submission_lane": "",
+    "taker_submit_reject_reason": "",
+    "target_ref": "11677de457280c47",
+    "token_id": "",
+    "ts_event_utc": "2026-05-28T03:29:50.904Z"
+  },
+  "captured_at_utc": "2026-05-28T03:29:52.081Z",
+  "condition_id": "0x15fc855dbe4e79cca4e2fa385b5528275f5e76fcc8afefcc13400e20ebe63aa8",
+  "reason": "edge_evaluation"
+}

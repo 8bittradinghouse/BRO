@@ -1,0 +1,102 @@
+{
+  "admission_class_counts": {
+    "borderline": 9,
+    "clean": 2,
+    "trash": 0
+  },
+  "admission_class_distribution_by_timing_band": {
+    "10_to_15s": {
+      "borderline": 6,
+      "clean": 2,
+      "trash": 0
+    },
+    "le_10s": {
+      "borderline": 3,
+      "clean": 0,
+      "trash": 0
+    }
+  },
+  "admission_rubric_version": 1,
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "candidate_count_by_timing_band": {
+    "10_to_15s": 8,
+    "le_10s": 3
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 1,
+    "not_met": 10
+  },
+  "cannon_window_class_distribution": {
+    "10_to_15s": 8,
+    "le_10s": 3
+  },
+  "claim_boundary_class_distribution_by_class": {},
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "10_to_15s": 0.0,
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 11.0,
+    "max": 1.5692168999999998,
+    "mean": 0.4078100181818181,
+    "median": 0.08824119999999999,
+    "min": 0.0049,
+    "p50": 0.08824119999999999,
+    "p90": 1.2618890999999999
+  },
+  "evaluation_horizon_ms_distribution_by_class": {},
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 11
+  },
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {
+    "10_to_15s": 8,
+    "le_10s": 3
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "10_to_15s": 0.0,
+    "le_10s": 0.0
+  },
+  "outcome_truth_status_distribution_by_class": {},
+  "population_class_counts": {
+    "candidate": 11
+  },
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 11
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 11
+  },
+  "session_regime_class_distribution": {
+    "asia_dominant_heuristic": 11
+  },
+  "snapshot_source_class_distribution": {
+    "runtime_raw": 11
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 11
+  },
+  "submitted_count_by_timing_band": {
+    "10_to_15s": 1
+  },
+  "trash_but_okay_examples": []
+}

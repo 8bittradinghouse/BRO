@@ -1,0 +1,111 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "maker_zero_submit_audit_version": 1,
+  "reconciliation": {
+    "accounting_closed": true,
+    "maker_rows_total": 372,
+    "terminal_rows_accounted": 372,
+    "unaccounted_rows": 0
+  },
+  "stages": {
+    "desired_quote_missing_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "desired_quote_present_rows": {
+      "count": 56,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "fill_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "submit_success_rows"
+    },
+    "pre_shadow_non_shadow_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "prequote_prereq_pass_rows": {
+      "count": 56,
+      "loss_reason_distribution": {
+        "secondary_oracle_not_confirmed": 6
+      },
+      "percent_of_prior_stage": 0.9032258064516129,
+      "prior_stage": "stage_band_allowed_rows"
+    },
+    "selection_rejected_rows": {
+      "count": 46,
+      "loss_reason_distribution": {
+        "insufficient_depth_multiple": 46
+      },
+      "percent_of_prior_stage": 0.8214285714285714,
+      "prior_stage": "shadow_rows"
+    },
+    "shadow_rows": {
+      "count": 56,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "stage_band_allowed_rows": {
+      "count": 62,
+      "loss_reason_distribution": {
+        "earlier_or_post_window_outside_active_maker_band": 268,
+        "outside_active_maker_band": 42
+      },
+      "percent_of_prior_stage": 0.16666666666666666,
+      "prior_stage": "total_maker_rows"
+    },
+    "submit_attempt_rows": {
+      "count": 10,
+      "loss_reason_distribution": {
+        "quote_quality_skip_queue_depth": 6,
+        "sizing_reject": 3
+      },
+      "percent_of_prior_stage": 0.17857142857142858,
+      "prior_stage": "shadow_rows"
+    },
+    "submit_success_rows": {
+      "count": 1,
+      "loss_reason_distribution": {
+        "unfilled_or_missing_outcome": 1
+      },
+      "percent_of_prior_stage": 0.1,
+      "prior_stage": "submit_attempt_rows"
+    },
+    "total_maker_rows": {
+      "count": 372,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": null
+    },
+    "truth_reference_insufficient_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    },
+    "truth_reference_sufficient_rows": {
+      "count": 56,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    }
+  },
+  "terminal_path_counts": {
+    "prequote_prereq_blocked": 6,
+    "selection_rejected": 46,
+    "stage_band_excluded": 310,
+    "submit_attempt_rejected": 9,
+    "submit_success_unfilled": 1
+  }
+}

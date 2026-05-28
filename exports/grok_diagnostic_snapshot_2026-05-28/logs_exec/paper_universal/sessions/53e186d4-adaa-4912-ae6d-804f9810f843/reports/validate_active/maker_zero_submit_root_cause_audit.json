@@ -1,0 +1,63 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 62,
+    "depth_met_count": 12,
+    "desired_quote_present_count": 62,
+    "dual_oracle_confirmed_count": 62,
+    "full_cannon_candidate_count": 12,
+    "reject_reason_distribution": {
+      "insufficient_depth_multiple": 50,
+      "non_viable_geometry": 15
+    },
+    "row_count": 62
+  },
+  "classification_factors": [
+    "upstream_starvation"
+  ],
+  "contradiction_ledger": [],
+  "decision_readiness": "ready_for_truth_packet",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 0,
+      "quote_starvation_row_count": null,
+      "shadow_selection_rejected_row_count": 62
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "shadow_row_count": null
+    },
+    "row_universe_caveats": []
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [],
+  "off_band_full_cannon_candidate_count": 0,
+  "off_band_full_cannon_candidate_examples": [],
+  "probe_matched_selection_rejected_row_count": 62,
+  "ranked_cause_stack": [
+    {
+      "count": 332,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 202,
+      "reason": "phase_disallow_maker",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 110,
+      "reason": "settlement_hold_required",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 62,
+      "reason": "timing_window_out_of_band",
+      "stage": "selection_rejected"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "shadow_row_count": 62,
+  "shadow_selection_rejected_row_count": 62,
+  "unmatched_selection_rejected_shadow_row_count": 0,
+  "zero_submit_classification": "upstream_starvation"
+}

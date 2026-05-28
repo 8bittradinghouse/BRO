@@ -1,0 +1,9 @@
+{
+  "reason": "manual_recovery_after_intentional_interrupt",
+  "recovered_ts_utc": "2026-05-25T23:02:08.977Z",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_17fe07e3-32ec-43e7-950f-2481ac05b9ff.json",
+  "run_id": "17fe07e3-32ec-43e7-950f-2481ac05b9ff",
+  "schema_version": 1,
+  "session_id": "727623bd-20e5-4137-8fd9-b29fa665d0e4",
+  "state_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/727623bd-20e5-4137-8fd9-b29fa665d0e4/session_state.json"
+}

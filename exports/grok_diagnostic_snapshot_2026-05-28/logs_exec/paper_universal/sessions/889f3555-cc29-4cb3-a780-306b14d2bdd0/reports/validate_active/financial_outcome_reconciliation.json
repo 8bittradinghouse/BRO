@@ -1,0 +1,45 @@
+{
+  "applicability": "support_only_cross_surface_reconciliation",
+  "authoritative_for_runtime_or_strategy": false,
+  "by_lane": {},
+  "claim_boundary": {
+    "financial_unit": "target_ref_campaign",
+    "lane_name_mapping": {
+      "maker": "maker",
+      "taker": "normal_taker"
+    },
+    "numeric_equality_expected": false,
+    "outcome_unit": "outcome_record_fixed_horizon_observation",
+    "reason": "financial_performance is realized campaign cashflow through settlement; outcome_truth is observational fixed-horizon edge realization and should not numerically equal ledger pnl.",
+    "same_aggregation_unit_expected": false,
+    "same_fill_notional_alignment_expected": true
+  },
+  "financial_surface": {
+    "accounting_basis": "fill_cashflow_plus_cash_adjustments_plus_wallet_position_settled",
+    "closed_trade_unit": "target_ref_campaign",
+    "interpretation": "realized_cashflow_plus_cash_adjustments_plus_wallet_position_settled",
+    "lane_mapping_basis": "order_submit.submission_lane_with_reason_fallback",
+    "latest_status_total_pnl_usd": 0.0,
+    "latest_total_pnl_source": "status_gauge_total_pnl_reconciled",
+    "latest_total_pnl_usd": 0.0
+  },
+  "outcome_surface": {
+    "available": false,
+    "lane_outcome_interpretation": "",
+    "reference_policy": "",
+    "run_claim_scope": ""
+  },
+  "overall": {
+    "count_equality_expected": false,
+    "fill_notional_reconciles": false,
+    "financial_closed_trade_count": 0,
+    "financial_gross_filled_notional_usd": 0.0,
+    "financial_net_pnl_usd": 0.0,
+    "outcome_complete_outcome_records": 0,
+    "outcome_fill_notional_sum": 0.0
+  },
+  "status": "outcome_truth_audit_missing",
+  "surface_class": "support_only_cross_surface_reconciliation",
+  "unmapped_financial_lanes": [],
+  "unmapped_outcome_lanes": []
+}

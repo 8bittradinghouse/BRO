@@ -1,0 +1,115 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 10,
+    "depth_met_count": 0,
+    "desired_quote_present_count": 10,
+    "dual_oracle_confirmed_count": 10,
+    "full_cannon_candidate_count": 0,
+    "reject_reason_distribution": {
+      "insufficient_depth_multiple": 10,
+      "non_viable_geometry": 4
+    },
+    "row_count": 10
+  },
+  "applicability": "support_only_zero_submit_diagnostic",
+  "authoritative_for_canonical_selection": false,
+  "authoritative_for_runtime_blocker_truth": false,
+  "classification_factors": [
+    "upstream_starvation",
+    "timing_band_mismatch"
+  ],
+  "contradiction_ledger": [
+    {
+      "code": "off_band_full_cannon_opportunities_present",
+      "detail": "off_band_full_cannon_candidate_count=18",
+      "severity": "high"
+    }
+  ],
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "decision_readiness": "ready_for_truth_packet",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 18,
+      "quote_starvation_row_count": null,
+      "snapshot_selection_rejected_row_count": 14
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "snapshot_row_count": null
+    },
+    "row_universe_caveats": []
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [],
+  "off_band_full_cannon_candidate_count": 18,
+  "off_band_full_cannon_candidate_examples": [
+    {
+      "depth_multiple_vs_cannon_target": 2.6775,
+      "lineage_stage": "TAKER_COMMITMENT",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 6.550698,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "8696f5a1b1c1ba30|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 4.539777,
+      "lineage_stage": "TAKER_COMMITMENT",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 6.350741,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "8696f5a1b1c1ba30|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 1.502559,
+      "lineage_stage": "TAKER_COMMITMENT",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 5.14825,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "8696f5a1b1c1ba30|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 4.1464,
+      "lineage_stage": "TAKER_COMMITMENT",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 4.746729,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "8696f5a1b1c1ba30|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 30.84128,
+      "lineage_stage": "TAKER_COMMITMENT",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 4.144008,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "8696f5a1b1c1ba30|SELL"
+    }
+  ],
+  "probe_matched_selection_rejected_row_count": 10,
+  "ranked_cause_stack": [
+    {
+      "count": 214,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 54,
+      "reason": "token_lag_not_verified_for_maker",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 40,
+      "reason": "outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 10,
+      "reason": "insufficient_depth_multiple",
+      "stage": "selection_rejected"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "snapshot_row_count": 18,
+  "snapshot_selection_rejected_row_count": 14,
+  "unmatched_selection_rejected_snapshot_row_count": 4,
+  "zero_submit_classification": "mixed-cause starvation"
+}

@@ -1,0 +1,821 @@
+[deploy] validating paper setup lock in /home/odah/bro/base/configs/profiles/paper_universal.yaml...
+setup_lock_verified paper_universal 593aaf52756657e50ee042d3129a545625844dc640c2bb6d82f4b8646e25540a
+[deploy] resolved log_dir=/home/odah/bro/base/logs_exec/paper_universal
+[deploy] resolved state_path=/home/odah/bro/base/data/paper_universal/state.json
+[deploy] resolved guard_stop_file=/home/odah/bro/base/logs_exec/paper_universal/guard_stop.txt
+canonical_deploy_authority_verified 4a91796b-ec71-4de0-8036-2ff48aa7d06a start 91516606-0658-4879-bbb3-61e852acffd4
+[deploy] git identity commit=059c2ab8517f4ab03679c5a465c6638663192455 dirty=1
+[deploy] building images...
+#1 [internal] load local bake definitions
+#1 reading from stdin 953B done
+#1 DONE 0.0s
+
+#2 [bro-guardian internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.00kB done
+#2 transferring dockerfile: 2.00kB done
+#2 DONE 0.0s
+
+#3 [bro-maker internal] load metadata for docker.io/library/rust:1.88.0-slim-bookworm
+#3 DONE 1.0s
+
+#4 [bro-guardian internal] load metadata for docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
+#4 DONE 1.0s
+
+#5 [bro-guardian internal] load .dockerignore
+#5 transferring context: 260B 0.0s done
+#5 DONE 0.0s
+
+#6 [bro-guardian internal] load build context
+#6 DONE 0.0s
+
+#7 [bro-maker python-deps-builder 1/5] FROM docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
+#7 resolve docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47 0.0s done
+#7 resolve docker.io/library/python:3.11-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47 0.0s done
+#7 DONE 0.1s
+
+#8 [bro-maker worker-builder 1/6] FROM docker.io/library/rust:1.88.0-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89
+#8 resolve docker.io/library/rust:1.88.0-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 0.1s done
+#8 DONE 0.1s
+
+#6 [bro-maker internal] load build context
+#6 transferring context: 14.63MB 0.4s done
+#6 DONE 0.4s
+
+#9 [bro-guardian worker-builder 3/6] COPY workers/Cargo.toml /build/workers/Cargo.toml
+#9 CACHED
+
+#10 [bro-guardian worker-builder 2/6] WORKDIR /build/workers
+#10 CACHED
+
+#11 [bro-guardian python-deps-builder 5/5] RUN python -m pip wheel --no-cache-dir --wheel-dir /wheelhouse -r /build/python/requirements.txt
+#11 CACHED
+
+#12 [bro-guardian stage-2 2/9] WORKDIR /app
+#12 CACHED
+
+#13 [bro-guardian stage-2 3/9] COPY requirements.txt /app/requirements.txt
+#13 CACHED
+
+#14 [bro-guardian python-deps-builder 4/5] COPY requirements.txt /build/python/requirements.txt
+#14 CACHED
+
+#15 [bro-guardian stage-2 4/9] COPY --from=python-deps-builder /wheelhouse /wheelhouse
+#15 CACHED
+
+#16 [bro-guardian python-deps-builder 2/5] WORKDIR /build/python
+#16 CACHED
+
+#17 [bro-guardian python-deps-builder 3/5] RUN apt-get update     && apt-get install -y --no-install-recommends git     && rm -rf /var/lib/apt/lists/*
+#17 CACHED
+
+#18 [bro-guardian worker-builder 4/6] COPY workers/Cargo.lock /build/workers/Cargo.lock
+#18 CACHED
+
+#19 [bro-guardian stage-2 5/9] RUN pip install --no-cache-dir /wheelhouse/*     && rm -rf /wheelhouse
+#19 CACHED
+
+#20 [bro-maker worker-builder 5/6] COPY workers/src /build/workers/src
+#20 DONE 0.0s
+
+#21 [bro-guardian worker-builder 6/6] RUN cargo build --release --locked
+#21 0.405     Updating crates.io index
+#21 0.428     Updating git repository `https://github.com/Polymarket/rs-clob-client-v2.git`
+#21 ...
+
+#22 [bro-guardian stage-2 6/9] COPY . /app
+#22 DONE 2.8s
+
+#21 [bro-guardian worker-builder 6/6] RUN cargo build --release --locked
+#21 4.903  Downloading crates ...
+#21 4.969   Downloaded alloy-eip2124 v0.2.0
+#21 4.975   Downloaded num-integer v0.1.46
+#21 4.991   Downloaded lru v0.16.4
+#21 5.011   Downloaded parity-scale-codec v3.7.5
+#21 5.047   Downloaded darling_macro v0.23.0
+#21 5.066   Downloaded strsim v0.11.1
+#21 5.079   Downloaded ident_case v1.0.1
+#21 5.091   Downloaded want v0.3.1
+#21 5.099   Downloaded yoke-derive v0.8.2
+#21 5.107   Downloaded yoke v0.8.2
+#21 5.117   Downloaded generic-array v0.14.7
+#21 5.125   Downloaded group v0.13.0
+#21 5.130   Downloaded getrandom v0.4.2
+#21 5.139   Downloaded futures-task v0.3.32
+#21 5.143   Downloaded futures v0.3.32
+#21 5.152   Downloaded tower-http v0.6.10
+#21 5.168   Downloaded hashbrown v0.12.3
+#21 5.175   Downloaded syn v2.0.117
+#21 5.200   Downloaded h2 v0.4.14
+#21 5.217   Downloaded webpki-roots v1.0.7
+#21 5.225   Downloaded sha3-asm v0.1.7
+#21 5.241   Downloaded winnow v1.0.3
+#21 5.257   Downloaded zerocopy v0.8.48
+#21 5.295   Downloaded ring v0.17.14
+#21 5.366   Downloaded linux-raw-sys v0.12.1
+#21 5.469   Downloaded syn v1.0.109
+#21 5.485   Downloaded secp256k1-sys v0.10.1
+#21 5.552   Downloaded indexmap v2.14.0
+#21 5.560   Downloaded time v0.3.47
+#21 5.580   Downloaded sha3 v0.11.0
+#21 5.589   Downloaded tokio-util v0.7.18
+#21 5.601   Downloaded darling_core v0.23.0
+#21 5.611   Downloaded derive_more-impl v2.1.1
+#21 5.620   Downloaded derive_more v2.1.1
+#21 5.642   Downloaded zerovec v0.11.6
+#21 5.652   Downloaded der v0.7.10
+#21 5.663   Downloaded darling_core v0.21.3
+#21 5.675   Downloaded crypto-bigint v0.5.5
+#21 5.687   Downloaded futures-util v0.3.32
+#21 5.709   Downloaded zerotrie v0.2.4
+#21 5.717   Downloaded tracing v0.1.44
+#21 5.741   Downloaded tokio v1.52.3
+#21 5.813   Downloaded libc v0.2.186
+#21 5.881   Downloaded hyper v1.9.0
+#21 5.892   Downloaded futures-macro v0.3.32
+#21 5.894   Downloaded futures-executor v0.3.32
+#21 5.896   Downloaded futures-channel v0.3.32
+#21 5.900   Downloaded derivative v2.2.0
+#21 5.912   Downloaded data-encoding v2.11.0
+#21 5.915   Downloaded darling v0.21.3
+#21 5.924   Downloaded url v2.5.8
+#21 5.929   Downloaded typenum v1.20.0
+#21 5.935   Downloaded tower v0.5.3
+#21 5.950   Downloaded icu_properties_data v2.2.0
+#21 5.971   Downloaded getrandom v0.3.4
+#21 5.981   Downloaded futures-utils-wasm v0.1.0
+#21 5.983   Downloaded futures-sink v0.3.32
+#21 5.985   Downloaded futures-io v0.3.32
+#21 5.989   Downloaded futures-core v0.3.32
+#21 5.993   Downloaded funty v2.0.0
+#21 5.995   Downloaded digest v0.9.0
+#21 5.999   Downloaded deranged v0.5.8
+#21 6.002   Downloaded darling v0.23.0
+#21 6.016   Downloaded crypto-common v0.2.1
+#21 6.019   Downloaded crunchy v0.2.4
+#21 6.021   Downloaded zmij v1.0.21
+#21 6.024   Downloaded zerovec-derive v0.11.3
+#21 6.028   Downloaded zeroize v1.8.2
+#21 6.032   Downloaded zerofrom-derive v0.1.7
+#21 6.034   Downloaded unicode-segmentation v1.13.2
+#21 6.042   Downloaded encoding_rs v0.8.35
+#21 6.079   Downloaded idna v1.1.0
+#21 6.089   Downloaded hashbrown v0.17.1
+#21 6.103   Downloaded hashbrown v0.16.1
+#21 6.113   Downloaded hashbrown v0.14.5
+#21 6.123   Downloaded serde_with v3.20.0
+#21 6.146   Downloaded getrandom v0.2.17
+#21 6.152   Downloaded crypto-common v0.1.7
+#21 6.153   Downloaded zeroize_derive v1.4.3
+#21 6.155   Downloaded zerofrom v0.1.8
+#21 6.158   Downloaded tokio-tungstenite v0.29.0
+#21 6.163   Downloaded tokio-stream v0.1.18
+#21 6.171   Downloaded tokio-rustls v0.26.4
+#21 6.175   Downloaded tinyvec v1.11.0
+#21 6.180   Downloaded c-kzg v2.1.7
+#21 6.225   Downloaded time-macros v0.2.27
+#21 6.229   Downloaded thiserror-impl v2.0.18
+#21 6.232   Downloaded thiserror v2.0.18
+#21 6.245   Downloaded tempfile v3.27.0
+#21 6.250   Downloaded tap v1.0.1
+#21 6.252   Downloaded syn-solidity v1.6.0
+#21 6.266   Downloaded instant v0.1.13
+#21 6.269   Downloaded indexmap v1.9.3
+#21 6.276   Downloaded impl-trait-for-tuples v0.2.3
+#21 6.283   Downloaded uuid v1.23.1
+#21 6.290   Downloaded unicode-ident v1.0.24
+#21 6.298   Downloaded tungstenite v0.29.0
+#21 6.306   Downloaded toml_edit v0.25.11+spec-1.1.0
+#21 6.314   Downloaded tokio-macros v2.7.0
+#21 6.316   Downloaded tinyvec_macros v0.1.1
+#21 6.318   Downloaded tinystr v0.8.3
+#21 6.323   Downloaded time-core v0.1.8
+#21 6.327   Downloaded threadpool v1.8.1
+#21 6.330   Downloaded synstructure v0.13.2
+#21 6.332   Downloaded sync_wrapper v1.0.2
+#21 6.333   Downloaded impl-codec v0.6.0
+#21 6.336   Downloaded http v1.4.0
+#21 6.342   Downloaded wyz v0.5.1
+#21 6.345   Downloaded secp256k1-sys v0.11.0
+#21 6.411   Downloaded ucd-trie v0.1.7
+#21 6.414   Downloaded tracing-core v0.1.36
+#21 6.420   Downloaded tracing-attributes v0.1.31
+#21 6.425   Downloaded toml_parser v1.1.2+spec-1.1.0
+#21 6.429   Downloaded icu_normalizer v2.2.0
+#21 6.438   Downloaded icu_locale_core v2.2.0
+#21 6.454   Downloaded hyper-util v0.1.20
+#21 6.463   Downloaded serde_json v1.0.149
+#21 6.475   Downloaded itertools v0.14.0
+#21 6.486   Downloaded itertools v0.13.0
+#21 6.497   Downloaded rustls v0.23.40
+#21 6.517   Downloaded rustix v1.1.4
+#21 6.574   Downloaded regex-syntax v0.8.10
+#21 6.587   Downloaded writeable v0.6.3
+#21 6.591   Downloaded wait-timeout v0.2.1
+#21 6.593   Downloaded version_check v0.9.5
+#21 6.595   Downloaded valuable v0.1.1
+#21 6.598   Downloaded utf8_iter v1.0.4
+#21 6.599   Downloaded untrusted v0.9.0
+#21 6.602   Downloaded unicode-xid v0.2.6
+#21 6.604   Downloaded unarray v0.1.4
+#21 6.605   Downloaded uint v0.9.5
+#21 6.608   Downloaded try-lock v0.2.5
+#21 6.609   Downloaded tower-layer v0.3.3
+#21 6.610   Downloaded toml_datetime v1.1.1+spec-1.1.0
+#21 6.613   Downloaded icu_normalizer_data v2.2.0
+#21 6.617   Downloaded icu_collections v2.2.0
+#21 6.630   Downloaded itertools v0.10.5
+#21 6.643   Downloaded rust_decimal v1.42.0
+#21 6.654   Downloaded ruint v1.17.2
+#21 6.664   Downloaded rkyv v0.7.46
+#21 6.677   Downloaded reqwest v0.12.28
+#21 6.686   Downloaded quinn-proto v0.11.14
+#21 6.699   Downloaded tower-service v0.3.3
+#21 6.699   Downloaded idna_adapter v1.2.2
+#21 6.701   Downloaded icu_provider v2.2.0
+#21 6.705   Downloaded icu_properties v2.2.0
+#21 6.709   Downloaded iana-time-zone v0.1.65
+#21 6.714   Downloaded hyper-rustls v0.27.9
+#21 6.717   Downloaded hybrid-array v0.4.12
+#21 6.722   Downloaded httparse v1.10.1
+#21 6.725   Downloaded http-body-util v0.1.3
+#21 6.728   Downloaded hmac v0.12.1
+#21 6.732   Downloaded hex-conservative v0.2.2
+#21 6.735   Downloaded serde v1.0.228
+#21 6.740   Downloaded konst v0.2.20
+#21 6.748   Downloaded k256 v0.13.4
+#21 6.753   Downloaded secp256k1 v0.31.1
+#21 6.761   Downloaded secp256k1 v0.30.0
+#21 6.767   Downloaded schemars v1.2.1
+#21 6.792   Downloaded schemars v0.9.0
+#21 6.817   Downloaded rustls-webpki v0.103.13
+#21 6.825   Downloaded reqwest v0.13.3
+#21 6.838   Downloaded rand v0.8.6
+#21 6.844   Downloaded pest v2.8.6
+#21 6.851   Downloaded http-body v1.0.1
+#21 6.853   Downloaded hex v0.4.3
+#21 6.855   Downloaded heck v0.5.0
+#21 6.857   Downloaded subtle v2.6.1
+#21 6.859   Downloaded strum_macros v0.28.0
+#21 6.862   Downloaded strum_macros v0.27.2
+#21 6.866   Downloaded strum v0.27.2
+#21 6.868   Downloaded static_assertions v1.1.0
+#21 6.870   Downloaded spki v0.7.3
+#21 6.873   Downloaded socket2 v0.6.3
+#21 6.877   Downloaded smallvec v1.15.1
+#21 6.880   Downloaded slab v0.4.12
+#21 6.882   Downloaded simdutf8 v0.1.5
+#21 6.886   Downloaded signature v2.2.0
+#21 6.888   Downloaded shlex v1.3.0
+#21 6.890   Downloaded sha2 v0.10.9
+#21 6.895   Downloaded sha1 v0.10.6
+#21 6.897   Downloaded serde_with_macros v3.20.0
+#21 6.900   Downloaded serde_urlencoded v0.7.1
+#21 6.902   Downloaded serde_html_form v0.4.0
+#21 6.905   Downloaded serde_derive v1.0.228
+#21 6.910   Downloaded serde_core v1.0.228
+#21 6.914   Downloaded semver-parser v0.10.3
+#21 6.918   Downloaded semver v1.0.28
+#21 6.922   Downloaded semver v0.11.0
+#21 6.924   Downloaded secrecy v0.10.3
+#21 6.926   Downloaded keccak v0.2.0
+#21 6.928   Downloaded jobserver v0.1.34
+#21 6.931   Downloaded ipnet v2.12.0
+#21 6.934   Downloaded ryu v1.0.23
+#21 6.939   Downloaded rustls-platform-verifier v0.7.0
+#21 6.945   Downloaded rapidhash v4.4.1
+#21 6.950   Downloaded rand_chacha v0.9.0
+#21 6.952   Downloaded rand v0.10.1
+#21 6.959   Downloaded rand v0.9.4
+#21 6.964   Downloaded quinn v0.11.9
+#21 6.969   Downloaded proptest v1.11.0
+#21 6.984   Downloaded proc-macro2 v1.0.106
+#21 6.989   Downloaded prettyplease v0.2.37
+#21 6.996   Downloaded pin-project v1.1.13
+#21 7.015   Downloaded parking_lot v0.12.5
+#21 7.019   Downloaded num-traits v0.2.19
+#21 7.022   Downloaded num-bigint v0.4.6
+#21 7.031   Downloaded memchr v2.8.0
+#21 7.039   Downloaded macro-string v0.2.0
+#21 7.042   Downloaded log v0.4.29
+#21 7.045   Downloaded blst v0.3.16
+#21 7.067   Downloaded alloy-eips v1.6.3
+#21 7.076   Downloaded stable_deref_trait v1.2.1
+#21 7.078   Downloaded siphasher v1.0.3
+#21 7.080   Downloaded serdect v0.2.0
+#21 7.082   Downloaded serde_repr v0.1.20
+#21 7.085   Downloaded konst_macro_rules v0.2.19
+#21 7.087   Downloaded keccak-asm v0.1.7
+#21 7.089   Downloaded itoa v1.0.18
+#21 7.091   Downloaded fs_extra v1.3.0
+#21 7.094   Downloaded form_urlencoded v1.2.2
+#21 7.095   Downloaded foldhash v0.2.0
+#21 7.098   Downloaded fnv v1.0.7
+#21 7.099   Downloaded fixed-hash v0.8.0
+#21 7.104   Downloaded find-msvc-tools v0.1.9
+#21 7.107   Downloaded ff v0.13.1
+#21 7.109   Downloaded fastrlp v0.4.0
+#21 7.111   Downloaded fastrlp v0.3.1
+#21 7.113   Downloaded fastrand v2.4.1
+#21 7.115   Downloaded errno v0.3.14
+#21 7.118   Downloaded equivalent v1.0.2
+#21 7.119   Downloaded enum-ordinalize-derive v4.3.2
+#21 7.121   Downloaded enum-ordinalize v4.3.2
+#21 7.122   Downloaded elliptic-curve v0.13.8
+#21 7.127   Downloaded either v1.15.0
+#21 7.130   Downloaded educe v0.6.0
+#21 7.143   Downloaded ecdsa v0.16.9
+#21 7.145   Downloaded dyn-clone v1.0.20
+#21 7.148   Downloaded dunce v1.0.5
+#21 7.149   Downloaded displaydoc v0.2.5
+#21 7.154   Downloaded digest v0.11.3
+#21 7.157   Downloaded digest v0.10.7
+#21 7.160   Downloaded dashmap v6.1.0
+#21 7.164   Downloaded sec1 v0.7.3
+#21 7.167   Downloaded seahash v4.1.0
+#21 7.170   Downloaded rusty-fork v0.3.1
+#21 7.173   Downloaded rustversion v1.0.22
+#21 7.176   Downloaded rustls-pki-types v1.14.1
+#21 7.180   Downloaded rustls-native-certs v0.8.3
+#21 7.184   Downloaded rustc_version v0.4.1
+#21 7.185   Downloaded rkyv_derive v0.7.46
+#21 7.189   Downloaded rand_core v0.10.1
+#21 7.191   Downloaded rand_core v0.9.5
+#21 7.193   Downloaded rand_core v0.6.4
+#21 7.195   Downloaded rand_chacha v0.3.1
+#21 7.197   Downloaded quote v1.0.45
+#21 7.201   Downloaded quinn-udp v0.5.14
+#21 7.204   Downloaded proc-macro-error2 v2.0.1
+#21 7.212   Downloaded ppv-lite86 v0.2.21
+#21 7.216   Downloaded powerfmt v0.2.0
+#21 7.218   Downloaded pkcs8 v0.10.2
+#21 7.225   Downloaded pin-project-lite v0.2.17
+#21 7.238   Downloaded pin-project-internal v1.1.13
+#21 7.241   Downloaded phf_macros v0.13.1
+#21 7.244   Downloaded phf_generator v0.13.1
+#21 7.247   Downloaded phf v0.13.1
+#21 7.250   Downloaded percent-encoding v2.3.2
+#21 7.251   Downloaded paste v1.0.15
+#21 7.258   Downloaded parking_lot_core v0.9.12
+#21 7.261   Downloaded parity-scale-codec-derive v3.7.5
+#21 7.262   Downloaded openssl-probe v0.2.1
+#21 7.264   Downloaded nybbles v0.4.8
+#21 7.268   Downloaded num_enum_derive v0.7.6
+#21 7.270   Downloaded lock_api v0.4.14
+#21 7.272   Downloaded libm v0.2.16
+#21 7.292   Downloaded chrono v0.4.44
+#21 7.302   Downloaded cc v1.2.62
+#21 7.307   Downloaded bitvec v1.0.1
+#21 7.336   Downloaded aws-lc-rs v1.17.0
+#21 7.359   Downloaded alloy-sol-types v1.6.0
+#21 7.369   Downloaded darling_macro v0.21.3
+#21 7.369   Downloaded scopeguard v1.2.0
+#21 7.369   Downloaded rustc_version v0.3.3
+#21 7.369   Downloaded rustc-hex v2.1.0
+#21 7.369   Downloaded rustc-hash v2.1.2
+#21 7.372   Downloaded rust_decimal_macros v1.40.0
+#21 7.373   Downloaded ruint-macro v1.2.1
+#21 7.378   Downloaded rlp v0.5.2
+#21 7.382   Downloaded rfc6979 v0.4.0
+#21 7.389   Downloaded rend v0.4.2
+#21 7.396   Downloaded ref-cast-impl v1.0.25
+#21 7.398   Downloaded ref-cast v1.0.25
+#21 7.403   Downloaded rand_xorshift v0.4.0
+#21 7.407   Downloaded radium v0.7.0
+#21 7.410   Downloaded quick-error v1.2.3
+#21 7.413   Downloaded ptr_meta_derive v0.1.4
+#21 7.416   Downloaded ptr_meta v0.1.4
+#21 7.419   Downloaded proc-macro-error-attr2 v2.0.0
+#21 7.421   Downloaded proc-macro-crate v3.5.0
+#21 7.423   Downloaded primitive-types v0.12.2
+#21 7.426   Downloaded potential_utf v0.1.5
+#21 7.429   Downloaded phf_shared v0.13.1
+#21 7.431   Downloaded num_cpus v1.17.0
+#21 7.439   Downloaded num-conv v0.2.1
+#21 7.442   Downloaded mime v0.3.17
+#21 7.445   Downloaded const_format v0.2.36
+#21 7.459   Downloaded const-hex v1.19.0
+#21 7.463   Downloaded bytes v1.11.1
+#21 7.472   Downloaded bs58 v0.5.1
+#21 7.476   Downloaded borsh v1.6.1
+#21 7.489   Downloaded bon-macros v3.9.1
+#21 7.505   Downloaded bon v3.9.1
+#21 7.523   Downloaded bitcoin_hashes v0.14.1
+#21 7.527   Downloaded base64ct v1.8.3
+#21 7.532   Downloaded base64 v0.22.1
+#21 7.541   Downloaded auto_impl v1.3.0
+#21 7.553   Downloaded ark-ff v0.5.0
+#21 7.559   Downloaded ark-ff v0.4.2
+#21 7.565   Downloaded anyhow v1.0.102
+#21 7.572   Downloaded alloy-tx-macros v1.6.3
+#21 7.573   Downloaded alloy-trie v0.9.5
+#21 7.577   Downloaded alloy-transport-http v1.6.3
+#21 7.580   Downloaded alloy-sol-macro-expander v1.6.0
+#21 7.583   Downloaded alloy-rpc-types-eth v1.6.3
+#21 7.588   Downloaded alloy-rpc-client v1.6.3
+#21 7.591   Downloaded alloy-provider v1.6.3
+#21 7.604   Downloaded alloy-primitives v1.6.0
+#21 7.611   Downloaded alloy-dyn-abi v1.6.0
+#21 7.616   Downloaded alloy-consensus v1.6.3
+#21 7.623   Downloaded once_cell v1.21.4
+#21 7.627   Downloaded num_enum v0.7.6
+#21 7.636   Downloaded mio v1.2.0
+#21 7.645   Downloaded lru-slab v0.1.2
+#21 7.646   Downloaded litemap v0.8.2
+#21 7.650   Downloaded crc-catalog v2.5.0
+#21 7.652   Downloaded cpufeatures v0.3.0
+#21 7.654   Downloaded convert_case v0.10.0
+#21 7.657   Downloaded const_format_proc_macros v0.2.34
+#21 7.660   Downloaded const-oid v0.9.6
+#21 7.663   Downloaded chacha20 v0.10.0
+#21 7.668   Downloaded byteorder v1.5.0
+#21 7.671   Downloaded bytecheck_derive v0.6.12
+#21 7.673   Downloaded byte-slice-cast v1.2.3
+#21 7.674   Downloaded borsh-derive v1.6.1
+#21 7.681   Downloaded block-buffer v0.12.0
+#21 7.684   Downloaded bitflags v2.11.1
+#21 7.693   Downloaded bitcoin-io v0.1.4
+#21 7.696   Downloaded bit-vec v0.8.0
+#21 7.699   Downloaded backoff v0.4.0
+#21 7.704   Downloaded autocfg v1.5.0
+#21 7.707   Downloaded atomic-waker v1.1.2
+#21 7.709   Downloaded async-trait v0.1.89
+#21 7.716   Downloaded async-stream-impl v0.3.6
+#21 7.717   Downloaded async-stream v0.3.6
+#21 7.723   Downloaded arrayvec v0.7.6
+#21 7.724   Downloaded ark-std v0.5.0
+#21 7.726   Downloaded ark-std v0.4.0
+#21 7.729   Downloaded ark-std v0.3.0
+#21 7.730   Downloaded ark-ff-macros v0.4.2
+#21 7.732   Downloaded ark-ff-asm v0.3.0
+#21 7.734   Downloaded ark-ff v0.3.0
+#21 7.738   Downloaded alloy-transport v1.6.3
+#21 7.741   Downloaded alloy-sol-type-parser v1.6.0
+#21 7.743   Downloaded alloy-sol-macro-input v1.6.0
+#21 7.745   Downloaded alloy-sol-macro v1.6.0
+#21 7.747   Downloaded alloy-signer v1.6.3
+#21 7.750   Downloaded alloy-serde v1.6.3
+#21 7.752   Downloaded alloy-rlp v0.3.15
+#21 7.754   Downloaded alloy-network-primitives v1.6.3
+#21 7.756   Downloaded alloy-network v1.6.3
+#21 7.759   Downloaded alloy-json-abi v1.6.0
+#21 7.761   Downloaded alloy-eip7928 v0.3.4
+#21 7.763   Downloaded alloy-eip7702 v0.6.3
+#21 7.765   Downloaded alloy-eip2930 v0.2.3
+#21 7.767   Downloaded allocator-api2 v0.2.21
+#21 7.772   Downloaded crossbeam-utils v0.8.21
+#21 7.776   Downloaded crc v3.4.0
+#21 7.779   Downloaded cpufeatures v0.2.17
+#21 7.781   Downloaded cmake v0.1.58
+#21 7.783   Downloaded cfg_aliases v0.2.1
+#21 7.784   Downloaded cfg-if v1.0.4
+#21 7.786   Downloaded bytecheck v0.6.12
+#21 7.788   Downloaded block-buffer v0.10.4
+#21 7.790   Downloaded bit-set v0.8.0
+#21 7.792   Downloaded base16ct v0.2.0
+#21 7.794   Downloaded ark-serialize v0.5.0
+#21 7.795   Downloaded ark-serialize v0.4.2
+#21 7.797   Downloaded ark-serialize v0.3.0
+#21 7.799   Downloaded ark-ff-macros v0.5.0
+#21 7.801   Downloaded ark-ff-macros v0.3.0
+#21 7.802   Downloaded ark-ff-asm v0.5.0
+#21 7.804   Downloaded ark-ff-asm v0.4.2
+#21 7.805   Downloaded alloy-signer-local v1.6.3
+#21 7.808   Downloaded alloy-rpc-types-any v1.6.3
+#21 7.810   Downloaded alloy-rlp-derive v0.3.15
+#21 7.813   Downloaded alloy-json-rpc v1.6.3
+#21 7.816   Downloaded alloy-consensus-any v1.6.3
+#21 7.818   Downloaded alloy v1.6.3
+#21 7.821   Downloaded alloy-chains v0.2.34
+#21 7.826   Downloaded ahash v0.7.8
+#21 7.830   Downloaded alloy-core v1.6.0
+#21 7.839   Downloaded aws-lc-sys v0.41.0
+#21 8.369    Compiling proc-macro2 v1.0.106
+#21 8.369    Compiling quote v1.0.45
+#21 8.826    Compiling unicode-ident v1.0.24
+#21 8.938    Compiling libc v0.2.186
+#21 9.231    Compiling serde_core v1.0.228
+#21 9.624    Compiling syn v2.0.117
+#21 12.45    Compiling serde v1.0.228
+#21 13.83    Compiling cfg-if v1.0.4
+#21 13.87    Compiling zeroize v1.8.2
+#21 14.01    Compiling typenum v1.20.0
+#21 14.93    Compiling subtle v2.6.1
+#21 15.05    Compiling version_check v0.9.5
+#21 15.30    Compiling generic-array v0.14.7
+#21 15.48    Compiling serde_derive v1.0.228
+#21 16.30    Compiling itoa v1.0.18
+#21 16.53    Compiling const-oid v0.9.6
+#21 16.77    Compiling block-buffer v0.10.4
+#21 16.87    Compiling crypto-common v0.1.7
+#21 16.96    Compiling getrandom v0.2.17
+#21 17.15    Compiling rand_core v0.6.4
+#21 17.35    Compiling digest v0.10.7
+#21 17.55    Compiling foldhash v0.2.0
+#21 17.74    Compiling hashbrown v0.17.1
+#21 18.55    Compiling cpufeatures v0.2.17
+#21 18.59    Compiling paste v1.0.15
+#21 18.80    Compiling der v0.7.10
+#21 19.84    Compiling bytes v1.11.1
+#21 20.94    Compiling pin-project-lite v0.2.17
+#21 21.71    Compiling ff v0.13.1
+#21 21.83    Compiling hybrid-array v0.4.12
+#21 22.45    Compiling arrayvec v0.7.6
+#21 22.53    Compiling base16ct v0.2.0
+#21 22.68    Compiling dunce v1.0.5
+#21 22.72    Compiling sec1 v0.7.3
+#21 22.73    Compiling group v0.13.0
+#21 22.89    Compiling hmac v0.12.1
+#21 22.99    Compiling crypto-bigint v0.5.5
+#21 23.56    Compiling alloy-rlp-derive v0.3.15
+#21 24.30    Compiling once_cell v1.21.4
+#21 24.48    Compiling unicode-segmentation v1.13.2
+#21 24.88    Compiling convert_case v0.10.0
+#21 25.15    Compiling elliptic-curve v0.13.8
+#21 25.55    Compiling alloy-rlp v0.3.15
+#21 25.76    Compiling rfc6979 v0.4.0
+#21 25.86    Compiling block-buffer v0.12.0
+#21 25.90    Compiling crypto-common v0.2.1
+#21 26.02    Compiling spki v0.7.3
+#21 26.29    Compiling signature v2.2.0
+#21 26.40    Compiling unicode-xid v0.2.6
+#21 26.47    Compiling ruint-macro v1.2.1
+#21 26.77    Compiling ruint v1.17.2
+#21 27.54    Compiling digest v0.11.3
+#21 27.67    Compiling derive_more-impl v2.1.1
+#21 27.72    Compiling ecdsa v0.16.9
+#21 28.40    Compiling sha2 v0.10.9
+#21 30.07    Compiling keccak v0.2.0
+#21 30.20    Compiling sha3 v0.11.0
+#21 30.65    Compiling k256 v0.13.4
+#21 32.05    Compiling derive_more v2.1.1
+#21 32.14    Compiling const-hex v1.19.0
+#21 32.51    Compiling rustc-hash v2.1.2
+#21 32.58    Compiling memchr v2.8.0
+#21 33.89    Compiling alloy-primitives v1.6.0
+#21 34.08    Compiling smallvec v1.15.1
+#21 34.31    Compiling strsim v0.11.1
+#21 34.58    Compiling ident_case v1.0.1
+#21 34.65    Compiling synstructure v0.13.2
+#21 35.19    Compiling thiserror v2.0.18
+#21 36.57    Compiling thiserror-impl v2.0.18
+#21 36.98    Compiling jobserver v0.1.34
+#21 37.28    Compiling zerofrom-derive v0.1.7
+#21 38.07    Compiling tracing-core v0.1.36
+#21 38.74    Compiling tracing-attributes v0.1.31
+#21 39.16    Compiling futures-core v0.3.32
+#21 39.27    Compiling zmij v1.0.21
+#21 40.67    Compiling shlex v1.3.0
+#21 40.82    Compiling find-msvc-tools v0.1.9
+#21 41.01    Compiling cc v1.2.62
+#21 41.49    Compiling tracing v0.1.44
+#21 41.93    Compiling zerofrom v0.1.8
+#21 42.02    Compiling yoke-derive v0.8.2
+#21 42.78    Compiling darling_core v0.23.0
+#21 43.30    Compiling stable_deref_trait v1.2.1
+#21 43.35    Compiling serde_json v1.0.149
+#21 43.83    Compiling autocfg v1.5.0
+#21 44.24    Compiling num-traits v0.2.19
+#21 44.46    Compiling yoke v0.8.2
+#21 44.61    Compiling cmake v0.1.58
+#21 45.40    Compiling http v1.4.0
+#21 46.06    Compiling darling_macro v0.23.0
+#21 46.97    Compiling fs_extra v1.3.0
+#21 47.20    Compiling aws-lc-sys v0.41.0
+#21 47.73    Compiling darling v0.23.0
+#21 51.38    Compiling zerovec-derive v0.11.3
+#21 52.95    Compiling futures-sink v0.3.32
+#21 53.01    Compiling heck v0.5.0
+#21 53.27    Compiling zerovec v0.11.6
+#21 54.59    Compiling syn-solidity v1.6.0
+#21 58.26    Compiling displaydoc v0.2.5
+#21 59.08    Compiling macro-string v0.2.0
+#21 59.33    Compiling proc-macro-error-attr2 v2.0.0
+#21 60.17    Compiling fnv v1.0.7
+#21 60.22    Compiling equivalent v1.0.2
+#21 60.25    Compiling zerocopy v0.8.48
+#21 60.58    Compiling indexmap v2.14.0
+#21 61.30    Compiling darling_core v0.21.3
+#21 64.10    Compiling proc-macro-error2 v2.0.1
+#21 64.37    Compiling alloy-sol-macro-input v1.6.0
+#21 65.11    Compiling either v1.15.0
+#21 65.33    Compiling tokio-macros v2.7.0
+#21 66.14    Compiling mio v1.2.0
+#21 66.87    Compiling socket2 v0.6.3
+#21 67.92    Compiling iana-time-zone v0.1.65
+#21 68.40    Compiling slab v0.4.12
+#21 68.55    Compiling crc-catalog v2.5.0
+#21 68.62    Compiling aws-lc-rs v1.17.0
+#21 68.84    Compiling crc v3.4.0
+#21 69.02    Compiling chrono v0.4.44
+#21 73.70    Compiling tokio v1.52.3
+#21 86.37    Compiling alloy-sol-macro-expander v1.6.0
+#21 89.35    Compiling darling_macro v0.21.3
+#21 94.72    Compiling futures-channel v0.3.32
+#21 95.00    Compiling serde_with_macros v3.20.0
+#21 96.21    Compiling auto_impl v1.3.0
+#21 97.19    Compiling serde_with v3.20.0
+#21 99.79    Compiling ppv-lite86 v0.2.21
+#21 100.2    Compiling darling v0.21.3
+#21 100.2    Compiling alloy-sol-macro v1.6.0
+#21 101.2    Compiling alloy-eip2124 v0.2.0
+#21 101.9    Compiling tinystr v0.8.3
+#21 102.1    Compiling alloy-serde v1.6.3
+#21 103.5    Compiling alloy-eip7702 v0.6.3
+#21 104.0    Compiling alloy-eip7928 v0.3.4
+#21 104.8    Compiling alloy-eip2930 v0.2.3
+#21 105.3    Compiling nybbles v0.4.8
+#21 105.6    Compiling futures-macro v0.3.32
+#21 106.6    Compiling rustls-pki-types v1.14.1
+#21 107.6    Compiling litemap v0.8.2
+#21 107.8    Compiling futures-task v0.3.32
+#21 107.9    Compiling futures-io v0.3.32
+#21 108.0    Compiling writeable v0.6.3
+#21 108.2    Compiling icu_locale_core v2.2.0
+#21 111.9    Compiling futures-util v0.3.32
+#21 115.2    Compiling alloy-trie v0.9.5
+#21 119.2    Compiling alloy-eips v1.6.3
+#21 121.9    Compiling alloy-sol-types v1.6.0
+#21 124.9    Compiling alloy-tx-macros v1.6.3
+#21 126.6    Compiling zerotrie v0.2.4
+#21 127.0    Compiling potential_utf v0.1.5
+#21 127.1    Compiling utf8_iter v1.0.4
+#21 127.2    Compiling untrusted v0.9.0
+#21 127.3    Compiling icu_normalizer_data v2.2.0
+#21 127.4    Compiling rustls v0.23.40
+#21 127.5    Compiling httparse v1.10.1
+#21 127.8    Compiling icu_properties_data v2.2.0
+#21 127.9    Compiling percent-encoding v2.3.2
+#21 128.2    Compiling icu_collections v2.2.0
+#21 129.0    Compiling icu_provider v2.2.0
+#21 129.5    Compiling alloy-consensus v1.6.3
+#21 134.9    Compiling getrandom v0.3.4
+#21 137.3    Compiling http-body v1.0.1
+#21 137.4    Compiling icu_properties v2.2.0
+#21 139.2    Compiling icu_normalizer v2.2.0
+#21 140.8    Compiling alloy-consensus-any v1.6.3
+#21 141.3    Compiling alloy-network-primitives v1.6.3
+#21 141.6    Compiling form_urlencoded v1.2.2
+#21 141.8    Compiling tokio-util v0.7.18
+#21 143.0    Compiling itertools v0.14.0
+#21 144.1    Compiling try-lock v0.2.5
+#21 144.2    Compiling atomic-waker v1.1.2
+#21 144.3    Compiling tower-service v0.3.3
+#21 144.3    Compiling winnow v1.0.3
+#21 145.7    Compiling alloy-sol-type-parser v1.6.0
+#21 146.9    Compiling h2 v0.4.14
+#21 154.6    Compiling want v0.3.1
+#21 154.8    Compiling alloy-rpc-types-eth v1.6.3
+#21 161.5    Compiling rand_core v0.9.5
+#21 161.8    Compiling idna_adapter v1.2.2
+#21 161.8    Compiling rand_chacha v0.3.1
+#21 162.8    Compiling async-trait v0.1.89
+#21 163.8    Compiling openssl-probe v0.2.1
+#21 164.1    Compiling rand_core v0.10.1
+#21 164.2    Compiling getrandom v0.4.2
+#21 164.3    Compiling prettyplease v0.2.37
+#21 164.5    Compiling rustversion v1.0.22
+#21 164.8    Compiling log v0.4.29
+#21 165.0    Compiling siphasher v1.0.3
+#21 165.1    Compiling phf_shared v0.13.1
+#21 165.4    Compiling rustls-native-certs v0.8.3
+#21 166.5    Compiling alloy-signer v1.6.3
+#21 166.7    Compiling rand v0.8.6
+#21 167.5    Compiling rustls-webpki v0.103.13
+#21 170.8    Compiling idna v1.1.0
+#21 173.4    Compiling rand_chacha v0.9.0
+#21 174.2    Compiling tokio-rustls v0.26.4
+#21 174.4    Compiling alloy-rpc-types-any v1.6.3
+#21 174.5    Compiling hyper v1.9.0
+#21 179.0    Compiling alloy-json-abi v1.6.0
+#21 184.3    Compiling alloy-json-rpc v1.6.3
+#21 186.3    Compiling sync_wrapper v1.0.2
+#21 186.4    Compiling crossbeam-utils v0.8.21
+#21 186.6    Compiling fastrand v2.4.1
+#21 186.7    Compiling ryu v1.0.23
+#21 187.0    Compiling ipnet v2.12.0
+#21 188.4    Compiling futures-utils-wasm v0.1.0
+#21 188.4    Compiling tower-layer v0.3.3
+#21 188.6    Compiling parking_lot_core v0.9.12
+#21 188.8    Compiling base64 v0.22.1
+#21 189.3    Compiling hyper-util v0.1.20
+#21 193.0    Compiling tower v0.5.3
+#21 193.7    Compiling alloy-network v1.6.3
+#21 196.2    Compiling phf_generator v0.13.1
+#21 196.4    Compiling alloy-dyn-abi v1.6.0
+#21 198.1    Compiling rand v0.9.4
+#21 198.9    Compiling url v2.5.8
+#21 202.0    Compiling sha1 v0.10.6
+#21 202.3    Compiling rust_decimal v1.42.0
+#21 202.4    Compiling bitflags v2.11.1
+#21 202.5    Compiling cpufeatures v0.3.0
+#21 202.6    Compiling scopeguard v1.2.0
+#21 202.7    Compiling data-encoding v2.11.0
+#21 203.1    Compiling tungstenite v0.29.0
+#21 207.1    Compiling lock_api v0.4.14
+#21 207.4    Compiling chacha20 v0.10.0
+#21 207.8    Compiling tower-http v0.6.10
+#21 208.7    Compiling bon-macros v3.9.1
+#21 210.2    Compiling alloy-core v1.6.0
+#21 211.1    Compiling phf_macros v0.13.1
+#21 212.0    Compiling alloy-signer-local v1.6.3
+#21 212.6    Compiling hyper-rustls v0.27.9
+#21 213.0    Compiling serde_urlencoded v0.7.1
+#21 213.3    Compiling rustls-platform-verifier v0.7.0
+#21 213.8    Compiling http-body-util v0.1.3
+#21 213.9    Compiling futures-executor v0.3.32
+#21 214.1    Compiling async-stream-impl v0.3.6
+#21 214.4    Compiling encoding_rs v0.8.35
+#21 214.7    Compiling instant v0.1.13
+#21 214.8    Compiling hashbrown v0.14.5
+#21 215.5    Compiling anyhow v1.0.102
+#21 215.8    Compiling mime v0.3.17
+#21 216.4    Compiling reqwest v0.13.3
+#21 220.1    Compiling dashmap v6.1.0
+#21 220.8    Compiling backoff v0.4.0
+#21 220.9    Compiling async-stream v0.3.6
+#21 221.0    Compiling futures v0.3.32
+#21 221.1    Compiling bon v3.9.1
+#21 221.2    Compiling alloy v1.6.3
+#21 221.3    Compiling phf v0.13.1
+#21 224.2    Compiling rand v0.10.1
+#21 225.1    Compiling tokio-tungstenite v0.29.0
+#21 225.4    Compiling uuid v1.23.1
+#21 226.3    Compiling serde_html_form v0.4.0
+#21 226.9    Compiling strum_macros v0.28.0
+#21 229.5    Compiling secrecy v0.10.3
+#21 229.6    Compiling rust_decimal_macros v1.40.0
+#21 230.2    Compiling serde_repr v0.1.20
+#21 230.8    Compiling polymarket_client_sdk_v2 v0.6.0-canary.1 (https://github.com/Polymarket/rs-clob-client-v2.git?rev=8ba5008733c3c03e92041eef8b1cb8495dbed718#8ba50087)
+#21 250.9    Compiling bro-stream-workers v0.1.0 (/build/workers)
+#21 259.6     Finished `release` profile [optimized] target(s) in 4m 19s
+#21 DONE 259.9s
+
+#23 [bro-guardian stage-2 7/9] COPY --from=worker-builder /build/workers/target/release/bro-market-stream-worker /app/workers/bin/bro-market-stream-worker
+#23 DONE 0.1s
+
+#24 [bro-guardian stage-2 8/9] COPY --from=worker-builder /build/workers/target/release/bro-rtds-stream-worker /app/workers/bin/bro-rtds-stream-worker
+#24 DONE 0.0s
+
+#25 [bro-guardian stage-2 9/9] RUN addgroup --system bro && adduser --system --ingroup bro --home /home/bro --shell /usr/sbin/nologin bro     && mkdir -p /data /logs /tmp /config     && chown -R bro:bro /app /data /logs /tmp /config
+#25 DONE 4.8s
+
+#26 [bro-guardian] exporting to image
+#26 exporting layers
+#26 ...
+
+#27 [bro-maker] exporting to image
+#27 ...
+
+#26 [bro-guardian] exporting to image
+#26 exporting layers 39.4s done
+#26 exporting manifest sha256:e498b3a33b6a32c8318ae7f0ef267b9c6fa3c58c421cf785db47fa08b8209df2 done
+#26 exporting config sha256:ec8c157429b2ac9ddb04f2486ad9a9d2ca31b8d05fe2359cd04dbcfde777737a done
+#26 exporting attestation manifest sha256:189b4f77ebcc8600e45d1142a98a8307dfa6237f15e6bd2658cc61cfc93ac173 0.0s done
+#26 exporting manifest list sha256:8143fbf860642d01d10aac758ff441f8d8270f5a233db2259694b3c88d3f6cf2 done
+#26 naming to docker.io/library/bro_btc_paper-bro-guardian:latest done
+#26 unpacking to docker.io/library/bro_btc_paper-bro-guardian:latest
+#26 ...
+
+#27 [bro-maker] exporting to image
+#27 exporting layers 39.4s done
+#27 exporting manifest sha256:50cadeb61227c7cfbcdd3b8e15ff62f5c43318ca99d3c1158e8bf623b06fca6c 0.0s done
+#27 exporting config sha256:c26b98ffe3da0fb12629de26bfb43f930e4b4ca26f5c85fc6efe42dbe3aa615f done
+#27 exporting attestation manifest sha256:5fbb4abe7d36391f06308765554fe5d1da13ba08c542783586aa707daedbcd83 0.0s done
+#27 exporting manifest list sha256:706fce272f92e24bdcea4f7be22efc6e04509ce64c58cd11637c497ddea14e97 done
+#27 naming to docker.io/library/bro_btc_paper-bro-maker:latest done
+#27 unpacking to docker.io/library/bro_btc_paper-bro-maker:latest
+#27 ...
+
+#26 [bro-guardian] exporting to image
+#26 unpacking to docker.io/library/bro_btc_paper-bro-guardian:latest 18.3s done
+#26 DONE 57.9s
+
+#27 [bro-maker] exporting to image
+#27 unpacking to docker.io/library/bro_btc_paper-bro-maker:latest 18.3s done
+#27 DONE 57.9s
+
+#28 [bro-maker] resolving provenance for metadata file
+#28 DONE 0.0s
+
+#29 [bro-guardian] resolving provenance for metadata file
+#29 DONE 0.0s
+[deploy] docker image identity maker_ref=bro_btc_paper-bro-maker hash=sha256:706fce272f92e24bdcea4f7be22efc6e04509ce64c58cd11637c497ddea14e97
+[deploy] stopping stack...
+[deploy] clearing state and guard artifacts...
+[deploy] starting stack...
+[deploy] waiting 25s for health...
+[deploy] service status:
+NAME                           IMAGE                        COMMAND                  SERVICE        CREATED          STATUS                    PORTS
+bro_btc_paper-bro-guardian-1   bro_btc_paper-bro-guardian   "python scripts/guar…"   bro-guardian   31 seconds ago   Up 25 seconds (healthy)   
+bro_btc_paper-bro-maker-1      bro_btc_paper-bro-maker      "python executor.py …"   bro-maker      32 seconds ago   Up 31 seconds (healthy)   127.0.0.1:9108->9108/tcp
+[deploy] manifest identity:
+manifest_path /home/odah/bro/base/logs_exec/paper_universal/run_manifest_91516606-0658-4879-bbb3-61e852acffd4.json
+run_id 91516606-0658-4879-bbb3-61e852acffd4
+config_fingerprint_sha256 593aaf52756657e50ee042d3129a545625844dc640c2bb6d82f4b8646e25540a
+config_source_path /config/profiles/paper_universal.yaml
+config_source_sha256 cc3470587b92b18895d11667211a509e38b8fd1a599976338b0607b1532bc73b
+code_fingerprint_sha256 d5ef0bb581200734a3fe89607a4bfa57219590598a6c8eef1177b6fc3d46932b
+code_fingerprint_file_count 59
+runtime_identity.effective_config_sha256 593aaf52756657e50ee042d3129a545625844dc640c2bb6d82f4b8646e25540a
+runtime_identity.dependency_lock_sha256 099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8
+runtime_identity.docker_image_hash sha256:706fce272f92e24bdcea4f7be22efc6e04509ce64c58cd11637c497ddea14e97

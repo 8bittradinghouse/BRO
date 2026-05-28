@@ -1,0 +1,12 @@
+{
+  "compatibility_warning_count": 0,
+  "compatibility_warnings": [],
+  "compose_path": "/home/odah/bro/base/docker-compose.yml",
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "finding_count": 0,
+  "findings": [],
+  "ignored_compatibility_fields": [],
+  "ok": true,
+  "warning_count": 0,
+  "warnings": []
+}

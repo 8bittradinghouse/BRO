@@ -1,0 +1,23 @@
+{
+  "available": true,
+  "clock_state": "synced",
+  "jitter_ms": 2.947,
+  "leap": "normal",
+  "network_delay_ms": 151.946,
+  "ntp_service_active": true,
+  "offset_ms": -0.416,
+  "phase": "active_start",
+  "poll_interval": "34min 8s (min: 32s; max 34min 8s)",
+  "requested_active_minutes": 10.0,
+  "root_distance_ms": 31.821,
+  "run_id": "e14d7cad-d92d-4fc0-85be-d921e5e70119",
+  "sample_ts_utc": "2026-05-27T04:48:52.203Z",
+  "server": "2001:19f0:200:144b::2000 (2.time.constant.com)",
+  "session_id": "47bb6a8d-d5a3-4f53-94e4-7f884541e763",
+  "source": "timedatectl",
+  "status_command_ok": true,
+  "stratum": 2,
+  "system_clock_synchronized": true,
+  "timesync_command_ok": true,
+  "timezone": "Etc/UTC (UTC, +0000)"
+}

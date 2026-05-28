@@ -1,0 +1,6 @@
+{"command": "run_integrity", "started_at_utc": "2026-05-28T06:52:19.738Z", "status": "started"}
+{"command": "run_integrity", "finished_at_utc": "2026-05-28T06:52:23.743Z", "status": "completed", "returncode": 0, "timeout": false}
+{"command": "websocket_reliability", "started_at_utc": "2026-05-28T06:52:23.743Z", "status": "started"}
+{"command": "websocket_reliability", "finished_at_utc": "2026-05-28T06:52:24.011Z", "status": "completed", "returncode": 0, "timeout": false}
+{"command": "nightly_soak_report", "started_at_utc": "2026-05-28T06:52:24.011Z", "status": "started"}
+{"command": "nightly_soak_report", "finished_at_utc": "2026-05-28T06:52:24.736Z", "status": "completed", "returncode": 0, "timeout": false}

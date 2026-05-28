@@ -1,0 +1,91 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 56,
+    "depth_met_count": 15,
+    "desired_quote_present_count": 48,
+    "dual_oracle_confirmed_count": 56,
+    "full_cannon_candidate_count": 15,
+    "reject_reason_distribution": {
+      "insufficient_depth_multiple": 41
+    },
+    "row_count": 56
+  },
+  "classification_factors": [
+    "upstream_starvation"
+  ],
+  "contradiction_ledger": [],
+  "decision_readiness": "measurement_incomplete",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 0,
+      "quote_starvation_row_count": null,
+      "shadow_selection_rejected_row_count": 39
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "shadow_row_count": null
+    },
+    "row_universe_caveats": [
+      "unmatched_shadow_selection_rejections"
+    ]
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [
+    "unmatched_shadow_selection_rejections"
+  ],
+  "off_band_full_cannon_candidate_count": 0,
+  "off_band_full_cannon_candidate_examples": [],
+  "probe_matched_selection_rejected_row_count": 38,
+  "ranked_cause_stack": [
+    {
+      "count": 480,
+      "reason": "outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 264,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 213,
+      "reason": "settlement_hold_required",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 42,
+      "reason": "open_order_cleanup_required",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 36,
+      "reason": "insufficient_depth_multiple",
+      "stage": "selection_rejected"
+    },
+    {
+      "count": 9,
+      "reason": "stage_disallow_maker",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 8,
+      "reason": "no_desired_quote",
+      "stage": "desired_quote_missing"
+    },
+    {
+      "count": 8,
+      "reason": "secondary_oracle_not_confirmed",
+      "stage": "prequote_prereq_blocked"
+    },
+    {
+      "count": 2,
+      "reason": "selection_non_one_sided",
+      "stage": "selection_rejected"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "shadow_row_count": 46,
+  "shadow_selection_rejected_row_count": 39,
+  "unmatched_selection_rejected_shadow_row_count": 1,
+  "zero_submit_classification": "upstream_starvation"
+}

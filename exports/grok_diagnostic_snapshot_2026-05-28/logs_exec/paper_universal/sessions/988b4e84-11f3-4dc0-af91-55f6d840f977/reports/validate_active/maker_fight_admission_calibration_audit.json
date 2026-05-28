@@ -1,0 +1,102 @@
+{
+  "admission_class_counts": {
+    "borderline": 5,
+    "clean": 4,
+    "trash": 17
+  },
+  "admission_class_distribution_by_timing_band": {
+    "10_to_15s": {
+      "borderline": 3,
+      "clean": 4,
+      "trash": 4
+    },
+    "le_10s": {
+      "borderline": 2,
+      "clean": 0,
+      "trash": 13
+    }
+  },
+  "admission_rubric_version": 1,
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "candidate_count_by_timing_band": {
+    "10_to_15s": 11,
+    "le_10s": 15
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 6,
+    "not_met": 20
+  },
+  "cannon_window_class_distribution": {
+    "10_to_15s": 11,
+    "le_10s": 15
+  },
+  "claim_boundary_class_distribution_by_class": {},
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "10_to_15s": 0.0,
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "current_owner_artifact": "maker_selection_authority_audit.json",
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 26.0,
+    "max": 181.1822451,
+    "mean": 8.303093457692308,
+    "median": 0.143391,
+    "min": 0.0,
+    "p50": 0.13780199999999998,
+    "p90": 6.183054899999999
+  },
+  "evaluation_horizon_ms_distribution_by_class": {},
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 26
+  },
+  "maker_cannon_shadow_version": 1,
+  "maker_timing_band_class_distribution": {
+    "10_to_15s": 11,
+    "le_10s": 15
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "10_to_15s": 0.0,
+    "le_10s": 0.0
+  },
+  "outcome_truth_status_distribution_by_class": {},
+  "population_class_counts": {
+    "candidate": 26
+  },
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 26
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 26
+  },
+  "session_regime_class_distribution": {
+    "transition_heuristic": 26
+  },
+  "shadow_source_class_distribution": {
+    "runtime_raw": 26
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 26
+  },
+  "submitted_count_by_timing_band": {
+    "10_to_15s": 2
+  },
+  "trash_but_okay_examples": []
+}

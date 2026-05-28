@@ -1,0 +1,51 @@
+{
+  "authoritative_for_runtime_blocker_truth": true,
+  "claim_boundary": "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census",
+  "closed_family_assertions": {
+    "historical_small_loss_recovery_bleed_family": "closed_unless_exact_pattern_returns",
+    "maker_submit_opportunity_false_fail": "closed",
+    "selector_owned_one_sided_family": "closed",
+    "timing_window_collision": "closed",
+    "websocket_denominator_false_fail": "closed"
+  },
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "dominant_runtime_blocker_bucket": "selection_gate",
+  "dominant_runtime_blocker_reason": "launch_safe_selection_insufficient_depth_multiple",
+  "maker_blocker_ledger_version": 1,
+  "next_packet2_patient": "selection_gate_depth_multiple",
+  "quote_quality_summary": {
+    "max_queue_ahead_size": 9348.97,
+    "min_queue_ahead_size": 528.17,
+    "row_count": 6
+  },
+  "quote_quality_verdict": "keep_now_steel",
+  "runtime_blocker_family_status": "open_runtime_patient",
+  "runtime_bucket_distribution": {
+    "quote_quality": 6,
+    "selection_gate": 39,
+    "sizing": 3
+  },
+  "runtime_reason_distribution": {
+    "launch_safe_selection_insufficient_depth_multiple": 39,
+    "quote_quality_skip_queue_depth": 6,
+    "sizing_reject": 3
+  },
+  "selection_gate_depth_summary": {
+    "lt_20_notional_count": 32,
+    "lt_30_notional_count": 32,
+    "lt_50_notional_count": 34,
+    "max_visible_depth_notional_usd": 134.67513000000002,
+    "median_visible_depth_notional_usd": 0.0,
+    "row_count": 39,
+    "zero_visible_depth_count": 26
+  },
+  "selection_gate_verdict": "keep_now_steel",
+  "sizing_summary": {
+    "row_count": 3
+  },
+  "sizing_verdict": "active_patient",
+  "submitted_summary": {
+    "row_count": 0
+  },
+  "support_shadow_verdict": "support_only"
+}

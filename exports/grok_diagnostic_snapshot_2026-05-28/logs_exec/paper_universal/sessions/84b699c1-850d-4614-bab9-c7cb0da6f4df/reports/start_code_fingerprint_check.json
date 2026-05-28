@@ -1,0 +1,13 @@
+{
+  "manifest_code_fingerprint_file_count": 62,
+  "manifest_code_fingerprint_sha256": "9edc0623b96cb2ed071489ad98c07dea32aa0c65274e77e40e5155b2aaf4941e",
+  "manifest_evidence_available": true,
+  "manifest_load_error": "",
+  "manifest_observed": true,
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_a9a6a62d-e544-4130-b4fb-002bef86bc2b.json",
+  "manifest_wait_sec": 10.0,
+  "match": true,
+  "run_id": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+  "workspace_code_fingerprint_file_count": 62,
+  "workspace_code_fingerprint_sha256": "9edc0623b96cb2ed071489ad98c07dea32aa0c65274e77e40e5155b2aaf4941e"
+}

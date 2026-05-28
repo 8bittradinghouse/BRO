@@ -1,0 +1,125 @@
+{
+  "admission_class_counts": {
+    "borderline": 10,
+    "clean": 4,
+    "trash": 16
+  },
+  "admission_class_distribution_by_timing_band": {
+    "10_to_15s": {
+      "borderline": 7,
+      "clean": 4,
+      "trash": 10
+    },
+    "le_10s": {
+      "borderline": 3,
+      "clean": 0,
+      "trash": 6
+    }
+  },
+  "admission_rubric_version": 1,
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "candidate_count_by_timing_band": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "cannon_depth_requirement_counts": {
+    "met": 7,
+    "not_met": 23
+  },
+  "cannon_window_class_distribution": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "claim_boundary_class_distribution_by_class": {
+    "borderline": {
+      "not_provable_missing_inputs": 1
+    },
+    "clean": {
+      "not_modeled_incomplete_lifecycle": 1
+    }
+  },
+  "clean_but_bad_examples": [],
+  "complete_bad_ratio_by_class": {
+    "borderline": 1.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {
+    "10_to_15s": 1.0,
+    "le_10s": 0.0
+  },
+  "complete_joined_count_by_class": {
+    "borderline": 1,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {
+    "10_to_15s": 1
+  },
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 30.0,
+    "max": 43.02334600000001,
+    "mean": 1.9972677466666668,
+    "median": 0.18572525,
+    "min": 0.0,
+    "p50": 0.15839999999999999,
+    "p90": 2.200154
+  },
+  "evaluation_horizon_ms_distribution_by_class": {
+    "borderline": {
+      "5000": 1
+    },
+    "clean": {
+      "5000": 1
+    }
+  },
+  "launch_safe_selection_timing_window_met_distribution": {
+    "met": 30
+  },
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {
+    "10_to_15s": 21,
+    "le_10s": 9
+  },
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 1.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {
+    "10_to_15s": 1.0,
+    "le_10s": 0.0
+  },
+  "outcome_truth_status_distribution_by_class": {
+    "borderline": {
+      "complete": 1
+    },
+    "clean": {
+      "unknown_incomplete_lifecycle": 1
+    }
+  },
+  "population_class_counts": {
+    "candidate": 30
+  },
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 30
+  },
+  "secondary_oracle_status_distribution": {
+    "confirmed": 30
+  },
+  "session_regime_class_distribution": {
+    "asia_dominant_heuristic": 30
+  },
+  "snapshot_source_class_distribution": {
+    "runtime_raw": 30
+  },
+  "stack_pressure_class_distribution": {
+    "below_soft_cap": 30
+  },
+  "submitted_count_by_timing_band": {
+    "10_to_15s": 2
+  },
+  "trash_but_okay_examples": []
+}

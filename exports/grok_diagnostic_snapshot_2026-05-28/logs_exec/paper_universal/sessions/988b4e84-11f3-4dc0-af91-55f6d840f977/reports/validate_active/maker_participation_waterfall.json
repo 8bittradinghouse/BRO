@@ -1,0 +1,107 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "current_owner_artifact": "maker_selection_authority_audit.json",
+  "maker_zero_submit_audit_version": 1,
+  "reconciliation": {
+    "accounting_closed": true,
+    "maker_rows_total": 222,
+    "terminal_rows_accounted": 222,
+    "unaccounted_rows": 0
+  },
+  "stages": {
+    "desired_quote_missing_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "desired_quote_present_rows": {
+      "count": 18,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "truth_reference_sufficient_rows"
+    },
+    "fill_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "submit_success_rows"
+    },
+    "pre_shadow_non_shadow_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "prequote_prereq_pass_rows": {
+      "count": 18,
+      "loss_reason_distribution": {
+        "secondary_oracle_not_confirmed": 22
+      },
+      "percent_of_prior_stage": 0.45,
+      "prior_stage": "stage_band_allowed_rows"
+    },
+    "selection_rejected_rows": {
+      "count": 16,
+      "loss_reason_distribution": {
+        "insufficient_depth_multiple": 16
+      },
+      "percent_of_prior_stage": 0.8888888888888888,
+      "prior_stage": "shadow_rows"
+    },
+    "shadow_rows": {
+      "count": 18,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "desired_quote_present_rows"
+    },
+    "stage_band_allowed_rows": {
+      "count": 40,
+      "loss_reason_distribution": {
+        "earlier_or_post_window_outside_active_maker_band": 154,
+        "outside_active_maker_band": 28
+      },
+      "percent_of_prior_stage": 0.18018018018018017,
+      "prior_stage": "total_maker_rows"
+    },
+    "submit_attempt_rows": {
+      "count": 2,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.1111111111111111,
+      "prior_stage": "shadow_rows"
+    },
+    "submit_success_rows": {
+      "count": 2,
+      "loss_reason_distribution": {
+        "unfilled_or_missing_outcome": 2
+      },
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "submit_attempt_rows"
+    },
+    "total_maker_rows": {
+      "count": 222,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": null
+    },
+    "truth_reference_insufficient_rows": {
+      "count": 0,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 0.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    },
+    "truth_reference_sufficient_rows": {
+      "count": 18,
+      "loss_reason_distribution": {},
+      "percent_of_prior_stage": 1.0,
+      "prior_stage": "prequote_prereq_pass_rows"
+    }
+  },
+  "terminal_path_counts": {
+    "prequote_prereq_blocked": 22,
+    "selection_rejected": 16,
+    "stage_band_excluded": 182,
+    "submit_success_unfilled": 2
+  }
+}

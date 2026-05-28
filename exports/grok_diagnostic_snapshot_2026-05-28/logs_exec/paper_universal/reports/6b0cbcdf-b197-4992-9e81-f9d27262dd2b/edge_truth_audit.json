@@ -1,0 +1,23 @@
+{
+  "audit_rule_set_sha256": "16ec2967a3bbc9b8f222c44ffd6d7c9657e56813f5ef036d8f2670e70b2a407a",
+  "block_reason_taxonomy_sha256": "03ad6e9c6900f06a2b2faf8d5375eb1ec6a6f5fe1e84af8789be4032da2fd715",
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "edge_records_sha256": "2682772ef5d478e4223f14ed8f034d9106154e6083be98bf8824a04b85fec7ae",
+  "finding_count": 0,
+  "findings": [],
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "metrics": {
+    "action_rows": 5.0,
+    "blocked_rows": 117.0,
+    "edge_rows": 122.0,
+    "maker_rows": 108.0,
+    "opportunity_identity_unverifiable_rows": 0.0,
+    "taker_rows": 14.0
+  },
+  "ok": true,
+  "phase_policy_sha256": "ede7348f022166cf27e464a720b31b66512f49fc6c8a9f75199b82db23b3d2f8",
+  "required_fields_sha256": "7fdf7ec5be9eb6f2810d312bc44c9cd68aaeb27599f6d63ec39e9d48cf66d0aa",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_6b0cbcdf-b197-4992-9e81-f9d27262dd2b.json",
+  "run_id": "6b0cbcdf-b197-4992-9e81-f9d27262dd2b",
+  "session_phase": "validate_postrun"
+}

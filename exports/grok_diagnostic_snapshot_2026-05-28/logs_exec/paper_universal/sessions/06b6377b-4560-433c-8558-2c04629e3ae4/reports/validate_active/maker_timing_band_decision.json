@@ -1,0 +1,34 @@
+{
+  "bands": {
+    "10_to_15s": {
+      "depth_met_count": 5,
+      "fireable_candidate_count": 1,
+      "full_cannon_candidate_count": 5,
+      "observed_row_count": 20,
+      "off_band_opportunity_count": 4,
+      "quoteable_count": 16,
+      "truth_sufficient_count": 16
+    },
+    "15_to_20s": {
+      "depth_met_count": 4,
+      "fireable_candidate_count": 0,
+      "full_cannon_candidate_count": 4,
+      "observed_row_count": 20,
+      "off_band_opportunity_count": 4,
+      "quoteable_count": 0,
+      "truth_sufficient_count": 0
+    },
+    "le_10s": {
+      "depth_met_count": 2,
+      "fireable_candidate_count": 0,
+      "full_cannon_candidate_count": 2,
+      "observed_row_count": 132,
+      "off_band_opportunity_count": 2,
+      "quoteable_count": 9,
+      "truth_sufficient_count": 9
+    }
+  },
+  "maker_zero_submit_audit_version": 1,
+  "recommended_action": "keep_10_to_15s",
+  "recommended_timing_action": "keep_10_to_15s"
+}

@@ -1,0 +1,80 @@
+{
+  "active_band_runtime_summary": {
+    "authoritative_reference_count": 32,
+    "depth_met_count": 0,
+    "desired_quote_present_count": 32,
+    "dual_oracle_confirmed_count": 32,
+    "full_cannon_candidate_count": 0,
+    "reject_reason_distribution": {
+      "insufficient_depth_multiple": 32,
+      "non_viable_geometry": 16
+    },
+    "row_count": 32
+  },
+  "applicability": "support_only_zero_submit_diagnostic",
+  "authoritative_for_canonical_selection": false,
+  "classification_factors": [
+    "upstream_starvation",
+    "timing_band_mismatch"
+  ],
+  "contradiction_ledger": [
+    {
+      "code": "off_band_full_cannon_opportunities_present",
+      "detail": "off_band_full_cannon_candidate_count=2",
+      "severity": "high"
+    }
+  ],
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "decision_readiness": "ready_for_truth_packet",
+  "known_truths": {
+    "caliber_250": {
+      "off_band_full_cannon_candidate_count": 2,
+      "quote_starvation_row_count": null,
+      "snapshot_selection_rejected_row_count": null
+    },
+    "packet_b_350": {
+      "quote_starvation_row_count": null,
+      "snapshot_row_count": null
+    },
+    "row_universe_caveats": []
+  },
+  "maker_zero_submit_audit_version": 1,
+  "measurement_gaps": [],
+  "off_band_full_cannon_candidate_count": 2,
+  "off_band_full_cannon_candidate_examples": [
+    {
+      "depth_multiple_vs_cannon_target": 28.258960499999997,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 19.335734,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "b38186e3f3dc5385|SELL"
+    },
+    {
+      "depth_multiple_vs_cannon_target": 17.801707999999998,
+      "lineage_stage": "LATE_DIAGNOSTIC",
+      "market_reference_class": "authoritative",
+      "sec_to_expiry": 18.334359,
+      "secondary_oracle_status": "confirmed",
+      "target_side_ref": "b38186e3f3dc5385|SELL"
+    }
+  ],
+  "probe_matched_selection_rejected_row_count": 0,
+  "ranked_cause_stack": [
+    {
+      "count": 128,
+      "reason": "earlier_or_post_window_outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    },
+    {
+      "count": 20,
+      "reason": "outside_active_maker_band",
+      "stage": "stage_band_excluded"
+    }
+  ],
+  "runtime_classification": "UNKNOWN",
+  "snapshot_row_count": 64,
+  "snapshot_selection_rejected_row_count": 0,
+  "unmatched_selection_rejected_snapshot_row_count": 0,
+  "zero_submit_classification": "mixed-cause starvation"
+}

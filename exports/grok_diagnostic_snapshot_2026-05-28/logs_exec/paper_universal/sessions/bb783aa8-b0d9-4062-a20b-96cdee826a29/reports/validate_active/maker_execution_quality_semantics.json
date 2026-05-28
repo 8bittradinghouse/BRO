@@ -1,0 +1,104 @@
+{
+  "direct_observed_fillprob_queue_identical_material_pair_count": 0,
+  "direct_observed_identical_material_pair_count": 0,
+  "inside_spread_blind_spot_present": false,
+  "maker_quote_integrity_audit_version": 1,
+  "quality_model_semantics": "distance_sensitive_inside_spread",
+  "specimen_comparisons": [
+    {
+      "certified_quality": {
+        "distance_to_touch": null,
+        "expected_fill_prob": 0.05359610104039995,
+        "queue_ahead_size": 177.32
+      },
+      "certified_quote_price": 0.983,
+      "certified_to_submitted_tick_delta": 0.0,
+      "fillprob_and_queue_identical": true,
+      "order_id": "paper-order-2",
+      "quality_metrics_identical": false,
+      "submitted_quality": {
+        "distance_to_touch": 0.007000000000000006,
+        "expected_fill_prob": 0.05359610104039995,
+        "queue_ahead_size": 177.32
+      },
+      "submitted_quote_price": 0.983,
+      "target_side_ref": "372ab8e07078f61e|BUY"
+    }
+  ],
+  "synthetic_inside_spread_same_metrics": {
+    "buy_inside_spread_prices_equal_quality": false,
+    "sell_inside_spread_prices_equal_quality": false
+  },
+  "synthetic_truth_table": {
+    "buy": [
+      {
+        "label": "deep_inside_spread",
+        "price": 0.401,
+        "quality": {
+          "adverse_selection_risk": 0.4088393176969991,
+          "distance_to_touch": 0.01899999999999996,
+          "expected_fill_prob": 0.25782734896966747,
+          "expected_quality_score": 0.13517555366056774,
+          "queue_ahead_size": 0.0
+        }
+      },
+      {
+        "label": "near_touch_inside_spread",
+        "price": 0.419,
+        "quality": {
+          "adverse_selection_risk": 0.03251371699952402,
+          "distance_to_touch": 0.0010000000000000009,
+          "expected_fill_prob": 0.6341529496671415,
+          "expected_quality_score": 0.6243988345672843,
+          "queue_ahead_size": 0.0
+        }
+      },
+      {
+        "label": "touch_or_cross_guard_line",
+        "price": 0.42,
+        "quality": {
+          "adverse_selection_risk": 0.0,
+          "distance_to_touch": 0.0,
+          "expected_fill_prob": 0.03333333333333327,
+          "expected_quality_score": 0.03333333333333327,
+          "queue_ahead_size": 0.0
+        }
+      }
+    ],
+    "sell": [
+      {
+        "label": "deep_inside_spread",
+        "price": 0.601,
+        "quality": {
+          "adverse_selection_risk": 0.03251371699952397,
+          "distance_to_touch": 0.0010000000000000009,
+          "expected_fill_prob": 0.6341529496671433,
+          "expected_quality_score": 0.6243988345672861,
+          "queue_ahead_size": 0.0
+        }
+      },
+      {
+        "label": "near_touch_inside_spread",
+        "price": 0.619,
+        "quality": {
+          "adverse_selection_risk": 0.40883931769699916,
+          "distance_to_touch": 0.019000000000000017,
+          "expected_fill_prob": 0.2578273489696675,
+          "expected_quality_score": 0.13517555366056777,
+          "queue_ahead_size": 0.0
+        }
+      },
+      {
+        "label": "touch_or_cross_guard_line",
+        "price": 0.62,
+        "quality": {
+          "adverse_selection_risk": 0.0,
+          "distance_to_touch": 0.0,
+          "expected_fill_prob": 0.2452529607809618,
+          "expected_quality_score": 0.2452529607809618,
+          "queue_ahead_size": 120.0
+        }
+      }
+    ]
+  }
+}

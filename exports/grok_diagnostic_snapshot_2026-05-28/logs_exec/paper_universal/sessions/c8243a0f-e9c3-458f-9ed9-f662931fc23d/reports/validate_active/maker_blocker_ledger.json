@@ -1,0 +1,66 @@
+{
+  "authoritative_for_runtime_blocker_truth": true,
+  "claim_boundary": "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census",
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "historical_family_labels_retired_from_active_owner_surfaces": true,
+  "later_stage_runtime_diagnostic_truth": {
+    "dominant_runtime_blocker_bucket": "selection_gate",
+    "dominant_runtime_blocker_reason": "launch_safe_selection_insufficient_depth_multiple",
+    "runtime_blocker_family_status": "open_runtime_patient",
+    "runtime_bucket_distribution": {
+      "feasibility_gate": 1,
+      "selection_gate": 21,
+      "submitted": 2
+    },
+    "runtime_reason_distribution": {
+      "launch_safe_selection_insufficient_depth_multiple": 21,
+      "non_actionable_geometry": 1,
+      "submitted": 2
+    },
+    "selection_gate_depth_summary": {
+      "lt_20_notional_count": 14,
+      "lt_30_notional_count": 14,
+      "lt_50_notional_count": 14,
+      "max_visible_depth_notional_usd": 74.10816,
+      "median_visible_depth_notional_usd": 0.0,
+      "row_count": 21,
+      "zero_visible_depth_count": 12
+    },
+    "selection_gate_verdict": "active_patient",
+    "sizing_summary": {
+      "row_count": 0
+    },
+    "sizing_verdict": "not_present",
+    "submitted_summary": {
+      "row_count": 2
+    },
+    "support_snapshot_verdict": "support_only"
+  },
+  "maker_blocker_ledger_version": 3,
+  "whole_lane_runtime_blocker_truth": {
+    "dominant_earliest_blocker_owner_family": "lifecycle_phase",
+    "dominant_earliest_blocker_reason": "phase_disallow_maker",
+    "dominant_earliest_blocker_stage": "phase_gate",
+    "maker_gate_owner_family_distribution": {
+      "lifecycle_phase": 85,
+      "order_manager_feasibility": 1,
+      "order_manager_selection": 9,
+      "shared_lifecycle_safety": 53,
+      "submitted_population": 2
+    },
+    "maker_gate_reason_distribution": {
+      "launch_safe_selection_insufficient_depth_multiple": 9,
+      "non_actionable_geometry": 1,
+      "open_order_cleanup_required": 53,
+      "phase_disallow_maker": 85,
+      "submitted": 2
+    },
+    "maker_gate_stage_distribution": {
+      "feasibility_gate": 1,
+      "phase_gate": 85,
+      "selection_gate": 9,
+      "shared_safety_lifecycle_gate": 53,
+      "submitted": 2
+    }
+  }
+}

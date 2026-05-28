@@ -1,0 +1,32 @@
+{
+  "artifact_names": [
+    "maker_participation_waterfall.json",
+    "maker_quote_construction_summary.json",
+    "maker_quote_starvation_summary.json",
+    "maker_timing_band_decision.json",
+    "maker_timing_band_diagnostic_matrix.json",
+    "maker_truth_reference_starvation_summary.json",
+    "maker_zero_submit_root_cause_audit.json"
+  ],
+  "artifact_sha256": {
+    "maker_participation_waterfall": "9faa26031654fb8940aa6b7307132acced5198383757d49e77d5079a5fbdda19",
+    "maker_quote_construction_summary": "095710062e406e0c6490a77e3257385077ec8f21d66bee70233c302aa99c9121",
+    "maker_quote_starvation_summary": "997059337162c81509f42d6de1f4b1ad32c5113bc1572eebc7b416413e8f0dc2",
+    "maker_timing_band_decision": "ad3d249c41429858dd099634acb6276f7c43eda3ed08d26ff77f04f0c53519d4",
+    "maker_timing_band_diagnostic_matrix": "98733cdcc53e8b3073d40798e7e21a9266483bee1069febc1e0b3b6d5e93c5cb",
+    "maker_truth_reference_starvation_summary": "ad344171533d8a407efb2d14bff24cc916c7060fa7ca7048d6ab30d73c102241",
+    "maker_zero_submit_root_cause_audit": "0f90fde20b743eff7e836f6f8b8761acfd6badf3887a78c923317ab579fa6bd3"
+  },
+  "maker_zero_submit_audit_version": 1,
+  "profile_name": "3a8cbe7c-ca98-4f71-8e39-761de5e5ac14",
+  "report_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/3a8cbe7c-ca98-4f71-8e39-761de5e5ac14/reports/validate_active",
+  "row_count_anchors": {
+    "maker_rows_total": 274,
+    "off_band_full_cannon_candidate_count": 5,
+    "prequote_prereq_pass_rows": 34,
+    "quote_starvation_rows": 0,
+    "snapshot_row_count": 45,
+    "stage_band_allowed_rows": 34
+  },
+  "run_id": "validate_active"
+}

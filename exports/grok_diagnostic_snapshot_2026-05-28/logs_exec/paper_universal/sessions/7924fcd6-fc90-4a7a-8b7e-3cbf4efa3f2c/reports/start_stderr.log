@@ -1,0 +1,56 @@
+ Image bro_btc_paper-bro-guardian Building 
+ Image bro_btc_paper-bro-maker Building 
+target bro-maker: failed to solve: failed to prepare extraction snapshot "extract-646565880-eKcI sha256:27cbe04b42097c62e628adc1473fd0f176e7c76918ddf6135ee881321b0714ba": parent snapshot sha256:6f181784afc209571cc66bc464eb34b8dbf56dbad2231b293b0773ce39ceef32 does not exist: not found
+
+1512293 v0.31.1 /usr/libexec/docker/cli-plugins/docker-buildx bake --file - --progress rawjson --metadata-file /tmp/compose-build-metadataFile-045f1742-811b-4786-8d8a-516fa45d4021.json --allow fs.read=/home/odah/bro/base --allow fs.read=/home/odah/bro/base
+
+google.golang.org/grpc.(*ClientConn).Invoke
+
+	google.golang.org/grpc@v1.76.0/call.go:35
+
+github.com/moby/buildkit/api/services/control.(*controlClient).Solve
+
+	github.com/moby/buildkit@v0.27.0/api/services/control/control_grpc.pb.go:88
+
+github.com/moby/buildkit/client.(*Client).solve.func2
+
+	github.com/moby/buildkit@v0.27.0/client/solve.go:319
+
+golang.org/x/sync/errgroup.(*Group).Go.func1
+
+	golang.org/x/sync@v0.19.0/errgroup/errgroup.go:93
+
+runtime.goexit
+
+	runtime/asm_amd64.s:1693
+
+
+
+1512293 v0.31.1 /usr/libexec/docker/cli-plugins/docker-buildx bake --file - --progress rawjson --metadata-file /tmp/compose-build-metadataFile-045f1742-811b-4786-8d8a-516fa45d4021.json --allow fs.read=/home/odah/bro/base --allow fs.read=/home/odah/bro/base
+
+github.com/docker/buildx/build.BuildWithResultHandler.func1.5.2
+
+	github.com/docker/buildx/build/build.go:721
+
+github.com/docker/buildx/build.BuildWithResultHandler.func1.5
+
+	github.com/docker/buildx/build/build.go:727
+
+golang.org/x/sync/errgroup.(*Group).Go.func1
+
+	golang.org/x/sync@v0.19.0/errgroup/errgroup.go:93
+
+
+
+1512293 v0.31.1 /usr/libexec/docker/cli-plugins/docker-buildx bake --file - --progress rawjson --metadata-file /tmp/compose-build-metadataFile-045f1742-811b-4786-8d8a-516fa45d4021.json --allow fs.read=/home/odah/bro/base --allow fs.read=/home/odah/bro/base
+
+github.com/moby/buildkit/client.(*Client).solve.func2
+
+	github.com/moby/buildkit@v0.27.0/client/solve.go:321
+
+golang.org/x/sync/errgroup.(*Group).Go.func1
+
+	golang.org/x/sync@v0.19.0/errgroup/errgroup.go:93
+
+
+

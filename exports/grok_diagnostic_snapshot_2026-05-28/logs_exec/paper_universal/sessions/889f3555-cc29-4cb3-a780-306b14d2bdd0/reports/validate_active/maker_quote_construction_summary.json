@@ -1,0 +1,12 @@
+{
+  "authoritative_complete_row_count": 150,
+  "maker_zero_submit_audit_version": 1,
+  "primary_quote_construction_cause": "depth_zero_or_too_thin",
+  "quote_construction_primary_cause_distribution": {
+    "depth_zero_or_too_thin": 59,
+    "geometry_floor_failure": 36,
+    "snapshot_gap_without_no_quote_signal": 55
+  },
+  "row_count": 150,
+  "truth_sound_row_count": 150
+}

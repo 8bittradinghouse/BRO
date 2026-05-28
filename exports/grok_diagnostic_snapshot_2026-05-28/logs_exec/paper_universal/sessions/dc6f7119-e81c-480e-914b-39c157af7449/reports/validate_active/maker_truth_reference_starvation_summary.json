@@ -1,0 +1,15 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_for_canonical_selection": false,
+  "fair_probability_presence_distribution": {},
+  "favored_side_depth_truth_state_distribution": {},
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {},
+  "market_reference_mode_distribution": {},
+  "market_reference_source_side_distribution": {},
+  "primary_truth_starvation_cause": "none",
+  "row_count": 0,
+  "truth_primary_deprivation_reason_distribution": {},
+  "truth_readiness_distribution": {},
+  "truth_readiness_state_distribution": {}
+}

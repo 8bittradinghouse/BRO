@@ -1,0 +1,16 @@
+{
+  "cmd": [
+    "/home/odah/bro/base/scripts/deploy_paper_clean.sh",
+    "--wait-sec",
+    "25",
+    "--no-verify",
+    "--run-id",
+    "1bfcd404-094a-41c4-b7e1-78a0872dd7af",
+    "--no-build"
+  ],
+  "cwd": "/home/odah/bro/base",
+  "returncode": 1,
+  "run_id": "1bfcd404-094a-41c4-b7e1-78a0872dd7af",
+  "session_id": "deb43e2a-4895-4183-9f4b-27158b96f0aa",
+  "ts_utc": "2026-05-26T08:49:17.024Z"
+}

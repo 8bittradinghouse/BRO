@@ -1,0 +1,45 @@
+{
+  "desired_quote_presence_distribution": {
+    "unknown": 150
+  },
+  "fair_probability_presence_distribution": {
+    "present": 150
+  },
+  "favored_side_depth_truth_state_distribution": {
+    "nonzero_visible": 91,
+    "zero_visible": 59
+  },
+  "geometry_viability_distribution": {
+    "not_viable": 57,
+    "viable": 93
+  },
+  "maker_no_submission_category_distribution": {
+    "maker_edge_below_min": 14,
+    "window_geometry_hard_pinned": 114,
+    "window_geometry_near_pinned": 22
+  },
+  "maker_no_submission_cause_distribution": {
+    "maker_edge_below_min": 14,
+    "window_geometry_hard_pinned": 114,
+    "window_geometry_near_pinned": 22
+  },
+  "maker_zero_submit_audit_version": 1,
+  "market_probability_presence_distribution": {
+    "present": 150
+  },
+  "market_reference_class_distribution": {
+    "authoritative": 150
+  },
+  "market_reference_mode_distribution": {
+    "direct_midpoint": 150
+  },
+  "market_reference_source_side_distribution": {
+    "none": 150
+  },
+  "primary_starvation_cause": "window_geometry_hard_pinned",
+  "quote_starvation_row_count": 150,
+  "row_count": 150,
+  "secondary_oracle_confirmation_distribution": {
+    "confirmed": 150
+  }
+}

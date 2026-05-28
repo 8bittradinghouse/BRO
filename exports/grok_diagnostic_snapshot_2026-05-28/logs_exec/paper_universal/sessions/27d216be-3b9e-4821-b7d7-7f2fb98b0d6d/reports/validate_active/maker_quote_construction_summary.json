@@ -1,0 +1,13 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_complete_row_count": 140,
+  "authoritative_for_canonical_selection": false,
+  "current_owner_artifact": "maker_blocker_ledger.json",
+  "maker_zero_submit_audit_version": 1,
+  "primary_quote_construction_cause": "depth_zero_or_too_thin",
+  "quote_construction_primary_cause_distribution": {
+    "depth_zero_or_too_thin": 51
+  },
+  "row_count": 51,
+  "truth_sound_row_count": 140
+}

@@ -1,0 +1,12 @@
+{
+  "applicability": "descriptive_only",
+  "authoritative_complete_row_count": 56,
+  "authoritative_for_canonical_selection": false,
+  "maker_zero_submit_audit_version": 1,
+  "primary_quote_construction_cause": "open_order_cleanup_required",
+  "quote_construction_primary_cause_distribution": {
+    "open_order_cleanup_required": 8
+  },
+  "row_count": 8,
+  "truth_sound_row_count": 56
+}

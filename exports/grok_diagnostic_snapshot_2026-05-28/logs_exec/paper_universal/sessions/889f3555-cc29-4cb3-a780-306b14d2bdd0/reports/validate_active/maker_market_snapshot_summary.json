@@ -1,0 +1,58 @@
+{
+  "admission_class_counts": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "admission_class_distribution_by_timing_band": {},
+  "admission_rubric_version": 1,
+  "candidate_count_by_timing_band": {},
+  "cannon_depth_requirement_counts": {},
+  "cannon_window_class_distribution": {},
+  "complete_bad_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "complete_bad_ratio_by_timing_band": {},
+  "complete_joined_count_by_class": {
+    "borderline": 0,
+    "clean": 0,
+    "trash": 0
+  },
+  "complete_joined_count_by_timing_band": {},
+  "depth_multiple_vs_cannon_target_summary": {
+    "count": 0.0,
+    "max": 0.0,
+    "mean": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "p50": 0.0,
+    "p90": 0.0
+  },
+  "dominant_driver_distribution": {},
+  "launch_safe_selection_timing_window_met_distribution": {},
+  "maker_market_snapshot_version": 1,
+  "maker_timing_band_class_distribution": {},
+  "multifill_incorrect_ratio_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "multifill_incorrect_ratio_by_timing_band": {},
+  "population_class_counts": {},
+  "row_count": 0,
+  "secondary_oracle_confirmation_distribution": {},
+  "secondary_oracle_status_distribution": {},
+  "session_regime_class_distribution": {},
+  "snapshot_source_class_distribution": {},
+  "stack_pressure_class_distribution": {},
+  "submit_rate_by_class": {
+    "borderline": 0.0,
+    "clean": 0.0,
+    "trash": 0.0
+  },
+  "submitted_count_by_timing_band": {},
+  "top_clean_target_side_ref_counts": {},
+  "top_trash_target_side_ref_counts": {}
+}

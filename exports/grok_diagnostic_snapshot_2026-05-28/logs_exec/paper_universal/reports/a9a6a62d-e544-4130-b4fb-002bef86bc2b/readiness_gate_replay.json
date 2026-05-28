@@ -1,0 +1,2755 @@
+{
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "session_phase": "validate_postrun",
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_a9a6a62d-e544-4130-b4fb-002bef86bc2b.json",
+  "run_id_filter": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+  "run_id_resolution": "explicit",
+  "applicability": "support_only_postrun_readiness",
+  "authoritative_for_runtime_blocker_truth": false,
+  "authoritative_for_execution_lane_blocker_truth": false,
+  "execution_lane_blocker_owner_artifact": "maker_blocker_ledger.json",
+  "owner_boundary": "runtime_stage_promotion_only",
+  "blocker_truth_boundary": "postrun_stage_promotion_only",
+  "highest_passing_stage": "paper",
+  "blocking_stage": "pilot_live",
+  "recommended_next_stage": "pilot_live",
+  "metrics": {
+    "status_rows": 21.0,
+    "error_rows": 0.0,
+    "quote_uptime_ratio": 0.3324203032017607,
+    "capture_minus_adverse": -2.5,
+    "total_rejects": 0.0,
+    "reject_ratio_order_rate_limit": 0.0,
+    "reject_ratio_stale_book": 0.0,
+    "kill_switch_events": 0.0,
+    "safe_stop_transitions": 0.0,
+    "maker_only_transitions": 0.0,
+    "latest_operating_mode_state": 0.0,
+    "runtime_promotion_eligible": 1.0,
+    "runtime_active_targets_seen": 1.0,
+    "runtime_meaningful_participation": 1.0,
+    "runtime_deadlock_rows": 0.0,
+    "runtime_safety_rows": 0.0,
+    "runtime_required_market_truth_disconnected_rows": 1.0,
+    "runtime_scan_ratio": 0.6666666666666666,
+    "suppression_dominated_run": 0.0,
+    "runtime_ambiguous_suppression_cause": 0.0,
+    "quote_window_ratio": 0.3333333333333333,
+    "quote_active_within_window_ratio": 1.0,
+    "participation_ratio": 0.0,
+    "participation_within_quote_window_ratio": 0.0,
+    "maker_reference_direct_midpoint_activity": 162.0,
+    "maker_reference_missing_activity": 1.0,
+    "maker_reference_direct_midpoint_action_activity": 0.0,
+    "maker_reference_missing_action_activity": 0.0,
+    "maker_market_reference_missing_count": 1.0,
+    "maker_market_reference_one_sided_context_count": 1.0,
+    "preexpiry_ws_missing_or_unusable_anomaly_count": 0.0,
+    "lifecycle_context_mismatch_count": 0.0,
+    "lifecycle_context_missing_sec_to_expiry_count": 0.0,
+    "settlement_hold_required_count": 0.0,
+    "open_order_cleanup_required_count": 0.0,
+    "unresolved_lifecycle_obligation_count": 0.0,
+    "cancel_fail_closed_count": 0.0,
+    "valuation_hard_degraded_enter_count": 0.0,
+    "valuation_hard_degraded_clear_count": 0.0,
+    "held_unpriceable_started_count": 0.0,
+    "held_unpriceable_recovered_count": 0.0,
+    "resource_status_rows": 21.0,
+    "resource_process_cpu_percent_p95": 59.74162109907502,
+    "resource_process_cpu_percent_max": 73.2104901084401,
+    "resource_process_cpu_percent_normalized_p95": 29.87081054953751,
+    "resource_process_cpu_percent_normalized_max": 36.60524505422005,
+    "resource_process_rss_mb_max": 65.55859375,
+    "resource_system_load1_p95": 0.88916015625,
+    "resource_system_load1_max": 0.9150390625,
+    "resource_system_load5_p95": 0.40234375,
+    "resource_system_load15_p95": 0.20849609375,
+    "resource_system_mem_available_mb_min": 2517.54296875,
+    "resource_system_mem_available_ratio_min": 0.6438600171831605,
+    "resource_system_swap_used_mb_max": 323.375,
+    "resource_system_swap_used_ratio_max": 0.03947450612759883,
+    "runtime_classification_name": "VALID_ACTIVE",
+    "runtime_primary_suppression_cause": "none",
+    "runtime_contributing_suppression_causes": [],
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated",
+    "quote_uptime_ratio_raw": 0.3324203032017607,
+    "quote_uptime_applicable": 1.0,
+    "maker_submits": 0.0,
+    "context_hints": {
+      "candidate_log_dirs_for_run": [
+        "/home/odah/bro/base/logs_exec/paper_universal"
+      ]
+    },
+    "runtime_findings": [],
+    "readiness_report_max_lines_per_file": 0.0
+  },
+  "comparison_tolerance": {
+    "min_default": 0.0,
+    "max_default": 0.0,
+    "metric_overrides": {
+      "quote_uptime_ratio": {
+        "min_eps": 0.002,
+        "max_eps": 0.0
+      }
+    }
+  },
+  "suppression_summary": {
+    "primary_suppression_cause": "none",
+    "contributing_suppression_causes": [],
+    "ambiguous_suppression_cause": false,
+    "suppression_dominated_run": false,
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated"
+  },
+  "stage_results": [
+    {
+      "stage": "paper",
+      "passed": true,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 20.0,
+          "value": 21.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 0.05,
+          "value": 0.3324203032017607,
+          "epsilon": 0.002,
+          "tolerance_applied": true,
+          "passed": true
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 200.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.8,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 5.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "pilot_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 120.0,
+          "value": 21.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 0.6,
+          "value": 0.3324203032017607,
+          "epsilon": 0.002,
+          "tolerance_applied": true,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 80.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.55,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.25,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": -10.0,
+          "value": -2.5,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 2.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "scaled_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 300.0,
+          "value": 21.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 0.7,
+          "value": 0.3324203032017607,
+          "epsilon": 0.002,
+          "tolerance_applied": true,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 40.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.4,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.2,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": -2.5,
+          "value": -2.5,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 1.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "stage": "aggressive_live",
+      "passed": false,
+      "checks": [
+        {
+          "criterion": "min_status_rows",
+          "metric": "status_rows",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 600.0,
+          "value": 21.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": false
+        },
+        {
+          "criterion": "min_quote_uptime_ratio",
+          "metric": "quote_uptime_ratio",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 0.8,
+          "value": 0.3324203032017607,
+          "epsilon": 0.002,
+          "tolerance_applied": true,
+          "passed": false
+        },
+        {
+          "criterion": "max_error_rows",
+          "metric": "error_rows",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 20.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_order_rate_limit",
+          "metric": "reject_ratio_order_rate_limit",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.25,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_reject_ratio_stale_book",
+          "metric": "reject_ratio_stale_book",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.12,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_safe_stop_transitions",
+          "metric": "safe_stop_transitions",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "max_kill_switch_events",
+          "metric": "kill_switch_events",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        },
+        {
+          "criterion": "min_capture_minus_adverse",
+          "metric": "capture_minus_adverse",
+          "rule": "min",
+          "comparator": "min",
+          "threshold": 0.0,
+          "value": -2.5,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": false
+        },
+        {
+          "criterion": "max_latest_operating_mode_state",
+          "metric": "latest_operating_mode_state",
+          "rule": "max",
+          "comparator": "max",
+          "threshold": 0.0,
+          "value": 0.0,
+          "epsilon": 0.0,
+          "tolerance_applied": false,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "runtime_findings": [],
+  "report": {
+    "schema_version": 2,
+    "ts_utc": "2026-05-26T07:33:50.104635Z",
+    "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+    "session_phase": "validate_postrun",
+    "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_a9a6a62d-e544-4130-b4fb-002bef86bc2b.json",
+    "run_id_filter": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+    "run_id_resolution": "explicit",
+    "artifact_identity": {
+      "run_id": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+      "manifest_schema_version": 2,
+      "profile_name": "paper_universal",
+      "config_fingerprint_sha256": "4544b37dd455aef373da2d25652037e942246ccb449e49a1cf092d37d9ba5fa1",
+      "code_fingerprint_sha256": "9edc0623b96cb2ed071489ad98c07dea32aa0c65274e77e40e5155b2aaf4941e",
+      "dependency_lock_sha256": "099d5990011fa718a20432aea5e31b2c2854e3ce4fbc65f9c20f457a2c3e09b8",
+      "git_commit": "ef50707ca1df62f4fa8e9f5721d5316fc84132b8",
+      "git_dirty": true,
+      "docker_image_hash": "sha256:e52feac79e6d5a10b02ab4a58448e9f6d7a3f33d528dd2300a1eefeadbfa96e7",
+      "config_source_path": "/config/profiles/paper_universal.yaml",
+      "config_source_sha256": "b5f4664c1e99de694a13ae9edc69cf18025f98e87797c80b60af36e7073d1fec",
+      "manifest_present": true,
+      "manifest_load_error": ""
+    },
+    "run_commit_lineage": {
+      "run_id": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+      "git_commit": "ef50707ca1df62f4fa8e9f5721d5316fc84132b8",
+      "config_fingerprint_sha256": "4544b37dd455aef373da2d25652037e942246ccb449e49a1cf092d37d9ba5fa1",
+      "code_fingerprint_sha256": "9edc0623b96cb2ed071489ad98c07dea32aa0c65274e77e40e5155b2aaf4941e",
+      "complete": true
+    },
+    "event_files": 1,
+    "status_files": 1,
+    "error_files": 1,
+    "duration_minutes": 10.544233333333333,
+    "status_rows": 21,
+    "error_rows": 0,
+    "quote_uptime_ratio": 0.3324203032017607,
+    "quote_diagnostics": {
+      "status_rows_total": 21.0,
+      "quote_window_rows": 7.0,
+      "quote_window_ratio": 0.3333333333333333,
+      "quote_active_rows": 7.0,
+      "quote_active_ratio": 0.3333333333333333,
+      "quote_active_within_window_ratio": 1.0,
+      "participation_rows": 0.0,
+      "participation_ratio": 0.0,
+      "participation_within_window_ratio": 0.0,
+      "quote_uptime_applicable": true,
+      "quote_uptime_applicability_reason": "quote_or_submit_activity_present"
+    },
+    "reject_reason_distribution": {},
+    "errors_by_component": {},
+    "stale_data": {
+      "stale_book_rejects": 0.0,
+      "stale_oracle_edge_blocks": 0.0,
+      "token_readiness_edge_blocks": 100.0
+    },
+    "latency_distribution_ms": {
+      "sample_count": 170.0,
+      "median_ms": 419.12685288116336,
+      "p90_ms": 1011.9442350696772,
+      "p95_ms": 1150.2918060868979,
+      "max_ms": 1468.682900071144
+    },
+    "taker": {
+      "submits": 1.0,
+      "fills": 1.0,
+      "fill_rate": 1.0,
+      "midpoint_win_rate_proxy": 0.0,
+      "fire_rate_per_min": 0.09483856894922027
+    },
+    "execution_paths": {
+      "maker_submits": 0.0,
+      "maker_fills": 0.0,
+      "maker_filled_orders": 0.0,
+      "maker_fill_rate": 0.0,
+      "maker_fire_rate_per_min": 0.0,
+      "taker_bonus_submits": 1.0,
+      "taker_bonus_fills": 1.0,
+      "taker_bonus_filled_orders": 1.0,
+      "taker_bonus_fill_rate": 1.0,
+      "taker_bonus_fire_rate_per_min": 0.09483856894922027
+    },
+    "maker_submits": 0.0,
+    "maker_fills": 0.0,
+    "maker_filled_orders": 0.0,
+    "maker_fill_rate": 0.0,
+    "maker_fire_rate_per_min": 0.0,
+    "taker_bonus_submits": 1.0,
+    "taker_bonus_fills": 1.0,
+    "taker_bonus_filled_orders": 1.0,
+    "taker_bonus_fill_rate": 1.0,
+    "taker_bonus_fire_rate_per_min": 0.09483856894922027,
+    "financial_performance": {
+      "ledger_version": 2,
+      "accounting_basis": "fill_cashflow_plus_wallet_position_settled",
+      "win_rate_basis": "closed_target_ref_campaigns_with_zero_remaining_position",
+      "lane_mapping_basis": "order_submit.submission_lane_with_reason_fallback",
+      "capital_progression": {
+        "basis": "run_manifest_wallet_config_with_opening_wallet_contract_crosscheck",
+        "configured_base_capital_usd": 4000.0,
+        "configured_protected_reserve_usd": 0.0,
+        "configured_starting_deployable_capital_usd": 4000.0,
+        "opening_wallet_ts_utc": "2026-05-26T06:44:05.674Z",
+        "opening_wallet_authority_status_class": "authoritative",
+        "opening_wallet_stable_balance_total_usd": 4000.0,
+        "opening_wallet_deployable_capital_usd": 4000.0,
+        "opening_wallet_protected_reserve_usd": 0.0,
+        "opening_wallet_source": "status_wallet_contract",
+        "opening_wallet_matches_configured_base_capital": true,
+        "opening_wallet_matches_configured_deployable_capital": true,
+        "ending_wallet_ts_utc": "2026-05-26T06:54:09.200Z",
+        "ending_wallet_authority_status_class": "authoritative",
+        "ending_wallet_stable_balance_total_usd": 3995.0,
+        "ending_wallet_deployable_capital_usd": 3995.0,
+        "ending_wallet_protected_reserve_usd": 0.0,
+        "ending_wallet_open_reserved_usd": 0.0,
+        "ending_wallet_source": "status_wallet_contract",
+        "ending_wallet_minus_opening_stable_balance_usd": -5.0,
+        "ending_wallet_matches_opening_plus_total_pnl": true
+      },
+      "overall": {
+        "submitted_order_count": 1,
+        "filled_order_count": 1,
+        "filled_trade_candidate_count": 1,
+        "fill_event_count": 1,
+        "closed_trade_count": 1,
+        "winning_trade_count": 0,
+        "losing_trade_count": 1,
+        "flat_trade_count": 0,
+        "gross_submitted_notional_usd": 5.0,
+        "gross_submitted_size_shares": 500.0,
+        "gross_filled_notional_usd": 5.0,
+        "gross_filled_size_shares": 500.0,
+        "gross_settlement_notional_usd": 0.0,
+        "net_pnl_usd": -5.0,
+        "gross_profit_usd": 0.0,
+        "gross_loss_usd": -5.0,
+        "win_rate": 0.0,
+        "loss_rate": 1.0,
+        "flat_rate": 0.0,
+        "avg_trade_pnl_usd": -5.0,
+        "median_trade_pnl_usd": -5.0,
+        "avg_win_usd": 0.0,
+        "avg_loss_usd": -5.0,
+        "avg_submitted_order_notional_usd": 5.0,
+        "avg_submitted_order_size_shares": 500.0,
+        "avg_filled_order_notional_usd": 5.0,
+        "avg_filled_order_size_shares": 500.0,
+        "avg_fill_event_size_shares": 500.0,
+        "expectancy_per_trade_usd": -5.0,
+        "profit_factor": 0.0,
+        "profit_factor_status": "defined",
+        "closed_trade_coverage_ratio": 1.0
+      },
+      "by_lane": {
+        "maker": {
+          "submitted_order_count": 0,
+          "filled_order_count": 0,
+          "filled_trade_candidate_count": 0,
+          "fill_event_count": 0,
+          "closed_trade_count": 0,
+          "winning_trade_count": 0,
+          "losing_trade_count": 0,
+          "flat_trade_count": 0,
+          "gross_submitted_notional_usd": 0.0,
+          "gross_submitted_size_shares": 0.0,
+          "gross_filled_notional_usd": 0.0,
+          "gross_filled_size_shares": 0.0,
+          "gross_settlement_notional_usd": 0.0,
+          "net_pnl_usd": 0.0,
+          "gross_profit_usd": 0.0,
+          "gross_loss_usd": 0.0,
+          "win_rate": 0.0,
+          "loss_rate": 0.0,
+          "flat_rate": 0.0,
+          "avg_trade_pnl_usd": 0.0,
+          "median_trade_pnl_usd": 0.0,
+          "avg_win_usd": 0.0,
+          "avg_loss_usd": 0.0,
+          "avg_submitted_order_notional_usd": 0.0,
+          "avg_submitted_order_size_shares": 0.0,
+          "avg_filled_order_notional_usd": 0.0,
+          "avg_filled_order_size_shares": 0.0,
+          "avg_fill_event_size_shares": 0.0,
+          "expectancy_per_trade_usd": 0.0,
+          "profit_factor": null,
+          "profit_factor_status": "no_closed_trades",
+          "closed_trade_coverage_ratio": 0.0
+        },
+        "taker": {
+          "submitted_order_count": 1,
+          "filled_order_count": 1,
+          "filled_trade_candidate_count": 1,
+          "fill_event_count": 1,
+          "closed_trade_count": 1,
+          "winning_trade_count": 0,
+          "losing_trade_count": 1,
+          "flat_trade_count": 0,
+          "gross_submitted_notional_usd": 5.0,
+          "gross_submitted_size_shares": 500.0,
+          "gross_filled_notional_usd": 5.0,
+          "gross_filled_size_shares": 500.0,
+          "gross_settlement_notional_usd": 0.0,
+          "net_pnl_usd": -5.0,
+          "gross_profit_usd": 0.0,
+          "gross_loss_usd": -5.0,
+          "win_rate": 0.0,
+          "loss_rate": 1.0,
+          "flat_rate": 0.0,
+          "avg_trade_pnl_usd": -5.0,
+          "median_trade_pnl_usd": -5.0,
+          "avg_win_usd": 0.0,
+          "avg_loss_usd": -5.0,
+          "avg_submitted_order_notional_usd": 5.0,
+          "avg_submitted_order_size_shares": 500.0,
+          "avg_filled_order_notional_usd": 5.0,
+          "avg_filled_order_size_shares": 500.0,
+          "avg_fill_event_size_shares": 500.0,
+          "expectancy_per_trade_usd": -5.0,
+          "profit_factor": 0.0,
+          "profit_factor_status": "defined",
+          "closed_trade_coverage_ratio": 1.0
+        },
+        "mixed": {
+          "submitted_order_count": 0,
+          "filled_order_count": 0,
+          "filled_trade_candidate_count": 0,
+          "fill_event_count": 0,
+          "closed_trade_count": 0,
+          "winning_trade_count": 0,
+          "losing_trade_count": 0,
+          "flat_trade_count": 0,
+          "gross_submitted_notional_usd": 0.0,
+          "gross_submitted_size_shares": 0.0,
+          "gross_filled_notional_usd": 0.0,
+          "gross_filled_size_shares": 0.0,
+          "gross_settlement_notional_usd": 0.0,
+          "net_pnl_usd": 0.0,
+          "gross_profit_usd": 0.0,
+          "gross_loss_usd": 0.0,
+          "win_rate": 0.0,
+          "loss_rate": 0.0,
+          "flat_rate": 0.0,
+          "avg_trade_pnl_usd": 0.0,
+          "median_trade_pnl_usd": 0.0,
+          "avg_win_usd": 0.0,
+          "avg_loss_usd": 0.0,
+          "avg_submitted_order_notional_usd": 0.0,
+          "avg_submitted_order_size_shares": 0.0,
+          "avg_filled_order_notional_usd": 0.0,
+          "avg_filled_order_size_shares": 0.0,
+          "avg_fill_event_size_shares": 0.0,
+          "expectancy_per_trade_usd": 0.0,
+          "profit_factor": null,
+          "profit_factor_status": "no_closed_trades",
+          "closed_trade_coverage_ratio": 0.0
+        },
+        "unknown": {
+          "submitted_order_count": 0,
+          "filled_order_count": 0,
+          "filled_trade_candidate_count": 0,
+          "fill_event_count": 0,
+          "closed_trade_count": 0,
+          "winning_trade_count": 0,
+          "losing_trade_count": 0,
+          "flat_trade_count": 0,
+          "gross_submitted_notional_usd": 0.0,
+          "gross_submitted_size_shares": 0.0,
+          "gross_filled_notional_usd": 0.0,
+          "gross_filled_size_shares": 0.0,
+          "gross_settlement_notional_usd": 0.0,
+          "net_pnl_usd": 0.0,
+          "gross_profit_usd": 0.0,
+          "gross_loss_usd": 0.0,
+          "win_rate": 0.0,
+          "loss_rate": 0.0,
+          "flat_rate": 0.0,
+          "avg_trade_pnl_usd": 0.0,
+          "median_trade_pnl_usd": 0.0,
+          "avg_win_usd": 0.0,
+          "avg_loss_usd": 0.0,
+          "avg_submitted_order_notional_usd": 0.0,
+          "avg_submitted_order_size_shares": 0.0,
+          "avg_filled_order_notional_usd": 0.0,
+          "avg_filled_order_size_shares": 0.0,
+          "avg_fill_event_size_shares": 0.0,
+          "expectancy_per_trade_usd": 0.0,
+          "profit_factor": null,
+          "profit_factor_status": "no_closed_trades",
+          "closed_trade_coverage_ratio": 0.0
+        }
+      },
+      "latest_total_pnl_usd": -5.0,
+      "latest_total_pnl_ts_utc": "2026-05-26T06:54:09.200Z",
+      "latest_total_pnl_source": "status_gauge_total_pnl_reconciled",
+      "latest_total_pnl_authoritative_for_closeout": true,
+      "latest_status_total_pnl_usd": -5.0,
+      "latest_status_total_pnl_ts_utc": "2026-05-26T06:54:09.200Z",
+      "reconciliation_to_status_total_pnl_usd": 0.0,
+      "reconciled_with_status_total_pnl": true,
+      "closed_trade_unit": "target_ref_campaign",
+      "unresolved_campaign_count": 0,
+      "unresolved_campaign_ids": [],
+      "settlement_allocation_gap_event_count": 0,
+      "settlement_allocation_gap_shares": 0.0,
+      "settlement_allocation_gap_notional_usd": 0.0
+    },
+    "financial_outcome_reconciliation": {
+      "surface_class": "support_only_cross_surface_reconciliation",
+      "authoritative_for_runtime_or_strategy": false,
+      "status": "quantities_distinct_fill_notional_reconciled",
+      "financial_surface": {
+        "accounting_basis": "fill_cashflow_plus_wallet_position_settled",
+        "closed_trade_unit": "target_ref_campaign",
+        "lane_mapping_basis": "order_submit.submission_lane_with_reason_fallback",
+        "latest_total_pnl_usd": -5.0,
+        "latest_total_pnl_source": "status_gauge_total_pnl_reconciled",
+        "latest_status_total_pnl_usd": -5.0,
+        "interpretation": "realized_cashflow_plus_wallet_position_settled"
+      },
+      "outcome_surface": {
+        "available": true,
+        "run_claim_scope": "observational_only_fixed_horizon_outcome_truth",
+        "lane_outcome_interpretation": "directional_fixed_horizon_edge_realization_not_ledger_pnl",
+        "reference_policy": "directional correctness at fixed 5000ms horizon using decision/eval midpoint references"
+      },
+      "claim_boundary": {
+        "numeric_equality_expected": false,
+        "same_fill_notional_alignment_expected": true,
+        "same_aggregation_unit_expected": false,
+        "financial_unit": "target_ref_campaign",
+        "outcome_unit": "outcome_record_fixed_horizon_observation",
+        "lane_name_mapping": {
+          "maker": "maker",
+          "taker": "normal_taker"
+        },
+        "reason": "financial_performance is realized campaign cashflow through settlement; outcome_truth is observational fixed-horizon edge realization and should not numerically equal ledger pnl."
+      },
+      "overall": {
+        "financial_net_pnl_usd": -5.0,
+        "financial_gross_filled_notional_usd": 5.0,
+        "outcome_fill_notional_sum": 5.0,
+        "fill_notional_reconciles": true,
+        "financial_closed_trade_count": 1,
+        "outcome_complete_outcome_records": 1,
+        "count_equality_expected": false
+      },
+      "by_lane": {
+        "maker": {
+          "financial_lane": "maker",
+          "outcome_lane": "maker",
+          "available": true,
+          "financial_net_pnl_usd": 0.0,
+          "financial_gross_filled_notional_usd": 0.0,
+          "financial_closed_trade_count": 0,
+          "outcome_edge_realized_x_size_sum": 0.0,
+          "outcome_execution_component_x_size_sum": 0.0,
+          "outcome_decision_component_x_size_sum": 0.0,
+          "outcome_fill_notional_sum": 0.0,
+          "outcome_complete_outcome_records": 0,
+          "outcome_total_outcome_records": 0,
+          "outcome_unknown_outcome_records": 0,
+          "fill_notional_reconciles": true,
+          "numeric_pnl_equivalence_expected": false,
+          "count_equality_expected": false
+        },
+        "taker": {
+          "financial_lane": "taker",
+          "outcome_lane": "normal_taker",
+          "available": true,
+          "financial_net_pnl_usd": -5.0,
+          "financial_gross_filled_notional_usd": 5.0,
+          "financial_closed_trade_count": 1,
+          "outcome_edge_realized_x_size_sum": -2.5,
+          "outcome_execution_component_x_size_sum": -2.5,
+          "outcome_decision_component_x_size_sum": 0.0,
+          "outcome_fill_notional_sum": 5.0,
+          "outcome_complete_outcome_records": 1,
+          "outcome_total_outcome_records": 1,
+          "outcome_unknown_outcome_records": 0,
+          "fill_notional_reconciles": true,
+          "numeric_pnl_equivalence_expected": false,
+          "count_equality_expected": false
+        }
+      },
+      "unmapped_financial_lanes": [
+        "mixed",
+        "unknown"
+      ],
+      "unmapped_outcome_lanes": []
+    },
+    "maker_regression_sentinel": {
+      "observational_only": true,
+      "maker_behavior_freeze_state": "provisional_freeze_no_runtime_change",
+      "triggered": true,
+      "regression_reasons": [
+        "near_zero_maker_submit_fill_pattern"
+      ],
+      "maker_submits": 0.0,
+      "maker_fills": 0.0,
+      "maker_fill_rate": 0.0,
+      "maker_fire_rate_per_min": 0.0,
+      "thresholds": {
+        "near_zero_submit_rate_threshold_per_min": 0.25,
+        "near_zero_submit_count_threshold": 2.636058333333333,
+        "near_zero_fill_count_threshold": 1.0,
+        "low_fill_rate_threshold": 0.05,
+        "low_fill_rate_requires_submits": 5.0
+      },
+      "watch_item_primary": "quote_quality_skip_and_replace_guard_distribution",
+      "watch_item_distribution": {
+        "quote_quality_skip_fill_probability": 0,
+        "quote_quality_skip_queue_depth": 0,
+        "replace_guard_min_rest": 0
+      }
+    },
+    "maker_fireability": {
+      "claim_boundary": "report_only_maker_fireability_window; active-window counts are derived from maker edge-evaluation rows inside the manifest-configured maker timing gate and paired with raw non-recovery quote_quality_skip event severity bins; maker-facing lifecycle semantics lead with lifecycle-phase and lane authority while legacy stage buckets are compatibility ancestry only",
+      "config_complete": true,
+      "timing_gate_min_sec_to_expiry": 7.0,
+      "timing_gate_max_sec_to_expiry": 15.0,
+      "maker_competitive_min_notional_usd": 100.0,
+      "maker_competitive_max_shares": 8000.0,
+      "viability_geometry_complete": true,
+      "active_window_low_price_viability_floor": 0.0125,
+      "min_expected_fill_prob": 0.045,
+      "max_queue_ahead_size": 300.0,
+      "active_window_row_count": 32.0,
+      "active_window_submit_count": 0.0,
+      "active_window_replace_guard_count": 0.0,
+      "active_window_quote_quality_skip_fill_probability_count": 0.0,
+      "active_window_quote_quality_skip_queue_depth_count": 0.0,
+      "active_window_sizing_reject_count": 0.0,
+      "active_window_quote_quality_skip_total_count": 0.0,
+      "active_window_submit_rate": 0.0,
+      "active_window_replace_guard_rate": 0.0,
+      "active_window_quote_quality_skip_rate": 0.0,
+      "active_window_sizing_reject_rate": 0.0,
+      "active_window_viable_row_count": 24.0,
+      "active_window_impossible_row_count": 8.0,
+      "active_window_unknown_viability_row_count": 0.0,
+      "active_window_viable_target_count": 3.0,
+      "active_window_impossible_target_count": 1.0,
+      "active_window_mixed_viability_target_count": 0.0,
+      "active_window_unknown_viability_target_count": 0.0,
+      "active_window_low_price_conflict_price_band": {
+        "min": 0.005,
+        "p50": 0.005,
+        "max": 0.005
+      },
+      "active_window_queue_depth_on_viable_targets_count": 0.0,
+      "active_window_queue_depth_on_impossible_targets_count": 0.0,
+      "active_window_queue_depth_on_mixed_targets_count": 0.0,
+      "active_window_queue_depth_on_unknown_targets_count": 0.0,
+      "active_window_block_reason_distribution": {
+        "token_readiness_samples_insufficient": 32
+      },
+      "active_window_lifecycle_phase_distribution": {
+        "maker_window": 32
+      },
+      "active_window_lineage_stage_distribution": {
+        "MAKER_LATE_WINDOW": 32
+      },
+      "active_window_maker_phase_allowed_distribution": {
+        "allowed": 32
+      },
+      "active_window_target_summary": [
+        {
+          "target_ref": "00e06b39fc251b19",
+          "window_row_count": 8.0,
+          "submitted_count": 0.0,
+          "replace_guard_min_rest_count": 0.0,
+          "quote_quality_skip_fill_probability_count": 0.0,
+          "quote_quality_skip_queue_depth_count": 0.0,
+          "sizing_reject_count": 0.0,
+          "viability_class": "viable_only",
+          "viable_viability_row_count": 8.0,
+          "impossible_viability_row_count": 0.0,
+          "unknown_viability_row_count": 0.0,
+          "market_probability_min": 0.995,
+          "market_probability_p50": 0.995,
+          "market_probability_max": 0.995,
+          "submit_sec_to_expiry_sample": [],
+          "submit_gap_sec_sample": []
+        },
+        {
+          "target_ref": "0c4b65bf87dc3ec9",
+          "window_row_count": 8.0,
+          "submitted_count": 0.0,
+          "replace_guard_min_rest_count": 0.0,
+          "quote_quality_skip_fill_probability_count": 0.0,
+          "quote_quality_skip_queue_depth_count": 0.0,
+          "sizing_reject_count": 0.0,
+          "viability_class": "viable_only",
+          "viable_viability_row_count": 8.0,
+          "impossible_viability_row_count": 0.0,
+          "unknown_viability_row_count": 0.0,
+          "market_probability_min": 0.065,
+          "market_probability_p50": 0.165,
+          "market_probability_max": 0.215,
+          "submit_sec_to_expiry_sample": [],
+          "submit_gap_sec_sample": []
+        },
+        {
+          "target_ref": "25e6e1cf2e28a692",
+          "window_row_count": 8.0,
+          "submitted_count": 0.0,
+          "replace_guard_min_rest_count": 0.0,
+          "quote_quality_skip_fill_probability_count": 0.0,
+          "quote_quality_skip_queue_depth_count": 0.0,
+          "sizing_reject_count": 0.0,
+          "viability_class": "viable_only",
+          "viable_viability_row_count": 8.0,
+          "impossible_viability_row_count": 0.0,
+          "unknown_viability_row_count": 0.0,
+          "market_probability_min": 0.785,
+          "market_probability_p50": 0.835,
+          "market_probability_max": 0.935,
+          "submit_sec_to_expiry_sample": [],
+          "submit_gap_sec_sample": []
+        },
+        {
+          "target_ref": "8d6b0c048562d548",
+          "window_row_count": 8.0,
+          "submitted_count": 0.0,
+          "replace_guard_min_rest_count": 0.0,
+          "quote_quality_skip_fill_probability_count": 0.0,
+          "quote_quality_skip_queue_depth_count": 0.0,
+          "sizing_reject_count": 0.0,
+          "viability_class": "impossible_only",
+          "viable_viability_row_count": 0.0,
+          "impossible_viability_row_count": 8.0,
+          "unknown_viability_row_count": 0.0,
+          "market_probability_min": 0.005,
+          "market_probability_p50": 0.005,
+          "market_probability_max": 0.005,
+          "submit_sec_to_expiry_sample": [],
+          "submit_gap_sec_sample": []
+        }
+      ],
+      "active_window_viability_claim_boundary": "geometry_only_classification; viable vs impossible rows are derived from maker market_probability against manifest sizing floor min_notional/max_shares and do not assign broader causal blame",
+      "active_window_queue_depth_snapshot_claim_boundary": "queue-depth target burden uses maker edge-evaluation no-submit assignments by target; raw near-threshold vs hard-miss counts come from non-recovery quote_quality_skip event deltas and are a different population",
+      "raw_queue_depth_event_count": 0.0,
+      "raw_queue_depth_near_threshold_event_count": 0.0,
+      "raw_queue_depth_hard_miss_event_count": 0.0,
+      "raw_queue_depth_unknown_severity_event_count": 0.0,
+      "raw_quote_quality_skip_severity": {
+        "claim_boundary": "raw_local_reject_sparks_non_recovery_only; quote_quality_skip events are event-level reject sparks and are not the same population as maker edge-evaluation no-submit assignments",
+        "raw_quote_quality_skip_event_count": 0.0,
+        "fill_probability_delta_bins": {},
+        "queue_depth_delta_bins": {}
+      }
+    },
+    "edge_truth": {
+      "rows_total": 256.0,
+      "maker_rows": 164.0,
+      "taker_rows": 92.0,
+      "action_rows": 1.0,
+      "blocked_rows": 255.0,
+      "maker_blocked_rows": 164.0,
+      "taker_blocked_rows": 91.0,
+      "block_reason_distribution": {
+        "market_probability_missing": 2,
+        "phase_disallow_maker": 112,
+        "settlement_hold_required": 20,
+        "taker_window_already_submitted": 21,
+        "token_readiness_samples_insufficient": 100
+      },
+      "maker_block_reason_distribution": {
+        "phase_disallow_maker": 112,
+        "settlement_hold_required": 20,
+        "token_readiness_samples_insufficient": 32
+      },
+      "taker_block_reason_distribution": {
+        "market_probability_missing": 2,
+        "taker_window_already_submitted": 21,
+        "token_readiness_samples_insufficient": 68
+      },
+      "maker_no_submission_cause_distribution": {},
+      "maker_no_submission_category_distribution": {},
+      "maker_market_reference_mode_distribution": {
+        "backfilled_paired_touch": 1,
+        "direct_midpoint": 162,
+        "missing": 1
+      },
+      "maker_market_reference_missing_count": 1.0,
+      "maker_market_reference_one_sided_context_count": 1.0,
+      "maker_reference_direct_midpoint_activity": 162.0,
+      "maker_reference_missing_activity": 1.0,
+      "maker_reference_direct_midpoint_action_activity": 0.0,
+      "maker_reference_missing_action_activity": 0.0
+    },
+    "maker_market_viability": {
+      "timing_gate_blocked_count_edge_eval": 0.0,
+      "timing_gate_blocked_count_decision": 0.0,
+      "one_sided_activation_decision_buy_count": 0.0,
+      "one_sided_activation_decision_sell_count": 0.0,
+      "one_sided_activation_submit_buy_count": 0.0,
+      "one_sided_activation_submit_sell_count": 0.0,
+      "maker_submit_edge_bucket_distribution": {},
+      "maker_fill_edge_bucket_distribution": {},
+      "aggressiveness_application_counts": {}
+    },
+    "maker_market_snapshot_summary": {
+      "admission_rubric_version": 1,
+      "maker_market_snapshot_version": 1,
+      "row_count": 0,
+      "snapshot_source_class_distribution": {},
+      "population_class_counts": {},
+      "admission_class_counts": {
+        "clean": 0,
+        "borderline": 0,
+        "trash": 0
+      },
+      "submit_rate_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "complete_joined_count_by_class": {
+        "clean": 0,
+        "borderline": 0,
+        "trash": 0
+      },
+      "complete_bad_ratio_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "multifill_incorrect_ratio_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "dominant_driver_distribution": {},
+      "top_trash_target_side_ref_counts": {},
+      "top_clean_target_side_ref_counts": {},
+      "cannon_window_class_distribution": {},
+      "maker_timing_band_class_distribution": {},
+      "candidate_count_by_timing_band": {},
+      "admission_class_distribution_by_timing_band": {},
+      "submitted_count_by_timing_band": {},
+      "complete_joined_count_by_timing_band": {},
+      "complete_bad_ratio_by_timing_band": {},
+      "multifill_incorrect_ratio_by_timing_band": {},
+      "session_regime_class_distribution": {},
+      "stack_pressure_class_distribution": {},
+      "secondary_oracle_status_distribution": {},
+      "secondary_oracle_confirmation_distribution": {},
+      "launch_safe_selection_timing_window_met_distribution": {},
+      "cannon_depth_requirement_counts": {},
+      "depth_multiple_vs_cannon_target_summary": {
+        "count": 0.0,
+        "min": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0
+      }
+    },
+    "maker_snapshot_summary": {
+      "admission_rubric_version": 1,
+      "maker_market_snapshot_version": 1,
+      "row_count": 0,
+      "snapshot_source_class_distribution": {},
+      "population_class_counts": {},
+      "admission_class_counts": {
+        "clean": 0,
+        "borderline": 0,
+        "trash": 0
+      },
+      "submit_rate_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "complete_joined_count_by_class": {
+        "clean": 0,
+        "borderline": 0,
+        "trash": 0
+      },
+      "complete_bad_ratio_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "multifill_incorrect_ratio_by_class": {
+        "clean": 0.0,
+        "borderline": 0.0,
+        "trash": 0.0
+      },
+      "dominant_driver_distribution": {},
+      "top_trash_target_side_ref_counts": {},
+      "top_clean_target_side_ref_counts": {},
+      "cannon_window_class_distribution": {},
+      "maker_timing_band_class_distribution": {},
+      "candidate_count_by_timing_band": {},
+      "admission_class_distribution_by_timing_band": {},
+      "submitted_count_by_timing_band": {},
+      "complete_joined_count_by_timing_band": {},
+      "complete_bad_ratio_by_timing_band": {},
+      "multifill_incorrect_ratio_by_timing_band": {},
+      "session_regime_class_distribution": {},
+      "stack_pressure_class_distribution": {},
+      "secondary_oracle_status_distribution": {},
+      "secondary_oracle_confirmation_distribution": {},
+      "launch_safe_selection_timing_window_met_distribution": {},
+      "cannon_depth_requirement_counts": {},
+      "depth_multiple_vs_cannon_target_summary": {
+        "count": 0.0,
+        "min": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0
+      }
+    },
+    "maker_viability_summary": {
+      "timing_gate_blocked_count_edge_eval": 0.0,
+      "timing_gate_blocked_count_decision": 0.0,
+      "one_sided_activation_decision_buy_count": 0.0,
+      "one_sided_activation_decision_sell_count": 0.0,
+      "one_sided_activation_submit_buy_count": 0.0,
+      "one_sided_activation_submit_sell_count": 0.0,
+      "maker_submit_edge_bucket_distribution": {},
+      "maker_fill_edge_bucket_distribution": {},
+      "aggressiveness_application_counts": {}
+    },
+    "maker_blocker_ledger": {
+      "maker_blocker_ledger_version": 3,
+      "current_owner_artifact": "maker_blocker_ledger.json",
+      "authoritative_for_runtime_blocker_truth": true,
+      "claim_boundary": "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census",
+      "historical_family_labels_retired_from_active_owner_surfaces": true,
+      "whole_lane_runtime_blocker_truth": {
+        "maker_gate_stage_distribution": {
+          "lane_readiness_gate": 32,
+          "phase_gate": 112,
+          "shared_safety_lifecycle_gate": 20
+        },
+        "maker_gate_reason_distribution": {
+          "phase_disallow_maker": 112,
+          "settlement_hold_required": 20,
+          "token_readiness_samples_insufficient": 32
+        },
+        "maker_gate_owner_family_distribution": {
+          "executor_lane_readiness": 32,
+          "lifecycle_phase": 112,
+          "shared_lifecycle_safety": 20
+        },
+        "dominant_earliest_blocker_stage": "phase_gate",
+        "dominant_earliest_blocker_reason": "phase_disallow_maker",
+        "dominant_earliest_blocker_owner_family": "lifecycle_phase"
+      },
+      "later_stage_runtime_diagnostic_truth": {
+        "runtime_reason_distribution": {},
+        "runtime_bucket_distribution": {},
+        "dominant_runtime_blocker_reason": "launch_safe_selection_insufficient_depth_multiple",
+        "dominant_runtime_blocker_bucket": "selection_gate",
+        "selection_gate_verdict": "not_present",
+        "quote_quality_verdict": "not_present",
+        "sizing_verdict": "not_present",
+        "support_snapshot_verdict": "support_only",
+        "runtime_blocker_family_status": "open_runtime_patient",
+        "next_packet2_patient": "support_snapshot_schoolhouse_cleanup",
+        "selection_gate_depth_summary": {
+          "row_count": 0,
+          "zero_visible_depth_count": 0,
+          "lt_20_notional_count": 0,
+          "lt_30_notional_count": 0,
+          "lt_50_notional_count": 0,
+          "median_visible_depth_notional_usd": 0.0,
+          "max_visible_depth_notional_usd": 0.0
+        },
+        "quote_quality_summary": {
+          "row_count": 0,
+          "min_queue_ahead_size": 0.0,
+          "max_queue_ahead_size": 0.0
+        },
+        "sizing_summary": {
+          "row_count": 0
+        },
+        "submitted_summary": {
+          "row_count": 0
+        }
+      }
+    },
+    "maker_selection_authority": {
+      "maker_selection_authority_audit_version": 1,
+      "profile_name": "paper_universal",
+      "runtime_selector_enabled": true,
+      "runtime_selector_config": {
+        "enabled": true,
+        "authority_contract": "maker_phase_allowed",
+        "allowed_lifecycle_phases": [
+          "maker_window"
+        ],
+        "require_secondary_oracle_confirmation": true,
+        "cannon_target_notional_usd": 100.0,
+        "max_same_target_submit_count_prior": 1,
+        "max_same_target_side_submit_count_prior": 1,
+        "min_depth_multiple": 1.45,
+        "one_sided_edge_threshold_abs": 0.15
+      },
+      "counterfactual_policy": {
+        "policy_name": "paper_universal_runtime_aligned_selection_authority",
+        "version": 1,
+        "authority_contract": "maker_phase_allowed",
+        "allowed_lifecycle_phases": [
+          "maker_window"
+        ],
+        "require_secondary_oracle_confirmation": true,
+        "max_same_target_submit_count_prior": 1,
+        "max_same_target_side_submit_count_prior": 1,
+        "min_depth_multiple": 1.5,
+        "timing_authority": "external_existing_maker_timing_gate_only",
+        "market_family_authority": "deferred_missing_clean_truth_surface"
+      },
+      "row_count": 0,
+      "current_decision_distribution": {},
+      "counterfactual_decision_distribution": {},
+      "submitted_count_by_one_sided_active": {},
+      "blocked_count_by_canonical_reject_reason": {},
+      "counterfactual_keep_order_submit_ids": [],
+      "counterfactual_block_order_submit_ids": [],
+      "authoritative_for_canonical_selection": true,
+      "rows": []
+    },
+    "maker_participation_waterfall": {
+      "maker_zero_submit_audit_version": 1,
+      "authoritative_for_canonical_selection": false,
+      "applicability": "descriptive_only",
+      "current_owner_artifact": "maker_blocker_ledger.json",
+      "canonical_gate_truth": {
+        "maker_gate_stage_distribution": {
+          "lane_readiness_gate": 32,
+          "phase_gate": 112,
+          "shared_safety_lifecycle_gate": 20
+        },
+        "maker_gate_reason_distribution": {
+          "phase_disallow_maker": 112,
+          "settlement_hold_required": 20,
+          "token_readiness_samples_insufficient": 32
+        },
+        "maker_gate_owner_family_distribution": {
+          "executor_lane_readiness": 32,
+          "lifecycle_phase": 112,
+          "shared_lifecycle_safety": 20
+        },
+        "maker_gate_reason_distribution_by_stage": {
+          "lane_readiness_gate": {
+            "token_readiness_samples_insufficient": 32
+          },
+          "phase_gate": {
+            "phase_disallow_maker": 112
+          },
+          "shared_safety_lifecycle_gate": {
+            "settlement_hold_required": 20
+          }
+        }
+      },
+      "stages": {
+        "total_maker_rows": {
+          "count": 164,
+          "prior_stage": null,
+          "percent_of_prior_stage": 1.0,
+          "loss_reason_distribution": {}
+        },
+        "stage_band_allowed_rows": {
+          "count": 32,
+          "prior_stage": "total_maker_rows",
+          "percent_of_prior_stage": 0.1951219512195122,
+          "loss_reason_distribution": {
+            "earlier_or_post_window_outside_active_maker_band": 112,
+            "outside_active_maker_band": 20
+          }
+        },
+        "prequote_prereq_pass_rows": {
+          "count": 0,
+          "prior_stage": "stage_band_allowed_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {
+            "token_readiness_samples_insufficient": 32
+          }
+        },
+        "truth_reference_sufficient_rows": {
+          "count": 0,
+          "prior_stage": "prequote_prereq_pass_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "truth_reference_insufficient_rows": {
+          "count": 0,
+          "prior_stage": "prequote_prereq_pass_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "desired_quote_present_rows": {
+          "count": 0,
+          "prior_stage": "truth_reference_sufficient_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "desired_quote_missing_rows": {
+          "count": 0,
+          "prior_stage": "truth_reference_sufficient_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "pre_snapshot_unmatched_rows": {
+          "count": 0,
+          "prior_stage": "desired_quote_present_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "snapshot_rows": {
+          "count": 0,
+          "prior_stage": "desired_quote_present_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "selection_rejected_rows": {
+          "count": 0,
+          "prior_stage": "snapshot_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "submit_attempt_rows": {
+          "count": 0,
+          "prior_stage": "snapshot_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "submit_success_rows": {
+          "count": 0,
+          "prior_stage": "submit_attempt_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "fill_rows": {
+          "count": 0,
+          "prior_stage": "submit_success_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        }
+      },
+      "terminal_path_counts": {
+        "prequote_prereq_blocked": 32,
+        "stage_band_excluded": 132
+      },
+      "reconciliation": {
+        "maker_rows_total": 164,
+        "terminal_rows_accounted": 164,
+        "accounting_closed": true,
+        "unaccounted_rows": 0
+      },
+      "authoritative_for_runtime_blocker_truth": false
+    },
+    "maker_participation_summary": {
+      "maker_zero_submit_audit_version": 1,
+      "authoritative_for_canonical_selection": false,
+      "applicability": "descriptive_only",
+      "current_owner_artifact": "maker_blocker_ledger.json",
+      "canonical_gate_truth": {
+        "maker_gate_stage_distribution": {
+          "lane_readiness_gate": 32,
+          "phase_gate": 112,
+          "shared_safety_lifecycle_gate": 20
+        },
+        "maker_gate_reason_distribution": {
+          "phase_disallow_maker": 112,
+          "settlement_hold_required": 20,
+          "token_readiness_samples_insufficient": 32
+        },
+        "maker_gate_owner_family_distribution": {
+          "executor_lane_readiness": 32,
+          "lifecycle_phase": 112,
+          "shared_lifecycle_safety": 20
+        },
+        "maker_gate_reason_distribution_by_stage": {
+          "lane_readiness_gate": {
+            "token_readiness_samples_insufficient": 32
+          },
+          "phase_gate": {
+            "phase_disallow_maker": 112
+          },
+          "shared_safety_lifecycle_gate": {
+            "settlement_hold_required": 20
+          }
+        }
+      },
+      "stages": {
+        "total_maker_rows": {
+          "count": 164,
+          "prior_stage": null,
+          "percent_of_prior_stage": 1.0,
+          "loss_reason_distribution": {}
+        },
+        "stage_band_allowed_rows": {
+          "count": 32,
+          "prior_stage": "total_maker_rows",
+          "percent_of_prior_stage": 0.1951219512195122,
+          "loss_reason_distribution": {
+            "earlier_or_post_window_outside_active_maker_band": 112,
+            "outside_active_maker_band": 20
+          }
+        },
+        "prequote_prereq_pass_rows": {
+          "count": 0,
+          "prior_stage": "stage_band_allowed_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {
+            "token_readiness_samples_insufficient": 32
+          }
+        },
+        "truth_reference_sufficient_rows": {
+          "count": 0,
+          "prior_stage": "prequote_prereq_pass_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "truth_reference_insufficient_rows": {
+          "count": 0,
+          "prior_stage": "prequote_prereq_pass_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "desired_quote_present_rows": {
+          "count": 0,
+          "prior_stage": "truth_reference_sufficient_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "desired_quote_missing_rows": {
+          "count": 0,
+          "prior_stage": "truth_reference_sufficient_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "pre_snapshot_unmatched_rows": {
+          "count": 0,
+          "prior_stage": "desired_quote_present_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "snapshot_rows": {
+          "count": 0,
+          "prior_stage": "desired_quote_present_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "selection_rejected_rows": {
+          "count": 0,
+          "prior_stage": "snapshot_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "submit_attempt_rows": {
+          "count": 0,
+          "prior_stage": "snapshot_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "submit_success_rows": {
+          "count": 0,
+          "prior_stage": "submit_attempt_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        },
+        "fill_rows": {
+          "count": 0,
+          "prior_stage": "submit_success_rows",
+          "percent_of_prior_stage": 0.0,
+          "loss_reason_distribution": {}
+        }
+      },
+      "terminal_path_counts": {
+        "prequote_prereq_blocked": 32,
+        "stage_band_excluded": 132
+      },
+      "reconciliation": {
+        "maker_rows_total": 164,
+        "terminal_rows_accounted": 164,
+        "accounting_closed": true,
+        "unaccounted_rows": 0
+      },
+      "authoritative_for_runtime_blocker_truth": false
+    },
+    "maker_zero_submit_root_cause_audit": {
+      "maker_zero_submit_audit_version": 1,
+      "runtime_classification": "UNKNOWN",
+      "authoritative_for_canonical_selection": false,
+      "applicability": "support_only_zero_submit_diagnostic",
+      "current_owner_artifact": "maker_blocker_ledger.json",
+      "zero_submit_classification": "mixed-cause starvation",
+      "classification_factors": [
+        "upstream_starvation",
+        "timing_band_mismatch"
+      ],
+      "decision_readiness": "ready_for_truth_packet",
+      "measurement_gaps": [],
+      "known_truths": {
+        "packet_b_350": {
+          "quote_starvation_row_count": null,
+          "snapshot_row_count": 0
+        },
+        "caliber_250": {
+          "quote_starvation_row_count": null,
+          "snapshot_selection_rejected_row_count": null,
+          "off_band_full_cannon_candidate_count": 19
+        },
+        "row_universe_caveats": []
+      },
+      "ranked_cause_stack": [
+        {
+          "stage": "stage_band_excluded",
+          "reason": "earlier_or_post_window_outside_active_maker_band",
+          "count": 112
+        },
+        {
+          "stage": "prequote_prereq_blocked",
+          "reason": "token_readiness_samples_insufficient",
+          "count": 32
+        },
+        {
+          "stage": "stage_band_excluded",
+          "reason": "outside_active_maker_band",
+          "count": 20
+        }
+      ],
+      "contradiction_ledger": [
+        {
+          "code": "off_band_full_cannon_opportunities_present",
+          "severity": "high",
+          "detail": "off_band_full_cannon_candidate_count=19"
+        }
+      ],
+      "active_band_runtime_summary": {
+        "row_count": 0,
+        "dual_oracle_confirmed_count": 0,
+        "authoritative_reference_count": 0,
+        "depth_met_count": 0,
+        "desired_quote_present_count": 0,
+        "full_cannon_candidate_count": 0,
+        "reject_reason_distribution": {}
+      },
+      "snapshot_row_count": 0,
+      "snapshot_selection_rejected_row_count": 0,
+      "probe_matched_selection_rejected_row_count": 0,
+      "unmatched_selection_rejected_snapshot_row_count": 0,
+      "off_band_full_cannon_candidate_count": 19,
+      "off_band_full_cannon_candidate_examples": [
+        {
+          "target_side_ref": "00e06b39fc251b19|SELL",
+          "lineage_stage": "LATE_DIAGNOSTIC",
+          "sec_to_expiry": 19.373714,
+          "market_reference_class": "authoritative",
+          "secondary_oracle_status": "confirmed",
+          "depth_multiple_vs_cannon_target": 14.472999
+        },
+        {
+          "target_side_ref": "00e06b39fc251b19|SELL",
+          "lineage_stage": "LATE_DIAGNOSTIC",
+          "sec_to_expiry": 18.275513,
+          "market_reference_class": "authoritative",
+          "secondary_oracle_status": "confirmed",
+          "depth_multiple_vs_cannon_target": 8.824615
+        },
+        {
+          "target_side_ref": "0c4b65bf87dc3ec9|BUY",
+          "lineage_stage": "TAKER_COMMITMENT",
+          "sec_to_expiry": 6.203478,
+          "market_reference_class": "authoritative",
+          "secondary_oracle_status": "confirmed",
+          "depth_multiple_vs_cannon_target": 2.3724195
+        },
+        {
+          "target_side_ref": "25e6e1cf2e28a692|SELL",
+          "lineage_stage": "TAKER_COMMITMENT",
+          "sec_to_expiry": 6.203436,
+          "market_reference_class": "authoritative",
+          "secondary_oracle_status": "confirmed",
+          "depth_multiple_vs_cannon_target": 40.762480499999995
+        },
+        {
+          "target_side_ref": "25e6e1cf2e28a692|SELL",
+          "lineage_stage": "TAKER_COMMITMENT",
+          "sec_to_expiry": 5.7673,
+          "market_reference_class": "authoritative",
+          "secondary_oracle_status": "confirmed",
+          "depth_multiple_vs_cannon_target": 2.0128934999999997
+        }
+      ],
+      "authoritative_for_runtime_blocker_truth": false
+    },
+    "maker_complete_count": 0.0,
+    "maker_complete_correct_rate": 0.0,
+    "maker_complete_incorrect_rate": 0.0,
+    "maker_complete_neutral_rate": 0.0,
+    "taker_competitiveness": {
+      "decision_count": 35.0,
+      "submit_capable_static_decision_count": 1.0,
+      "submit_capable_dynamic_predicted_count": 0.0,
+      "submit_capable_dynamic_predicted_unknown_count": 35.0,
+      "submit_capable_decision_count": 1.0,
+      "blocked_decision_count": 34.0,
+      "actual_submit_count": 1.0,
+      "fill_count": 1.0,
+      "normal_competitiveness_submit_count": 1.0,
+      "lifecycle_residue_override_submit_count": 0.0,
+      "true_unknown_submit_count": 0.0,
+      "partial_competitiveness_payload_count": 0.0,
+      "lifecycle_residue_override_without_normal_payload_count": 0.0,
+      "decision_to_submit_rate": 0.02857142857142857,
+      "normal_competitiveness_decision_to_submit_rate": 0.02857142857142857,
+      "submit_capable_to_submit_rate": 1.0,
+      "normal_competitiveness_submit_capable_to_submit_rate": 1.0,
+      "submit_capable_dynamic_to_submit_rate": 0.0,
+      "normal_competitiveness_submit_capable_dynamic_to_submit_rate": 0.0,
+      "fill_rate_from_submits": 1.0,
+      "submit_without_competitiveness_payload_count": 0.0,
+      "outside_window_blocked_count_edge_eval": 0.0,
+      "risk_reject_after_capable_count_edge_eval": 0.0,
+      "decision_timing_window_distribution": {
+        "final_window": 35
+      },
+      "decision_edge_bucket_distribution": {
+        "0p10_0p30": 4,
+        "0p30_0p60": 31
+      },
+      "decision_conviction_bucket_distribution": {
+        "gt_0p66": 31,
+        "le_0p33": 4
+      },
+      "decision_block_reason_distribution": {
+        "token_readiness_samples_insufficient": 34
+      },
+      "decision_aggressiveness_distribution": {
+        "final_window": 1,
+        "none": 34
+      },
+      "decision_multi_oracle_status_distribution": {
+        "confirmed": 1,
+        "unknown": 34
+      },
+      "decision_normal_taker_side_class_distribution": {
+        "complement_buy": 35
+      },
+      "decision_normal_side_policy_distribution": {
+        "buy_expected_winner_only": 35
+      },
+      "edge_eval_submit_reject_reason_distribution": {},
+      "submit_class_distribution": {
+        "normal_competitiveness": 1
+      },
+      "submit_edge_bucket_distribution": {
+        "0p10_0p30": 1
+      },
+      "submit_conviction_bucket_distribution": {
+        "le_0p33": 1
+      },
+      "submit_timing_window_distribution": {
+        "final_window": 1
+      },
+      "submit_multi_oracle_status_distribution": {
+        "confirmed": 1
+      },
+      "submit_normal_taker_side_class_distribution": {
+        "complement_buy": 1
+      },
+      "submit_normal_side_policy_distribution": {
+        "buy_expected_winner_only": 1
+      },
+      "submit_lifecycle_residue_override_edge_bucket_distribution": {},
+      "submit_lifecycle_residue_override_lineage_stage_distribution": {},
+      "submit_lifecycle_residue_override_reason_distribution": {},
+      "decision_to_submit_latency_ms_summary": {
+        "sample_count": 1.0,
+        "median_ms": 4.0,
+        "p90_ms": 4.0,
+        "p95_ms": 4.0,
+        "max_ms": 4.0
+      },
+      "normal_competitiveness_decision_to_submit_latency_ms_summary": {
+        "sample_count": 1.0,
+        "median_ms": 4.0,
+        "p90_ms": 4.0,
+        "p95_ms": 4.0,
+        "max_ms": 4.0
+      },
+      "submit_true_unknown_lineage_stage_distribution": {},
+      "submit_lineage_stage_distribution": {
+        "TAKER_COMMITMENT": 1
+      },
+      "fill_edge_bucket_distribution": {
+        "0p10_0p30": 1
+      },
+      "fill_lineage_stage_distribution": {
+        "TAKER_COMMITMENT": 1
+      },
+      "fill_class_distribution": {
+        "normal_competitiveness": 1
+      },
+      "fill_policy_basis_distribution": {
+        "visible_liquidity_top_of_book": 1
+      },
+      "fill_execution_realism_class_distribution": {
+        "not_modeled": 1
+      },
+      "fill_queue_position_mode_distribution": {
+        "not_applicable": 1
+      },
+      "submit_unknown_lineage_stage_count": 0.0,
+      "fill_without_submit_lineage_stage_count": 0.0,
+      "lag_class_distribution": {
+        "below_window": 1
+      },
+      "aggressiveness_application_counts": {
+        "hard_min_floor_applied": 1,
+        "multi_oracle_confirmation": 1
+      },
+      "decision_predicted_reject_reason_distribution": {},
+      "hard_min_unachievable_count_decision": 0.0,
+      "dynamic_size_capped_by_risk_count_decision": 0.0,
+      "multi_oracle_available_count_decision": 1.0,
+      "multi_oracle_confirmation_count_decision": 1.0,
+      "multi_oracle_boost_eligible_count_decision": 0.0,
+      "multi_oracle_boost_applied_count_decision": 0.0,
+      "normal_taker_same_token_sell_blocked_count_decision": 0.0,
+      "complement_token_mapping_failure_count_decision": 0.0,
+      "lineage_stage_funnel_metrics": {
+        "TAKER_COMMITMENT": {
+          "decision_count": 35.0,
+          "submit_capable_static_count": 1.0,
+          "submit_capable_dynamic_predicted_count": 0.0,
+          "submit_capable_dynamic_predicted_unknown_count": 35.0,
+          "submit_capable_decision_count": 1.0,
+          "blocked_decision_count": 34.0,
+          "actual_submit_count": 1.0,
+          "fill_count": 1.0,
+          "reduction_due_to_dynamic_preview": 0.0,
+          "reduction_due_to_timing_gate": 0.0,
+          "reduction_due_to_cooldown": 0.0,
+          "reduction_due_to_final_risk_reject": 0.0,
+          "risk_reject_after_capable_count": 0.0,
+          "multi_oracle_available_count": 1.0,
+          "multi_oracle_confirmation_count": 1.0,
+          "multi_oracle_boost_eligible_count": 0.0,
+          "multi_oracle_boost_applied_count": 0.0,
+          "submit_capable_static_to_submit_rate": 1.0,
+          "submit_capable_dynamic_to_submit_rate": 0.0,
+          "fill_rate_from_submits": 1.0
+        }
+      },
+      "lineage_stage_reduction_cause_counters": {
+        "TAKER_COMMITMENT": {}
+      },
+      "lineage_stage_reduction_primary_cause_counters": {
+        "TAKER_COMMITMENT": {
+          "reduction_due_to_other_block": 34
+        }
+      },
+      "lineage_stage_reduction_delta_accounting": {
+        "TAKER_COMMITMENT": {
+          "decision_to_submit_delta": 34.0,
+          "primary_reduction_cause_total": 34.0,
+          "primary_reduction_cause_total_matches_delta": true,
+          "primary_reduction_cause_total_delta_difference": 0.0,
+          "primary_reduction_cause_total_exceeds_delta": false,
+          "primary_reduction_cause_overlap_possible": false,
+          "primary_reduction_cause_accounting_note": "primary counters match or undercount net decision-to-submit delta",
+          "primary_reduction_cause_counters": {
+            "reduction_due_to_other_block": 34
+          }
+        }
+      },
+      "lineage_stage_final_risk_reject_reason_distribution": {
+        "TAKER_COMMITMENT": {}
+      },
+      "lineage_stage_hidden_blockage_detector": {
+        "TAKER_COMMITMENT": {
+          "decision_to_dynamic_predicted_delta": 35.0,
+          "dynamic_predicted_to_submit_delta": 0.0,
+          "submit_to_fill_delta": 0.0,
+          "reduction_reason_counters": {}
+        }
+      },
+      "hidden_blockage_detector": {
+        "decision_to_dynamic_predicted_delta": 35.0,
+        "dynamic_predicted_to_submit_delta": 0.0,
+        "submit_to_fill_delta": 0.0,
+        "reduction_reason_counters": {
+          "reduction_due_to_dynamic_preview": 0,
+          "reduction_due_to_timing_gate": 0,
+          "reduction_due_to_cooldown": 0,
+          "reduction_due_to_final_risk_reject": 0
+        }
+      },
+      "lineage_stage_inter_submit_delta_sec": {},
+      "lineage_stage_first_claim_guard": {
+        "lineage_stage_evidence_required_before_aggregate_claim": true,
+        "lineage_stage_reduction_delta_accounting": {
+          "TAKER_COMMITMENT": {
+            "decision_to_submit_delta": 34.0,
+            "primary_reduction_cause_total": 34.0,
+            "primary_reduction_cause_total_matches_delta": true,
+            "primary_reduction_cause_total_delta_difference": 0.0,
+            "primary_reduction_cause_total_exceeds_delta": false,
+            "primary_reduction_cause_overlap_possible": false,
+            "primary_reduction_cause_accounting_note": "primary counters match or undercount net decision-to-submit delta",
+            "primary_reduction_cause_counters": {
+              "reduction_due_to_other_block": 34
+            }
+          }
+        }
+      }
+    },
+    "taker_intent_gate_posture_matrix": {
+      "claim_boundary": "report_only_taker_intent_gate_posture; values are derived from emitted run events and run fingerprints, not from current profile files",
+      "observed_intent_classification": "normal_taker_activity_observed",
+      "profile_distribution": {
+        "paper_universal": 2528
+      },
+      "config_fingerprint_distribution": {
+        "4544b37dd455aef373da2d25652037e942246ccb449e49a1cf092d37d9ba5fa1": 2528
+      },
+      "event_class_distribution": {
+        "normal_competitiveness": 130
+      },
+      "submit_event_distribution": {
+        "normal_competitiveness": 2
+      },
+      "event_type_distribution_by_intent": {
+        "normal_competitiveness": {
+          "edge_evaluation": 92,
+          "fill": 1,
+          "order_submit": 1,
+          "taker_decision": 35,
+          "taker_submit": 1
+        }
+      },
+      "lineage_stage_distribution_by_intent": {
+        "normal_competitiveness": {
+          "TAKER_COMMITMENT": 130
+        }
+      },
+      "timing_window_distribution_by_intent": {
+        "normal_competitiveness": {
+          "final_window": 37
+        }
+      },
+      "required_min_edge_by_intent_lineage_stage": {
+        "normal_competitiveness": {
+          "TAKER_COMMITMENT": {
+            "count": 129.0,
+            "min": 0.18,
+            "p50": 0.18,
+            "max": 0.18,
+            "unique_values": [
+              0.18
+            ]
+          }
+        }
+      },
+      "min_new_exposure_sec_by_intent_lineage_stage": {
+        "normal_competitiveness": {
+          "TAKER_COMMITMENT": {
+            "count": 1.0,
+            "min": 0.0,
+            "p50": 0.0,
+            "max": 0.0,
+            "unique_values": [
+              0.0
+            ]
+          }
+        }
+      },
+      "normal_below_required_min_edge_count": 0.0,
+      "lifecycle_residue_override_below_required_min_edge_count": 0.0,
+      "lifecycle_residue_override_crossed_normal_edge_gate_observed": false,
+      "stage_window_semantic_check_count": 0.0,
+      "latest_stage_window_semantic_check_ts": "",
+      "latest_stage_window_semantics": {}
+    },
+    "taker_config_gate_posture": {
+      "claim_boundary": "report_only_manifest_config_gate_posture; values are copied from the run manifest config snapshot and do not assert optimality or causal provenance",
+      "config_present": true,
+      "run_id": "a9a6a62d-e544-4130-b4fb-002bef86bc2b",
+      "profile_name": "paper_universal",
+      "git_commit": "ef50707ca1df62f4fa8e9f5721d5316fc84132b8",
+      "config_fingerprint_sha256": "4544b37dd455aef373da2d25652037e942246ccb449e49a1cf092d37d9ba5fa1",
+      "config_source_sha256": "b5f4664c1e99de694a13ae9edc69cf18025f98e87797c80b60af36e7073d1fec",
+      "boundary_class": "normal_new_exposure_allowed_inside_taker_final_window",
+      "boundary_alignment": {
+        "held_preexpiry_reduce_only_sec": null,
+        "preexpiry_emergency_taker_window_sec": null,
+        "terminal_unwind_halt_new_risk_sec": null,
+        "min_sec_to_expiry_for_new_exposure": 0.0,
+        "min_sec_to_expiry_for_new_exposure_global": 15.0,
+        "min_sec_to_expiry_for_new_exposure_by_lane": {
+          "maker": 7.0,
+          "taker": 0.0
+        },
+        "min_sec_to_expiry_for_new_exposure_source": "lane_override",
+        "aligned_terminal_boundary": false,
+        "normal_can_open_inside_held_recovery_window": false,
+        "normal_can_open_inside_taker_final_window": true,
+        "normal_taker_final_window_overlap_stages": [
+          "default"
+        ],
+        "max_normal_entry_width_inside_final_window_sec": 7.0
+      },
+      "taker_token_readiness": {
+        "min_samples": 80.0,
+        "min_signal_median_ms": 120.0,
+        "min_signal_hit_rate": 0.6,
+        "max_chainlink_tick_age_sec": 1.5
+      },
+      "latency_verifier": {
+        "enabled": true,
+        "hit_threshold_ms": 120.0,
+        "aggregate_signal_min_samples": 80.0,
+        "aggregate_signal_min_median_ms": 120.0,
+        "aggregate_signal_min_hit_rate": 0.6,
+        "maker_token_readiness_min_samples": 80.0,
+        "maker_token_readiness_min_signal_median_ms": 120.0,
+        "maker_token_readiness_min_signal_hit_rate": 0.6
+      },
+      "normal_taker_entry_gates": {
+        "min_sec_to_expiry_for_new_exposure": 0.0,
+        "min_sec_to_expiry_for_new_exposure_global": 15.0,
+        "min_sec_to_expiry_for_new_exposure_by_lane": {
+          "maker": 7.0,
+          "taker": 0.0
+        },
+        "min_sec_to_expiry_for_new_exposure_source": "lane_override",
+        "default_min_edge": 0.18,
+        "max_orders_per_cycle": 1.0,
+        "per_token_cooldown_sec": 0.25,
+        "hard_min_target_usd": 5.0,
+        "hard_min_enforcement": "skip_if_unachievable",
+        "dynamic_size_enabled": false,
+        "dynamic_size_edge_start_abs": 0.16,
+        "dynamic_size_edge_full_abs": 0.35,
+        "dynamic_size_target_usd_cap": 5.0,
+        "final_window_enabled": true,
+        "final_window_sec": 7.0,
+        "price_aggress_bps_max": 8.0,
+        "multi_oracle_boost_enabled": false,
+        "multi_oracle_boost_window_sec": 7.0,
+        "multi_oracle_edge_threshold_abs": 0.2,
+        "multi_oracle_target_usd_cap": 5.0,
+        "multi_oracle_capital_pct_cap": 0.18
+      },
+      "maker_gate_posture": {
+        "timing_gate_enabled": true,
+        "timing_gate_min_sec_to_expiry": 7.0,
+        "timing_gate_max_sec_to_expiry": 15.0,
+        "one_sided_enabled": true,
+        "one_sided_edge_threshold_abs": 0.15,
+        "maker_competitive_min_notional_usd": 100.0,
+        "maker_competitive_max_shares": 8000.0,
+        "min_expected_fill_prob": 0.045,
+        "max_queue_ahead_size": 300.0
+      },
+      "risk_dynamic_scaling": {
+        "enabled": true,
+        "tod_enabled": true,
+        "tod_start_hour_utc": 2.0,
+        "tod_end_hour_utc": 6.0,
+        "tod_thin_liquidity_mult": 0.9,
+        "edge_start_abs": 0.1,
+        "edge_full_abs": 0.3,
+        "edge_mult_max": 1.15,
+        "unknown_input_policy": "no_aggressive_uplift"
+      },
+      "posture_flags": [
+        "normal_entry_taker_final_window_overlap",
+        "risk_tod_dynamic_scaling_enabled"
+      ]
+    },
+    "taker_opportunity_suppression": {
+      "claim_boundary": "report_only_edge_evaluation_attribution; edge buckets are computed from event edge_abs when present, otherwise abs(fair_probability-market_probability)",
+      "total_taker_edge_eval_count": 92.0,
+      "normal": {
+        "edge_eval_count": 92.0,
+        "taker_enabled_phase_eval_count": 92.0,
+        "taker_enabled_phase_eval_ratio": 1.0,
+        "submit_candidate_count": 1.0,
+        "action_taken_taker_count": 1.0,
+        "submit_candidate_to_action_rate": 1.0,
+        "action_taken_distribution": {
+          "none": 91,
+          "taker": 1
+        },
+        "lifecycle_phase_distribution": {
+          "taker_window": 92
+        },
+        "lineage_stage_distribution": {
+          "TAKER_COMMITMENT": 92
+        },
+        "block_reason_distribution": {
+          "market_probability_missing": 2,
+          "taker_window_already_submitted": 21,
+          "token_readiness_samples_insufficient": 68
+        },
+        "submit_reject_reason_distribution": {},
+        "suppression_class_distribution": {
+          "other": 21,
+          "source_or_quality_gate": 68,
+          "submitted": 1,
+          "truth_missing": 2
+        },
+        "taker_phase_allowed_distribution": {
+          "true": 92
+        },
+        "open_order_cleanup_required_distribution": {
+          "false": 92
+        },
+        "settlement_hold_required_distribution": {
+          "false": 92
+        },
+        "unresolved_lifecycle_obligation_distribution": {
+          "false": 92
+        },
+        "cancel_fail_closed_distribution": {
+          "false": 92
+        },
+        "historical_recovery_authority_lineage_distribution": {
+          "unknown": 92
+        },
+        "historical_emergency_unwind_authority_lineage_distribution": {
+          "unknown": 92
+        },
+        "book_source_distribution": {
+          "official_ws_book": 6,
+          "official_ws_price_change": 86
+        },
+        "latency_signal_degraded_distribution": {
+          "unknown": 92
+        },
+        "edge_bucket_distribution": {
+          "0p10_0p30": 28,
+          "0p30_0p60": 62,
+          "unknown": 2
+        }
+      },
+      "lifecycle_residue": {
+        "edge_eval_count": 0.0,
+        "taker_enabled_phase_eval_count": 0.0,
+        "taker_enabled_phase_eval_ratio": 0.0,
+        "submit_candidate_count": 0.0,
+        "action_taken_taker_count": 0.0,
+        "submit_candidate_to_action_rate": 0.0,
+        "action_taken_distribution": {},
+        "lifecycle_phase_distribution": {},
+        "lineage_stage_distribution": {},
+        "block_reason_distribution": {},
+        "submit_reject_reason_distribution": {},
+        "suppression_class_distribution": {},
+        "taker_phase_allowed_distribution": {},
+        "open_order_cleanup_required_distribution": {},
+        "settlement_hold_required_distribution": {},
+        "unresolved_lifecycle_obligation_distribution": {},
+        "cancel_fail_closed_distribution": {},
+        "historical_recovery_authority_lineage_distribution": {},
+        "historical_emergency_unwind_authority_lineage_distribution": {},
+        "book_source_distribution": {},
+        "latency_signal_degraded_distribution": {},
+        "edge_bucket_distribution": {}
+      }
+    },
+    "taker_doctrine_breaches": {
+      "claim_boundary": "report_only_doctrine_breach_counters; values are derived from emitted taker edge-evaluation and order-submit rows; historical recovery block reasons are preserved as lineage only",
+      "hard_window_submit_violation_count": 0.0,
+      "historical_recovery_handoff_disabled_count": 0.0,
+      "historical_recovery_disabled_in_taker_scope_count": 0.0,
+      "block_reason_distribution": {
+        "market_probability_missing": 2,
+        "taker_window_already_submitted": 21,
+        "token_readiness_samples_insufficient": 68
+      }
+    },
+    "risk_competitiveness": {
+      "decision_count_by_lane": {
+        "taker": 1
+      },
+      "reject_count_by_lane": {},
+      "reject_reason_distribution": {},
+      "scaling_class_distribution": {
+        "conservative": 1
+      },
+      "global_exposure_utilization_sample_count": 1.0,
+      "global_exposure_utilization_ratio_p50": 0.0023693129668005287,
+      "global_exposure_utilization_ratio_p90": 0.0023693129668005287,
+      "global_exposure_utilization_ratio_max": 0.0023693129668005287,
+      "global_exposure_near_cap_count": 0.0,
+      "global_exposure_cap_reject_count": 0.0
+    },
+    "wallet_authority": {
+      "event_counts": {
+        "wallet_approval_check": 1,
+        "wallet_authorization": 1,
+        "wallet_guardian_drawdown_guard": 616,
+        "wallet_health_gate": 1,
+        "wallet_local_tx_lifecycle_state": 6,
+        "wallet_nonce_state": 6,
+        "wallet_open_order_state": 6,
+        "wallet_position_settled": 1,
+        "wallet_reconcile_result": 6,
+        "wallet_reservation_cleanup": 1,
+        "wallet_reservation_created": 1,
+        "wallet_reservation_released": 1,
+        "wallet_reservation_settled": 1,
+        "wallet_state_refresh": 6
+      },
+      "latest_contract": {
+        "gas_balance": 10.0,
+        "gas_reserve_min": 0.1,
+        "gas_ok": true,
+        "gas_target_ok": true,
+        "gas_reserve_policy": {
+          "raw_balance_pol": 10.0,
+          "raw_fail_floor_pol": 0.1,
+          "raw_target_pol": 0.2,
+          "usd_balance_estimate": null,
+          "usd_fail_floor": 0.0,
+          "usd_target": 0.0,
+          "price_hint_usd": 0.0,
+          "price_hint_available": false,
+          "usd_policy_enabled": false,
+          "raw_fail_floor_ok": true,
+          "raw_target_ok": true,
+          "usd_fail_floor_ok": null,
+          "usd_target_ok": null,
+          "conservative_fail_floor_ok": true,
+          "conservative_target_ok": true,
+          "detail": "gas_reserve_policy_ok"
+        },
+        "gas_balance_usd_estimate": null,
+        "stable_balance_total": 3995.0,
+        "protected_reserve": 0.0,
+        "open_reserved": 0.0,
+        "deployable_capital": 3995.0,
+        "approval_ok": true,
+        "approval_target_identity_verified": false,
+        "approval_spender_targets_matched": [],
+        "approval_spender_targets_required": [],
+        "nonce_ok": true,
+        "reconcile_ok": true,
+        "wallet_health_ok": true,
+        "wallet_health_reasons": [],
+        "authority_status_class": "authoritative",
+        "order_capable_live": false,
+        "order_submit_eligible": true,
+        "startup_authority_ready": true,
+        "authoritative_refresh_completed": true,
+        "pending_wallet_tx_ok": true,
+        "pending_wallet_tx_detail": "paper_pending_wallet_tx_not_modeled",
+        "canonical_live_nonce_available": false,
+        "canonical_live_pending_wallet_tx_available": false,
+        "canonical_live_nonce_source": "paper_wallet_truth",
+        "canonical_live_nonce_detail": "",
+        "canonical_live_pending_wallet_tx_source": "paper_wallet_truth",
+        "canonical_live_pending_wallet_tx_detail": "paper_pending_wallet_tx_not_modeled",
+        "web3_provider_health": {},
+        "web3_provider_trustworthy": true,
+        "live_truth_gap_reasons": [],
+        "reconcile_scope": "integrity_tripwire",
+        "reservation_mismatch_candidate": false,
+        "reservation_mismatch_delta_usdc": 0.0,
+        "reservation_mismatch_detail": "exposed_locked_usdc=0.000000000:canonical_locked_usdc=0.000000000:delta=0.000000000:tolerance=0.000001000"
+      },
+      "latest_contract_ts_utc": "2026-05-26T06:54:09.200Z",
+      "wallet_contract_surface_source": "status_wallet_contract",
+      "legacy_fallback_used": false,
+      "authoritative_wallet_contract_present": false,
+      "authority_status_class": "authoritative",
+      "order_capable_live": false,
+      "order_submit_eligible": true,
+      "canonical_live_nonce_available": false,
+      "canonical_live_pending_wallet_tx_available": false,
+      "live_truth_gap_reasons": [],
+      "reservation_mismatch_candidate": false,
+      "reservation_mismatch_delta_usdc": 0.0,
+      "reservation_mismatch_detail": "exposed_locked_usdc=0.000000000:canonical_locked_usdc=0.000000000:delta=0.000000000:tolerance=0.000001000",
+      "bootstrap_non_authoritative": false
+    },
+    "valuation_truth": {
+      "status_rows": 21.0,
+      "valuation_degraded_rows": 0.0,
+      "valuation_degraded_event_rows": 0.0,
+      "valuation_hard_degraded_rows": 0.0,
+      "valuation_hard_degraded_event_rows": 0.0,
+      "pnl_degraded_rows": 0.0,
+      "loss_guard_degraded_rows": 0.0,
+      "held_unpriceable_escalation_rows": 0.0,
+      "held_unpriceable_defect_candidate_rows": 0.0,
+      "held_ws_missing_or_unusable_rows": 0.0,
+      "preexpiry_ws_missing_or_unusable_anomaly_rows": 0.0,
+      "valuation_hard_degraded_enter_count": 0.0,
+      "valuation_hard_degraded_clear_count": 0.0,
+      "held_unpriceable_started_count": 0.0,
+      "held_unpriceable_recovered_count": 0.0,
+      "held_unpriceable_unrecovered_raw_count": 0.0,
+      "held_unpriceable_unrecovered_non_defect_count": 0.0,
+      "held_unpriceable_unrecovered_meaningful_count": 0.0,
+      "preexpiry_ws_missing_or_unusable_anomaly_count": 0.0,
+      "lifecycle_context_mismatch_count": 0.0,
+      "lifecycle_context_missing_sec_to_expiry_count": 0.0,
+      "settlement_hold_required_count": 0.0,
+      "open_order_cleanup_required_count": 0.0,
+      "unresolved_lifecycle_obligation_count": 0.0,
+      "cancel_fail_closed_count": 0.0,
+      "held_dust_count_max": 0.0,
+      "held_dust_quarantined_count_max": 0.0,
+      "held_dust_total_notional_upper_bound_usd_max": 0.0,
+      "valuation_degraded_ratio": 0.0,
+      "valuation_hard_degraded_ratio": 0.0,
+      "held_unpriceable_escalation_ratio": 0.0,
+      "held_unpriceable_defect_candidate_ratio": 0.0,
+      "held_ws_missing_or_unusable_ratio": 0.0,
+      "preexpiry_ws_missing_or_unusable_anomaly_ratio": 0.0,
+      "valuation_truth_sampling_gap_detected": false,
+      "latest_valuation_truth_source_class": "status_row",
+      "latest_valuation_degraded": false,
+      "latest_valuation_hard_degraded": false,
+      "latest_valuation_raw_degraded": false,
+      "latest_valuation_raw_hard_degraded": false,
+      "latest_pnl_degraded": false,
+      "latest_loss_guard_degraded": false,
+      "latest_valuation_degraded_reasons": [],
+      "latest_valuation_mid_source_counts": {
+        "live_mid": 0,
+        "live_side_conservative_quote": 0,
+        "last_known_mid": 0,
+        "conservative_bound_hard_degraded": 0,
+        "hard_degraded": 0
+      },
+      "latest_valuation_degraded_reason_family_counts": {},
+      "latest_held_unpriceable_escalation_active": false,
+      "latest_held_unpriceable_token_count": 0.0,
+      "latest_held_unpriceable_token_ids": [],
+      "latest_held_unpriceable_defect_candidate": false,
+      "latest_held_unpriceable_escalation_token_ids": [],
+      "latest_held_unpriceable_meaningful_escalation_token_ids": [],
+      "latest_held_unpriceable_non_defect_token_ids": [],
+      "latest_held_unpriceable_escalation_reasons": [],
+      "latest_held_unpriceable_operator_action": "none",
+      "latest_held_unpriceable_escalation_threshold_sec": 120.0,
+      "latest_held_unpriceable_escalation_max_age_sec": 0.0,
+      "latest_valuation_hard_degraded_enter_count": 0.0,
+      "latest_valuation_hard_degraded_clear_count": 0.0,
+      "latest_held_unpriceable_started_count": 0.0,
+      "latest_held_unpriceable_recovered_count": 0.0,
+      "latest_preexpiry_ws_missing_or_unusable_anomaly_active": false,
+      "latest_preexpiry_ws_missing_or_unusable_anomaly_count": 0.0,
+      "latest_lifecycle_context_mismatch_count": 0.0,
+      "latest_lifecycle_context_missing_sec_to_expiry_count": 0.0,
+      "latest_settlement_hold_required_count": 0.0,
+      "latest_open_order_cleanup_required_count": 0.0,
+      "latest_unresolved_lifecycle_obligation_count": 0.0,
+      "latest_cancel_fail_closed_count": 0.0,
+      "latest_held_dust_count": 0.0,
+      "latest_held_dust_quarantined_count": 0.0,
+      "latest_held_dust_total_notional_upper_bound_usd": 0.0,
+      "latest_runtime_expiry_boundary_epsilon_sec": 1.0,
+      "valuation_bruise_state": "none",
+      "valuation_dominant_reason_family_run": "none",
+      "valuation_dominant_held_unpriceable_cause_run": "none",
+      "valuation_dominant_source_degraded_rows": "none",
+      "valuation_degraded_reason_family_counts_run": {},
+      "valuation_source_counts_run": {
+        "live_mid": 0.0,
+        "live_side_conservative_quote": 0.0,
+        "last_known_mid": 0.0,
+        "conservative_bound_hard_degraded": 0.0,
+        "hard_degraded": 0.0
+      },
+      "valuation_source_counts_degraded_rows": {
+        "live_mid": 0.0,
+        "live_side_conservative_quote": 0.0,
+        "last_known_mid": 0.0,
+        "conservative_bound_hard_degraded": 0.0,
+        "hard_degraded": 0.0
+      },
+      "held_unpriceable_cause_counts_run": {
+        "postexpiry_market_retired": 0.0,
+        "preexpiry_ws_missing_or_unusable": 0.0,
+        "unknown_data_gap": 0.0
+      },
+      "held_unpriceable_cause_counts_latest": {
+        "preexpiry_ws_missing_or_unusable": 0,
+        "postexpiry_market_retired": 0,
+        "unknown_data_gap": 0
+      },
+      "valuation_source_counts_latest": {
+        "live_mid": 0.0,
+        "live_side_conservative_quote": 0.0,
+        "last_known_mid": 0.0,
+        "conservative_bound_hard_degraded": 0.0,
+        "hard_degraded": 0.0
+      }
+    },
+    "secondary_oracle_pyth": {
+      "sample_count": 21.0,
+      "enabled_sample_count": 21.0,
+      "connected_sample_count": 21.0,
+      "unavailable_sample_count": 0.0,
+      "connected_ratio_when_enabled": 1.0,
+      "operational_state_distribution": {
+        "connected": 21
+      },
+      "latest": {
+        "enabled": true,
+        "connected": true,
+        "requests": 548,
+        "errors": 0,
+        "last_error": "",
+        "last_http_status": 200,
+        "operational_state": "connected",
+        "feed_id": "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        "symbol": "BTC/USD",
+        "last_tick_age_sec": 3.083096817135811e-05
+      }
+    },
+    "maker_sizing_competitiveness": {
+      "maker_submit_rows": 0.0,
+      "maker_size_resolution_rows": 0.0,
+      "maker_sizing_reject_rows": 0.0,
+      "maker_min_notional_max_shares_conflict_rows": 0.0,
+      "maker_sizing_reject_reason_distribution": {},
+      "maker_sizing_reject_lineage_stage_distribution": {},
+      "maker_sizing_reject_financial_posture_distribution": {},
+      "maker_sizing_reject_price_min": 0.0,
+      "maker_sizing_reject_price_p50": 0.0,
+      "maker_sizing_reject_price_max": 0.0,
+      "maker_sizing_reject_max_shares_notional_p50": 0.0,
+      "maker_sizing_reject_max_shares_notional_max": 0.0,
+      "hard_min_notional_floor_applied_count": 0.0,
+      "hard_min_share_floor_applied_count": 0.0,
+      "depth_target_notional_floor_applied_count": 0.0,
+      "hard_max_notional_cap_applied_count": 0.0,
+      "hard_max_share_cap_applied_count": 0.0,
+      "hard_floor_active_rows": 0.0,
+      "depth_scaling_active_rows": 0.0,
+      "resolved_notional_usd_p50": 0.0,
+      "resolved_notional_usd_p90": 0.0,
+      "resolved_notional_usd_max": 0.0,
+      "visible_depth_shares_p50": 0.0,
+      "effective_depth_shares_p50": 0.0,
+      "depth_target_ratio_applied_p50": 0.0
+    },
+    "lifecycle_residue": {
+      "classification": "none",
+      "settlement_hold_required_count": 0.0,
+      "open_order_cleanup_required_count": 0.0,
+      "unresolved_lifecycle_obligation_count": 0.0,
+      "cancel_fail_closed_count": 0.0,
+      "latest_settlement_hold_required_count": 0.0,
+      "latest_open_order_cleanup_required_count": 0.0,
+      "latest_unresolved_lifecycle_obligation_count": 0.0,
+      "latest_cancel_fail_closed_count": 0.0,
+      "report_semantics": "report_only_lifecycle_residue; accepted exposure rides to settlement and open unfilled orders use cancel-only fail-close"
+    },
+    "exercised_harness_realism": {
+      "grade": 60,
+      "breakdown": {
+        "tod_liquidity_scaling": 0,
+        "maker_queue_proxy_depth_model": 0,
+        "taker_depth_slippage_model": 20,
+        "taker_lag_emulation_with_unknown_guard": 20,
+        "truth_surface_completeness": 20
+      },
+      "semantics": "descriptive_non_gating",
+      "authority": "non_authoritative"
+    },
+    "maker_market_reference_missing_count": 1.0,
+    "maker_market_reference_one_sided_context_count": 1.0,
+    "maker_reference_direct_midpoint_activity": 162.0,
+    "maker_reference_missing_activity": 1.0,
+    "maker_reference_direct_midpoint_action_activity": 0.0,
+    "maker_reference_missing_action_activity": 0.0,
+    "mode_transitions": [],
+    "kill_switch_events": 0.0,
+    "safe_stop_transitions": 0.0,
+    "maker_only_transitions": 0.0,
+    "primary_suppression_cause": "none",
+    "contributing_suppression_causes": [],
+    "ambiguous_suppression_cause": false,
+    "suppression_dominated_run": false,
+    "execution_starvation_mode": "none",
+    "protected_no_trade_explanation": "execution_not_suppression_dominated",
+    "inferred_suppression_reason": "",
+    "inferred_suppression_reason_count": 0.0,
+    "control_authority_clarity": {
+      "alert_transport_enabled": false,
+      "auto_stop_control_authority_enabled": true,
+      "transport_disable_control_authority_unchanged": true,
+      "transport_layer_class": "notification_transport",
+      "control_authority_class": "risk_control_authority",
+      "transport_disable_semantics": "transport_disabled_control_authority_unchanged",
+      "control_authority_observation_status": "explicit"
+    },
+    "protection_path_trigger_chain": {
+      "trigger_chain_interpretation": "observational_timeline_only",
+      "suppression_dominated_run": false,
+      "first_blocked_edge_signal": {
+        "event_type": "edge_evaluation",
+        "ts_utc": "2026-05-26T06:44:40.720Z",
+        "block_reason": "phase_disallow_maker"
+      },
+      "first_latency_signal_posture": {
+        "event_type": "latency_signal_posture",
+        "ts_utc": "2026-05-26T06:44:05.668Z",
+        "reason": "aggregate_signal_samples_collecting",
+        "reasons": [],
+        "state": "",
+        "previous_state": ""
+      },
+      "first_operating_mode_transition": {},
+      "first_alert_policy_auto_stop": {},
+      "first_kill_switch_cancel_all": {},
+      "runtime_primary_suppression_cause": "none",
+      "runtime_contributing_suppression_causes": [],
+      "runtime_ambiguous_suppression_cause": false,
+      "final_execution_starvation_mode": "none",
+      "final_protected_no_trade_explanation": "execution_not_suppression_dominated",
+      "inferred_suppression_reason": "",
+      "inferred_suppression_reason_count": 0.0
+    },
+    "latest_operating_mode_state": 0.0,
+    "pickoff_indicator": {
+      "fills_scored": 1.0,
+      "horizon_outcome_horizon_sec": 3.0,
+      "horizon_outcome_adverse_after_fill_count": 0.0,
+      "horizon_outcome_adverse_after_fill_ratio": 0.0,
+      "horizon_outcome_adverse_threshold": 0.003,
+      "adverse_after_fill_count": 0.0,
+      "adverse_after_fill_ratio": 0.0,
+      "horizon_sec": 3.0,
+      "adverse_threshold": 0.003
+    },
+    "execution_quality_immediate_midpoint": {
+      "fills_scored": 1.0,
+      "immediate_horizon_sec": 0.0,
+      "immediate_capture": 0.0,
+      "immediate_adverse_selection": 2.5,
+      "immediate_capture_minus_adverse": -2.5,
+      "realized_capture": 0.0,
+      "adverse_selection": 2.5,
+      "capture_minus_adverse": -2.5
+    },
+    "execution_quality_horizon_outcome": {
+      "fills_scored": 1.0,
+      "horizon_outcome_horizon_sec": 3.0,
+      "horizon_outcome_adverse_after_fill_count": 0.0,
+      "horizon_outcome_adverse_after_fill_ratio": 0.0,
+      "horizon_outcome_adverse_threshold": 0.003,
+      "adverse_after_fill_count": 0.0,
+      "adverse_after_fill_ratio": 0.0,
+      "horizon_sec": 3.0,
+      "adverse_threshold": 0.003
+    },
+    "execution_quality_lane_attribution": {
+      "classification_policy": "order_submit reason classified by canonical taker identity helper is taker; reduce_only/preexpiry recovery flags classify recovery; normal TakerCompetitivenessEngine payload classifies normal; remaining order_submit rows are maker to match execution_paths.",
+      "horizon_sec": 3.0,
+      "horizon_adverse_threshold": 0.003,
+      "by_lane": {
+        "normal_taker": {
+          "submit_count": 1.0,
+          "fill_event_count": 1.0,
+          "filled_order_count": 1.0,
+          "notional": 5.0,
+          "immediate_fills_scored": 1.0,
+          "immediate_capture_fill_count": 0.0,
+          "immediate_adverse_fill_count": 1.0,
+          "immediate_unscored_fill_count": 0.0,
+          "immediate_capture": 0.0,
+          "immediate_adverse_selection": 2.5,
+          "immediate_capture_minus_adverse": -2.5,
+          "horizon_fills_scored": 1.0,
+          "horizon_adverse_after_fill_count": 0.0,
+          "horizon_adverse_after_fill_ratio": 0.0,
+          "submit_lineage_stage_distribution": {
+            "TAKER_COMMITMENT": 1
+          },
+          "submit_edge_bucket_distribution": {
+            "0p10_0p30": 1
+          },
+          "fill_lineage_stage_distribution": {
+            "TAKER_COMMITMENT": 1
+          },
+          "fill_edge_bucket_distribution": {
+            "0p10_0p30": 1
+          }
+        }
+      },
+      "total": {
+        "submit_count": 1.0,
+        "fill_event_count": 1.0,
+        "filled_order_count": 1.0,
+        "notional": 5.0,
+        "immediate_fills_scored": 1.0,
+        "immediate_capture": 0.0,
+        "immediate_adverse_selection": 2.5,
+        "immediate_capture_minus_adverse": -2.5,
+        "horizon_fills_scored": 1.0,
+        "horizon_adverse_after_fill_count": 0.0,
+        "horizon_adverse_after_fill_ratio": 0.0
+      },
+      "reconciliation": {
+        "immediate_expected_capture_minus_adverse": -2.5,
+        "immediate_lane_capture_minus_adverse": -2.5,
+        "immediate_capture_minus_adverse_delta": 0.0,
+        "immediate_capture_minus_adverse_reconciles": true,
+        "horizon_expected_fills_scored": 1.0,
+        "horizon_lane_fills_scored": 1.0,
+        "horizon_fills_scored_delta": 0.0,
+        "horizon_fills_scored_reconciles": true,
+        "horizon_expected_adverse_after_fill_count": 0.0,
+        "horizon_lane_adverse_after_fill_count": 0.0,
+        "horizon_adverse_after_fill_count_delta": 0.0,
+        "horizon_adverse_after_fill_count_reconciles": true
+      }
+    },
+    "execution_quality_decision_reference_lane_attribution": {
+      "claim_boundary": "report_only_decision_reference_lane_attribution; fill economics are scored against order_submit decision_reference_midpoint/midpoint, not token_id book joins",
+      "by_lane": {
+        "normal_taker": {
+          "submit_count": 1.0,
+          "fill_event_count": 1.0,
+          "filled_order_count": 1.0,
+          "notional": 5.0,
+          "immediate_fills_scored": 1.0,
+          "immediate_unscored_fill_count": 0.0,
+          "immediate_capture": 0.0,
+          "immediate_adverse_selection": 2.5,
+          "immediate_capture_minus_adverse": -2.5,
+          "immediate_adverse_to_notional_ratio": 0.5,
+          "immediate_net_to_notional_ratio": -0.5,
+          "submit_lineage_stage_distribution": {
+            "TAKER_COMMITMENT": 1
+          },
+          "fill_lineage_stage_distribution": {
+            "TAKER_COMMITMENT": 1
+          }
+        }
+      },
+      "total": {
+        "submit_count": 1.0,
+        "fill_event_count": 1.0,
+        "filled_order_count": 1.0,
+        "notional": 5.0,
+        "immediate_fills_scored": 1.0,
+        "immediate_unscored_fill_count": 0.0,
+        "immediate_capture": 0.0,
+        "immediate_adverse_selection": 2.5,
+        "immediate_capture_minus_adverse": -2.5,
+        "immediate_adverse_to_notional_ratio": 0.5,
+        "immediate_net_to_notional_ratio": -0.5
+      }
+    },
+    "market_data_source": {
+      "book_updates_ws_delta": 364.0,
+      "book_updates_total_delta": 364.0,
+      "status_rows_with_ws_updates": 7.0,
+      "pair_truth_pair_count_max": 1.0,
+      "pair_truth_missing_pair_count_max": 1.0,
+      "pair_truth_one_sided_pair_count_max": 0.0,
+      "pair_truth_authoritative_pair_count_max": 1.0,
+      "status_rows_with_pair_truth_missing": 1.0,
+      "status_rows_with_pair_truth_one_sided": 0.0,
+      "pair_truth_missing_pair_row_ratio": 0.047619047619047616,
+      "pair_truth_one_sided_row_ratio": 0.0,
+      "pair_truth_one_sided_base_keys_seen": []
+    },
+    "execution_quality": {
+      "fills_scored": 1.0,
+      "immediate_horizon_sec": 0.0,
+      "immediate_capture": 0.0,
+      "immediate_adverse_selection": 2.5,
+      "immediate_capture_minus_adverse": -2.5,
+      "realized_capture": 0.0,
+      "adverse_selection": 2.5,
+      "capture_minus_adverse": -2.5
+    },
+    "taker_lineage_stage_net_breakout": {
+      "TAKER_COMMITMENT": {
+        "fills_scored": 1.0,
+        "capture": 0.0,
+        "adverse_selection": 2.5,
+        "net": -2.5
+      }
+    },
+    "edge_activation_quality_by_signal_posture": {
+      "aggregate_signal_healthy": {
+        "taker_submits": 1.0,
+        "taker_fills": 1.0,
+        "taker_fill_rate": 1.0
+      }
+    },
+    "runtime_classification": {
+      "classification": "VALID_ACTIVE",
+      "promotion_eligible": true,
+      "reasons": [
+        "active_targets_with_participation"
+      ],
+      "primary_suppression_cause": "none",
+      "contributing_suppression_causes": [],
+      "ambiguous_suppression_cause": false,
+      "suppression_cause_candidates": [],
+      "suppression_cause_precedence": [],
+      "metrics": {
+        "status_rows": 21.0,
+        "active_target_rows": 7.0,
+        "scan_rows": 14.0,
+        "deadlock_rows": 0.0,
+        "safety_rows": 0.0,
+        "required_market_truth_rows": 7.0,
+        "required_market_truth_disconnected_rows": 1.0,
+        "required_market_truth_disconnected_active_target_rows": 1.0,
+        "required_market_truth_disconnected_unknown_age_rows": 1.0,
+        "required_market_truth_disconnected_unknown_age_max_streak": 1.0,
+        "active_target_guard_or_kill_rows": 0.0,
+        "active_target_required_feed_disconnected_rows": 0.0,
+        "scan_order_submission_violation_rows": 0.0,
+        "scan_market_truth_required_violation_rows": 0.0,
+        "duration_minutes": 10.058766666666665,
+        "decision_events": 3.0,
+        "max_cycles_counter": 209.0,
+        "order_submission_attempt_rows": 1.0,
+        "participation_rows": 1.0,
+        "active_targets_seen": 1.0,
+        "meaningful_participation": 1.0
+      }
+    },
+    "runtime_resource": {
+      "resource_status_rows": 21.0,
+      "process_cpu_percent_p95": 59.74162109907502,
+      "process_cpu_percent_max": 73.2104901084401,
+      "process_cpu_percent_normalized_p95": 29.87081054953751,
+      "process_cpu_percent_normalized_max": 36.60524505422005,
+      "process_rss_mb_p95": 65.55859375,
+      "process_rss_mb_max": 65.55859375,
+      "system_load1_p95": 0.88916015625,
+      "system_load1_max": 0.9150390625,
+      "system_load5_p95": 0.40234375,
+      "system_load15_p95": 0.20849609375,
+      "system_mem_available_mb_min": 2517.54296875,
+      "system_mem_available_mb_p50": 2567.984375,
+      "system_mem_available_ratio_min": 0.6438600171831605,
+      "system_swap_used_mb_max": 323.375,
+      "system_swap_used_ratio_max": 0.03947450612759883
+    }
+  }
+}

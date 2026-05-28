@@ -1,0 +1,197 @@
+{
+  "checked_event_rows": 2483,
+  "checked_status_rows": 21,
+  "config_path": "/home/odah/bro/base/configs/profiles/paper_universal.yaml",
+  "configured_log_dir": "/logs/paper_universal",
+  "configured_max_clock_skew_sec": 0.25,
+  "configured_time_policy_skew_tolerance_ms": 120.0,
+  "contract_authority_level": "authoritative",
+  "critical_timing_evidence": {
+    "accepted_submit_missing_decision_anchor_rows": 0,
+    "accepted_submit_missing_submit_latency_rows": 0,
+    "accepted_submit_rows": 3,
+    "accepted_taker_submit_missing_context_rows": 0,
+    "accepted_taker_submit_rows": 0,
+    "maker_timing_missing_context_rows": 0,
+    "maker_timing_rows_observed": 21,
+    "taker_decision_missing_decision_ts_rows": 0,
+    "taker_decision_missing_sec_to_expiry_rows": 0,
+    "taker_decision_missing_timing_window_rows": 0,
+    "taker_decision_rows": 0
+  },
+  "error_codes": [
+    "BRO-0000"
+  ],
+  "event_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/slices/events_slice.jsonl"
+  ],
+  "event_timestamp_domain_audit": {
+    "cross_domain_skew_checked_rows": 0,
+    "cross_domain_skew_exceeded_rows": 0,
+    "cross_domain_skew_exempt_rows": 624,
+    "cross_domain_skew_exemption_policy": "chainlink_tick[source_ts_is_oracle_publication_time]",
+    "cross_domain_skew_tolerance_ms": 120.0,
+    "decision_after_event_rows": 0,
+    "event_rows_considered": 2483,
+    "invalid_decision_ts_rows": 0,
+    "invalid_event_ts_rows": 0,
+    "invalid_receive_ts_rows": 0,
+    "invalid_source_ts_rows": 0,
+    "required_domain_fields": [
+      "ts_event_utc",
+      "ts_receive_utc",
+      "ts_source_utc",
+      "ts_decision_utc"
+    ],
+    "required_presence_missing_rows": 0,
+    "timing_capable_cross_domain_rows": 0,
+    "ts_event_mismatch_rows": 0
+  },
+  "finding_count": 13,
+  "findings": [
+    "host_time_sync_active_start_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_stop_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_0_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_1_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_2_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_3_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_4_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_5_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_6_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_7_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_8_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_9_jitter_ms_exceeded:13.505>max:10.000",
+    "host_time_sync_active_sample_10_jitter_ms_exceeded:13.505>max:10.000"
+  ],
+  "host_time_sync": {
+    "active_start": {
+      "clock_state": "synced",
+      "jitter_ms": 13.505,
+      "offset_ms": 0.633,
+      "root_distance_ms": 20.156,
+      "stratum": 2
+    },
+    "active_stop": {
+      "clock_state": "synced",
+      "jitter_ms": 13.505,
+      "offset_ms": 0.633,
+      "root_distance_ms": 20.156,
+      "stratum": 2
+    },
+    "max_abs_offset_ms": 0.633,
+    "max_jitter_ms": 13.505,
+    "max_root_distance_ms": 20.156,
+    "max_stratum": 2,
+    "report_root": "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/reports",
+    "sample_count": 11,
+    "sample_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/reports/host_time_sync_active_samples.jsonl",
+    "start_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/reports/host_time_sync_active_start.json",
+    "stop_path": "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/reports/host_time_sync_active_stop.json",
+    "thresholds": {
+      "max_clock_jitter_ms": 10.0,
+      "max_clock_offset_ms": 10.0,
+      "max_clock_root_distance_ms": 100.0,
+      "max_clock_stratum": 3.0
+    }
+  },
+  "log_dir": "/home/odah/bro/base/logs_exec/paper_universal",
+  "non_monotonic_rows": 0,
+  "ok": false,
+  "run_contract_path": "/home/odah/bro/base/logs_exec/paper_universal/run_contract_ef021ded-99b3-4b56-ac55-7f12592a67e0.json",
+  "run_id_filter": "ef021ded-99b3-4b56-ac55-7f12592a67e0",
+  "run_id_resolution": "explicit",
+  "session_phase": "validate_postrun",
+  "status_age_sec": 29.434761,
+  "status_source_paths": [
+    "/home/odah/bro/base/logs_exec/paper_universal/sessions/74136848-a941-4072-bd9b-d5d7dbb06b99/slices/status_slice.jsonl"
+  ],
+  "time_policy": {
+    "invalid_rows": 0,
+    "missing_rows": 0,
+    "observed_specs": [
+      {
+        "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
+        "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
+        "skew_tolerance_ms": 120.0,
+        "source_of_truth": "utc_wall_clock"
+      }
+    ],
+    "required_keys": [
+      "source_of_truth",
+      "fallback_logic",
+      "skew_tolerance_ms",
+      "monotonicity_rule"
+    ],
+    "selected_policy": {
+      "fallback_logic": "source_ts_utc_then_ts_receive_utc_then_ts_event_utc",
+      "monotonicity_rule": "status_ts_utc_non_decreasing_per_run",
+      "skew_tolerance_ms": 120.0,
+      "source_of_truth": "utc_wall_clock"
+    }
+  },
+  "timing_watchboard": {
+    "freshness": {
+      "book_last_msg_age_summary_sec": {
+        "max_sec": 4.195561702363193e-05,
+        "median_sec": 1.888745930045843e-06,
+        "p90_sec": 2.7953014010563493e-05,
+        "p95_sec": 4.195561702363193e-05,
+        "sample_count": 6.0
+      },
+      "chainlink_last_tick_age_summary_sec": {
+        "max_sec": 0.0015856388290412724,
+        "median_sec": 0.0004523443579673767,
+        "p90_sec": 0.0009662458570674062,
+        "p95_sec": 0.001528547602938488,
+        "sample_count": 20.0
+      },
+      "status_row_count": 21,
+      "thresholds_sec": {
+        "book_last_msg_age_sec": 12.0,
+        "chainlink_last_tick_age_sec": 30.0
+      }
+    },
+    "host_sync": {
+      "max_abs_offset_ms": 0.633,
+      "max_jitter_ms": 13.505,
+      "max_root_distance_ms": 20.156,
+      "max_stratum": 2,
+      "thresholds": {
+        "max_clock_jitter_ms": 10.0,
+        "max_clock_offset_ms": 10.0,
+        "max_clock_root_distance_ms": 100.0,
+        "max_clock_stratum": 3.0
+      }
+    },
+    "maker_timing_authority": {
+      "layered_left_edge_split_active": false,
+      "risk_min_sec_to_expiry_for_new_exposure_global": 15.0,
+      "risk_min_sec_to_expiry_for_new_exposure_maker_effective": 7.0,
+      "selection_gate_timing_duplicate_owner_active": false,
+      "selection_gate_timing_max_sec_to_expiry": 15.0,
+      "selection_gate_timing_min_sec_to_expiry": 7.0,
+      "timing_gate_enabled": true,
+      "timing_gate_max_sec_to_expiry": 15.0,
+      "timing_gate_min_sec_to_expiry": 7.0
+    },
+    "ownership_entry_authority": {
+      "enabled": true,
+      "max_sec_to_expiry": 90.0,
+      "min_market_age_sec": 60.0
+    },
+    "submit_latency": {
+      "accepted_submit_latency_ms_summary": {
+        "max_ms": 5.0,
+        "median_ms": 5.0,
+        "p90_ms": 5.0,
+        "p95_ms": 5.0,
+        "sample_count": 3.0
+      }
+    },
+    "warning_band_ratio": 0.75
+  },
+  "warning_count": 1,
+  "warnings": [
+    "timing_watch_host_jitter_warn_band:13.505>warn:7.500:limit:10.000"
+  ]
+}
