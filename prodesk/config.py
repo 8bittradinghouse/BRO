@@ -185,7 +185,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "max_sec_to_expiry": 90.0,
             "min_market_age_sec": 60.0,
             "maker_min_depth_multiple": 1.5,
-            "taker_min_fill_ratio": 0.5,
+            "taker_min_fill_ratio": 1.5,
             "require_secondary_oracle_confirmation": True,
             "cannon_target_notional_usd": 350.0,
             "max_same_target_submit_count_prior": 0,
@@ -195,10 +195,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "ownership_fail_dwell_sec": 0.0,
         },
         "phase": {
-            "maker_window_open_sec": 15.0,
-            "maker_window_close_sec": 7.0,
-            "taker_window_open_sec": 7.0,
-            "taker_window_close_sec": 0.0,
+            "maker_window_open_sec": 9.0,
+            "maker_window_close_sec": 6.0,
+            "taker_window_open_sec": 6.0,
+            "taker_window_close_sec": 4.0,
         },
         "lane_gates": {
             "maker": {
@@ -210,16 +210,16 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "spread_mult_min": 0.75,
                 "requote_delta_mult_min": 0.50,
                 "one_sided_enabled": False,
-                "one_sided_edge_threshold_abs": 0.18,
+                "one_sided_edge_threshold_abs": 0.35,
                 "regime_filter_enabled": False,
                 "allowed_session_regime_classes": [],
             },
             "taker": {
                 "final_window_enabled": True,
                 "aggressive_window_enabled": False,
-                "aggressive_window_sec": 7.0,
+                "aggressive_window_sec": 6.0,
                 "multi_oracle_boost_enabled": False,
-                "multi_oracle_boost_window_sec": 7.0,
+                "multi_oracle_boost_window_sec": 6.0,
                 "regime_filter_enabled": False,
                 "allowed_session_regime_classes": [],
             },
@@ -244,7 +244,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "cancel_rate_soft_limit_pct": 1.0,
         "max_chainlink_tick_age_sec": 1.5,
         "fair_vol_scale": 1.0,
-        "min_edge": 0.015,
+        "min_edge": 0.40,
         "extreme_edge_mult": 2.0,
         "order_size": 20.0,
         "target_usd": 5.0,
@@ -262,18 +262,19 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "edge_weight": 0.65,
             "latency_score_weight": 0.35,
             "final_window_enabled": True,
-            "final_window_sec": 7.0,
+            "final_window_sec": 6.0,
             "aggressive_window_enabled": False,
-            "aggressive_window_sec": 7.0,
+            "aggressive_window_sec": 6.0,
             "price_aggress_bps_max": 8.0,
             "dynamic_preview_enabled": False,
             "multi_oracle_boost_enabled": False,
-            "multi_oracle_boost_window_sec": 7.0,
-            "multi_oracle_edge_threshold_abs": 0.20,
+            "multi_oracle_boost_window_sec": 6.0,
+            "multi_oracle_edge_threshold_abs": 0.40,
             "multi_oracle_target_usd_cap": 350.0,
             "multi_oracle_capital_pct_cap": 0.18,
             "normal_side_policy": "buy_expected_winner_only",
-            "min_visible_fill_ratio": 0.5,
+            "min_visible_fill_ratio": 1.5,
+            "min_submit_price": 0.05,
         },
     },
     "strategy": {
@@ -688,7 +689,7 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
         )
     selection["taker_min_fill_ratio"] = max(
         0.0,
-        float(selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))),
+        float(selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 1.5))),
     )
     selection["require_secondary_oracle_confirmation"] = bool(
         selection.get("require_secondary_oracle_confirmation", True)
@@ -706,20 +707,18 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
     selection["replacement_dwell_sec"] = float(selection.get("replacement_dwell_sec", 0.0))
     selection["ownership_fail_dwell_sec"] = float(selection.get("ownership_fail_dwell_sec", 0.0))
 
-    phase["maker_window_open_sec"] = float(
-        phase.get("maker_window_open_sec", 15.0)
-    )
+    phase["maker_window_open_sec"] = float(phase.get("maker_window_open_sec", 9.0))
     phase["taker_window_open_sec"] = float(
         phase.get(
             "taker_window_open_sec",
-            taker_comp.get("final_window_sec", 7.0),
+            taker_comp.get("final_window_sec", 6.0),
         )
     )
     phase["maker_window_close_sec"] = float(
         phase.get("maker_window_close_sec", phase["taker_window_open_sec"])
     )
     phase["taker_window_close_sec"] = float(
-        phase.get("taker_window_close_sec", 0.0)
+        phase.get("taker_window_close_sec", 4.0)
     )
 
     maker_lane["timing_gate_enabled"] = bool(maker_lane.get("timing_gate_enabled", False))
@@ -741,7 +740,7 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
     )
     maker_lane["one_sided_enabled"] = bool(maker_lane.get("one_sided_enabled", False))
     maker_lane["one_sided_edge_threshold_abs"] = float(
-        maker_lane.get("one_sided_edge_threshold_abs", 0.18)
+        maker_lane.get("one_sided_edge_threshold_abs", 0.35)
     )
     maker_lane["regime_filter_enabled"] = bool(
         maker_lane.get("regime_filter_enabled", False)
@@ -1849,13 +1848,13 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         lifecycle_phase_cfg.get("taker_window_close_sec"),
         allow_zero=True,
     )
-    maker_window_open_sec = float(lifecycle_phase_cfg.get("maker_window_open_sec", 15.0) or 0.0)
+    maker_window_open_sec = float(lifecycle_phase_cfg.get("maker_window_open_sec", 9.0) or 0.0)
     maker_window_close_sec = float(
-        lifecycle_phase_cfg.get("maker_window_close_sec", lifecycle_phase_cfg.get("taker_window_open_sec", 7.0))
+        lifecycle_phase_cfg.get("maker_window_close_sec", lifecycle_phase_cfg.get("taker_window_open_sec", 6.0))
         or 0.0
     )
-    taker_window_open_sec = float(lifecycle_phase_cfg.get("taker_window_open_sec", 7.0) or 0.0)
-    taker_window_close_sec = float(lifecycle_phase_cfg.get("taker_window_close_sec", 0.0) or 0.0)
+    taker_window_open_sec = float(lifecycle_phase_cfg.get("taker_window_open_sec", 6.0) or 0.0)
+    taker_window_close_sec = float(lifecycle_phase_cfg.get("taker_window_close_sec", 4.0) or 0.0)
     selection_max_sec_to_expiry = float(lifecycle_selection_cfg.get("max_sec_to_expiry", 0.0) or 0.0)
     if maker_window_open_sec + 1e-9 < taker_window_open_sec:
         raise ValueError("lifecycle.phase.maker_window_open_sec must be >= taker_window_open_sec")

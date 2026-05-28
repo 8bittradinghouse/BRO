@@ -45,9 +45,10 @@ Downstream BRO-Specific Policy Surfaces
   - It preserves the earlier late-window maker posture target (maker gate at
     `15s`, taker handoff at `7s`) for doctrine ancestry and support-surface
     alignment.
-  - Current active paper OG-tight alignment packet is owned by
+  - Current active paper proving packet is owned by
     `docs/DOCTRINE_RUNBOOK.md` and the active Packet 2 truth surfaces:
-    maker gate band `8-12s`, taker gate band `8-12s`.
+    maker gate band `6-9s`, taker gate band `4-6s`, maker conviction floor
+    `0.35`, taker conviction floor `0.40`, taker submit price floor `0.05`.
   - It is not automatic proof that current runtime or current experiment
     should remain identical to that older anchor.
 - `docs/BRO_WEAPON_NOMENCLATURE.md`

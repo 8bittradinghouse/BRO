@@ -39,19 +39,20 @@ class TakerCompetitivenessConfig:
     edge_weight: float = 0.65
     latency_score_weight: float = 0.35
     final_window_enabled: bool = True
-    final_window_sec: float = 15.0
-    final_window_floor_sec: float = 0.0
+    final_window_sec: float = 6.0
+    final_window_floor_sec: float = 4.0
     aggressive_window_enabled: bool = False
-    aggressive_window_sec: float = 10.0
+    aggressive_window_sec: float = 6.0
     price_aggress_bps_max: float = 8.0
     dynamic_preview_enabled: bool = False
     multi_oracle_boost_enabled: bool = False
-    multi_oracle_boost_window_sec: float = 15.0
-    multi_oracle_edge_threshold_abs: float = 0.20
+    multi_oracle_boost_window_sec: float = 6.0
+    multi_oracle_edge_threshold_abs: float = 0.40
     multi_oracle_target_usd_cap: float = 350.0
     multi_oracle_capital_pct_cap: float = 0.18
     normal_side_policy: str = "buy_expected_winner_only"
-    min_visible_fill_ratio: float = 0.0
+    min_visible_fill_ratio: float = 1.5
+    min_submit_price: float = 0.05
 
     @classmethod
     def from_mapping(cls, row: Optional[Mapping[str, Any]], *, strict: bool = False) -> "TakerCompetitivenessConfig":
@@ -76,20 +77,21 @@ class TakerCompetitivenessConfig:
             edge_weight=max(0.0, _safe_float(row.get("edge_weight"), 0.65)),
             latency_score_weight=max(0.0, _safe_float(row.get("latency_score_weight"), 0.35)),
             final_window_enabled=bool(row.get("final_window_enabled", True)),
-            final_window_sec=max(0.0, _safe_float(row.get("final_window_sec"), 15.0)),
-            final_window_floor_sec=max(0.0, _safe_float(row.get("final_window_floor_sec"), 0.0)),
+            final_window_sec=max(0.0, _safe_float(row.get("final_window_sec"), 6.0)),
+            final_window_floor_sec=max(0.0, _safe_float(row.get("final_window_floor_sec"), 4.0)),
             aggressive_window_enabled=bool(row.get("aggressive_window_enabled", False)),
-            aggressive_window_sec=max(0.0, _safe_float(row.get("aggressive_window_sec"), 10.0)),
+            aggressive_window_sec=max(0.0, _safe_float(row.get("aggressive_window_sec"), 6.0)),
             price_aggress_bps_max=max(0.0, _safe_float(row.get("price_aggress_bps_max"), 8.0)),
             dynamic_preview_enabled=bool(row.get("dynamic_preview_enabled", False)),
             multi_oracle_boost_enabled=bool(row.get("multi_oracle_boost_enabled", False)),
-            multi_oracle_boost_window_sec=max(0.0, _safe_float(row.get("multi_oracle_boost_window_sec"), 15.0)),
-            multi_oracle_edge_threshold_abs=max(0.0, _safe_float(row.get("multi_oracle_edge_threshold_abs"), 0.20)),
+            multi_oracle_boost_window_sec=max(0.0, _safe_float(row.get("multi_oracle_boost_window_sec"), 6.0)),
+            multi_oracle_edge_threshold_abs=max(0.0, _safe_float(row.get("multi_oracle_edge_threshold_abs"), 0.40)),
             multi_oracle_target_usd_cap=max(0.0, _safe_float(row.get("multi_oracle_target_usd_cap"), 350.0)),
             multi_oracle_capital_pct_cap=max(0.0, _safe_float(row.get("multi_oracle_capital_pct_cap"), 0.18)),
             normal_side_policy=str(row.get("normal_side_policy", "buy_expected_winner_only")).strip().lower()
             or "buy_expected_winner_only",
-            min_visible_fill_ratio=max(0.0, _safe_float(row.get("min_visible_fill_ratio"), 0.0)),
+            min_visible_fill_ratio=max(0.0, _safe_float(row.get("min_visible_fill_ratio"), 1.5)),
+            min_submit_price=max(0.0, _safe_float(row.get("min_submit_price"), 0.05)),
         )
         if strict:
             _validate_taker_competitiveness_policy(cfg, row=row)
@@ -121,6 +123,7 @@ class TakerCompetitivenessConfig:
             "multi_oracle_capital_pct_cap": float(self.multi_oracle_capital_pct_cap),
             "normal_side_policy": str(self.normal_side_policy),
             "min_visible_fill_ratio": float(self.min_visible_fill_ratio),
+            "min_submit_price": float(self.min_submit_price),
         }
 
 
@@ -199,6 +202,10 @@ def _validate_taker_competitiveness_policy(
         )
     if float(cfg.min_visible_fill_ratio) < 0.0:
         raise ValueError("taker.competitiveness.min_visible_fill_ratio must be >= 0")
+    if float(cfg.min_submit_price) < 0.0:
+        raise ValueError("taker.competitiveness.min_submit_price must be >= 0")
+    if float(cfg.min_submit_price) >= 1.0:
+        raise ValueError("taker.competitiveness.min_submit_price must be < 1")
 
     retired_stage_window_rows = source.get("stage_final_window_sec_by_stage", {})
     if retired_stage_window_rows is not None and not isinstance(retired_stage_window_rows, Mapping):
@@ -283,6 +290,7 @@ class TakerDecision:
     multi_oracle_boost_eligible: bool
     multi_oracle_boost_applied: bool
     multi_oracle_status: str
+    min_submit_price: float = 0.0
     sec_to_expiry: Optional[float] = None
     normal_side_policy: str = "buy_expected_winner_only"
     normal_taker_side_class: str = "unknown"
@@ -336,6 +344,7 @@ class TakerDecision:
             "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
             "multi_oracle_status": str(self.multi_oracle_status or "unknown"),
+            "min_submit_price": float(self.min_submit_price),
             "normal_side_policy": str(self.normal_side_policy or "buy_expected_winner_only"),
             "normal_taker_side_class": str(self.normal_taker_side_class or "unknown"),
             "visible_fill_ratio": (
@@ -523,6 +532,7 @@ class TakerCompetitivenessEngine:
                         multi_oracle_boost_eligible=False,
                         multi_oracle_boost_applied=False,
                         multi_oracle_status="disabled",
+                        min_submit_price=float(self.cfg.min_submit_price),
                     )
                 )
             return TakerBatchResult(decisions=decisions)
@@ -645,6 +655,7 @@ class TakerCompetitivenessEngine:
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
+                        min_submit_price=float(self.cfg.min_submit_price),
                         sec_to_expiry=sec_to_expiry_value,
                     )
                 )
@@ -691,6 +702,7 @@ class TakerCompetitivenessEngine:
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
+                        min_submit_price=float(self.cfg.min_submit_price),
                         sec_to_expiry=sec_to_expiry_value,
                     )
                 )
@@ -733,6 +745,7 @@ class TakerCompetitivenessEngine:
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
+                        min_submit_price=float(self.cfg.min_submit_price),
                         sec_to_expiry=sec_to_expiry_value,
                     )
                 )
@@ -770,6 +783,7 @@ class TakerCompetitivenessEngine:
                     multi_oracle_boost_eligible=boost_eligible,
                     multi_oracle_boost_applied=boost_eligible,
                     multi_oracle_status=multi_oracle_status,
+                    min_submit_price=float(self.cfg.min_submit_price),
                     sec_to_expiry=sec_to_expiry_value,
                     normal_side_policy=normal_side_policy,
                     normal_taker_side_class=("buy_expected_winner" if side == "BUY" else "unknown"),

@@ -112,17 +112,20 @@ This document now serves two jobs:
       - maker may be abstaining honestly in those books rather than being fake
         blocked
       - taker may still exploit cheap-side `0.01` late-window extremes
-    - current active paper OG-tight alignment packet for the next watcher loop
+    - current active paper proving packet for the next watcher loop
       is now:
-      - maker gate band `8-12s`
-      - taker gate band `8-12s`
+      - maker gate band `6-9s`
+      - taker gate band `4-6s`
       - hard regime filter active on both lanes:
         `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
       - pinned and near-pinned market windows are now fail-closed for both
         lanes on `window_geometry_hard_pinned` /
         `window_geometry_near_pinned`
-      - maker now fails closed below the `0.20` one-sided conviction floor on
+      - maker now fails closed below the `0.35` one-sided conviction floor on
         `maker_edge_below_min`
+      - taker now fails closed below the `0.40` conviction floor and may not
+        submit below `0.05`; sub-floor entries block on
+        `taker_submit_price_below_floor`
       - maker same-target repeat tolerance is now `0` prior submits
       - maker same-market expression is now single-op only; weaker
         complementary candidates are pruned on
@@ -678,9 +681,12 @@ Historical-lane archive rule:
     - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
     - maker gate opens at `15s`
     - taker handoff opens at `7s`
-  - current active paper OG-tight alignment packet:
-    - maker gate band `8-12s`
-    - taker gate band `8-12s`
+  - current active paper proving packet:
+    - maker gate band `6-9s`
+    - taker gate band `4-6s`
+    - maker conviction floor `0.35`
+    - taker conviction floor `0.40`
+    - taker submit price floor `0.05`
     - hard regime filter active on both lanes:
       `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
     - deliberate size exceptions remain active:

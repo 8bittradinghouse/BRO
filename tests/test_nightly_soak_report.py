@@ -230,8 +230,8 @@ class NightlySoakReportTests(unittest.TestCase):
                             "strategy": {
                                 "maker_market_viability": {
                                     "selection_gate": {
-                                        "min_sec_to_expiry": 10.0,
-                                        "max_sec_to_expiry": 15.0,
+                                        "min_sec_to_expiry": 6.0,
+                                        "max_sec_to_expiry": 9.0,
                                     }
                                 }
                             }
@@ -250,7 +250,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "target_ref": "target-lag",
                     "target_side_ref": "target-lag|BUY",
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
-                    "time_remaining_sec": 12.0,
+                    "time_remaining_sec": 8.0,
                     "lifecycle_phase": "maker_window",
                     "maker_phase_allowed": True,
                     "maker_gate_open": True,
@@ -3099,7 +3099,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-clean",
                     "target_ref": "target-clean",
                     "ts_decision_utc": "2026-01-01T12:00:05Z",
-                    "time_remaining_sec": 12.0,
+                    "time_remaining_sec": 8.0,
                     "lineage_stage": "EXTREME_ONLY",
                     "maker_phase_allowed": False,
                     "fair_probability": 0.62,
@@ -3124,7 +3124,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-trash",
                     "target_ref": "target-trash",
                     "ts_decision_utc": "2026-01-01T12:00:07Z",
-                    "time_remaining_sec": 18.0,
+                    "time_remaining_sec": 8.5,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.12,
@@ -3174,7 +3174,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-thin",
                     "target_ref": "target-thin",
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
-                    "time_remaining_sec": 16.0,
+                    "time_remaining_sec": 7.5,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "fair_probability": 0.60,
@@ -3217,7 +3217,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-backfill",
                     "target_ref": "target-backfill",
                     "ts_decision_utc": "2026-01-01T12:00:09Z",
-                    "time_remaining_sec": 11.0,
+                    "time_remaining_sec": 8.0,
                     "lineage_stage": "EXTREME_ONLY",
                     "maker_phase_allowed": False,
                     "fair_probability": 0.70,
@@ -3322,7 +3322,7 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 summary.get("lifecycle_phase_distribution"),
-                {"maker_window": 3, "prepare": 2},
+                {"maker_window": 5},
             )
             self.assertNotIn("stage_distribution", summary)
             self.assertEqual(
@@ -3347,13 +3347,13 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 summary.get("maker_phase_allowed_distribution"),
-                {"allowed": 3, "disallowed": 2},
+                {"allowed": 5},
             )
             self.assertEqual(
                 summary.get("probe_visible_depth_fail_closed_zero_distribution"),
                 {"imputed_zero": 1, "reported_or_not_needed": 4},
             )
-            self.assertEqual(summary.get("cannon_window_class_distribution"), {"10_to_15s": 2, "15_to_20s": 2, "le_10s": 1})
+            self.assertEqual(summary.get("cannon_window_class_distribution"), {"le_10s": 5})
             self.assertEqual(summary.get("geometry_viable_counts"), {"not_viable": 1, "unknown": 1, "viable": 3})
             self.assertEqual(summary.get("cannon_depth_requirement_counts"), {"met": 2, "not_met": 2, "unknown": 1})
             self.assertEqual(len(rows), 5)
@@ -3541,8 +3541,8 @@ class NightlySoakReportTests(unittest.TestCase):
                             "strategy": {
                                 "maker_market_viability": {
                                     "selection_gate": {
-                                        "min_sec_to_expiry": 10.0,
-                                        "max_sec_to_expiry": 15.0,
+                                        "min_sec_to_expiry": 6.0,
+                                        "max_sec_to_expiry": 9.0,
                                     }
                                 }
                             },
@@ -3591,7 +3591,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-starve",
                     "target_ref": "target-starve",
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
-                    "time_remaining_sec": 12.0,
+                    "time_remaining_sec": 8.0,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
@@ -3620,7 +3620,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-reject",
                     "target_ref": "target-reject",
                     "ts_decision_utc": "2026-01-01T12:00:11.500000Z",
-                    "time_remaining_sec": 11.5,
+                    "time_remaining_sec": 8.5,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
@@ -3679,7 +3679,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "side": "BUY",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "ts_decision_utc": "2026-01-01T12:00:11.450000Z",
-                    "sec_to_expiry": 11.5,
+                    "sec_to_expiry": 8.5,
                     "financial_posture_class": "NORMAL",
                     "market_reference_class": "authoritative",
                     "viability_class": "viable_only",
@@ -3694,8 +3694,8 @@ class NightlySoakReportTests(unittest.TestCase):
                     "secondary_oracle_confirmation": True,
                     "open_maker_orders_total": 0,
                     "size_to_visible_depth_ratio": 0.5,
-                    "selection_gate_min_sec_to_expiry": 10.0,
-                    "selection_gate_max_sec_to_expiry": 15.0,
+                    "selection_gate_min_sec_to_expiry": 6.0,
+                    "selection_gate_max_sec_to_expiry": 9.0,
                     "selection_gate_primary_reject_reason": "insufficient_depth_multiple",
                     "selection_gate_all_reject_reasons": ["insufficient_depth_multiple"],
                     "decision_result": "viability_rejected",
@@ -4214,7 +4214,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-starve",
                     "target_ref": "target-starve",
                     "ts_decision_utc": "2026-01-01T12:00:12Z",
-                    "time_remaining_sec": 12.0,
+                    "time_remaining_sec": 8.0,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "maker_phase_allowed": True,
                     "action_taken": "none",
@@ -6115,6 +6115,9 @@ class NightlySoakReportTests(unittest.TestCase):
                             "taker": {
                                 "competitiveness": {
                                     "final_window_sec": 60.0,
+                                    "final_window_floor_sec": 4.0,
+                                    "min_visible_fill_ratio": 1.5,
+                                    "min_submit_price": 0.05,
                                 },
                             },
                         },
@@ -6291,6 +6294,9 @@ class NightlySoakReportTests(unittest.TestCase):
                 places=9,
             )
             self.assertEqual(str(gates.get("min_sec_to_expiry_for_new_exposure_source") or ""), "lane_override")
+            self.assertAlmostEqual(float(gates.get("final_window_floor_sec") or 0.0), 4.0, places=9)
+            self.assertAlmostEqual(float(gates.get("min_visible_fill_ratio") or 0.0), 1.5, places=9)
+            self.assertAlmostEqual(float(gates.get("min_submit_price") or 0.0), 0.05, places=9)
 
     def test_terminal_handoff_deadband_emits_wait_only_candidate(self):
         with tempfile.TemporaryDirectory() as td:

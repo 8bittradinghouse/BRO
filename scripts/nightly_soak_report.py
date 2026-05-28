@@ -4339,7 +4339,7 @@ def _taker_doctrine_breach_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         if not _has_normal_payload(comp):
             continue
         sec_to_expiry = _safe_float(comp.get("sec_to_expiry", evt.get("sec_to_expiry")), default=-1.0)
-        if sec_to_expiry > 7.0 + 1e-9:
+        if sec_to_expiry > 6.0 + 1e-9:
             hard_window_submit_count += 1.0
 
     return {
@@ -4424,7 +4424,29 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     min_new_exposure_sec_by_lane = _clean_number_mapping(risk.get("min_sec_to_expiry_for_new_exposure_by_lane"))
     min_new_exposure_sec = min_new_exposure_sec_by_lane.get("taker", min_new_exposure_sec_global)
     min_new_exposure_sec_source = "lane_override" if "taker" in min_new_exposure_sec_by_lane else "global"
+    selection_cfg = _dict(_dict(config.get("lifecycle")).get("selection"))
     final_window_sec = _optional_float(taker_comp.get("final_window_sec"))
+    if final_window_sec is None:
+        lifecycle = _dict(config.get("lifecycle"))
+        lifecycle_phase = _dict(lifecycle.get("phase"))
+        final_window_sec = _optional_float(lifecycle_phase.get("taker_window_open_sec"))
+    if final_window_sec is None:
+        final_window_sec = 6.0
+    final_window_floor_sec = _optional_float(taker_comp.get("final_window_floor_sec"))
+    if final_window_floor_sec is None:
+        lifecycle = _dict(config.get("lifecycle"))
+        lifecycle_phase = _dict(lifecycle.get("phase"))
+        final_window_floor_sec = _optional_float(lifecycle_phase.get("taker_window_close_sec"))
+    if final_window_floor_sec is None:
+        final_window_floor_sec = 4.0
+    min_visible_fill_ratio = _optional_float(taker_comp.get("min_visible_fill_ratio"))
+    if min_visible_fill_ratio is None:
+        min_visible_fill_ratio = _optional_float(selection_cfg.get("taker_min_fill_ratio"))
+    if min_visible_fill_ratio is None:
+        min_visible_fill_ratio = 1.5
+    min_submit_price = _optional_float(taker_comp.get("min_submit_price"))
+    if min_submit_price is None:
+        min_submit_price = 0.05
 
     boundary_values = [
         value
@@ -4531,12 +4553,15 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             "dynamic_size_target_usd_cap": _optional_float(taker_comp.get("dynamic_size_target_usd_cap")),
             "final_window_enabled": _optional_bool(taker_comp.get("final_window_enabled")),
             "final_window_sec": final_window_sec,
+            "final_window_floor_sec": final_window_floor_sec,
             "price_aggress_bps_max": _optional_float(taker_comp.get("price_aggress_bps_max")),
             "multi_oracle_boost_enabled": _optional_bool(taker_comp.get("multi_oracle_boost_enabled")),
             "multi_oracle_boost_window_sec": _optional_float(taker_comp.get("multi_oracle_boost_window_sec")),
             "multi_oracle_edge_threshold_abs": _optional_float(taker_comp.get("multi_oracle_edge_threshold_abs")),
             "multi_oracle_target_usd_cap": _optional_float(taker_comp.get("multi_oracle_target_usd_cap")),
             "multi_oracle_capital_pct_cap": _optional_float(taker_comp.get("multi_oracle_capital_pct_cap")),
+            "min_visible_fill_ratio": min_visible_fill_ratio,
+            "min_submit_price": min_submit_price,
         },
         "maker_gate_posture": {
             "timing_gate_enabled": (
@@ -6952,9 +6977,9 @@ def _maker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
         sec_to_expiry = row.get("time_remaining_sec")
     if isinstance(sec_to_expiry, (int, float)):
         sec_value = float(sec_to_expiry)
-        if sec_value <= 7.0:
+        if sec_value <= 6.0:
             return "taker_window"
-        if sec_value <= 15.0:
+        if sec_value <= 9.0:
             return "maker_window"
         if sec_value >= 0.0:
             return "prepare"
@@ -7006,9 +7031,9 @@ def _taker_lifecycle_phase_for_report(row: Dict[str, Any]) -> str:
         sec_value = float(sec_to_expiry)
         if sec_value <= 0.0:
             return "resolve"
-        if sec_value <= 7.0:
+        if sec_value <= 6.0:
             return "taker_window"
-        if sec_value <= 15.0:
+        if sec_value <= 9.0:
             return "maker_window"
         return "prepare"
     return "unknown"
@@ -8132,10 +8157,10 @@ def _maker_participation_waterfall_bundle(
 ) -> Dict[str, Any]:
     thresholds = _maker_admission_thresholds_for_report(run_manifest)
     fallback_timing_gate_min_sec_to_expiry = float(
-        thresholds.get("maker_timing_gate_min_sec_to_expiry", 15.0) or 15.0
+        thresholds.get("maker_timing_gate_min_sec_to_expiry", 6.0) or 6.0
     )
     fallback_timing_gate_max_sec_to_expiry = float(
-        thresholds.get("maker_timing_gate_max_sec_to_expiry", 20.0) or 20.0
+        thresholds.get("maker_timing_gate_max_sec_to_expiry", 9.0) or 9.0
     )
     maker_rows = [
         evt

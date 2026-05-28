@@ -67,10 +67,14 @@ Maker doctrine anchors
 
 Current maker timing authorities are:
 
-- current active paper OG-tight alignment packet:
-  - maker gate band `8-12s`
-  - taker gate band `8-12s`
-  - effective maker new-risk submit window remains `[8.0, 12.0]`
+- current active paper proving packet:
+  - maker gate band `6-9s`
+  - taker gate band `4-6s`
+  - effective maker new-risk submit window remains `[6.0, 9.0]`
+  - maker one-sided conviction floor is `0.35`
+  - taker conviction floor is `0.40`
+  - taker sub-`0.05` microprice entries are fail-closed on
+    `taker_submit_price_below_floor`
   - current active owner surfaces:
     - `docs/DOCTRINE_RUNBOOK.md`
     - `docs/PROJECT_TRUTH_STATE.md`

@@ -123,17 +123,20 @@
           maker open
         - maker may abstain honestly there
         - taker may still exploit cheap-side late extremes
-    - current active paper OG-tight alignment packet after the watcher-era
+    - current active paper proving packet after the watcher-era
       baseline:
-        - maker gate band `8-12s`
-        - taker gate band `8-12s`
+        - maker gate band `6-9s`
+        - taker gate band `4-6s`
         - hard regime filter active on both lanes:
           `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
         - pinned and near-pinned market windows are now fail-closed for both
           lanes on `window_geometry_hard_pinned` /
           `window_geometry_near_pinned`
-        - maker now fails closed below the `0.20` one-sided conviction floor
+        - maker now fails closed below the `0.35` one-sided conviction floor
           on `maker_edge_below_min`
+        - taker now fails closed below the `0.40` conviction floor and may not
+          submit below `0.05`; sub-floor entries block on
+          `taker_submit_price_below_floor`
         - maker same-target repeat tolerance is now `0` prior submits
         - maker same-market expression is now single-op only; weaker
           complementary candidates are pruned on

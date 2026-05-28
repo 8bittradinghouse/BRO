@@ -16,17 +16,20 @@
 - no further generic weapon tuning is authorized while Packet 2 maker
   live-trust qualification remains unresolved beyond the bounded OG-tight
   alignment packet now active by explicit operator decision.
-- current active paper OG-tight alignment packet is now:
-  - maker gate band `8-12s`
-  - taker gate band `8-12s`
+- current active paper proving packet is now:
+  - maker gate band `6-9s`
+  - taker gate band `4-6s`
   - hard regime filter active on both lanes:
     `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
   - pinned and near-pinned market windows are now fail-closed for both maker
     and taker on `window_geometry_hard_pinned` /
     `window_geometry_near_pinned`
-  - maker must be one-sided and above the `0.20` conviction floor to submit;
+  - maker must be one-sided and above the `0.35` conviction floor to submit;
     below-threshold maker candidates now fail-closed on
     `maker_edge_below_min`
+  - taker must clear the `0.40` conviction floor and may not submit below
+    `0.05`; sub-floor entries now fail-closed on
+    `taker_submit_price_below_floor`
   - maker same-target repeat tolerance is now `0` prior submits
   - maker same-market expression is now single-op only; weaker complementary
     token candidates are pruned on
@@ -288,12 +291,12 @@
     current Packet 2 timing doctrine
 - Current Packet 2 timing doctrine is now:
   - lifecycle ownership-entry ceiling is `lifecycle.selection.max_sec_to_expiry=90.0`
-  - maker gate band is `8.0-12.0s`
-  - taker gate band is `8.0-12.0s`
+  - maker gate band is `6.0-9.0s`
+  - taker gate band is `4.0-6.0s`
   - hard regime filter is active on both lanes:
     `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
   - maker risk-increasing authority lives only inside the shared
-    blueprint-aligned `8-12s` band
+    proving-packet `6-9s` band
   - daily loss hard pause is active at `$280`
 - Current Packet 2 timing collision is explicit in pre-fix Packet 2 lineage:
   - the legacy profile carried the `90s` ownership-entry rule as

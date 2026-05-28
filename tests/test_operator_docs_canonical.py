@@ -452,7 +452,8 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
                 text,
                 msg=f"maker doctrine proposal missing from doctrine authority doc {path}",
             )
-            self.assertIn("8-12s", text, msg=f"current active maker/taker band missing from {path}")
+            self.assertIn("6-9s", text, msg=f"current active maker band missing from {path}")
+            self.assertIn("4-6s", text, msg=f"current active taker band missing from {path}")
 
     def test_commands_and_proofs_is_not_public_happy_path_surface(self):
         text = (REPO_ROOT / "docs" / "COMMANDS_AND_PROOFS.md").read_text(encoding="utf-8")
@@ -983,9 +984,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("current third work = read-only Packet 3 wallet owner audit", packet_text)
         self.assertIn("cancel-only fail-close for open", packet_text)
         self.assertIn("`docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen", packet_text)
-        self.assertIn("maker gate band `8-12s`", sink_text)
-        self.assertIn("taker gate band `8-12s`", sink_text)
-        self.assertIn("effective maker new-risk submit window remains `[8.0, 12.0]`", sink_text)
+        self.assertIn("maker gate band `6-9s`", sink_text)
+        self.assertIn("taker gate band `4-6s`", sink_text)
+        self.assertIn("effective maker new-risk submit window remains `[6.0, 9.0]`", sink_text)
         self.assertIn("optional later archaeology packet", sink_text)
         self.assertIn("compatibility archaeology + ignored dead-key support", sink_text)
         self.assertIn("current watched proof does **not** prove the self-heal caused those", next_plan_text)

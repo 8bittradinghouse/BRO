@@ -58,7 +58,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                     token_id="tok-hard-min",
                     lifecycle_phase="taker_window",
                     lineage_stage="EXTREME_ONLY",
-                    sec_to_expiry=8.0,
+                    sec_to_expiry=5.0,
                     edge_value=0.25,
                     required_min_edge=0.10,
                     base_target_usd=100.0,
@@ -129,7 +129,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                     token_id="tok-submit",
                     lifecycle_phase="taker_window",
                     lineage_stage="EXTREME_ONLY",
-                    sec_to_expiry=8.0,
+                    sec_to_expiry=5.0,
                     edge_value=0.22,
                     required_min_edge=0.10,
                     base_target_usd=100.0,
@@ -171,6 +171,30 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
         )
         self.assertAlmostEqual(float(cfg.min_visible_fill_ratio), 1.5, places=9)
 
+    def test_policy_accepts_taker_submit_price_floor(self) -> None:
+        cfg = build_taker_competitiveness_policy(
+            {
+                "enabled": True,
+                "hard_min_target_usd": 5.0,
+                "dynamic_size_target_usd_cap": 5.0,
+                "min_submit_price": 0.05,
+            },
+            strict=True,
+        )
+        self.assertAlmostEqual(float(cfg.min_submit_price), 0.05, places=9)
+
+    def test_policy_rejects_invalid_taker_submit_price_floor(self) -> None:
+        with self.assertRaisesRegex(ValueError, "min_submit_price"):
+            build_taker_competitiveness_policy(
+                {
+                    "enabled": True,
+                    "hard_min_target_usd": 5.0,
+                    "dynamic_size_target_usd_cap": 5.0,
+                    "min_submit_price": 1.0,
+                },
+                strict=True,
+            )
+
     def test_budget_exhaustion_keeps_highest_conviction(self) -> None:
         tool = TakerCompetitivenessEngine(TakerCompetitivenessConfig(enabled=True))
         result = tool.evaluate_batch(
@@ -179,7 +203,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                     token_id="tok-low",
                     lifecycle_phase="taker_window",
                     lineage_stage="EXTREME_ONLY",
-                    sec_to_expiry=8.0,
+                    sec_to_expiry=5.0,
                     edge_value=0.13,
                     required_min_edge=0.10,
                     base_target_usd=100.0,
@@ -276,7 +300,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
                     token_id="tok-boost",
                     lifecycle_phase="taker_window",
                     lineage_stage="EXTREME_ONLY",
-                    sec_to_expiry=8.0,
+                    sec_to_expiry=5.0,
                     edge_value=0.24,
                     required_min_edge=0.10,
                     base_target_usd=100.0,

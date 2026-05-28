@@ -49,11 +49,12 @@
   - `docs/BRO_WEAPON_NOMENCLATURE.md`
     - mnemonic alias surface only
 
-Current active paper OG-tight alignment packet:
-- maker gate band is `8-12s`
-- taker gate band is `8-12s`
-- maker one-sided threshold is `0.20`, and maker is now fail-closed below that conviction floor on `maker_edge_below_min`
-- taker min edge floor is `0.20`
+Current active paper proving packet:
+- maker gate band is `6-9s`
+- taker gate band is `4-6s`
+- maker one-sided threshold is `0.35`, and maker is now fail-closed below that conviction floor on `maker_edge_below_min`
+- taker min edge floor is `0.40`
+- taker submit price floor is `0.05`, and sub-floor microprice entries now fail-closed on `taker_submit_price_below_floor`
 - maker and taker depth gates are `1.5x`
 - maker stack cap is seated conservatively at `4` per token / `6` global
 - pinned and near-pinned market windows are now fail-closed for both lanes on
@@ -382,7 +383,7 @@ Runtime-classification value vocabulary:
   - enforced with `hard_min_enforcement=skip_if_unachievable`
   - infeasible floor emits `taker_hard_min_notional_unachievable` (no under-floor submit)
 - timing windows:
-  - `final_window_enabled/final_window_sec` controls the default final-window gate; canonical current active paper lock is `5.0`
+  - `final_window_enabled/final_window_sec` controls the default final-window gate; canonical current active paper lock is `6.0`
   - top-level timing authority remains hard law; the runtime must not fake
     clock, receive, decision, submit, or report timing truth
   - bounded safe timing bands may exist around canonical gate edges only when
@@ -390,7 +391,7 @@ Runtime-classification value vocabulary:
   - lane-local files may not invent their own early/late grace windows
   - `stage_final_window_sec_by_stage` is reserved for explicit diagnostic/non-production investigations, not canonical live taker authority
   - a taker stage window must remain semantically live against the stage interval; dead-by-construction stage windows are doctrine violations
-  - `aggressive_window_enabled/aggressive_window_sec` must not silently broaden canonical live taker beyond the hard `8-12s` window
+  - `aggressive_window_enabled/aggressive_window_sec` must not silently broaden canonical live taker beyond the hard `4-6s` window
   - outside-window decision emits `taker_outside_final_window`
 - multi-oracle:
   - optional Pyth secondary oracle (`secondary_oracle.pyth`)
@@ -405,7 +406,7 @@ Runtime-classification value vocabulary:
 - canonical active paper posture:
   - taker shot geometry is deliberately bounded to a fixed configured `$25`
     on the current paper packet
-  - the canonical hard taker commitment lane is the final `8-12s` band by
+  - the canonical hard taker commitment lane is the final `4-6s` band by
     explicit doctrine choice
   - hard regime filter is active in current doctrine/runtime posture:
     `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
@@ -417,7 +418,7 @@ Runtime-classification value vocabulary:
 - Normal taker sniper is a commitment trade, not an enter-then-exit trade:
   - the expected normal lifecycle is entry by taker, hold through market resolution, then settle by outcome truth
   - canonical operator intent is a terminal last-seconds sniper commitment with the configured taker shot size, not a taker lane that should create cleanup work for itself after accepted entry
-  - canonical normal-taker window is now hard `8-12s`; broader or tighter taker windows are not canonical live doctrine
+  - canonical normal-taker window is now hard `4-6s`; broader or tighter taker windows are not canonical live doctrine
   - in paper/runtime, post-expiry settlement must use the first authoritative Chainlink tick whose `source_ts_utc` is at or after token expiry; later drifted ticks are not an acceptable substitute
   - settlement must flatten the binary position and realize `$1` for the winning token or `$0` for the losing token, rather than leaving expired inventory to decay through stale midpoint fallbacks
   - if authoritative post-expiry oracle truth is unavailable, runtime must fail closed and preserve the unresolved lifecycle explicitly instead of inventing settlement
@@ -439,7 +440,7 @@ Runtime-classification value vocabulary:
   - if the direct-path edge is negative or would require same-token short semantics, skip
   - runtime must not substitute a complementary-token route as an alternate expression path
 - Taker timing is intentionally narrow:
-  - normal taker should fire only inside the canonical `8-12s` taker commitment lane where oracle freshness, confirmation quality, and market-delay edge are strongest
+  - normal taker should fire only inside the canonical `4-6s` taker commitment lane where oracle freshness, confirmation quality, and market-delay edge are strongest
   - broader diagnostic taker windows may be used for paper investigation only and must be labeled as diagnostic, not production doctrine
   - `MAKER_TAKER_SELECTIVE` and `SNIPER_PRIMARY` taker activity are not canonical live authority
 - Entry requires expected-value discipline:
@@ -476,7 +477,7 @@ Required observability surfaces:
   - unrecovered meaningful exposure caused by normal taker entry
   - lifecycle residue split between `open_order_cleanup_required`, `settlement_hold_required`, and unresolved residue
   - doctrine-breach counters for:
-    - taker submit outside hard `8-12s`
+    - taker submit outside hard `4-6s`
     - historical recovery/unwind lineage attempts observed in active artifacts
     - same-market lane-collision attempts while market ownership is still active
 

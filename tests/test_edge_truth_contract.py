@@ -197,6 +197,7 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("taker_hard_min_notional_unachievable"))
         self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
         self.assertTrue(is_canonical_block_reason("taker_visible_fill_ratio_below_min"))
+        self.assertTrue(is_canonical_block_reason("taker_submit_price_below_floor"))
         self.assertTrue(is_canonical_block_reason("normal_taker_same_token_sell_forbidden"))
         self.assertTrue(is_canonical_block_reason("window_geometry_near_pinned"))
         self.assertTrue(is_canonical_block_reason("maker_edge_below_min"))

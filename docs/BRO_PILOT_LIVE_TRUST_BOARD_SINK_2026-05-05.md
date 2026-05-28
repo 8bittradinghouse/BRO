@@ -343,9 +343,9 @@ Current board use:
     - cancel-only cleanup = intended fail-closed replacement for open unfilled
       orders
   - current doctrine timing chain:
-    - maker gate band `8-12s`
-    - taker gate band `8-12s`
-    - effective maker new-risk submit window remains `[8.0, 12.0]`
+    - maker gate band `6-9s`
+    - taker gate band `4-6s`
+    - effective maker new-risk submit window remains `[6.0, 9.0]`
   - historical packet-era `50-60 / 50` maker timing posture belongs to
     dirty-tree run manifests and is quarantined as ancestry only
   - current legal residual order is:

@@ -34,13 +34,15 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "553402635d2fef5164d0d69214262ebfba0788e744f8cca6682a90c07a48a6c6"
+  paper_expected_config_fingerprint_sha256: "bf0ded96451d9f4916c2c564d8b2548cec7f7fde7832f40d189bcaf5897df1e0"
   held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
   held_ws_missing_or_unusable_refresh_interval_sec: 45.0
-  # Current active paper OG-tight alignment packet:
-  # maker gate is open only in the final 8-12s band,
-  # taker gate is open only in the final 8-12s band,
-  # transition/dead-zone regimes are fail-closed by hard lane filters.
+  # Current active paper proving packet:
+  # maker gate is open only in the final 6-9s band,
+  # taker gate is open only in the final 4-6s band,
+  # transition/dead-zone regimes are fail-closed by hard lane filters,
+  # maker conviction is hardened for cleaner one-sided shots,
+  # taker conviction is hardened and microprice tail entries are fail-closed.
 
 latency_verifier:
   hit_threshold_ms: 120
@@ -67,10 +69,10 @@ lifecycle:
     replacement_dwell_sec: 0.0
     ownership_fail_dwell_sec: 0.0
   phase:
-    maker_window_open_sec: 12.0
-    maker_window_close_sec: 8.0
-    taker_window_open_sec: 12.0
-    taker_window_close_sec: 8.0
+    maker_window_open_sec: 9.0
+    maker_window_close_sec: 6.0
+    taker_window_open_sec: 6.0
+    taker_window_close_sec: 4.0
   lane_gates:
     maker:
       timing_gate_enabled: true
@@ -81,7 +83,7 @@ lifecycle:
       spread_mult_min: 1.0
       requote_delta_mult_min: 1.0
       one_sided_enabled: true
-      one_sided_edge_threshold_abs: 0.20
+      one_sided_edge_threshold_abs: 0.35
       regime_filter_enabled: true
       allowed_session_regime_classes:
         - usa_europe_peak_heuristic
@@ -89,9 +91,9 @@ lifecycle:
     taker:
       final_window_enabled: true
       aggressive_window_enabled: false
-      aggressive_window_sec: 12.0
+      aggressive_window_sec: 6.0
       multi_oracle_boost_enabled: false
-      multi_oracle_boost_window_sec: 12.0
+      multi_oracle_boost_window_sec: 6.0
       regime_filter_enabled: true
       allowed_session_regime_classes:
         - usa_europe_peak_heuristic
@@ -132,12 +134,12 @@ simulation:
   fees_enabled_override: true
 
 risk:
-  # Keep both lanes inside the OG 8-12s late-window band at the generic
-  # risk-gate layer as well as the lane-local timing contracts.
-  min_sec_to_expiry_for_new_exposure: 12.0
+  # Keep both lanes inside the active late-window proving packet at the
+  # generic risk-gate layer as well as the lane-local timing contracts.
+  min_sec_to_expiry_for_new_exposure: 9.0
   min_sec_to_expiry_for_new_exposure_by_lane:
-    maker: 8.0
-    taker: 8.0
+    maker: 6.0
+    taker: 4.0
   # Treat untradeable (< min order size) post-expiry residuals as dust candidates
   # once lifecycle obligations are otherwise clear.
   position_dust_shares_epsilon: 1.0
@@ -193,7 +195,7 @@ taker:
   enabled: true
   target_usd: 25.0
   max_orders_per_cycle: 1
-  min_edge: 0.20
+  min_edge: 0.40
   competitiveness:
     enabled: true
     hard_min_target_usd: 25.0
@@ -207,10 +209,11 @@ taker:
     latency_score_weight: 0.35
     dynamic_preview_enabled: false
     price_aggress_bps_max: 8.0
-    multi_oracle_edge_threshold_abs: 0.20
+    multi_oracle_edge_threshold_abs: 0.40
     multi_oracle_target_usd_cap: 25.0
     multi_oracle_capital_pct_cap: 0.18
     min_visible_fill_ratio: 1.5
+    min_submit_price: 0.05
 
 storage:
   log_dir: /logs/paper_universal

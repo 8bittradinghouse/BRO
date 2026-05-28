@@ -83,6 +83,7 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "taker_hard_min_notional_unachievable",
     "taker_dynamic_size_capped_by_risk",
     "taker_visible_fill_ratio_below_min",
+    "taker_submit_price_below_floor",
     "taker_price_unavailable",
     "taker_competitiveness_disabled",
     "secondary_oracle_not_confirmed",

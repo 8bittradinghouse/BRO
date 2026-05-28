@@ -555,7 +555,7 @@ class ExecutionRunner:
         verifier_cfg = dict(self.cfg.get("latency_verifier", {}))
         self.latency_verifier = LatencyVerifier(verifier_cfg)
         self.taker_enabled = bool(taker_cfg.get("enabled", False))
-        self.taker_min_edge = float(taker_cfg.get("min_edge", 0.015))
+        self.taker_min_edge = float(taker_cfg.get("min_edge", 0.40))
         self.taker_extreme_edge_mult = float(taker_cfg.get("extreme_edge_mult", 2.0))
         self.taker_order_size = float(taker_cfg.get("order_size", 20.0))
         self.sizing_mode = str(self.cfg.get("sizing", {}).get("mode", "shares")).strip().lower()
@@ -596,16 +596,16 @@ class ExecutionRunner:
         if not isinstance(lifecycle_taker_lane_cfg, dict):
             lifecycle_taker_lane_cfg = {}
         self.lifecycle_maker_window_open_sec = float(
-            lifecycle_phase_cfg.get("maker_window_open_sec", 15.0)
+            lifecycle_phase_cfg.get("maker_window_open_sec", 9.0)
         )
         self.lifecycle_taker_window_open_sec = float(
-            lifecycle_phase_cfg.get("taker_window_open_sec", 7.0)
+            lifecycle_phase_cfg.get("taker_window_open_sec", 6.0)
         )
         self.lifecycle_maker_window_close_sec = float(
             lifecycle_phase_cfg.get("maker_window_close_sec", self.lifecycle_taker_window_open_sec)
         )
         self.lifecycle_taker_window_close_sec = float(
-            lifecycle_phase_cfg.get("taker_window_close_sec", 0.0)
+            lifecycle_phase_cfg.get("taker_window_close_sec", 4.0)
         )
         self.taker_require_secondary_oracle_confirmation = bool(
             lifecycle_selection_cfg.get("require_secondary_oracle_confirmation", True)
@@ -705,7 +705,7 @@ class ExecutionRunner:
             lifecycle_maker_lane_cfg.get("one_sided_enabled", False)
         )
         self.maker_comp_one_sided_edge_threshold_abs = float(
-            lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs", 0.18)
+            lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs", 0.35)
         )
         self.maker_regime_filter_enabled = bool(
             lifecycle_maker_lane_cfg.get("regime_filter_enabled", False)
@@ -5490,6 +5490,7 @@ class ExecutionRunner:
             or "buy_expected_winner_only"
         )
         min_visible_fill_ratio = max(0.0, float(self.taker_competitiveness_cfg.min_visible_fill_ratio))
+        min_taker_submit_price = max(0.0, float(self.taker_competitiveness_cfg.min_submit_price))
         latest_chainlink_targets = None
         latest_pyth_targets = None
         symbol_for_targets = str(self.chainlink_symbol_for_targets or "").strip()
@@ -6037,6 +6038,18 @@ class ExecutionRunner:
                                             block_reason="taker_visible_fill_ratio_below_min",
                                             submit_capable_static=False,
                                         )
+                                    if (
+                                        decision.should_submit
+                                        and min_taker_submit_price > 0.0
+                                        and isinstance(decision.price, (int, float))
+                                        and float(decision.price) + 1e-9 < min_taker_submit_price
+                                    ):
+                                        decision = dataclasses.replace(
+                                            decision,
+                                            should_submit=False,
+                                            block_reason="taker_submit_price_below_floor",
+                                            submit_capable_static=False,
+                                        )
                                 _log_taker_decision(
                                     source_token_id=decision_source_token_id,
                                     submit_token_id=decision_token_id,
@@ -6086,6 +6099,8 @@ class ExecutionRunner:
                                     self.telemetry.incr("taker_same_token_sell_blocked")
                                 if str(decision.block_reason or "").strip().lower() == "taker_visible_fill_ratio_below_min":
                                     self.telemetry.incr("taker_visible_fill_ratio_blocked")
+                                if str(decision.block_reason or "").strip().lower() == "taker_submit_price_below_floor":
+                                    self.telemetry.incr("taker_submit_price_below_floor")
                                 if not decision.should_submit:
                                     block_reason = str(decision.block_reason or "taker_submit_rejected")
                             if block_reason is None:
@@ -6273,6 +6288,7 @@ class ExecutionRunner:
                                                 ),
                                                 "target_usd_requested": float(decision.target_usd_requested),
                                                 "target_usd_resolved": float(decision.target_usd_resolved),
+                                                "min_submit_price": float(decision.min_submit_price),
                                                 "hard_min_floor_applied": bool(decision.hard_min_floor_applied),
                                                 "hard_min_unachievable": bool(decision.hard_min_unachievable),
                                                 "dynamic_size_capped_by_risk": bool(

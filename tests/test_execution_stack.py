@@ -386,14 +386,16 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertNotIn(self._HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD, runtime)
         self.assertNotIn("terminal_unwind_halt_new_risk_sec", runtime)
         self.assertTrue(bool(runtime.get("require_lifecycle_context_for_decisions", False)))
-        self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 12.0, places=9)
+        self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 9.0, places=9)
         lane_overrides = dict(risk.get("min_sec_to_expiry_for_new_exposure_by_lane") or {})
-        self.assertAlmostEqual(float(lane_overrides.get("maker")), 8.0, places=9)
-        self.assertAlmostEqual(float(lane_overrides.get("taker")), 8.0, places=9)
+        self.assertAlmostEqual(float(lane_overrides.get("maker")), 6.0, places=9)
+        self.assertAlmostEqual(float(lane_overrides.get("taker")), 4.0, places=9)
         taker = dict(cfg.get("taker") or {})
         competitiveness = dict(taker.get("competitiveness") or {})
-        self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 12.0, places=9)
-        self.assertAlmostEqual(float(competitiveness.get("final_window_floor_sec") or 0.0), 8.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("final_window_floor_sec") or 0.0), 4.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("multi_oracle_edge_threshold_abs") or 0.0), 0.40, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("min_submit_price") or 0.0), 0.05, places=9)
         self.assertNotIn("stage_final_window_sec_by_stage", competitiveness)
         execution_quality = dict(strategy.get("execution_quality") or {})
         sizing = dict(cfg.get("sizing") or {})
@@ -405,10 +407,10 @@ class ExecutionStackTests(unittest.TestCase):
         lifecycle = dict(cfg.get("lifecycle") or {})
         selection = dict(lifecycle.get("selection") or {})
         phase = dict(lifecycle.get("phase") or {})
-        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 12.0, places=9)
-        self.assertAlmostEqual(float(phase.get("maker_window_close_sec") or 0.0), 8.0, places=9)
-        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 12.0, places=9)
-        self.assertAlmostEqual(float(phase.get("taker_window_close_sec") or 0.0), 8.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 9.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_close_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_close_sec") or 0.0), 4.0, places=9)
         self.assertEqual(bool(selection.get("enabled")), True)
         self.assertNotIn("allowed_stages", selection_gate)
         self.assertEqual(bool(selection.get("require_secondary_oracle_confirmation")), True)
@@ -427,6 +429,10 @@ class ExecutionStackTests(unittest.TestCase):
             int(float(selection.get("max_same_target_side_submit_count_prior"))),
             0,
         )
+        lifecycle_lane_gates = dict(lifecycle.get("lane_gates") or {})
+        maker_lane = dict(lifecycle_lane_gates.get("maker") or {})
+        self.assertAlmostEqual(float(maker_lane.get("one_sided_edge_threshold_abs") or 0.0), 0.35, places=9)
+        self.assertAlmostEqual(float(taker.get("min_edge") or 0.0), 0.40, places=9)
         self.assertAlmostEqual(float(sizing.get("target_usd") or 0.0), 100.0, places=9)
         self.assertAlmostEqual(float(sizing.get("max_usd") or 0.0), 101.0, places=9)
         self.assertAlmostEqual(
@@ -453,8 +459,8 @@ class ExecutionStackTests(unittest.TestCase):
                 cfg["strategy"],
                 sizing_cfg=cfg.get("sizing", {}),
             )
-            self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 8.0, places=9)
-            self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 12.0, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 6.0, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 9.0, places=9)
             self.assertAlmostEqual(float(manager.maker_selection_gate_min_depth_multiple or 0.0), 1.5, places=9)
             self.assertAlmostEqual(
                 float(manager.maker_selection_gate_depth_multiple_ceiling or 0.0),
@@ -464,6 +470,54 @@ class ExecutionStackTests(unittest.TestCase):
         finally:
             events.close()
             tmp.cleanup()
+
+    def test_default_execution_config_fallback_matches_current_proving_packet_baseline(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        selection = dict(cfg.get("lifecycle", {}).get("selection") or {})
+        phase = dict(cfg.get("lifecycle", {}).get("phase") or {})
+        maker_lane = dict(cfg.get("lifecycle", {}).get("lane_gates", {}).get("maker") or {})
+        taker_lane = dict(cfg.get("lifecycle", {}).get("lane_gates", {}).get("taker") or {})
+        taker = dict(cfg.get("taker") or {})
+        competitiveness = dict(taker.get("competitiveness") or {})
+
+        self.assertAlmostEqual(float(selection.get("taker_min_fill_ratio") or 0.0), 1.5, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 9.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_close_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_close_sec") or 0.0), 4.0, places=9)
+        self.assertAlmostEqual(float(maker_lane.get("one_sided_edge_threshold_abs") or 0.0), 0.35, places=9)
+        self.assertAlmostEqual(float(taker_lane.get("aggressive_window_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(taker_lane.get("multi_oracle_boost_window_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(taker.get("min_edge") or 0.0), 0.40, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("multi_oracle_edge_threshold_abs") or 0.0), 0.40, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("min_visible_fill_ratio") or 0.0), 1.5, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("min_submit_price") or 0.0), 0.05, places=9)
+
+    def test_partial_config_load_inherits_current_proving_packet_fallbacks(self):
+        raw = {"targets": {"token_ids": ["tok1"]}}
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as tmp:
+            yaml.safe_dump(raw, tmp, sort_keys=False)
+            cfg_path = Path(tmp.name)
+        try:
+            cfg = load_execution_config(cfg_path)
+        finally:
+            cfg_path.unlink(missing_ok=True)
+
+        phase = dict(cfg.get("lifecycle", {}).get("phase") or {})
+        maker_lane = dict(cfg.get("lifecycle", {}).get("lane_gates", {}).get("maker") or {})
+        taker = dict(cfg.get("taker") or {})
+        competitiveness = dict(taker.get("competitiveness") or {})
+
+        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 9.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_close_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_close_sec") or 0.0), 4.0, places=9)
+        self.assertAlmostEqual(float(maker_lane.get("one_sided_edge_threshold_abs") or 0.0), 0.35, places=9)
+        self.assertAlmostEqual(float(taker.get("min_edge") or 0.0), 0.40, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("multi_oracle_edge_threshold_abs") or 0.0), 0.40, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("min_visible_fill_ratio") or 0.0), 1.5, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("min_submit_price") or 0.0), 0.05, places=9)
 
     def test_runner_prunes_hard_pinned_and_single_market_double_expression(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)
@@ -10087,6 +10141,78 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_runner_taker_blocks_microprice_tail_entries_below_submit_floor(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 1.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 1.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 1.0
+            cfg["taker"]["competitiveness"]["multi_oracle_target_usd_cap"] = 1.0
+            cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 1.5
+            cfg["taker"]["competitiveness"]["min_submit_price"] = 0.05
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 9.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 6.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 6.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 4.0
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.00,
+                    best_bid_size=1000.0,
+                    best_ask_price=0.01,
+                    best_ask_size=1000.0,
+                )
+                runner.gateway.on_book(top)
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("microprice tail entry must block before submit"),
+                ), mock.patch.object(
+                    runner,
+                    "_emit_edge_evaluation",
+                    side_effect=_capture_edge_eval,
+                ):
+                    out = runner._run_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={"t1": 0.25},
+                        token_ids=["t1"],
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="TAKER_COMMITMENT",
+                                sec_to_expiry=5.0,
+                            )
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("taker_submit_price_below_floor", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_taker_does_not_force_dead_recovery_side_hint(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -10263,11 +10389,13 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertEqual(str(decision_row.get("lineage_stage") or ""), "TAKER_COMMITMENT")
                 self.assertAlmostEqual(float(decision_row.get("target_usd_requested") or 0.0), 5.0, places=9)
                 self.assertAlmostEqual(float(decision_row.get("target_usd_resolved") or 0.0), 5.0, places=9)
+                self.assertAlmostEqual(float(decision_row.get("min_submit_price") or 0.0), 0.0, places=9)
 
                 self.assertEqual(str(submit_truth.get("lifecycle_phase") or ""), "taker_window")
                 self.assertEqual(str(submit_truth.get("lineage_stage") or ""), "TAKER_COMMITMENT")
                 self.assertAlmostEqual(float(submit_truth.get("target_usd_requested") or 0.0), 5.0, places=9)
                 self.assertAlmostEqual(float(submit_truth.get("target_usd_resolved") or 0.0), 5.0, places=9)
+                self.assertAlmostEqual(float(submit_truth.get("min_submit_price") or 0.0), 0.0, places=9)
                 self.assertEqual(str(submit_truth.get("source_token_id") or ""), "t1")
                 self.assertEqual(str(submit_truth.get("submit_token_id") or ""), "t1")
                 self.assertNotIn(retired_route_key, submit_truth)
