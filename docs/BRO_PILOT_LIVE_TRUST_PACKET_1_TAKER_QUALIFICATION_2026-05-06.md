@@ -1,10 +1,13 @@
 # BRO Pilot-Live Packet 1: Taker Live Trust Qualification
 
 ## Classification
-- `historical-only`
-- this packet records pre-lifecycle-surgery taker doctrine and wound lineage
-- old stage-family language here is ancestry only and must not be read as
-  current owner-law
+- `bounded board sink`
+- `historical-only` closure ancestry remains below unless explicitly
+  overridden by the `2026-05-21` reopen sections
+- current owner for taker Packet 1 reopen truth and pre-wallet operation-table
+  prep
+- historical closure sections below remain ancestry unless explicitly
+  overridden by the `2026-05-21` reopen sections in this packet
 
 ## Authority Lock
 Current pickup point:
@@ -12,18 +15,26 @@ Current pickup point:
   - `pilot_live`
 - active macro lane:
   - `live trust qualification`
-- current watched closeout proof specimen:
+- current watched restoration proof specimen:
+  - `run_id=9eca7bdf-defb-4db3-a2f0-f4d728092228`
+- current reopen hostile specimen:
+  - `run_id=5f050669-2235-43e0-9a45-0d781fee70e2`
+- current watched closeout proof specimen on the older patient set:
   - `run_id=6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 - historical short seam specimen:
   - `run_id=4243e263-7f5c-4bbe-bf13-68163a04f7e9`
 - historical timing-clean healthy specimen:
   - `run_id=069f4459-6804-44ac-a8eb-95f511d9f787`
+- historical taker-loss pathology cohort:
+  - `run_id=c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `run_id=fbf0fff0-4452-40e6-83dc-fd64f62f0a72`
+  - `run_id=aedce755-2a5b-42d9-8d36-5bf50758b71f`
 - historical ancestry-only taker closeout:
   - `BRO_HANDOFF_20260405T051017Z_SNIPER_TAKER_PACKET_CLOSEOUT.md`
 - governing question:
-  - is current `taker` one coherent doctrine/runtime brain, or does inherited
-    sniper-era lineage still leave duplicate meaning, dead relays, and
-    compensator fat in the lane?
+  - is current `taker` honestly safe enough for wallet hookup, or do deeper
+    owner / lifecycle / economic defects reopen Packet 1 and require taker
+    architecture surgery first?
 
 Authority chain:
 1. `docs/PROJECT_TRUTH_STATE.md`
@@ -40,6 +51,7 @@ Authority chain:
    - `prodesk/config.py`
    - `configs/profiles/paper_universal.yaml`
    - `prodesk/taker_competitiveness.py`
+   - `prodesk/order_manager.py`
    - `prodesk/gateway.py`
    - `prodesk/risk.py`
 7. consumer/report owners:
@@ -54,29 +66,170 @@ No-change list:
 - no broad frame surgery
 - no unrelated multi-lane runtime mutation
 - no live arming
+- no wallet hookup
 - no wallet packet substitution
 - no board claim beyond packet-local qualification truth
 - no clone-safe frame surgery before authorization
+- no green-wrapper comfort calls
+- no “settings only” story if the owner stack is still wrong
 
 Current blocker being judged:
-- whether the taker lane still contains runtime/report split-brain relay
-  ancestry and compensator fat severe enough to contaminate live-trust claims
+- whether the taker lane is structurally misassembled deeply enough that
+  current tuning, report comfort, and watched wrapper passes cannot be trusted
+  as pre-wallet authority proof
 
 ## Current Execution Status
 - packet status:
-  - `closed / bounded-live-test ready`
+  - `reclosed / taker pre-wallet GO earned / wallet-hookup still downstream-gated`
 - packet disease statement:
-  - taker lane had been carrying shared late-window owner-law, shared
-    maker/taker interference, and stale sniper-era
-    consumer/config/report/test residue that could let one lane step on the
-    other or let weaker surfaces impersonate stronger ones
+  - Packet 1 historically closed one real taker disease family:
+    shared late-window owner-law, shared maker/taker interference, and stale
+    sniper-era consumer/config/report/test residue that let weaker surfaces
+    impersonate stronger ones
+  - fresh pre-wallet hostile audits now prove a deeper active disease family:
+    - global/ramp notional authority still owns taker shot size
+    - taker share sizing still treats target USD as midpoint notional while
+      execution spends at the actual executable touch price
+    - resolved decision lineage is not preserved as final authority into
+      submission/report surfaces
+    - executor/runtime and competitiveness/runtime still split the active
+      taker brain across multiple owners
+    - lifecycle semantics are copied across config normalization, executor
+      runtime, and competitiveness interpretation instead of owned once
+    - route/source/submit token truth is still orchestration glue instead of
+      one first-class contract
 - as-executed restoration ladder:
   1. replace shared late-window owner-law with explicit authority truth
   2. cut maker/taker runtime interference from normal taker authority
   3. preserve the canonical taker owner path while quarantining sniper-era
      compatibility residue
   4. realign consumer / test / doc truth to the repaired owner chain
-  5. reprove Packet 1 on watched runtime and close honestly or keep it open
+  5. historical closeout was earned on that disease set
+  6. fresh pre-wallet hostile runtime + historical-runtime replay reopened the
+     packet on deeper taker architecture disease
+
+## 2026-05-21 Reopen Override
+Current reopen call:
+- `VERIFIED`: Packet 1 is `NO-GO` for wallet hookup
+- `VERIFIED`: this is not just a tuning problem
+- `VERIFIED`: the active patient is taker architecture / owner-law
+  misassembly
+
+## 2026-05-22 Surgery Status Override
+- `VERIFIED`: the active taker surgery body is now materially landed in current
+  code for the first core restoration families:
+  - taker shot target is no longer silently re-owned by global active target
+    in the normal runtime path
+  - taker share sizing now uses executable submit price instead of midpoint
+    notional
+  - canonical lifecycle / lineage / route fields now survive through
+    submit -> fill -> report surfaces
+  - executor now owns explicit normal taker final-window and min-edge fire
+    law while `taker_competitiveness.py` is narrowed to bounded price / size
+    feasibility work
+- `VERIFIED`: focused and broader taker/runtime/report rings now hold on that
+  current body.
+
+## 2026-05-22 Current-Code Restoration Verdict
+- `VERIFIED`: fresh watched current-code specimen
+  `9eca7bdf-defb-4db3-a2f0-f4d728092228` now proves the rebuilt taker lane end
+  to end on the normal path:
+  - `target_usd_requested=5.0`
+  - `target_usd_resolved=5.0`
+  - executable-price sizing held with `price_source=taker_executable_price`
+  - actual filled spend stayed bounded at `4.9992`
+  - decision / submit / fill / report lineage all stayed
+    `TAKER_COMMITMENT`
+  - taker financial fill-notional reconciliation stayed `true`
+- `VERIFIED`: Packet 1 therefore earns a current-code taker pre-wallet `GO`
+  gate.
+- `VERIFIED`: this is a taker restoration closure, not a wallet-hookup
+  authorization.
+- `VERIFIED`: actual wallet hookup remains downstream and still requires
+  Packet 3 wallet live-truth closure plus approved live-hookup proof.
+
+## 2026-05-25 Support-Authority Tribunal Override
+- `VERIFIED`: current taker runtime core stays reclosed on the restored
+  normal-lane owner path.
+- `VERIFIED`: the immediate follow-on taker packet after the maker tribunal now
+  routes through:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SUPPORT_AUTHORITY_TRIBUNAL_2026-05-25.md`
+- `VERIFIED`: this is a hygiene / support-authority tribunal, not a default
+  reopen of taker rescue surgery.
+
+What still stands from the earlier closeout:
+- `VERIFIED`: the old Packet 1 work did remove real false-authority seams
+  around:
+  - doctrine-root stage contradiction
+  - explicit `effective_stage` vs `stage_bucket` contract
+  - canonical taker runtime/controller identity
+  - canonical taker enablement / active-mode telemetry
+  - earlier maker/taker fallback asymmetry cleanup
+- `VERIFIED`: those fixes remain real and should not be rolled back just
+  because the deeper patient is now larger
+
+What the fresh hostile audits proved:
+- `VERIFIED`: the current taker shot-size retune to `$5` is not the live
+  runtime owner yet; runtime still resolved `target_usd_requested=20.0` and
+  `target_usd_resolved=20.0` on the current watched hostile specimen
+  `5f050669-2235-43e0-9a45-0d781fee70e2`
+- `VERIFIED`: the historical taker-loss cohort proves the same pathology
+  predates the newest packet work:
+  - `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `fbf0fff0-4452-40e6-83dc-fd64f62f0a72`
+  - `aedce755-2a5b-42d9-8d36-5bf50758b71f`
+- `VERIFIED`: the taker math engine is structurally wrong today:
+  - share sizing still resolves from midpoint-derived notional
+  - submit/fill cash is spent at the executable touch price
+  - this is how an intended `$20` shot became a real `$40` paper spend in the
+    watched and historical runtime artifacts
+- `VERIFIED`: the `-40` style losses are real inside BRO accounting once the
+  oversized order is placed
+- `VERIFIED`: those losses are bug-born runtime losses, not intended-shot
+  doctrinal losses
+- `VERIFIED`: accepted taker decision lineage can still degrade after the
+  decision phase:
+  - decision authority appears under `TAKER_COMMITMENT`
+  - accepted submit/fill still fall under older raw lineage families such as
+    legacy `EXTREME_ONLY` or current `LINEAGE_ONLY_0_TO_20S`
+- `VERIFIED`: the report layer is mostly witness, not the primary liar:
+  - midpoint-quality and outcome-observation surfaces can read
+    `correct_decision_poor_execution`
+  - ledger/report financial surfaces can still honestly book the larger loss
+    caused by the broken spend model
+
+What is likely real steel rather than fake authority:
+- `VERIFIED`: not every taker knob is floating loose
+- `VERIFIED`: the following owner paths still look seated or materially real:
+  - top-level `taker.min_edge` as current fire-threshold owner
+  - hard `<=7s` taker window
+  - lag-verification requirement
+  - per-token cooldown
+  - max-orders-per-cycle
+- `VERIFIED`: `min_visible_fill_ratio` looks like a real gate, not obvious
+  fake authority, but its denominator can still sit on the wrong notional
+  owner if `target_usd_resolved` is wrong
+- `VERIFIED`: the latest hostile specimen showed the lag-activation bug as
+  fixed and the metrics/Prometheus endpoint as healthy support infrastructure;
+  neither is the primary taker patient now
+
+What the pre-restoration deeper build audit proved:
+- `VERIFIED`: before the current-code surgery closure, taker did not yet have
+  one true decision owner
+- `VERIFIED`: before the current-code surgery closure, taker did not yet have
+  one true lifecycle owner
+- `VERIFIED`: before the current-code surgery closure, taker did not yet have
+  one true economic/spend model
+- `VERIFIED`: before the current-code surgery closure, taker did not yet have
+  one true route/source/submit token contract
+- `VERIFIED`: before the current-code surgery closure, taker did not yet
+  preserve decision-to-submit lineage as final authority
+- `INFERRED`: the taker lane was not just badly tuned; it was structurally
+  misassembled enough that higher-level tuning could look seated while behavior
+  still came out wrong
+- `VERIFIED`: the watched restoration proof specimen
+  `9eca7bdf-defb-4db3-a2f0-f4d728092228` is the current stronger answer to that
+  audit family on the normal taker lane
 
 ## Packet-Local Lock Card
 Mission lock:
@@ -642,14 +795,14 @@ Audit anchor:
 
 | Blueprint demand | Current taker lane evidence | Match status | Packet 1 call |
 | --- | --- | --- | --- |
-| Chainlink primary plus Pyth secondary are non-negotiable | `secondary_oracle.pyth.enabled=true`; runtime computes same-direction confirmation between primary and secondary edges, but current secondary oracle is confirmation/boost context rather than unconditional fire prerequisite | partial | keep under challenge; current BRO uses the second oracle, but not with the same hard-owner semantics as the blueprint |
+| Chainlink primary plus Pyth secondary are non-negotiable | `secondary_oracle.pyth.enabled=true`; normal taker fire now fail-closes on the exact submit token unless primary and secondary edges agree in direction | aligned | current BRO now uses the second oracle as a true fire prerequisite on the restored normal taker lane |
 | Official Polymarket CLOB API with signed orders | `LiveClobGateway` uses `py-clob-client-v2` against `https://clob.polymarket.com`; live taker submit path resolves through `place_taker_order_with_outcome()` with canonical `wallet_mode` ownership | aligned | proven current live execution surface; this does not by itself justify inherited sniper-era stage doctrine |
 | IOC taker execution | `place_taker_order_with_outcome()` hard-codes `tif="IOC"` and `post_only=False` for taker submits | aligned | proven keep-now runtime behavior |
 | Final `8-12s` sniper window | current canonical taker doctrine hard-locks `<=7s`; active config sets `final_window_sec: 7.0`; `stage_final_window_sec_by_stage` is fenced as diagnostic-only | mismatch | current `<=7s` taker commitment lane does not earn steel from the external blueprint and stays under keep-proof burden |
-| Hard dual-oracle delta threshold `>=0.20` before fire | current top-level taker fire threshold is now canonical `taker.min_edge=0.11`; `multi_oracle_edge_threshold_abs` remains optional boost eligibility rather than unconditional fire permission | partial | current threshold owner is cleaner, but dual-oracle confirmation still does not own fire permission the way the blueprint demands |
-| Liquidity must be `1.5x` order size at aggressive price | current taker lane checks `visible_fill_ratio >= min_visible_fill_ratio`; active profile now uses full-fill `min_visible_fill_ratio: 1.0`, which is stronger than the old `0.5` proving detune but still not the same contract as explicit `1.5x` depth | mismatch | current visibility/depth rule is tighter current runtime behavior but still not blueprint-equivalent to the external `1.5x` demand |
-| Peak-window / regime whitelist | no explicit taker-only `allowed_peak_windows` gate was found; current lane has operating-mode health gates plus time-of-day scalers for paper liquidity and dynamic risk sizing, not a hard taker peak-hours whitelist | mismatch | current taker regime gating does not inherit steel from the external blueprint and stays challenge-open |
-| Fixed `$150` taker shot | external blueprint still calls for fixed `$150`, but the current paper packet is temporarily detuned to `target_usd: 20.0`, `hard_min_target_usd: 20.0`, and `dynamic_size_target_usd_cap: 20.0` so taker can prove fireability before size is retightened | mismatch | temporary paper proving detune only; do not confuse with settled blueprint shot-size law |
+| Hard dual-oracle delta threshold `>=0.20` before fire | current top-level taker fire threshold is now canonical `taker.min_edge=0.18`; `multi_oracle_edge_threshold_abs` remains optional boost eligibility rather than unconditional fire permission | partial | current threshold owner is tighter now, but dual-oracle confirmation still does not own fire permission the way the blueprint demands |
+| Liquidity must be `1.5x` order size at aggressive price | current taker lane checks `visible_fill_ratio >= min_visible_fill_ratio`; active profile now uses `min_visible_fill_ratio: 1.5`, which binds the shot against actual aggressive-side visible notional before submit | aligned | current runtime now matches the external `1.5x` aggressive-depth contract on the normal taker lane |
+| Peak-window / regime whitelist | no explicit taker-only `allowed_peak_windows` gate is present; current doctrine/runtime intentionally does not adopt a hard taker peak-hours whitelist right now | mismatch / intentionally not adopted | current taker regime gating stays outside the external blueprint by explicit doctrine choice for now |
+| Fixed `$150` taker shot | external blueprint still calls for fixed `$150`, but the current paper packet is temporarily detuned to `target_usd: 5.0`, `hard_min_target_usd: 5.0`, and `dynamic_size_target_usd_cap: 5.0` for early-live proving before size is retightened | mismatch | temporary early-live proving detune only; do not confuse with settled blueprint shot-size law |
 | Fail-closed on unknown state | current lane fail-closes on fully missing ws market reference (`market_probability_missing`), weak book source (`taker_requires_ws_book_source`), timing disarm, operating-mode disarm, and unknown secondary-oracle state for boost | aligned / stronger | proven keep-now safety posture |
 | Full observability for every fire / skip | canonical runtime emits `taker_decision`, `edge_evaluation`, `taker_submit`, `taker_stage_window_semantic_check`; Packet 1 report path now preserves gate-only no-submit posture honestly | aligned / stronger | proven keep-now observability posture |
 
@@ -660,19 +813,20 @@ Current audit call:
 - `VERIFIED`: BRO currently matches the external blueprint best on:
   - live CLOB/IOC execution path
   - external fixed `$150` taker shot doctrine, with current paper packet
-    temporarily detuned to fixed `$20`
+    temporarily detuned to fixed `$5`
   - fail-closed safety posture
   - observability richness
 - `VERIFIED`: BRO currently diverges from the external blueprint most on the
   same surfaces that look sniper-era or add-on heavy:
   - hard `<=7s` taker commitment lane
-  - multi-oracle confirmation still acting as boost logic rather than a hard
-    fire prerequisite
-  - `multi_oracle_edge_threshold_abs` being boost logic instead of a hard fire
-    prerequisite
-  - `min_visible_fill_ratio` as the active liquidity gate instead of explicit
-    `1.5x` aggressive depth
-  - absence of a hard taker-only peak-window whitelist
+  - current bounded competitiveness payload still carries historical
+    multi-oracle boost/readback leaves even though executor now owns the hard
+    secondary-oracle fire prerequisite
+  - current bounded competitiveness payload still carries the historical
+    `min_visible_fill_ratio` housing even though the active contract is now the
+    explicit `1.5x` aggressive visible-depth gate
+  - explicit decision to keep hard taker-only peak-window whitelisting out of
+    current doctrine/runtime for now
 - `INFERRED`: this external audit does not prove the blueprint itself is
   canonical law, but it does reinforce the inversion rule:
   - current `EXTREME_ONLY`-subtree fire-condition surfaces are not presumed
@@ -740,15 +894,16 @@ not justify preserving the old subtree form:
   - that makes them likely subtree mass until they prove a distinct current
     doctrine job
 - `multi_oracle_boost_enabled` / `multi_oracle_edge_threshold_abs`
-  - current boost path remains live-configurable, but the threshold acts as
-    optional boost eligibility rather than canonical fire permission
-  - if multi-oracle confirmation survives, it should survive under a canonical
-    taker confirmation owner, not sniper-era boost housing
+  - current boost path remains live-configurable as bounded sizing/readback
+    residue only
+  - canonical fire permission is now owned directly by hard secondary-oracle
+    confirmation in executor, not by sniper-era boost housing
 - `min_visible_fill_ratio`
   - current taker liquidity gate is active runtime behavior
-  - it still does **not** match the external blueprint's explicit `1.5x` depth
-    contract, so it stays under removal/re-home burden rather than earning
-    steel from current use
+  - the active profile/runtime now bind it to the explicit `1.5x` aggressive
+    visible-depth contract
+  - the housing still remains under keep-proof burden because executor, not
+    residual subtree semantics, owns final fire permission
 - `taker_min_edge` / `taker_extreme_edge_mult`
   - top-level `taker_min_edge` is now the sole current live fire-threshold
     owner
@@ -765,7 +920,7 @@ they still live inside the inherited subtree and can change taker behavior if
 cut carelessly:
 - `taker_target_usd` + `hard_min_target_usd`
   - current strongest keep proof is economic doctrine:
-    - temporary fixed `$20` paper proving shot
+    - temporary fixed `$5` early-live proving shot
     - hard floor against under-sized fire
   - current proof does **not** justify keeping them inside inherited sniper
     housing
@@ -911,8 +1066,7 @@ Packet 1 recommendation:
   - current profile hardening now removes live `multi_oracle_boost_*`
     authority on `paper_universal`
   - current profile hardening now retightens `min_visible_fill_ratio` to
-    full-fill `1.0`; the external `1.5x` demand remains a separate higher
-    bar if we later choose to adopt it
+    explicit `1.5x` aggressive visible-depth authority on `paper_universal`
   - cut dynamic-size authority, conviction-owned ranking authority, and dead
     stage-overlay semantics first
 
@@ -1046,10 +1200,17 @@ Explicitly forbidden to answer:
 
 ## Current Packet Call
 Current verdict:
+- `current-code reclosed / taker pre-wallet GO earned / wallet-hookup still downstream-gated`
+
+Historical intermediate verdict:
+- `reopened / no-go for wallet hookup / taker-operation-table prep`
+
+Historical prior verdict:
 - `bounded-live-test ready`
 
 Verdict basis:
-- `VERIFIED`: Packet 1 has materially collapsed the highest-value
+- `VERIFIED`: the earlier Packet 1 closeout still stands on its original
+  disease set; Packet 1 did materially collapse the highest-value
   taker inherited-lineage split-brain owner seams on current code:
   - doctrine-root `SNIPER_PRIMARY` contradiction is source-corrected
   - canonical taker runtime/controller identity is source-collapsed
@@ -1059,18 +1220,68 @@ Verdict basis:
     guarded
   - the maker/taker fallback asymmetry is explicit, guarded, and classified as
     keep-now interlock / shared-frame defer
-- `VERIFIED`: fresh watched Packet 1 proof now earns `bounded-live-test ready`:
+- `VERIFIED`: stored watched Packet 1 proof did earn the older
+  `bounded-live-test ready` call on that narrower patient set:
   - stored canonical validator bundle is clean with all validator and
     replay-validator exits `0`
   - maker and taker both submitted and filled on the stored bundle
   - accepted taker live-fire trust behavior is present on the stored tape at
-    canonical `required_min_edge=0.11`
+    a level that still clears the tighter current canonical
+    `required_min_edge=0.18`
   - repaired nightly valuation truth no longer flattens event-level degrade
     windows into false `none` report truth
   - compatibility bridges remain correctly deferred without retaining current
     fire authority
+- `VERIFIED`: fresh current-tree hostile runtime plus historical-runtime replay
+  prove a deeper active taker disease family that reopens Packet 1:
+  - live taker shot-size authority is still shadow-owned by global/ramp
+    notional law instead of taker-local law
+  - taker share sizing still uses midpoint-based notional while execution
+    spends at executable touch price
+  - accepted decision lineage is still not preserved as final authority into
+    submit/report surfaces
+  - executor/runtime and competitiveness/runtime still split the active taker
+    decision brain
+  - lifecycle semantics are still copied across config normalization,
+    executor runtime, and competitiveness interpretation instead of owned once
+  - route/source/submit token truth is still not one first-class contract
+- `VERIFIED`: the pre-wallet `NO-GO` is therefore architecture-based, not just
+  a tuning or profitability mood call
 
 Current strongest findings:
+- `VERIFIED`: Packet 1 should now be read in two layers:
+  - historical closure truth on the old patient set
+  - current reopen truth on the deeper taker architecture patient
+- `VERIFIED`: latest hostile specimen
+  `5f050669-2235-43e0-9a45-0d781fee70e2` proves the current `$5`
+  early-live retune is not the live taker notional owner yet:
+  - runtime still carried `target_usd_requested=20.0`
+  - runtime still carried `target_usd_resolved=20.0`
+- `VERIFIED`: the historical taker-loss cohort proves this is not a brand-new
+  regression:
+  - `c519e785-598c-4cd1-83af-51f0c37592b5`
+  - `fbf0fff0-4452-40e6-83dc-fd64f62f0a72`
+  - `aedce755-2a5b-42d9-8d36-5bf50758b71f`
+- `VERIFIED`: the `$40` taker losses were not fake report hallucinations:
+  - the runtime really placed the larger order once midpoint-based share sizing
+    met executable-touch spending
+  - BRO then honestly booked the larger loss in its own paper accounting
+  - those losses are bug-born real losses, not intended-shot doctrinal losses
+- `VERIFIED`: the report layer is mostly downstream witness here:
+  - it can honestly emit `correct_decision_poor_execution`
+  - it can also honestly book large negative ledger PnL from the broken spend
+    model
+- `VERIFIED`: the current active patient is not “all taker tuning is fake”
+  but “some important tuning is seated on the wrong lower-level truth model”
+- `VERIFIED`: the following surfaces still look materially real and should be
+  preserved during surgery unless re-proved otherwise:
+  - top-level `taker.min_edge`
+  - hard `<=7s` taker window
+  - lag-verification requirement
+  - per-token cooldown
+  - max-orders-per-cycle
+  - visible-fill gate as a real gate, while remembering its denominator still
+    depends on the wrong notional owner today
 - doctrine-root contradiction on `SNIPER_PRIMARY` is source-corrected and now
   guarded at the doctrine-root layer
 - remaining runtime/config/report residue is bounded compatibility legacy, not
@@ -1141,7 +1352,7 @@ Current strongest findings:
     - canonical paper fixed-shot behavior with no dynamic-size authority
     - no conviction-owned candidate ranking authority on the canonical taker
       path
-    - current canonical paper top-level `taker.min_edge=0.11`
+    - current canonical paper top-level `taker.min_edge=0.18`
 - historical late-window maker/taker fallback asymmetry is `VERIFIED` on the
   specimen-era code path, not just suspected
 - current doctrine/runtime no longer keep that exact asymmetry:
@@ -1166,15 +1377,15 @@ Current strongest findings:
 - Packet 1 now explicitly audits the external `Taker Sword Doctrine Proposal` against
   current BRO taker truth:
   - the current lane matches best on CLOB/IOC execution, fail-closed posture,
-    and observability; current paper shot size is temporarily detuned to `$20`
+    and observability; current paper shot size is temporarily detuned to `$5`
   - the strongest challenge pressure lands on the inherited taker fire-condition
     subtree:
     - hard `<=7s` / `EXTREME_ONLY` window
-    - canonical top-level `taker.min_edge=0.11`
-    - `multi_oracle_edge_threshold_abs` as boost-only logic
-    - `min_visible_fill_ratio` now tightened to full-fill `1.0` on current
-      `paper_universal`, but still below the external `1.5x` proposal
-    - lack of a hard taker-only peak-window whitelist
+    - canonical top-level `taker.min_edge=0.18`
+    - canonical hard secondary-oracle confirmation now owning fire permission
+    - `min_visible_fill_ratio` now tightened to explicit `1.5x` on current
+      `paper_universal`
+    - explicit no-whitelist doctrine choice for the current taker lane
   - active use or partial Grok overlap does not grant those surfaces doctrine
     steel automatically
 - Packet 1 now carries a default-removal verdict on the inherited taker
@@ -1209,6 +1420,13 @@ Current strongest findings:
   - remaining `sniper.*` config names and helper aliases are bounded
     compatibility bridges
   - removal belongs to later clone-safe cleanup, not Packet 1 closure work
+- `VERIFIED`: the deeper build audit now adds a new taker operation-table
+  requirement set:
+  - one true taker decision owner
+  - one true lifecycle owner
+  - one true economic/spend model
+  - one true route/source/submit token contract
+  - one true decision-to-submit lineage preservation path
 
 Current lane status:
 - latest watched 10-minute current-tree specimen
@@ -1220,8 +1438,39 @@ Current lane status:
   - action-row source purity clean on both lanes
 - repaired nightly valuation truth now carries event-level degrade windows
   through current report truth instead of flattening them to `none`.
-- Packet 1 is now authorized to close `bounded-live-test ready` and hand the
-  next implementation lane to `Packet 2 Maker-Live`.
+- historical Packet 1 closeout is preserved as ancestry, but current Packet 1
+  is reopened and is not authorized to hand directly into wallet hookup
+  or pretend taker is already surgery-complete
+
+## Taker Operation Table Prep
+Operation-table objective:
+- rebuild taker around one true owner chain from decision to submit to
+  settlement to report truth
+
+Required surgery families:
+1. one true taker decision owner
+   - collapse split-brain law currently shared across executor orchestration and
+     competitiveness/runtime decision logic
+2. one true lifecycle owner
+   - stop copying lifecycle semantics through config normalization, executor
+     runtime, and competitiveness interpretation
+3. one true economic/spend model
+   - make taker target USD, share sizing, executable submit price, fill
+     notional, and settlement all speak one economic language
+4. one true route/source/submit token contract
+   - preserve source-token, submit-token, and complement-route truth without
+     orchestration glue silently changing what the shot means
+5. one true decision-to-submit lineage preservation path
+   - once a taker decision earns its lineage, submission/reporting must not
+     restamp it from weaker raw payload ancestry
+
+First-cut surgery law:
+- do not start by relaxing gates
+- do not start by retuning edge/whitelist/liquidity knobs again
+- do not start by arguing with report outputs before the runtime owner chain is
+  fixed
+- prove each owner collapse with watched runtime and raw artifact inspection,
+  not wrapper comfort
 
 ## Maker/Taker Independence Blocker Map
 - `VERIFIED`: current BRO runtime does **not** treat maker and taker as
@@ -1352,4 +1601,6 @@ Current pickup note:
 - active `pilot_live` pickup now belongs to:
   - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
   - `docs/BRO_PILOT_LIVE_TRUST_QUALIFICATION_PACKET_PROGRAM_2026-05-05.md`
-  - current Packet 2 maker owner boards
+  - this Packet 1 board sink as the taker reopen / operation-table owner
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md`

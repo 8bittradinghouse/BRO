@@ -64,7 +64,6 @@ REQUIRED_FIELDS = (
     "market_probability",
     "edge_value",
     "oracle_tick_age_sec",
-    "latency_state",
     EDGE_MAKER_PHASE_ALLOWED_FIELD,
     EDGE_TAKER_PHASE_ALLOWED_FIELD,
     EDGE_MAKER_GATE_OPEN_FIELD,
@@ -177,7 +176,6 @@ def _row_key(row: Dict[str, Any]) -> str:
         "market_probability": _safe_float(row.get("market_probability")),
         "edge_value": _safe_float(row.get("edge_value")),
         "oracle_tick_age_sec": _safe_float(row.get("oracle_tick_age_sec")),
-        "latency_state": str(row.get("latency_state") or "").strip().lower(),
         EDGE_MAKER_PHASE_ALLOWED_FIELD: row.get(EDGE_MAKER_PHASE_ALLOWED_FIELD),
         EDGE_TAKER_PHASE_ALLOWED_FIELD: row.get(EDGE_TAKER_PHASE_ALLOWED_FIELD),
         EDGE_MAKER_GATE_OPEN_FIELD: row.get(EDGE_MAKER_GATE_OPEN_FIELD),
@@ -344,10 +342,7 @@ def run_audit(
 
     cfg = load_execution_config(config_path.resolve())
     doctrine_cfg = cfg.get("doctrine", {}) if isinstance(cfg.get("doctrine"), dict) else {}
-    latency_cfg = cfg.get("latency_verifier", {}) if isinstance(cfg.get("latency_verifier"), dict) else {}
     oracle_max_tick_age_sec = float(doctrine_cfg.get("oracle_max_tick_age_sec", 1.5))
-    require_latency_for_maker = bool(latency_cfg.get("require_armed_for_maker", True))
-    require_latency_for_taker = bool(latency_cfg.get("require_armed_for_taker", True))
 
     all_rows: List[Dict[str, Any]] = []
     resolved_contract_path = ""
@@ -506,16 +501,10 @@ def run_audit(
                 market_probability=_safe_float(row.get("market_probability")),
                 time_remaining_sec=_safe_float(row.get("time_remaining_sec")),
                 oracle_tick_age_sec=_safe_float(row.get("oracle_tick_age_sec")),
-                latency_state=str(row.get("latency_state") or "").strip().lower() or None,
                 lifecycle_phase=lifecycle_phase or None,
                 evaluation_scope=scope,
             ),
             oracle_max_tick_age_sec=float(oracle_max_tick_age_sec),
-            require_latency_state=(
-                bool(require_latency_for_maker)
-                if scope == EDGE_EVAL_SCOPE_MAKER
-                else bool(require_latency_for_taker)
-            ),
         )
 
         block_reason = str(row.get("block_reason") or "").strip()
@@ -590,7 +579,6 @@ def run_audit(
                 "market_probability": _safe_float(row.get("market_probability")),
                 "edge_value": _safe_float(row.get("edge_value")),
                 "oracle_tick_age_sec": _safe_float(row.get("oracle_tick_age_sec")),
-                "latency_state": str(row.get("latency_state") or "").strip().lower() or None,
                 EDGE_MAKER_PHASE_ALLOWED_FIELD: (
                     bool(maker_phase_allowed) if isinstance(maker_phase_allowed, bool) else None
                 ),

@@ -21,7 +21,6 @@ class OperatingModeSnapshot:
     reason: str
     stale_reject_ratio: float
     outage_ratio: float
-    disarmed_ratio: float
     error_ratio: float
     sample_count: int
     risk_reject_count: int
@@ -43,8 +42,6 @@ class OperatingModeController:
         self.maker_only_min_risk_reject_count = max(1, int(cfg.get("maker_only_min_risk_reject_count", 8)))
         self.caution_outage_ratio = clamp(float(cfg.get("caution_outage_ratio", 0.20)), 0.0, 1.0)
         self.maker_only_outage_ratio = clamp(float(cfg.get("maker_only_outage_ratio", 0.40)), 0.0, 1.0)
-        self.caution_disarmed_ratio = clamp(float(cfg.get("caution_disarmed_ratio", 0.50)), 0.0, 1.0)
-        self.maker_only_disarmed_ratio = clamp(float(cfg.get("maker_only_disarmed_ratio", 0.75)), 0.0, 1.0)
         self.caution_error_ratio = clamp(float(cfg.get("caution_error_ratio", 0.10)), 0.0, 1.0)
         self.maker_only_error_ratio = clamp(float(cfg.get("maker_only_error_ratio", 0.25)), 0.0, 1.0)
         self.recover_healthy_cycles = max(1, int(cfg.get("recover_healthy_cycles", 30)))
@@ -68,7 +65,6 @@ class OperatingModeController:
             return {
                 "stale_reject_ratio": 0.0,
                 "outage_ratio": 0.0,
-                "disarmed_ratio": 0.0,
                 "error_ratio": 0.0,
                 "sample_count": 0.0,
             }
@@ -76,12 +72,10 @@ class OperatingModeController:
         stale_rejects = sum(row["stale_rejects"] for row in self._history)
         risk_rejects = max(1.0, sum(row["risk_rejects"] for row in self._history))
         outage_cycles = sum(row["outage_cycle"] for row in self._history)
-        disarmed_cycles = sum(row["disarmed_cycle"] for row in self._history)
         error_cycles = sum(row["error_cycle"] for row in self._history)
         return {
             "stale_reject_ratio": stale_rejects / risk_rejects,
             "outage_ratio": outage_cycles / samples,
-            "disarmed_ratio": disarmed_cycles / samples,
             "error_ratio": error_cycles / samples,
             "sample_count": samples,
         }
@@ -92,7 +86,6 @@ class OperatingModeController:
         risk_rejects: int,
         stale_rejects: int,
         outage_cycle: bool,
-        disarmed_cycle: bool,
         error_cycle: bool,
     ) -> OperatingModeSnapshot:
         previous = self._state
@@ -105,7 +98,6 @@ class OperatingModeController:
                 reason="disabled",
                 stale_reject_ratio=0.0,
                 outage_ratio=0.0,
-                disarmed_ratio=0.0,
                 error_ratio=0.0,
                 sample_count=0,
                 risk_reject_count=0,
@@ -117,7 +109,6 @@ class OperatingModeController:
                 "risk_rejects": float(max(0, int(risk_rejects))),
                 "stale_rejects": float(max(0, int(stale_rejects))),
                 "outage_cycle": 1.0 if outage_cycle else 0.0,
-                "disarmed_cycle": 1.0 if disarmed_cycle else 0.0,
                 "error_cycle": 1.0 if error_cycle else 0.0,
             }
         )
@@ -125,7 +116,6 @@ class OperatingModeController:
         metrics = self._snapshot_metrics()
         stale_ratio = metrics["stale_reject_ratio"]
         outage_ratio = metrics["outage_ratio"]
-        disarmed_ratio = metrics["disarmed_ratio"]
         error_ratio = metrics["error_ratio"]
         sample_count = int(metrics["sample_count"])
         risk_reject_count = int(sum(row["risk_rejects"] for row in self._history))
@@ -142,13 +132,11 @@ class OperatingModeController:
         severe = (
             (maker_only_stale_ratio_eligible and stale_ratio >= self.maker_only_stale_reject_ratio)
             or outage_ratio >= self.maker_only_outage_ratio
-            or disarmed_ratio >= self.maker_only_disarmed_ratio
             or error_ratio >= self.maker_only_error_ratio
         )
         moderate = (
             (caution_stale_ratio_eligible and stale_ratio >= self.caution_stale_reject_ratio)
             or outage_ratio >= self.caution_outage_ratio
-            or disarmed_ratio >= self.caution_disarmed_ratio
             or error_ratio >= self.caution_error_ratio
         )
         healthy = not moderate and not severe
@@ -193,7 +181,6 @@ class OperatingModeController:
             reason=reason,
             stale_reject_ratio=stale_ratio,
             outage_ratio=outage_ratio,
-            disarmed_ratio=disarmed_ratio,
             error_ratio=error_ratio,
             sample_count=sample_count,
             risk_reject_count=risk_reject_count,

@@ -14,7 +14,6 @@ class RampControllerTests(unittest.TestCase):
                 "evaluation_window_cycles": 2,
                 "downshift_reject_ratio": 0.5,
                 "downshift_stale_oracle_ratio": 0.5,
-                "downshift_disarmed_ratio": 0.5,
                 "downshift_reconcile_mismatch_ratio": 0.5,
                 "disable_taker_on_breach": True,
             },
@@ -23,14 +22,12 @@ class RampControllerTests(unittest.TestCase):
         snap_a = ctrl.observe_cycle(
             reject_ratio=0.0,
             stale_oracle_ratio=0.0,
-            disarmed_ratio=0.0,
             reconcile_mismatch_ratio=0.0,
         )
         self.assertFalse(snap_a.changed)
         snap_b = ctrl.observe_cycle(
             reject_ratio=0.0,
             stale_oracle_ratio=0.0,
-            disarmed_ratio=0.0,
             reconcile_mismatch_ratio=0.0,
         )
         self.assertTrue(snap_b.changed)
@@ -47,7 +44,6 @@ class RampControllerTests(unittest.TestCase):
                 "evaluation_window_cycles": 2,
                 "downshift_reject_ratio": 0.2,
                 "downshift_stale_oracle_ratio": 0.5,
-                "downshift_disarmed_ratio": 0.5,
                 "downshift_reconcile_mismatch_ratio": 0.5,
                 "disable_taker_on_breach": True,
             },
@@ -56,13 +52,11 @@ class RampControllerTests(unittest.TestCase):
         ctrl.observe_cycle(
             reject_ratio=1.0,
             stale_oracle_ratio=0.0,
-            disarmed_ratio=0.0,
             reconcile_mismatch_ratio=0.0,
         )
         snap = ctrl.observe_cycle(
             reject_ratio=1.0,
             stale_oracle_ratio=0.0,
-            disarmed_ratio=0.0,
             reconcile_mismatch_ratio=0.0,
         )
         self.assertEqual(snap.target_usd, 3.0)
@@ -79,7 +73,6 @@ class RampControllerTests(unittest.TestCase):
                 "evaluation_window_cycles": 1,
                 "downshift_reject_ratio": 0.1,
                 "downshift_stale_oracle_ratio": 0.1,
-                "downshift_disarmed_ratio": 0.1,
                 "downshift_reconcile_mismatch_ratio": 0.1,
                 "disable_taker_on_breach": True,
             },
@@ -88,7 +81,6 @@ class RampControllerTests(unittest.TestCase):
         snap = ctrl.observe_cycle(
             reject_ratio=1.0,
             stale_oracle_ratio=1.0,
-            disarmed_ratio=1.0,
             reconcile_mismatch_ratio=1.0,
         )
         self.assertEqual(snap.target_usd, 1.0)

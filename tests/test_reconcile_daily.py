@@ -28,8 +28,8 @@ class ReconcileDailyTests(unittest.TestCase):
 
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
-            cfg["simulation"]["maker_rebate_bps"] = 1.0
-            cfg["simulation"]["taker_fee_curve_rate"] = 0.1
+            cfg["simulation"]["fee_category_override"] = "economics"
+            cfg["simulation"]["fees_enabled_override"] = True
 
             report = build_reconciliation(
                 cfg=cfg,
@@ -47,8 +47,8 @@ class ReconcileDailyTests(unittest.TestCase):
             self.assertIn("decision_trace", report)
             self.assertEqual(report["bot_truth"]["orders_placed"], 2.0)
             self.assertEqual(report["bot_truth"]["fills"], 2.0)
-            self.assertGreater(report["bot_truth"]["fees_paid_taker_estimate"], 0.0)
-            self.assertGreater(report["bot_truth"]["maker_rebate_estimate"], 0.0)
+            self.assertAlmostEqual(report["bot_truth"]["fees_paid_taker_estimate"], 0.06, places=6)
+            self.assertAlmostEqual(report["bot_truth"]["maker_rebate_estimate"], 0.0, places=6)
 
 
 if __name__ == "__main__":

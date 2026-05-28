@@ -167,6 +167,15 @@ class SoakHardeningGateTests(unittest.TestCase):
             self.assertIn("lifecycle_context_mismatch_count", soak_report)
             self.assertIn("lifecycle_context_missing_sec_to_expiry_count", soak_report)
             self.assertIn("valuation_counter_limits", soak_report)
+            self.assertEqual(result["applicability"], "support_only_soak_hardening_policy")
+            self.assertFalse(bool(result["authoritative_for_runtime_blocker_truth"]))
+            self.assertFalse(bool(result["authoritative_for_execution_lane_blocker_truth"]))
+            self.assertEqual(
+                result["execution_lane_blocker_owner_artifact"],
+                "maker_blocker_ledger.json",
+            )
+            self.assertEqual(result["owner_boundary"], "reliability_policy_only")
+            self.assertEqual(result["blocker_truth_boundary"], "postrun_reliability_only")
 
     def test_soak_gate_uses_readiness_runtime_findings_as_required_stage_causes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1289,7 +1298,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "evaluation_scope": "maker",
                     "action_taken": "none",
-                    "block_reason": "token_lag_not_verified_for_maker",
+                    "block_reason": "maker_timing_gate_closed",
                 },
                 {
                     "run_id": run_id,
@@ -1325,7 +1334,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                                 "min_opportunity_rows": 1,
                                 "non_actionable_block_reasons": [
                                     "maker_no_submission",
-                                    "token_lag_not_verified_for_maker",
+                                    "maker_timing_gate_closed",
                                 ],
                             },
                         },
@@ -1430,7 +1439,7 @@ class SoakHardeningGateTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "evaluation_scope": "maker",
                     "action_taken": "none",
-                    "block_reason": "token_lag_not_verified_for_maker",
+                    "block_reason": "maker_timing_gate_closed",
                 },
                 {
                     "run_id": run_id,

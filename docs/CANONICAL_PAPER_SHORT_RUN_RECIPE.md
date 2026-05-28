@@ -122,7 +122,8 @@ Policy source for these thresholds:
   - `taker_policy`
 - Canonical interpretation:
   - maker expectancy is `not_modeled` (queue position is not explicitly modeled)
-  - taker expectancy is `not_modeled` while fills remain bounded by visible top-of-book liquidity
+  - taker expectancy is `not_modeled`, but current taker action truth is still bounded explicitly by visible aggressive-side top-of-book liquidity plus the emitted lag-penalty disclosures
+  - that means paper taker can prove fire law, sizing truth, and bounded visible-spend behavior, but it does **not** by itself prove full live slippage / queue realism
 
 ## Timestamp Domain Semantics
 - Event-time fields are domain-labeled:

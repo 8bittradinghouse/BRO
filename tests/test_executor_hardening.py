@@ -249,10 +249,7 @@ class ExecutorHardeningTests(unittest.TestCase):
         runner.token_expiry_dt_by_token = {}
         runner.taker_arming_horizon_sec = 600.0
         runner.taker_execution_cutoff_sec = 10.0
-        runner.taker_require_lag_verification = True
         runner.taker_allow_without_expiry_metadata = True
-        runner._lag_verified = lambda _token_id: True
-
         ctx = ExecutionRunner._taker_context(runner)
         self.assertTrue(ctx["active"])
         self.assertEqual(set(ctx["token_ids"]), {"t1", "t2"})
@@ -264,10 +261,7 @@ class ExecutorHardeningTests(unittest.TestCase):
         runner.token_expiry_dt_by_token = {}
         runner.taker_arming_horizon_sec = 600.0
         runner.taker_execution_cutoff_sec = 10.0
-        runner.taker_require_lag_verification = True
         runner.taker_allow_without_expiry_metadata = False
-        runner._lag_verified = lambda _token_id: True
-
         ctx = ExecutionRunner._taker_context(runner)
         self.assertFalse(ctx["active"])
         self.assertEqual(ctx["token_ids"], [])
@@ -278,10 +272,7 @@ class ExecutorHardeningTests(unittest.TestCase):
         runner.token_expiry_dt_by_token = {"t1": dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=5)}
         runner.taker_arming_horizon_sec = 600.0
         runner.taker_execution_cutoff_sec = 10.0
-        runner.taker_require_lag_verification = True
         runner.taker_allow_without_expiry_metadata = True
-        runner._lag_verified = lambda _token_id: True
-
         ctx = ExecutionRunner._taker_context(runner)
         self.assertTrue(ctx["active"])
         self.assertEqual(ctx["token_ids"], ["t1"])
@@ -295,10 +286,7 @@ class ExecutorHardeningTests(unittest.TestCase):
         }
         runner.taker_arming_horizon_sec = 600.0
         runner.taker_execution_cutoff_sec = 10.0
-        runner.taker_require_lag_verification = True
         runner.taker_allow_without_expiry_metadata = False
-        runner._lag_verified = lambda _token_id: True
-
         ctx = ExecutionRunner._taker_context(runner)
         self.assertTrue(ctx["active"])
         self.assertEqual(set(ctx["near_token_ids"]), {"t1", "t2"})
@@ -317,7 +305,7 @@ class ExecutorHardeningTests(unittest.TestCase):
             taker_phase_tokens={"live", "unverified"},
         )
 
-        self.assertEqual(token_ids, ["live", "unverified"])
+        self.assertEqual(token_ids, ["live"])
 
     def test_taker_window_token_ids_falls_back_to_active_tokens_when_near_missing(self):
         runner = ExecutionRunner.__new__(ExecutionRunner)

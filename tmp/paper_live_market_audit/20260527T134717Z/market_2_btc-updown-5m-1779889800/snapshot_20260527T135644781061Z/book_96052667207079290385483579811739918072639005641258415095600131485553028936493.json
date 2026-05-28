@@ -1,0 +1,5 @@
+{
+  "error": "{\"error\":\"No orderbook exists for the requested token id\"}\n",
+  "status_code": 404,
+  "token_id": "96052667207079290385483579811739918072639005641258415095600131485553028936493"
+}

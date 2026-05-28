@@ -11,7 +11,7 @@ from prodesk.taker_competitiveness import (
 
 
 class TakerCompetitivenessEngineTests(unittest.TestCase):
-    def test_blocks_outside_final_window(self) -> None:
+    def test_surfaces_outside_final_window_class_without_owning_block(self) -> None:
         tool = TakerCompetitivenessEngine(
             TakerCompetitivenessConfig(
                 enabled=True,
@@ -39,9 +39,10 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             max_orders_per_cycle=1,
         )
         decision = result.decisions[0]
-        self.assertFalse(bool(decision.should_submit))
-        self.assertEqual(str(decision.block_reason or ""), "taker_outside_final_window")
+        self.assertTrue(bool(decision.should_submit))
+        self.assertIsNone(decision.block_reason)
         self.assertEqual(str(decision.timing_window_class or ""), "outside_window")
+        self.assertEqual(str(decision.side or ""), "BUY")
 
     def test_blocks_when_hard_min_unachievable(self) -> None:
         tool = TakerCompetitivenessEngine(
@@ -143,11 +144,32 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
         decision = result.decisions[0]
         self.assertTrue(bool(decision.should_submit))
         self.assertEqual(str(decision.side or ""), "BUY")
-        self.assertEqual(str(decision.timing_window_class or ""), "final15")
-        self.assertEqual(str(decision.aggressiveness_level or ""), "final15")
+        self.assertEqual(str(decision.timing_window_class or ""), "final_window")
+        self.assertEqual(str(decision.aggressiveness_level or ""), "final_window")
         self.assertAlmostEqual(float(decision.price or 0.0), 0.50, places=9)
         self.assertAlmostEqual(float(decision.target_usd_resolved or 0.0), 250.0, places=9)
-        self.assertTrue(bool(decision.hard_min_floor_applied))
+
+    def test_rejects_retired_complement_route_key(self) -> None:
+        retired_key = "".join(("allow", "_complement", "_buy_route"))
+        with self.assertRaisesRegex(ValueError, "retired"):
+            TakerCompetitivenessConfig.from_mapping(
+                {
+                    "enabled": True,
+                    retired_key: True,
+                }
+            )
+
+    def test_policy_accepts_liquidity_multiple_above_one(self) -> None:
+        cfg = build_taker_competitiveness_policy(
+            {
+                "enabled": True,
+                "hard_min_target_usd": 5.0,
+                "dynamic_size_target_usd_cap": 5.0,
+                "min_visible_fill_ratio": 1.5,
+            },
+            strict=True,
+        )
+        self.assertAlmostEqual(float(cfg.min_visible_fill_ratio), 1.5, places=9)
 
     def test_budget_exhaustion_keeps_highest_conviction(self) -> None:
         tool = TakerCompetitivenessEngine(TakerCompetitivenessConfig(enabled=True))
@@ -466,7 +488,7 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
         self.assertGreaterEqual(float(decision.target_usd_resolved or 0.0), 100.0)
         self.assertFalse(bool(decision.hard_min_unachievable))
 
-    def test_negative_edge_blocks_same_token_sell_under_buy_expected_winner_policy(self) -> None:
+    def test_negative_edge_same_token_sell_is_left_to_executor_authority(self) -> None:
         tool = TakerCompetitivenessEngine(
             TakerCompetitivenessConfig.from_mapping(
                 {
@@ -497,10 +519,10 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             max_orders_per_cycle=1,
         )
         decision = result.decisions[0]
-        self.assertFalse(bool(decision.should_submit))
-        self.assertEqual(str(decision.block_reason or ""), "normal_taker_same_token_sell_forbidden")
+        self.assertTrue(bool(decision.should_submit))
+        self.assertIsNone(decision.block_reason)
         self.assertEqual(str(decision.side or ""), "SELL")
-        self.assertEqual(str(decision.normal_taker_side_class or ""), "same_token_sell_blocked")
+        self.assertEqual(str(decision.normal_taker_side_class or ""), "unknown")
         self.assertEqual(str(decision.normal_side_policy or ""), "buy_expected_winner_only")
 
     def test_canonical_engine_ignores_stage_window_and_aggressive_overlays(self) -> None:
@@ -536,8 +558,8 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
             max_orders_per_cycle=1,
         )
         decision = result.decisions[0]
-        self.assertFalse(bool(decision.should_submit))
-        self.assertEqual(str(decision.block_reason or ""), "taker_outside_final_window")
+        self.assertTrue(bool(decision.should_submit))
+        self.assertIsNone(decision.block_reason)
         self.assertEqual(str(decision.timing_window_class or ""), "outside_window")
 
     def test_canonical_engine_budget_ordering_ignores_token_score(self) -> None:
@@ -592,7 +614,11 @@ class TakerCompetitivenessEngineTests(unittest.TestCase):
         self.assertTrue(bool(decisions["tok-a"].should_submit))
         self.assertFalse(bool(decisions["tok-b"].should_submit))
         self.assertEqual(str(decisions["tok-b"].block_reason or ""), "taker_order_budget_exhausted")
-        self.assertGreater(float(decisions["tok-b"].conviction_score), float(decisions["tok-a"].conviction_score))
+        self.assertAlmostEqual(
+            float(decisions["tok-b"].conviction_score),
+            float(decisions["tok-a"].conviction_score),
+            places=9,
+        )
 
     def test_strict_policy_builder_rejects_noncanonical_stage_overlays(self) -> None:
         with self.assertRaisesRegex(

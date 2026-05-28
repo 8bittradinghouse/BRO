@@ -387,7 +387,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "order_submit_eligible": True,
                             "deployable_capital": 650.5,
                             "stable_balance_total": 650.5,
-                            "open_reserved": 0.0,
+                            "reservation_locked_usdc": 0.0,
+                            "position_liability_locked_usdc": 0.0,
+                            "locked_total_usdc": 0.0,
                             "protected_reserve": 0.0,
                         },
                     },
@@ -720,7 +722,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "order_submit_eligible": False,
                             "deployable_capital": 100.0,
                             "stable_balance_total": 100.0,
-                            "open_reserved": 5.0,
+                            "reservation_locked_usdc": 5.0,
+                            "position_liability_locked_usdc": 0.0,
+                            "locked_total_usdc": 5.0,
                             "protected_reserve": 10.0,
                         },
                     },
@@ -866,7 +870,9 @@ class BroMetricHarvestTests(unittest.TestCase):
                             "order_submit_eligible": True,
                             "deployable_capital": 200.0,
                             "stable_balance_total": 400.0,
-                            "open_reserved": 20.0,
+                            "reservation_locked_usdc": 20.0,
+                            "position_liability_locked_usdc": 0.0,
+                            "locked_total_usdc": 20.0,
                             "protected_reserve": 30.0,
                         },
                     },
@@ -963,24 +969,24 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(alpha["settlement_hold_required_count"], 12.0)
             self.assertEqual(alpha["open_order_cleanup_required_count"], 4.0)
             self.assertEqual(alpha["taker_final_window_decision_count"], 20)
-            self.assertEqual(alpha["maker_quote_quality_skip_total_count"], 0.0)
             self.assertEqual(alpha["maker_sizing_reject_total_count"], 0.0)
             self.assertEqual(alpha["maker_window_active_row_count"], 10.0)
             self.assertEqual(alpha["maker_window_submit_count"], 4.0)
-            self.assertEqual(alpha["maker_window_quote_quality_skip_total_count"], 3.0)
             self.assertEqual(alpha["maker_window_sizing_reject_count"], 1.0)
             self.assertAlmostEqual(alpha["maker_window_submit_rate"], 0.4)
             self.assertAlmostEqual(alpha["maker_window_replace_guard_rate"], 0.3)
-            self.assertAlmostEqual(alpha["maker_window_quote_quality_skip_rate"], 0.3)
             self.assertAlmostEqual(alpha["maker_window_sizing_reject_rate"], 0.1)
             self.assertAlmostEqual(alpha["maker_window_low_price_viability_floor"], 0.04375)
             self.assertEqual(alpha["maker_window_viable_row_count"], 8.0)
             self.assertEqual(alpha["maker_window_impossible_row_count"], 2.0)
             self.assertEqual(alpha["maker_min_notional_max_shares_conflict_rows"], 1.0)
-            self.assertEqual(alpha["maker_window_queue_depth_on_impossible_targets_count"], 1.0)
-            self.assertEqual(alpha["maker_raw_queue_depth_near_threshold_event_count"], 1.0)
             self.assertEqual(alpha["maker_window_viability_target_summary"][0]["target_ref"], "target-b")
-            self.assertEqual(alpha["maker_window_queue_depth_target_summary"][0]["target_ref"], "target-b")
+            self.assertNotIn("maker_quote_quality_skip_total_count", alpha)
+            self.assertNotIn("maker_window_quote_quality_skip_total_count", alpha)
+            self.assertNotIn("maker_window_quote_quality_skip_rate", alpha)
+            self.assertNotIn("maker_window_queue_depth_on_impossible_targets_count", alpha)
+            self.assertNotIn("maker_raw_queue_depth_near_threshold_event_count", alpha)
+            self.assertNotIn("maker_window_queue_depth_target_summary", alpha)
             self.assertEqual(alpha["maker_complete_record_count"], 3)
             self.assertEqual(alpha["maker_incomplete_record_count"], 1)
             self.assertAlmostEqual(alpha["maker_complete_bad_ratio"], 2.0 / 3.0)
@@ -1010,7 +1016,7 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(gamma["taker_outside_window_decision_count"], 1)
             self.assertEqual(gamma["taker_final_window_decision_ratio"], 0.5)
             self.assertEqual(gamma["market_data_ws_ratio"], 0.8)
-            self.assertEqual(gamma["wallet_reserved_ratio"], 0.05)
+            self.assertEqual(gamma["wallet_reservation_locked_ratio"], 0.05)
             self.assertEqual(gamma["maker_reference_missing_ratio"], 0.5)
             self.assertEqual(gamma["outcome_truth_attribution_usability_ratio"], 1.0)
 
@@ -1027,7 +1033,6 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(anomaly_summary["runtime_classification_counts"]["VALID_ACTIVE"], 2)
             self.assertEqual(anomaly_summary["wallet_authority_status_counts"]["authoritative"], 2)
             self.assertEqual(anomaly_summary["engineer_focus"]["run_scope"], "corpus")
-            self.assertEqual(anomaly_summary["engineer_focus"]["maker_quote_quality_skip_total_count"], 0.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["maker_window_active_row_count_total"], 10.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["maker_window_sizing_reject_count_total"], 1.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["maker_window_impossible_row_count_total"], 2.0)
@@ -1035,11 +1040,11 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertEqual(anomaly_summary["engineer_focus"]["settlement_hold_required_count_total"], 15.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["cancel_fail_closed_count_total"], 7.0)
             self.assertEqual(anomaly_summary["engineer_focus"]["valuation_bruise_open_run_count"], 1)
+            self.assertNotIn("maker_quote_quality_skip_total_count", anomaly_summary["engineer_focus"])
             self.assertIn("maker_truth_population_note", anomaly_summary)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_complete_record_count_total"], 5.0)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_window_active_row_count_total"], 10.0)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_window_submit_count_total"], 4.0)
-            self.assertEqual(anomaly_summary["maker_forensics"]["maker_window_quote_quality_skip_total_count"], 3.0)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_window_sizing_reject_count_total"], 1.0)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_window_impossible_row_count_total"], 2.0)
             self.assertEqual(
@@ -1050,10 +1055,10 @@ class BroMetricHarvestTests(unittest.TestCase):
                 anomaly_summary["maker_forensics"]["maker_window_submit_rate_summary"]["mean"],
                 0.4,
             )
-            self.assertEqual(
-                anomaly_summary["maker_forensics"]["maker_quote_quality_skip_fill_probability_severity_bins"]["within_0p005"],
-                1,
-            )
+            self.assertNotIn("maker_window_quote_quality_skip_total_count", anomaly_summary["maker_forensics"])
+            self.assertNotIn("maker_window_quote_quality_skip_rate_summary", anomaly_summary["maker_forensics"])
+            self.assertNotIn("maker_quote_quality_skip_fill_probability_severity_bins", anomaly_summary["maker_forensics"])
+            self.assertNotIn("maker_quote_quality_skip_queue_depth_severity_bins", anomaly_summary["maker_forensics"])
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_lifecycle_gap_class_counts"]["complete_multifill"], 3.0)
             self.assertEqual(anomaly_summary["maker_forensics"]["maker_reference_basis_summary"]["eval_reference_basis_distribution"]["edge_market_midpoint_series"], 7)
             self.assertEqual(anomaly_summary["aggregates"]["valuation_bruise_state_counts"]["recovered_clean"], 1)
@@ -1074,7 +1079,7 @@ class BroMetricHarvestTests(unittest.TestCase):
             self.assertIn("market_data_ws_ratio", summary_csv)
             self.assertIn("validation_status", summary_csv)
             self.assertIn("valuation_bruise_state", summary_csv)
-            self.assertIn("maker_quote_quality_skip_total_count", summary_csv)
+            self.assertNotIn("maker_quote_quality_skip_total_count", summary_csv)
             self.assertIn("maker_window_submit_rate", summary_csv)
             self.assertIn("maker_complete_bad_ratio", summary_csv)
             self.assertIn("maker_complement_pair_cluster_count", summary_csv)

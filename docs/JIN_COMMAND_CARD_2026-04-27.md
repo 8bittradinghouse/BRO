@@ -124,9 +124,21 @@ Current reminder boundary:
 - this section preserves macro continuity only
 - exact live packet truth, current micro-lane, and fresh blocker ownership must
   be re-anchored through the current BRO owners before acting
-- latest broad runtime anchor at the time of this bridge refresh is
+- current active macro lane is still `pilot_live` authority proof through the
+  maker/taker diagnosis-first override, with Packet 3 wallet hookup still
+  downstream and fail-closed
+- current maker phase has shifted from authority-slag excision into maker
+  product-fit / launch-engineering hardening
+- immediate re-entry question is no longer "is old maker semantics junk?"
+- immediate re-entry question is now "does BRO maker actually fit Polymarket
+  venue structure and behave like a coherent live machine across regimes?"
+- latest broad runtime anchor still preserved on current truth is
   `7bbde42c-003a-4f57-b59a-7ce138224075`
-- reverify that anchor through `docs/PROJECT_TRUTH_STATE.md` before acting
+- reverify all of that through:
+  - `docs/PROJECT_TRUTH_STATE.md`
+  - `docs/NEXT_PACKET_PLAN.md`
+  - `docs/OPEN_LIMITATIONS.md`
+  before acting
 
 Current pickup routing:
 - `JIN_COMMAND_CARD_2026-04-27.md` owns the continuity pickup bridge only
@@ -142,6 +154,14 @@ Current pickup routing:
   `live_canary`; this card may point to them but does not own them
 - generic weapon tuning is subordinate to observed live truth and does not own
   packet authority
+- immediate next evidence step when resuming:
+  - first protect continuity if the thread still feels thin or glitchy
+  - then run the hard end-to-end BRO financial math audit before any more lane
+    tuning
+  - use the watcher-era maker/taker evidence as battlefield truth during that
+    audit
+  - only return to market-fit/timing mutation after the money math is either
+    cleared or indicted
 - this card must not be used as a live packet snapshot
 
 ## One-Line Summary

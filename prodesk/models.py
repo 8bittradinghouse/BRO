@@ -71,10 +71,16 @@ class OrderIntent:
     decision_reference_ts_utc: Optional[str] = None
     token_median_lag_ms: Optional[float] = None
     oracle_tick_age_sec: Optional[float] = None
+    lifecycle_phase: Optional[str] = None
     submission_lane: Optional[str] = None
+    source_token_id: Optional[str] = None
+    submit_token_id: Optional[str] = None
+    normal_taker_side_class: Optional[str] = None
     commitment_hold_active: Optional[bool] = None
     commitment_hold_reason: Optional[str] = None
     commitment_expiry_ts_utc: Optional[str] = None
+    fee_category_hint: Optional[str] = None
+    fees_enabled_hint: Optional[bool] = None
 
 
 @dataclasses.dataclass
@@ -88,10 +94,17 @@ class LiveOrder:
     status: str
     client_order_id: Optional[str] = None
     created_ts_utc: Optional[str] = None
+    lifecycle_phase: Optional[str] = None
+    lineage_stage: Optional[str] = None
     submission_lane: Optional[str] = None
+    source_token_id: Optional[str] = None
+    submit_token_id: Optional[str] = None
+    normal_taker_side_class: Optional[str] = None
     commitment_hold_active: bool = False
     commitment_hold_reason: Optional[str] = None
     commitment_expiry_ts_utc: Optional[str] = None
+    fee_category_hint: Optional[str] = None
+    fees_enabled_hint: Optional[bool] = None
 
 
 @dataclasses.dataclass
@@ -107,7 +120,13 @@ class FillEvent:
     fill_policy_basis: Optional[str] = None
     execution_realism_class: Optional[str] = None
     decision_input_type: Optional[str] = None
+    lifecycle_phase: Optional[str] = None
+    lineage_stage: Optional[str] = None
     target_ref: Optional[str] = None
+    submission_lane: Optional[str] = None
+    source_token_id: Optional[str] = None
+    submit_token_id: Optional[str] = None
+    normal_taker_side_class: Optional[str] = None
     paper_liquidity_depth_multiplier: Optional[float] = None
     paper_queue_position_mode: Optional[str] = None
     paper_queue_fill_multiplier: Optional[float] = None
@@ -116,6 +135,17 @@ class FillEvent:
     paper_chainlink_lag_class: Optional[str] = None
     paper_chainlink_lag_sec_effective: Optional[float] = None
     paper_chainlink_lag_penalty_bps: Optional[float] = None
+    taker_fee_usd: float = 0.0
+    maker_rebate_usd: float = 0.0
+    slippage_cost_usd: float = 0.0
+    adverse_selection_cost_usd: float = 0.0
+    reference_midpoint: Optional[float] = None
+    reserved_capital_release_usd: Optional[float] = None
+    fee_authority_source: Optional[str] = None
+    fee_category: Optional[str] = None
+    fees_enabled: Optional[bool] = None
+    fee_authoritative: Optional[bool] = None
+    taker_fee_curve_rate: Optional[float] = None
 
 
 @dataclasses.dataclass
@@ -126,6 +156,10 @@ class Position:
     sell_shares: float = 0.0
     bought_notional: float = 0.0
     sold_notional: float = 0.0
+    taker_fee_usd: float = 0.0
+    maker_rebate_usd: float = 0.0
+    slippage_cost_usd: float = 0.0
+    adverse_selection_cost_usd: float = 0.0
 
     @property
     def avg_buy_price(self) -> Optional[float]:
@@ -138,6 +172,15 @@ class Position:
         if self.sell_shares <= 0:
             return None
         return self.sold_notional / self.sell_shares
+
+    @property
+    def net_economic_adjustment_usd(self) -> float:
+        from .money_math import canonical_net_cash_adjustment_usd
+
+        return canonical_net_cash_adjustment_usd(
+            maker_rebate_usd=self.maker_rebate_usd,
+            taker_fee_usd=self.taker_fee_usd,
+        )
 
 
 @dataclasses.dataclass

@@ -1,0 +1,56 @@
+{
+  "accepting_order_timestamp": "2026-05-26T11:01:52Z",
+  "accepting_orders": true,
+  "active": true,
+  "archived": false,
+  "closed": false,
+  "condition_id": "0x988dc68c660dc9b1b342f35b5ecc26f3f741dc2649d6ad3d2b8cfa1a795753ea",
+  "description": "This market will resolve to \"Up\" if the Bitcoin price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the BTC/USD data stream available at https://data.chain.link/streams/btc-usd.\nPlease note that this market is about the price according to Chainlink data stream BTC/USD, not according to other sources or spot markets.",
+  "enable_order_book": true,
+  "end_date_iso": "2026-05-27T00:00:00Z",
+  "fpmm": "",
+  "game_start_time": null,
+  "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/BTC+fullsize.png",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/BTC+fullsize.png",
+  "is_50_50_outcome": false,
+  "maker_base_fee": 1000,
+  "market_slug": "btc-updown-5m-1779879300",
+  "minimum_order_size": 5,
+  "minimum_tick_size": 0.01,
+  "neg_risk": false,
+  "neg_risk_market_id": "",
+  "neg_risk_request_id": "",
+  "notifications_enabled": true,
+  "question": "Bitcoin Up or Down - May 27, 6:55AM-7:00AM ET",
+  "question_id": "0xa02b221bfc6188f5c44bd79ae553ab619581d824c262d65a78baaf111dc80468",
+  "rewards": {
+    "max_spread": 4.5,
+    "min_size": 50,
+    "rates": null
+  },
+  "seconds_delay": 0,
+  "tags": [
+    "Crypto",
+    "Bitcoin",
+    "Crypto Prices",
+    "Recurring",
+    "Up or Down",
+    "Hide From New",
+    "5M"
+  ],
+  "taker_base_fee": 1000,
+  "tokens": [
+    {
+      "outcome": "Up",
+      "price": 0.505,
+      "token_id": "20465779256990703698086955688767254153678923131881439316416376078262008428284",
+      "winner": false
+    },
+    {
+      "outcome": "Down",
+      "price": 0.495,
+      "token_id": "12221378150195686299284436472847249534322071552925131980598941633885655528632",
+      "winner": false
+    }
+  ]
+}

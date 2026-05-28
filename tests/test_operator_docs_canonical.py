@@ -171,8 +171,8 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_project_truth_state_is_repo_truth_screen(self):
         text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
         self.assertIn("repo-level broad truth screen", text)
-        self.assertIn("It is not the active Packet 2 maker-local pickup owner.", text)
-        self.assertIn("Active Packet 2 maker-local pickup belongs to:", text)
+        self.assertIn("It is not the active packet-local pickup owner.", text)
+        self.assertIn("Active live-trust packet-local pickup belongs to:", text)
 
     def test_active_truth_and_pickup_docs_share_latest_runtime_anchor(self):
         project_truth = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
@@ -221,14 +221,14 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("`timing spine hardening`", text)
         self.assertIn("current next macro proof frontier is `pilot_live` authority proof", text)
         self.assertNotIn("stronger-than-paper authority completion", text)
-        self.assertNotIn("current next restoration lane is core fighter re-audit on clean", text)
+        self.assertNotIn("current next restoration lane is core system re-audit on clean", text)
 
-    def test_active_board_splits_completed_frame_restoration_from_open_whole_fighter_frontier(self):
+    def test_active_board_splits_completed_frame_restoration_from_open_full_system_frontier(self):
         audit_text = (REPO_ROOT / "docs" / "BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md").read_text(encoding="utf-8")
         truth_text = (REPO_ROOT / "docs" / "PROJECT_TRUTH_STATE.md").read_text(encoding="utf-8")
         self.assertIn("Core frame restoration:", audit_text)
         self.assertIn("Complete", audit_text)
-        self.assertIn("Whole fighter:", audit_text)
+        self.assertIn("Full system:", audit_text)
         self.assertIn("Needs Work", audit_text)
         self.assertIn("timing spine hardening is now closed on current proof", audit_text)
         self.assertIn("`pilot_live` authority proof", audit_text)
@@ -237,9 +237,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("recommended_next_stage=pilot_live", audit_text)
         self.assertNotIn("pilot-live gate failure", audit_text)
         self.assertNotIn("maker continuity issue that still reads like core-frame work", audit_text)
-        self.assertNotIn("whole-fighter closure remains subordinate to Bones clean release truth", audit_text)
+        self.assertNotIn("full-system closure remains subordinate to Bones clean release truth", audit_text)
         self.assertIn("Current G-frame restoration status: `complete`", truth_text)
-        self.assertIn("Current whole-fighter completion status: `still open`", truth_text)
+        self.assertIn("Current full-system completion status: `still open`", truth_text)
         self.assertIn("Latest completed post-restoration hardening lane: `timing spine hardening`", truth_text)
         self.assertIn("Current next proof frontier: `pilot_live` authority proof", truth_text)
         self.assertNotIn("stronger-than-paper authority completion for stronger claims", truth_text)
@@ -250,7 +250,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         packet1_text = (REPO_ROOT / "docs" / "BRO_GFRAME_PACKET_1_BONES_RELEASE_TRUTH_LOCK_2026-05-01.md").read_text(encoding="utf-8")
         self.assertIn("timing spine hardening", packet1_text)
         self.assertNotIn("stronger-than-paper authority completion for stronger claims", packet1_text)
-        self.assertNotIn("core fighter re-audit on clean current-code release anchor", packet1_text)
+        self.assertNotIn("core system re-audit on clean current-code release anchor", packet1_text)
 
         targets = [
             REPO_ROOT / "docs" / "BRO_GFRAME_PACKET_1_BONES_RELEASE_TRUTH_LOCK_2026-05-01.md",
@@ -262,9 +262,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         for path in targets:
             text = path.read_text(encoding="utf-8")
             self.assertNotIn(
-                "whole-fighter closure remains subordinate to Bones clean release truth",
+                "full-system closure remains subordinate to Bones clean release truth",
                 text,
-                msg=f"stale Bones whole-fighter blocker language still present in {path}",
+                msg=f"stale Bones full-system blocker language still present in {path}",
             )
             self.assertRegex(
                 text,
@@ -272,10 +272,10 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
                 msg=f"post-restoration frontier teaching missing from {path}",
             )
 
-    def test_open_limitations_uses_split_close_language_for_frame_and_whole_fighter(self):
+    def test_open_limitations_uses_split_close_language_for_frame_and_full_system(self):
         text = (REPO_ROOT / "docs" / "OPEN_LIMITATIONS.md").read_text(encoding="utf-8")
         self.assertIn("Current G-frame restoration status remains:", text)
-        self.assertIn("Current whole-fighter completion status remains:", text)
+        self.assertIn("Current full-system completion status remains:", text)
         self.assertIn("Latest completed post-restoration hardening lane remains:", text)
         self.assertIn("Current next proof frontier remains:", text)
         self.assertIn("`timing spine hardening`", text)
@@ -452,8 +452,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
                 text,
                 msg=f"maker doctrine proposal missing from doctrine authority doc {path}",
             )
-            self.assertIn("15s", text, msg=f"intended maker doctrine opening missing from {path}")
-            self.assertIn("7s", text, msg=f"intended taker handoff missing from {path}")
+            self.assertIn("8-12s", text, msg=f"current active maker/taker band missing from {path}")
 
     def test_commands_and_proofs_is_not_public_happy_path_surface(self):
         text = (REPO_ROOT / "docs" / "COMMANDS_AND_PROOFS.md").read_text(encoding="utf-8")
@@ -493,7 +492,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_edge_truth_runbook_is_measurement_only_and_defers_runtime_policy(self):
         text = (REPO_ROOT / "docs" / "EDGE_TRUTH_RUNBOOK.md").read_text(encoding="utf-8")
         self.assertIn("measurement/audit contract only", text)
-        self.assertIn("current BRO fighter-specific runtime/lifecycle authority lives in", text)
+        self.assertIn("current BRO runtime/lifecycle authority lives in", text)
         self.assertIn("`prepare`: maker no, taker no", text)
         self.assertIn("`maker_window`: maker yes, taker no", text)
         self.assertIn("`taker_window`: maker no, taker yes", text)
@@ -505,7 +504,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
     def test_gframe_program_keeps_board_ownership_with_audit(self):
         text = (REPO_ROOT / "docs" / "BRO_GFRAME_CORE_RESTORATION_PACKET_PROGRAM_2026-05-01.md").read_text(encoding="utf-8")
         self.assertIn(
-            "packet docs do not independently own the running whole-fighter board state",
+            "packet docs do not independently own the running full-system board state",
             text,
         )
         self.assertIn("docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md", text)
@@ -758,11 +757,24 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Stronger existing doctrine or validator surfaces must not be replaced", sink_text)
         self.assertIn("contradiction compression pass", sink_text)
         self.assertIn("negative-proof pass", sink_text)
-        self.assertIn("Current packet:", sink_text)
+        self.assertIn("current active implementation lane:", sink_text)
+        self.assertIn(
+            "current-code reclosed / taker pre-wallet GO earned / actual wallet hookup still Packet 3-gated",
+            sink_text,
+        )
+        self.assertIn(
+            "current for Packet 1 taker restoration carry-forward, Packet 3 downstream relock, and anti-drift routing discipline",
+            sink_text,
+        )
         self.assertIn("Packet 3 `Grip-Live / Wallet Live Trust Qualification`", sink_text)
-        self.assertIn("Packet 2 is already active", program_text)
-        self.assertIn("Packet 2 remains closeout-routed and no longer owns the active implementation body.", sink_text)
-        self.assertIn("Packet 3 is now the active implementation body.", sink_text)
+        self.assertIn(
+            "current Packet 1 owner truth has now been restored on current code through",
+            program_text,
+        )
+        self.assertIn("`Packet 2` remains important bounded ancestry / contrast truth", program_text)
+        self.assertIn("Packet 2 maker qualification remains bounded ancestry / contrast truth", sink_text)
+        self.assertIn("Packet 3 wallet live-truth qualification / approved-hookup prep", sink_text)
+        self.assertIn("dirty downstream body present / active next implementation lane", sink_text)
         self.assertNotIn("Packet 2 is next to open", program_text)
         self.assertNotIn("Next packet:\n- Packet 1 `Taker Live / Economic and Firing Trust Qualification`", sink_text)
 
@@ -815,14 +827,29 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("BRO_HANDOFF_20260405T051017Z_SNIPER_TAKER_PACKET_CLOSEOUT.md", packet_text)
 
         packet_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md"
+        surgery_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md"
+        hardening_rel = "docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md"
         self.assertIn(packet_rel, program_text)
         self.assertIn(packet_rel, sink_text)
         self.assertIn(packet_rel, truth_text)
         self.assertIn(packet_rel, next_plan_text)
+        self.assertIn(surgery_rel, program_text)
+        self.assertIn(surgery_rel, sink_text)
+        self.assertIn(surgery_rel, truth_text)
+        self.assertIn(surgery_rel, next_plan_text)
+        self.assertIn(hardening_rel, program_text)
+        self.assertIn(hardening_rel, sink_text)
+        self.assertIn(hardening_rel, truth_text)
+        self.assertIn(hardening_rel, next_plan_text)
 
-        self.assertIn("Current verdict:", packet_text)
-        self.assertIn("- `bounded-live-test ready`", packet_text)
-        self.assertIn("Packet 1 `Taker Live` now closes `bounded-live-test ready`", sink_text)
+        self.assertIn("Current reopen call:", packet_text)
+        self.assertIn("## 2026-05-22 Current-Code Restoration Verdict", packet_text)
+        self.assertIn("Packet 1 therefore earns a current-code taker pre-wallet `GO`", packet_text)
+        self.assertIn("actual wallet hookup remains downstream", packet_text)
+        self.assertIn("active patient is taker architecture / owner-law", packet_text)
+        self.assertIn("What the pre-restoration deeper build audit proved:", packet_text)
+        self.assertIn("before the current-code surgery closure", packet_text)
+        self.assertIn("Historical Packet 1 closeout snapshot", sink_text)
         self.assertIn("recovery/handoff owner classification is now explicitly keep-now dead power", sink_text)
         self.assertIn("keep-now explicit two-surface contract", packet_text)
         self.assertIn("current live late-window authority instead comes from the explicit runtime", packet_text)
@@ -840,7 +867,7 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("`final_window_enabled` / `final_window_sec`", sink_text)
         self.assertIn("`dynamic_preview_enabled`", sink_text)
         self.assertIn("EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md", sink_text)
-        self.assertIn("canonical top-level `taker.min_edge=0.11`", sink_text)
+        self.assertIn("canonical top-level `taker.min_edge=0.18`", sink_text)
         self.assertIn("raw `LINEAGE_ONLY_0_TO_20S` bucket is the current emitted late-window", sink_text)
         self.assertIn("no longer lets maker timing steal late", sink_text)
         self.assertIn("no longer lets legacy `execution_cutoff_sec` suppress", sink_text)
@@ -852,10 +879,14 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("Historical Packet 1 closeout handoff:", packet_text)
         self.assertIn("Current pickup note:", packet_text)
         self.assertIn("historical closeout truth only", packet_text)
+        self.assertIn("one true taker decision owner", packet_text)
+        self.assertIn("one true lifecycle owner", packet_text)
+        self.assertIn("one true economic/spend model", packet_text)
+        self.assertIn("one true route/source/submit token contract", packet_text)
+        self.assertIn("one true decision-to-submit lineage preservation path", packet_text)
         self.assertNotIn("`taker.min_edge_by_stage.EXTREME_ONLY`", packet_text)
         self.assertNotIn("canonical paper `required_min_edge=0.11`", packet_text)
 
-        self.assertNotIn("required_min_edge=0.18", packet_text)
         self.assertNotIn("legacy `sniper_taker_decision` remains", packet_text)
         self.assertNotIn("legacy bridge inputs `sniper.enabled` + `sniper.taker.enabled`", packet_text)
         self.assertNotIn("prodesk/sniper_tool.py", packet_text)
@@ -952,9 +983,9 @@ class OperatorDocsCanonicalTests(unittest.TestCase):
         self.assertIn("current third work = read-only Packet 3 wallet owner audit", packet_text)
         self.assertIn("cancel-only fail-close for open", packet_text)
         self.assertIn("`docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen", packet_text)
-        self.assertIn("maker gate opens at `15s`", sink_text)
-        self.assertIn("taker handoff opens at `7s`", sink_text)
-        self.assertIn("effective maker new-risk submit window remains `(7.0, 15.0]`", sink_text)
+        self.assertIn("maker gate band `8-12s`", sink_text)
+        self.assertIn("taker gate band `8-12s`", sink_text)
+        self.assertIn("effective maker new-risk submit window remains `[8.0, 12.0]`", sink_text)
         self.assertIn("optional later archaeology packet", sink_text)
         self.assertIn("compatibility archaeology + ignored dead-key support", sink_text)
         self.assertIn("current watched proof does **not** prove the self-heal caused those", next_plan_text)

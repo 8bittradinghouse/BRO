@@ -706,7 +706,9 @@ def _timing_watchboard(
     lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
     if not isinstance(lifecycle_phase_cfg, dict):
         lifecycle_phase_cfg = {}
-    maker_gate_min = _safe_float(lifecycle_phase_cfg.get("taker_window_open_sec"))
+    maker_gate_min = _safe_float(
+        lifecycle_phase_cfg.get("maker_window_close_sec", lifecycle_phase_cfg.get("taker_window_open_sec"))
+    )
     maker_gate_max = _safe_float(lifecycle_phase_cfg.get("maker_window_open_sec"))
     risk_global_min = _safe_float(risk_cfg.get("min_sec_to_expiry_for_new_exposure"))
     risk_maker_min = _safe_float(lane_thresholds.get("maker"))

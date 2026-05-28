@@ -7,7 +7,7 @@
   authority
 
 ## Authority Boundary
-- This file is BRO's downstream fighter-specific runtime/runbook policy surface.
+- This file is BRO's downstream runtime/runbook policy surface.
 - It is not spinal-cord doctrine.
 - Higher authority remains:
   - `BRO_CANONICAL_DOCTRINE.txt`
@@ -35,19 +35,36 @@
       itself
   - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
     - high-value external maker-lane doctrine proposal inside the market lifecycle blueprint
-    - intended maker-lane design target:
+    - historical maker-lane design anchor:
       - maker gate opens at `15s`
       - maker rides the owned market through the commitment window unless real
         safety / lifecycle law intervenes
     - not automatic proof and not runtime law by itself
   - `docs/TAKER_SWORD_DOCTRINE_PROPOSAL_2026-05-07.md`
     - high-value external taker-lane doctrine proposal inside the market lifecycle blueprint
-    - intended taker-lane design target:
+    - historical taker-lane design anchor:
       - taker gate opens at `7s`
       - taker fires only when its own gates are green inside the owned market
     - not automatic proof and not runtime law by itself
   - `docs/BRO_WEAPON_NOMENCLATURE.md`
     - mnemonic alias surface only
+
+Current active paper OG-tight alignment packet:
+- maker gate band is `8-12s`
+- taker gate band is `8-12s`
+- maker one-sided threshold is `0.20`, and maker is now fail-closed below that conviction floor on `maker_edge_below_min`
+- taker min edge floor is `0.20`
+- maker and taker depth gates are `1.5x`
+- maker stack cap is seated conservatively at `4` per token / `6` global
+- pinned and near-pinned market windows are now fail-closed for both lanes on
+  `window_geometry_hard_pinned` / `window_geometry_near_pinned`
+- hard regime filter is active on both lanes:
+  - `usa_europe_peak_heuristic`
+  - `asia_dominant_heuristic`
+- daily loss hard pause is active at `$280`
+- deliberate size exceptions remain active:
+  - maker `~$100`
+  - taker `$25`
 
 ## Single Semantic Language Law
 - BRO must run on one semantic language from doctrine through runtime through
@@ -81,7 +98,7 @@ Restoration rule:
 | Runtime transition | `previous_lifecycle_phase`, `previous_market_truth_required`, `transition_reason_code`, `transition_reason_detail`, `ownership_drop_reason`, `ownership_replacement_reason` | transition-domain truth only; not steady-state runtime classification |
 | Market truth / selection | `maker_phase_allowed`, `taker_phase_allowed`, `maker_gate_open`, `taker_gate_open`, `secondary_oracle_status`, `secondary_oracle_confirmation`, `market_reference_mode`, `market_reference_basis`, `market_reference_confidence`, `market_reference_fallback_used`, `market_reference_source_side`, `market_reference_class` | emitted lifecycle/lane-permission plus market-truth/reference semantics for the lane; not wallet authority |
 | Lifecycle / settlement residue | `open_order_cleanup_required`, `settlement_hold_required`, `unresolved_lifecycle_obligation`, `cancel_fail_closed` | emitted lifecycle residue / settlement / cancel semantics only; never late-window submit authority |
-| Quote / submit path | `block_reason`, `decision_block_reason`, `decision_result`, `action_taken`, `submitted`, `filled`, `result`, `evaluation_scope`, `financial_posture_class` | local emitted stop/action/submit semantics for the lane or submit path; not cross-system owner by themselves |
+| Quote / submit path | `block_reason`, `decision_block_reason`, `decision_result`, `action_taken`, `submitted`, `filled`, `result`, `evaluation_scope`, `financial_posture_class`, `maker_gate_stage`, `maker_gate_reason`, `maker_gate_owner_family`, `maker_gate_terminal` | local emitted stop/action/submit semantics for the lane or submit path; maker gate fields are the canonical ordered owner contract for maker rows |
 | Wallet/startup authority | `canonical_live_wallet_truth`, `local_tx_lifecycle_state`, `open_order_state`, `integrity_tripwire_reconcile_state`, `authority_status_class`, `startup_authority_ready`, `authoritative_refresh_completed`, `order_capable_live`, `order_submit_eligible`, `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`, `canonical_live_nonce_source`, `canonical_live_nonce_detail`, `canonical_live_pending_wallet_tx_source`, `canonical_live_pending_wallet_tx_detail`, `live_truth_gap_reasons` | wallet/startup-domain authority only; not edge validity or quote truth |
 | Decision lineage / provenance | `target_ref`, `source_target_ref`, `decision_input_source`, `decision_input_type`, `decision_input_emulated`, `decision_input_data_class` | lineage and decision-input provenance only; not authority class by themselves |
 | Paper realism / outcome truth | `execution_realism_class`, `claim_boundary_class`, `record_claim_boundary_class`, `outcome_truth_status` | paper-realism and outcome-layer classification only; not runtime actionability or market authority |
@@ -101,10 +118,74 @@ Required distinctions:
 - `financial_posture_class` is lifecycle/risk posture only; it is not `lifecycle_phase`
 - `submitted` is not `filled`
 - `result` stays reserved/null in the current edge-truth packet
+- `maker_gate_stage`, `maker_gate_reason`, `maker_gate_owner_family`, and
+  `maker_gate_terminal` are the canonical maker-row meaning contract when
+  present; downstream reports may summarize them but may not rename an earlier
+  maker owner
 - `execution_realism_class`, `claim_boundary_class`, and `outcome_truth_status`
   are paper/outcome-layer terms only
 - `target_ref` is decision lineage only
 - downstream `runtime_*` mirrors in reports are not runtime doctrine terms
+
+## Maker Ordered Gate Chain
+- Maker must resolve through one ordered command chain:
+  1. `phase_gate`
+  2. `truth_reference_gate`
+  3. `lane_readiness_gate`
+  4. `selection_gate`
+  5. `feasibility_gate`
+  6. `shared_safety_lifecycle_gate`
+  7. `quote_quality_gate`
+  8. `submit_path_gate`
+  9. `submitted`
+  10. `filled`
+- Exactly one earliest failing gate owns each lost maker opportunity.
+- Gate families are distinct on purpose:
+  - truth-thin rows must die in `truth_reference_gate`, not be called
+    "ready but blocked"
+  - lane-readiness rows may fail only after truth-reference is sufficient
+  - `secondary_oracle_not_confirmed` is a later maker `selection_gate` leaf,
+    not an upstream prereq/readiness boss
+  - geometry/sizing impossibility belongs to `feasibility_gate`, not
+    quote-quality noise
+  - maker queue-depth and fill-probability threshold leaves are no longer
+    active runtime law on the current path after Packet 2D
+  - if maker `quote_quality_gate` still speaks on the active path, it may only
+    do so through a stronger independent leaf such as `no_desired_quote`;
+    otherwise the gate is allowed to go quiet
+  - lifecycle residue leaves such as `settlement_hold_required`,
+    `open_order_cleanup_required`, `maker_commitment_hold_active`, and
+    `cancel_fail_closed` belong to `shared_safety_lifecycle_gate`
+- Runtime implementation rule:
+  - extend the existing maker runtime-first emitter path
+  - do not add a shadow primary maker event just to narrate the same decision
+
+## Maker Consumer Authority Fence
+- `maker_blocker_ledger.json` is the canonical consumer artifact for maker
+  runtime blocker truth.
+- It must preserve both:
+  - `whole_lane_runtime_blocker_truth`
+  - `later_stage_runtime_diagnostic_truth`
+- Top-level owner truth in that artifact belongs to
+  `whole_lane_runtime_blocker_truth`; selection-only diagnostics must stay
+  nested under `later_stage_runtime_diagnostic_truth` and may not re-seat a
+  competing top-level blocker story.
+- Support-only maker artifacts may summarize canonical gate truth, but they may
+  not own it:
+  - `maker_participation_waterfall.json`
+  - `maker_zero_submit_root_cause_audit.json`
+  - `maker_quote_integrity_summary.json`
+  - `readiness_gate.json`
+  - `soak_hardening_gate.json`
+- `readiness_gate.json` and `soak_hardening_gate.json` may speak posture,
+  readiness-class, reliability, and policy truth only. They may not claim
+  execution-lane blocker ownership.
+- The postrun gates must declare that fence explicitly in emitted JSON:
+  - `authoritative_for_runtime_blocker_truth=false`
+  - `authoritative_for_execution_lane_blocker_truth=false`
+  - `execution_lane_blocker_owner_artifact=maker_blocker_ledger.json`
+  - `owner_boundary=runtime_stage_promotion_only` for `readiness_gate.json`
+  - `owner_boundary=reliability_policy_only` for `soak_hardening_gate.json`
 
 Runtime-classification value vocabulary:
 - `lifecycle_phase`: `scan`, `prepare`, `maker_window`, `taker_window`, `resolve`
@@ -301,7 +382,7 @@ Runtime-classification value vocabulary:
   - enforced with `hard_min_enforcement=skip_if_unachievable`
   - infeasible floor emits `taker_hard_min_notional_unachievable` (no under-floor submit)
 - timing windows:
-  - `final_window_enabled/final_window_sec` controls the default final-window gate; canonical current lock is `7.0`
+  - `final_window_enabled/final_window_sec` controls the default final-window gate; canonical current active paper lock is `5.0`
   - top-level timing authority remains hard law; the runtime must not fake
     clock, receive, decision, submit, or report timing truth
   - bounded safe timing bands may exist around canonical gate edges only when
@@ -309,15 +390,26 @@ Runtime-classification value vocabulary:
   - lane-local files may not invent their own early/late grace windows
   - `stage_final_window_sec_by_stage` is reserved for explicit diagnostic/non-production investigations, not canonical live taker authority
   - a taker stage window must remain semantically live against the stage interval; dead-by-construction stage windows are doctrine violations
-  - `aggressive_window_enabled/aggressive_window_sec` must not silently broaden canonical live taker beyond the hard `<=7s` window
+  - `aggressive_window_enabled/aggressive_window_sec` must not silently broaden canonical live taker beyond the hard `8-12s` window
   - outside-window decision emits `taker_outside_final_window`
 - multi-oracle:
   - optional Pyth secondary oracle (`secondary_oracle.pyth`)
-  - confirmation/boost only when enabled + directional agreement + threshold + timing-window pass
-  - unknown secondary-oracle state is fail-closed for boost (no inferred confirmation)
-- canonical paper Packet 1 posture:
-  - taker shot geometry is temporarily detuned to a fixed configured `$20`
+  - on the current canonical taker lane, secondary-oracle confirmation is a hard submit prerequisite when enabled
+  - confirmation requires directional agreement between primary and secondary edge truth on the exact submit token
+  - unknown or mismatched secondary-oracle state is fail-closed for normal taker fire permission
+  - boost/cap surfaces may remain as bounded sizing/readback residue, but they must not outrank the hard fire prerequisite
+- liquidity:
+  - current canonical taker liquidity owner is `visible_fill_ratio >= 1.5`
+  - this is interpreted against the actual executable aggressive-side visible notional for the proposed taker shot
+  - the lane must fail closed before submit when the aggressive visible book cannot support at least `1.5x` the resolved taker target
+- canonical active paper posture:
+  - taker shot geometry is deliberately bounded to a fixed configured `$25`
     on the current paper packet
+  - the canonical hard taker commitment lane is the final `8-12s` band by
+    explicit doctrine choice
+  - hard regime filter is active in current doctrine/runtime posture:
+    `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
+  - daily loss hard pause is active at `$280`
   - dynamic-size and preview bridge knobs may remain parseable for compatibility, but they must not own canonical taker fireability, submit ranking, or target sizing
   - `conviction_score` may remain emitted for diagnosis, but weighted conviction housing is not canonical taker owner-law
 
@@ -325,7 +417,7 @@ Runtime-classification value vocabulary:
 - Normal taker sniper is a commitment trade, not an enter-then-exit trade:
   - the expected normal lifecycle is entry by taker, hold through market resolution, then settle by outcome truth
   - canonical operator intent is a terminal last-seconds sniper commitment with the configured taker shot size, not a taker lane that should create cleanup work for itself after accepted entry
-  - canonical normal-taker window is now hard `<=7s`; broader taker windows are diagnostic-only and are not canonical live doctrine
+  - canonical normal-taker window is now hard `8-12s`; broader or tighter taker windows are not canonical live doctrine
   - in paper/runtime, post-expiry settlement must use the first authoritative Chainlink tick whose `source_ts_utc` is at or after token expiry; later drifted ticks are not an acceptable substitute
   - settlement must flatten the binary position and realize `$1` for the winning token or `$0` for the losing token, rather than leaving expired inventory to decay through stale midpoint fallbacks
   - if authoritative post-expiry oracle truth is unavailable, runtime must fail closed and preserve the unresolved lifecycle explicitly instead of inventing settlement
@@ -340,14 +432,14 @@ Runtime-classification value vocabulary:
 - Normal taker side expression is live-parity constrained:
   - normal taker may only open exposure by buying the outcome token expected to resolve to `$1`
   - same-token normal taker `SELL` from flat or risk-increasing inventory is forbidden
-  - `SELL` is allowed only when it is pure reduce-only against an owned positive position, or when a separate live-compatible complement-token buy path is explicitly implemented and audited
+  - normal taker does not own a same-token `SELL` submit authority lane; any reduce-only liquidation remains lifecycle residue / recovery truth, not normal taker fire law
+  - complement-route expression is extinct in canonical current code; runtime must not remap to the opposite token as an alternate submit path
   - paper-only synthetic short behavior is not canonical live-compatible evidence
 - Negative edge on a token is not a license to same-token short:
-  - if the current token is overpriced, canonical expression is to buy the opposite/complementary outcome when token pairing and side mapping are authoritative
-  - if the complementary token cannot be identified with authoritative `YES/NO`, strike, expiry, and market pairing metadata, skip
-  - if the complementary book is unavailable, stale, one-sided in the required direction, or fails liquidity/price checks, skip
+  - if the direct-path edge is negative or would require same-token short semantics, skip
+  - runtime must not substitute a complementary-token route as an alternate expression path
 - Taker timing is intentionally narrow:
-  - normal taker should fire only inside the canonical `<=7s` taker commitment lane where oracle freshness and market-delay edge are strongest
+  - normal taker should fire only inside the canonical `8-12s` taker commitment lane where oracle freshness, confirmation quality, and market-delay edge are strongest
   - broader diagnostic taker windows may be used for paper investigation only and must be labeled as diagnostic, not production doctrine
   - `MAKER_TAKER_SELECTIVE` and `SNIPER_PRIMARY` taker activity are not canonical live authority
 - Entry requires expected-value discipline:
@@ -363,7 +455,7 @@ Runtime-classification value vocabulary:
   - lifecycle residue is a safety/state truth surface, not alpha and not a substitute for clean entry doctrine
 - Promotion rule:
   - no paper run is live-promotable if it contains normal taker same-token short-style entry, unrecovered meaningful held exposure, `pnl_degraded=true`, unrecovered hard-degraded valuation, or unresolved lifecycle obligation caused by normal taker entry
-  - clean taker proof requires accepted normal taker entries to be buy-side expected-winner or audited complement-token buys, with no unrecovered meaningful exposure at report close
+  - clean taker proof requires accepted normal taker entries to be buy-side expected-winner direct-path entries, with no unrecovered meaningful exposure at report close
 
 Required observability surfaces:
 - `taker_decision` event:
@@ -379,13 +471,12 @@ Required observability surfaces:
   - `taker_competitiveness.*` bucket distributions/counters
   - `taker_lineage_stage_net_breakout`
 - commitment-doctrine report surfaces:
-  - normal taker side-class distribution (`buy_expected_winner`, `same_token_sell_blocked`, `complement_buy`, `unknown`)
+  - normal taker side-class distribution (`buy_expected_winner`, `same_token_sell_blocked`, `unknown`)
   - normal taker same-token risk-increasing `SELL` count
-  - complement-token mapping authority/failure counts
   - unrecovered meaningful exposure caused by normal taker entry
   - lifecycle residue split between `open_order_cleanup_required`, `settlement_hold_required`, and unresolved residue
   - doctrine-breach counters for:
-    - taker submit outside hard `<=7s`
+    - taker submit outside hard `8-12s`
     - historical recovery/unwind lineage attempts observed in active artifacts
     - same-market lane-collision attempts while market ownership is still active
 
@@ -428,7 +519,7 @@ Required observability surfaces:
   - new risk-increasing submissions are rejected
   - management/exit submissions are allowed only when they reduce exposure without crossing through flat
 - New-exposure expiry gate is explicit and fail-closed:
-  - `risk.min_sec_to_expiry_for_new_exposure` (default `15.0`)
+  - current active paper profile lock is `risk.min_sec_to_expiry_for_new_exposure=10.0`
   - risk-increasing submissions are rejected when `sec_to_expiry <= threshold`
   - risk-increasing submissions are rejected when `sec_to_expiry` is missing/unknown
   - pure risk-reducing/flatten submissions remain admissible under this gate
@@ -552,9 +643,13 @@ Truth-domain naming is explicit and non-interchangeable:
 
 Required wallet status contract fields:
 - `gas_balance`, `gas_reserve_min`, `gas_ok`
-- `stable_balance_total`, `protected_reserve`, `open_reserved`, `deployable_capital`
+- `stable_balance_total`, `protected_reserve`, `deployable_capital`
+- `pending_lock_usdc`, `order_lock_usdc`, `reservation_locked_usdc`
+- `position_liability_locked_usdc`, `locked_total_usdc`
+- `provider_locked_usdc_semantics`
 - `approval_ok`, `approval_target_identity_verified`, `approval_spender_targets_matched`, `approval_spender_targets_required`
 - `nonce_ok`, `reconcile_ok`, `wallet_health_ok`, `wallet_health_reasons`
+- `reservation_mismatch_evaluable`, `reservation_mismatch_semantics`
 - `reservation_mismatch_candidate`, `reservation_mismatch_delta_usdc`, `reservation_mismatch_detail`
 - `authority_status_class`, `order_capable_live`, `order_submit_eligible`
 - `canonical_live_nonce_available`, `canonical_live_pending_wallet_tx_available`

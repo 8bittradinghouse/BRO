@@ -1,0 +1,13 @@
+{
+  "asks": [],
+  "asset_id": "90524541756580920350733314949848751892111275549953861074813578091409246449000",
+  "bids": [],
+  "hash": "b83037991b4888607cc5695bf7f3e11e499dec75",
+  "last_trade_price": "0.990",
+  "market": "0x1708e8034f14d695e8e408e713618cf22b4c4bf061f5396609a4dcbeb475dade",
+  "min_order_size": "5",
+  "neg_risk": false,
+  "status_code": 200,
+  "tick_size": "0.01",
+  "timestamp": "1779859896413"
+}

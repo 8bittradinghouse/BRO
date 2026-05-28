@@ -1,0 +1,56 @@
+{
+  "enable_order_book": true,
+  "active": true,
+  "closed": false,
+  "archived": false,
+  "accepting_orders": true,
+  "accepting_order_timestamp": "2026-05-26T02:06:48Z",
+  "minimum_order_size": 5,
+  "minimum_tick_size": 0.01,
+  "condition_id": "0x7ef8c0a8eeb5642e90c068e39f40c1d099b19af328f3e5f777da7e01ec20ea5b",
+  "question_id": "0x7efe8309c2ea87775139df211e2a397d9203e170566a767880e7047f0c844537",
+  "question": "Bitcoin Up or Down - May 26, 10:00PM-10:05PM ET",
+  "description": "This market will resolve to \"Up\" if the Bitcoin price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the BTC/USD data stream available at https://data.chain.link/streams/btc-usd.\nPlease note that this market is about the price according to Chainlink data stream BTC/USD, not according to other sources or spot markets.",
+  "market_slug": "btc-updown-5m-1779847200",
+  "end_date_iso": "2026-05-27T00:00:00Z",
+  "game_start_time": null,
+  "seconds_delay": 0,
+  "fpmm": "",
+  "maker_base_fee": 1000,
+  "taker_base_fee": 1000,
+  "notifications_enabled": true,
+  "neg_risk": false,
+  "neg_risk_market_id": "",
+  "neg_risk_request_id": "",
+  "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/BTC+fullsize.png",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/BTC+fullsize.png",
+  "rewards": {
+    "rates": null,
+    "min_size": 50,
+    "max_spread": 4.5
+  },
+  "is_50_50_outcome": false,
+  "tokens": [
+    {
+      "token_id": "85569676161988491573055477602612471707474425894438075446100917714487583913325",
+      "outcome": "Up",
+      "price": 0.515,
+      "winner": false
+    },
+    {
+      "token_id": "96487481290541590499352475512794480076322428343589384256719395953822150080797",
+      "outcome": "Down",
+      "price": 0.485,
+      "winner": false
+    }
+  ],
+  "tags": [
+    "Crypto",
+    "Bitcoin",
+    "Crypto Prices",
+    "Recurring",
+    "Up or Down",
+    "Hide From New",
+    "5M"
+  ]
+}

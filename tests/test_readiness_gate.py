@@ -81,6 +81,15 @@ class ReadinessGateTests(unittest.TestCase):
 
             self.assertEqual(result["highest_passing_stage"], "paper")
             self.assertEqual(result["recommended_next_stage"], "pilot")
+            self.assertEqual(result["applicability"], "support_only_postrun_readiness")
+            self.assertFalse(bool(result["authoritative_for_runtime_blocker_truth"]))
+            self.assertFalse(bool(result["authoritative_for_execution_lane_blocker_truth"]))
+            self.assertEqual(
+                result["execution_lane_blocker_owner_artifact"],
+                "maker_blocker_ledger.json",
+            )
+            self.assertEqual(result["owner_boundary"], "runtime_stage_promotion_only")
+            self.assertEqual(result["blocker_truth_boundary"], "postrun_stage_promotion_only")
 
     def test_kill_switch_events_can_fail_stage(self):
         with tempfile.TemporaryDirectory() as td:
@@ -420,6 +429,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "status_rows": 2,
                 "error_rows": 0,
                 "quote_uptime_ratio": 0.0487,
+                "quote_diagnostics": {"quote_uptime_applicable": True},
                 "reject_reason_distribution": {},
                 "execution_quality": {"capture_minus_adverse": 0.0},
                 "runtime_classification": {
@@ -469,6 +479,7 @@ class ReadinessGateTests(unittest.TestCase):
                 "status_rows": 2,
                 "error_rows": 0,
                 "quote_uptime_ratio": 0.0300,
+                "quote_diagnostics": {"quote_uptime_applicable": True},
                 "reject_reason_distribution": {},
                 "execution_quality": {"capture_minus_adverse": 0.0},
                 "runtime_classification": {

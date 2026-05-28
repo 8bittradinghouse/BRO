@@ -10,6 +10,11 @@ from typing import Any, Deque, Dict, List, Optional
 
 from .common import first_non_none, parse_float, parse_ts, utc_iso
 from .edge_truth_contract import is_taker_reason
+from .money_math import (
+    binary_order_capital_usd,
+    estimate_fill_economics,
+    resolve_fee_authority,
+)
 from .models import (
     BookTop,
     FillEvent,
@@ -164,8 +169,13 @@ class BaseGateway:
 
 
 class PaperGateway(BaseGateway):
-    def __init__(self, runtime_cfg: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        runtime_cfg: Optional[Dict[str, Any]] = None,
+        simulation_cfg: Optional[Dict[str, Any]] = None,
+    ) -> None:
         cfg = runtime_cfg or {}
+        sim_cfg = simulation_cfg or {}
         self._seq = 0
         self._trade_seq = 0
         self._trade_session = uuid.uuid4().hex[:12]
@@ -216,6 +226,45 @@ class PaperGateway(BaseGateway):
         self._paper_chainlink_lag_penalty_bps_above_window = max(
             0.0,
             float(cfg.get("paper_chainlink_lag_penalty_bps_above_window", 0.0)),
+        )
+        self._fee_category_override = (
+            str(sim_cfg.get("fee_category_override") or "").strip().lower() or None
+        )
+        fees_enabled_override = sim_cfg.get("fees_enabled_override")
+        self._fees_enabled_override = (
+            bool(fees_enabled_override)
+            if isinstance(fees_enabled_override, bool)
+            else None
+        )
+        self._taker_slippage_bps = max(0.0, float(sim_cfg.get("taker_slippage_bps", 2.0)))
+        self._adverse_selection_bps = max(0.0, float(sim_cfg.get("adverse_selection_bps", 1.0)))
+
+    def _fill_economics(
+        self,
+        *,
+        side: str,
+        price: float,
+        size: float,
+        is_taker: bool,
+        reference_midpoint: Optional[float],
+        fee_category_hint: Optional[str] = None,
+        fees_enabled_hint: Optional[bool] = None,
+    ):
+        fee_authority = resolve_fee_authority(
+            fee_category_hint=fee_category_hint,
+            fees_enabled_hint=fees_enabled_hint,
+            fee_category_override=self._fee_category_override,
+            fees_enabled_override=self._fees_enabled_override,
+        )
+        return estimate_fill_economics(
+            side=side,
+            price=price,
+            size_shares=size,
+            is_taker=is_taker,
+            reference_midpoint=reference_midpoint,
+            fee_authority=fee_authority,
+            taker_slippage_bps=self._taker_slippage_bps,
+            adverse_selection_bps=self._adverse_selection_bps,
         )
 
     @staticmethod
@@ -365,9 +414,44 @@ class PaperGateway(BaseGateway):
             status="OPEN",
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            fee_category_hint=(
+                str(intent.fee_category_hint).strip().lower()
+                if str(intent.fee_category_hint or "").strip()
+                else None
+            ),
+            fees_enabled_hint=(
+                bool(intent.fees_enabled_hint)
+                if isinstance(intent.fees_enabled_hint, bool)
+                else None
+            ),
+            lifecycle_phase=(
+                str(intent.lifecycle_phase).strip().lower()
+                if str(intent.lifecycle_phase or "").strip()
+                else None
+            ),
+            lineage_stage=(
+                str(intent.lineage_stage).strip().upper()
+                if str(intent.lineage_stage or "").strip()
+                else None
+            ),
             submission_lane=(
                 str(intent.submission_lane).strip().lower()
                 if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            source_token_id=(
+                str(intent.source_token_id).strip()
+                if str(intent.source_token_id or "").strip()
+                else None
+            ),
+            submit_token_id=(
+                str(intent.submit_token_id).strip()
+                if str(intent.submit_token_id or "").strip()
+                else None
+            ),
+            normal_taker_side_class=(
+                str(intent.normal_taker_side_class).strip()
+                if str(intent.normal_taker_side_class or "").strip()
                 else None
             ),
             commitment_hold_active=bool(intent.commitment_hold_active),
@@ -422,6 +506,15 @@ class PaperGateway(BaseGateway):
                     fill_price = float(top.best_ask_price)
                     if is_taker_lane and lag_penalty_bps > 0.0:
                         fill_price *= 1.0 + (lag_penalty_bps / 10000.0)
+                    fill_economics = self._fill_economics(
+                        side="BUY",
+                        price=float(fill_price),
+                        size=float(fill_size),
+                        is_taker=bool(is_taker_lane),
+                        reference_midpoint=top.midpoint,
+                        fee_category_hint=intent.fee_category_hint,
+                        fees_enabled_hint=intent.fees_enabled_hint,
+                    )
                     self._fill_queue.append(
                         FillEvent(
                             trade_id=self._next_trade_id(),
@@ -435,12 +528,55 @@ class PaperGateway(BaseGateway):
                             fill_policy_basis="visible_liquidity_top_of_book",
                             execution_realism_class="not_modeled",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
+                            lifecycle_phase=(
+                                str(intent.lifecycle_phase).strip().lower()
+                                if str(intent.lifecycle_phase or "").strip()
+                                else None
+                            ),
+                            lineage_stage=(
+                                str(intent.lineage_stage).strip().upper()
+                                if str(intent.lineage_stage or "").strip()
+                                else None
+                            ),
+                            submission_lane=(
+                                str(intent.submission_lane).strip().lower()
+                                if str(intent.submission_lane or "").strip()
+                                else None
+                            ),
+                            source_token_id=(
+                                str(intent.source_token_id).strip()
+                                if str(intent.source_token_id or "").strip()
+                                else None
+                            ),
+                            submit_token_id=(
+                                str(intent.submit_token_id).strip()
+                                if str(intent.submit_token_id or "").strip()
+                                else None
+                            ),
+                            normal_taker_side_class=(
+                                str(intent.normal_taker_side_class).strip()
+                                if str(intent.normal_taker_side_class or "").strip()
+                                else None
+                            ),
                             paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
                             paper_queue_position_mode="not_applicable",
                             paper_queue_fill_multiplier=1.0,
                             paper_chainlink_lag_class=lag_class,
                             paper_chainlink_lag_sec_effective=lag_sec_effective,
                             paper_chainlink_lag_penalty_bps=float(lag_penalty_bps),
+                            taker_fee_usd=float(fill_economics.taker_fee_usd),
+                            maker_rebate_usd=float(fill_economics.maker_rebate_usd),
+                            slippage_cost_usd=float(fill_economics.slippage_cost_usd),
+                            adverse_selection_cost_usd=float(fill_economics.adverse_selection_cost_usd),
+                            reference_midpoint=fill_economics.reference_midpoint,
+                            fee_authority_source=fill_economics.fee_authority_source,
+                            fee_category=fill_economics.fee_category,
+                            fees_enabled=fill_economics.fees_enabled,
+                            fee_authoritative=fill_economics.fee_authoritative,
+                            taker_fee_curve_rate=fill_economics.taker_fee_curve_rate,
+                            reserved_capital_release_usd=float(
+                                binary_order_capital_usd(side="BUY", price=float(intent.price), size_shares=float(fill_size))
+                            ),
                         )
                     )
             elif intent.side == "SELL" and top.best_bid_price is not None and intent.price <= top.best_bid_price:
@@ -454,6 +590,15 @@ class PaperGateway(BaseGateway):
                     fill_price = float(top.best_bid_price)
                     if is_taker_lane and lag_penalty_bps > 0.0:
                         fill_price *= 1.0 - (lag_penalty_bps / 10000.0)
+                    fill_economics = self._fill_economics(
+                        side="SELL",
+                        price=float(fill_price),
+                        size=float(fill_size),
+                        is_taker=bool(is_taker_lane),
+                        reference_midpoint=top.midpoint,
+                        fee_category_hint=intent.fee_category_hint,
+                        fees_enabled_hint=intent.fees_enabled_hint,
+                    )
                     self._fill_queue.append(
                         FillEvent(
                             trade_id=self._next_trade_id(),
@@ -467,12 +612,55 @@ class PaperGateway(BaseGateway):
                             fill_policy_basis="visible_liquidity_top_of_book",
                             execution_realism_class="not_modeled",
                             decision_input_type=self._decision_input_type_from_book_source(top.source),
+                            lifecycle_phase=(
+                                str(intent.lifecycle_phase).strip().lower()
+                                if str(intent.lifecycle_phase or "").strip()
+                                else None
+                            ),
+                            lineage_stage=(
+                                str(intent.lineage_stage).strip().upper()
+                                if str(intent.lineage_stage or "").strip()
+                                else None
+                            ),
+                            submission_lane=(
+                                str(intent.submission_lane).strip().lower()
+                                if str(intent.submission_lane or "").strip()
+                                else None
+                            ),
+                            source_token_id=(
+                                str(intent.source_token_id).strip()
+                                if str(intent.source_token_id or "").strip()
+                                else None
+                            ),
+                            submit_token_id=(
+                                str(intent.submit_token_id).strip()
+                                if str(intent.submit_token_id or "").strip()
+                                else None
+                            ),
+                            normal_taker_side_class=(
+                                str(intent.normal_taker_side_class).strip()
+                                if str(intent.normal_taker_side_class or "").strip()
+                                else None
+                            ),
                             paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
                             paper_queue_position_mode="not_applicable",
                             paper_queue_fill_multiplier=1.0,
                             paper_chainlink_lag_class=lag_class,
                             paper_chainlink_lag_sec_effective=lag_sec_effective,
                             paper_chainlink_lag_penalty_bps=float(lag_penalty_bps),
+                            taker_fee_usd=float(fill_economics.taker_fee_usd),
+                            maker_rebate_usd=float(fill_economics.maker_rebate_usd),
+                            slippage_cost_usd=float(fill_economics.slippage_cost_usd),
+                            adverse_selection_cost_usd=float(fill_economics.adverse_selection_cost_usd),
+                            reference_midpoint=fill_economics.reference_midpoint,
+                            fee_authority_source=fill_economics.fee_authority_source,
+                            fee_category=fill_economics.fee_category,
+                            fees_enabled=fill_economics.fees_enabled,
+                            fee_authoritative=fill_economics.fee_authoritative,
+                            taker_fee_curve_rate=fill_economics.taker_fee_curve_rate,
+                            reserved_capital_release_usd=float(
+                                binary_order_capital_usd(side="SELL", price=float(intent.price), size_shares=float(fill_size))
+                            ),
                         )
                     )
 
@@ -492,9 +680,44 @@ class PaperGateway(BaseGateway):
             status=status,
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            fee_category_hint=(
+                str(intent.fee_category_hint).strip().lower()
+                if str(intent.fee_category_hint or "").strip()
+                else None
+            ),
+            fees_enabled_hint=(
+                bool(intent.fees_enabled_hint)
+                if isinstance(intent.fees_enabled_hint, bool)
+                else None
+            ),
+            lifecycle_phase=(
+                str(intent.lifecycle_phase).strip().lower()
+                if str(intent.lifecycle_phase or "").strip()
+                else None
+            ),
+            lineage_stage=(
+                str(intent.lineage_stage).strip().upper()
+                if str(intent.lineage_stage or "").strip()
+                else None
+            ),
             submission_lane=(
                 str(intent.submission_lane).strip().lower()
                 if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            source_token_id=(
+                str(intent.source_token_id).strip()
+                if str(intent.source_token_id or "").strip()
+                else None
+            ),
+            submit_token_id=(
+                str(intent.submit_token_id).strip()
+                if str(intent.submit_token_id or "").strip()
+                else None
+            ),
+            normal_taker_side_class=(
+                str(intent.normal_taker_side_class).strip()
+                if str(intent.normal_taker_side_class or "").strip()
                 else None
             ),
             commitment_hold_active=bool(intent.commitment_hold_active),
@@ -556,12 +779,15 @@ class PaperGateway(BaseGateway):
             near_touched = False
             background_touched = False
             near_touch_factor = 0.0
+            # Resting maker orders execute at their posted limit price once
+            # marketable flow reaches them; they should not be repriced to a
+            # later same-side top snapshot.
             if order.side == "BUY" and top.best_ask_price is not None and order.price >= top.best_ask_price:
                 crossed = True
-                fill_price = top.best_ask_price
+                fill_price = float(order.price)
             if order.side == "SELL" and top.best_bid_price is not None and order.price <= top.best_bid_price:
                 crossed = True
-                fill_price = top.best_bid_price
+                fill_price = float(order.price)
             if not crossed and self._passive_touch_fill_enabled:
                 created_ts = parse_ts(order.created_ts_utc)
                 rest_sec = None
@@ -570,10 +796,10 @@ class PaperGateway(BaseGateway):
                 if rest_sec is None or rest_sec >= self._passive_min_rest_sec:
                     if order.side == "BUY" and top.best_bid_price is not None and order.price >= top.best_bid_price:
                         touched = True
-                        fill_price = min(order.price, float(top.best_bid_price))
+                        fill_price = float(order.price)
                     elif order.side == "SELL" and top.best_ask_price is not None and order.price <= top.best_ask_price:
                         touched = True
-                        fill_price = max(order.price, float(top.best_ask_price))
+                        fill_price = float(order.price)
                     elif self._passive_near_touch_band > 0:
                         if order.side == "BUY" and top.best_bid_price is not None and order.price < top.best_bid_price:
                             distance = float(top.best_bid_price) - float(order.price)
@@ -647,6 +873,15 @@ class PaperGateway(BaseGateway):
                 continue
             if fill_size <= 0:
                 continue
+            fill_economics = self._fill_economics(
+                side=order.side,
+                price=float(fill_price),
+                size=float(fill_size),
+                is_taker=False,
+                reference_midpoint=top.midpoint,
+                fee_category_hint=order.fee_category_hint,
+                fees_enabled_hint=order.fees_enabled_hint,
+            )
             if consume_bid_liquidity:
                 bid_liq = max(0.0, bid_liq - fill_size)
             else:
@@ -685,6 +920,36 @@ class PaperGateway(BaseGateway):
                     fill_policy_basis=fill_policy_basis,
                     execution_realism_class=execution_realism_class,
                     decision_input_type=self._decision_input_type_from_book_source(top.source),
+                    lifecycle_phase=(
+                        str(order.lifecycle_phase).strip().lower()
+                        if str(order.lifecycle_phase or "").strip()
+                        else None
+                    ),
+                    lineage_stage=(
+                        str(order.lineage_stage).strip().upper()
+                        if str(order.lineage_stage or "").strip()
+                        else None
+                    ),
+                    submission_lane=(
+                        str(order.submission_lane).strip().lower()
+                        if str(order.submission_lane or "").strip()
+                        else None
+                    ),
+                    source_token_id=(
+                        str(order.source_token_id).strip()
+                        if str(order.source_token_id or "").strip()
+                        else None
+                    ),
+                    submit_token_id=(
+                        str(order.submit_token_id).strip()
+                        if str(order.submit_token_id or "").strip()
+                        else None
+                    ),
+                    normal_taker_side_class=(
+                        str(order.normal_taker_side_class).strip()
+                        if str(order.normal_taker_side_class or "").strip()
+                        else None
+                    ),
                     paper_liquidity_depth_multiplier=float(liquidity_depth_multiplier),
                     paper_queue_position_mode=str(self._paper_queue_position_mode),
                     paper_queue_fill_multiplier=(
@@ -694,6 +959,19 @@ class PaperGateway(BaseGateway):
                     ),
                     paper_maker_depth_consumption_ratio=maker_depth_consumption_ratio,
                     paper_maker_eligible_depth=maker_eligible_depth,
+                    taker_fee_usd=float(fill_economics.taker_fee_usd),
+                    maker_rebate_usd=float(fill_economics.maker_rebate_usd),
+                    slippage_cost_usd=float(fill_economics.slippage_cost_usd),
+                    adverse_selection_cost_usd=float(fill_economics.adverse_selection_cost_usd),
+                    reference_midpoint=fill_economics.reference_midpoint,
+                    fee_authority_source=fill_economics.fee_authority_source,
+                    fee_category=fill_economics.fee_category,
+                    fees_enabled=fill_economics.fees_enabled,
+                    fee_authoritative=fill_economics.fee_authoritative,
+                    taker_fee_curve_rate=fill_economics.taker_fee_curve_rate,
+                    reserved_capital_release_usd=float(
+                        binary_order_capital_usd(side=order.side, price=float(order.price), size_shares=float(fill_size))
+                    ),
                 )
             )
 
@@ -942,9 +1220,44 @@ class LiveClobGateway(BaseGateway):
             status=str(first_non_none(response.get("status"), "OPEN")),
             client_order_id=client_order_id,
             created_ts_utc=utc_iso(),
+            fee_category_hint=(
+                str(intent.fee_category_hint).strip().lower()
+                if str(intent.fee_category_hint or "").strip()
+                else None
+            ),
+            fees_enabled_hint=(
+                bool(intent.fees_enabled_hint)
+                if isinstance(intent.fees_enabled_hint, bool)
+                else None
+            ),
+            lifecycle_phase=(
+                str(intent.lifecycle_phase).strip().lower()
+                if str(intent.lifecycle_phase or "").strip()
+                else None
+            ),
+            lineage_stage=(
+                str(intent.lineage_stage).strip().upper()
+                if str(intent.lineage_stage or "").strip()
+                else None
+            ),
             submission_lane=(
                 str(intent.submission_lane).strip().lower()
                 if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            source_token_id=(
+                str(intent.source_token_id).strip()
+                if str(intent.source_token_id or "").strip()
+                else None
+            ),
+            submit_token_id=(
+                str(intent.submit_token_id).strip()
+                if str(intent.submit_token_id or "").strip()
+                else None
+            ),
+            normal_taker_side_class=(
+                str(intent.normal_taker_side_class).strip()
+                if str(intent.normal_taker_side_class or "").strip()
                 else None
             ),
             commitment_hold_active=bool(intent.commitment_hold_active),
@@ -1109,6 +1422,24 @@ class LiveClobGateway(BaseGateway):
                     ts_utc=ts,
                     order_id=str(first_non_none(row.get("order_id"), row.get("maker_order_id"), "")) or None,
                     source="live",
+                    lifecycle_phase=(
+                        str(first_non_none(row.get("lifecycle_phase"), row.get("phase"), "")).strip().lower() or None
+                    ),
+                    lineage_stage=(
+                        str(first_non_none(row.get("lineage_stage"), "")).strip().upper() or None
+                    ),
+                    submission_lane=(
+                        str(first_non_none(row.get("submission_lane"), "")).strip().lower() or None
+                    ),
+                    source_token_id=(
+                        str(first_non_none(row.get("source_token_id"), "")).strip() or None
+                    ),
+                    submit_token_id=(
+                        str(first_non_none(row.get("submit_token_id"), "")).strip() or None
+                    ),
+                    normal_taker_side_class=(
+                        str(first_non_none(row.get("normal_taker_side_class"), "")).strip() or None
+                    ),
                 )
             )
             self._remember_trade_id(trade_id)

@@ -8,7 +8,11 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from ..common import first_non_none, parse_float, utc_iso
 from ..gateway import BaseGateway, GatewayError, LiveClobGateway
-from ..models import FillEvent, OrderIntent
+from ..models import FillEvent, OrderIntent, Position
+from ..money_math import (
+    binary_order_capital_usd,
+    binary_short_position_liability_usd,
+)
 from .wallet_config import load_wallet_config
 from .wallet_health import build_wallet_health_contract
 from .wallet_provider import GatewayLiveWalletTruthSource
@@ -100,6 +104,7 @@ class WalletDoctrineBase(ABC):
         self._halted = False
         self._halt_reason = ""
         self._reservations = WalletReservations()
+        self._positions: Dict[str, Position] = {}
         self._net_usdc_outflow = 0.0
         now = utc_iso()
         self._wallet_snapshot = WalletSnapshot(
@@ -108,6 +113,7 @@ class WalletDoctrineBase(ABC):
             pol_balance=0.0,
             usdc_balance=0.0,
             locked_usdc=0.0,
+            provider_locked_usdc_semantics="unknown",
             protected_reserve_usdc=self._protected_reserve_usdc,
             deployable_usdc=0.0,
             ts_utc=now,
@@ -192,6 +198,8 @@ class WalletDoctrineBase(ABC):
         self._reservation_mismatch_candidate = False
         self._reservation_mismatch_delta_usdc = 0.0
         self._reservation_mismatch_detail = ""
+        self._reservation_mismatch_evaluable = False
+        self._reservation_mismatch_semantics = "unknown"
         self._last_emitted_reservation_mismatch_delta_usdc = 0.0
         self._event_emit_failure_count = 0
         self._event_emit_last_error = ""
@@ -293,13 +301,36 @@ class WalletDoctrineBase(ABC):
             return
 
     def _evaluate_reservation_mismatch(self, *, context: str) -> None:
-        canonical_locked = float(self._locked_usdc_total())
-        exposed_locked = float(getattr(self._wallet_snapshot, "locked_usdc", 0.0) or 0.0)
+        canonical_locked = float(self._reservation_locked_usdc())
+        provider_locked_semantics = (
+            str(getattr(self._wallet_snapshot, "provider_locked_usdc_semantics", "unknown") or "unknown").strip().lower()
+            or "unknown"
+        )
+        raw_provider_locked = float(getattr(self._wallet_snapshot, "locked_usdc", 0.0) or 0.0)
+        if provider_locked_semantics == "reservation_only":
+            exposed_locked = float(max(0.0, raw_provider_locked))
+        elif provider_locked_semantics == "reservation_plus_position_liability":
+            exposed_locked = float(
+                max(0.0, raw_provider_locked - float(self._position_liability_locked_usdc()))
+            )
+        else:
+            self._reservation_mismatch_candidate = False
+            self._reservation_mismatch_delta_usdc = 0.0
+            self._reservation_mismatch_evaluable = False
+            self._reservation_mismatch_semantics = provider_locked_semantics
+            self._reservation_mismatch_detail = (
+                "reservation_mismatch_unevaluable:"
+                f"provider_locked_usdc_semantics={provider_locked_semantics}"
+            )
+            return
         delta = float(exposed_locked - canonical_locked)
         mismatch = bool(abs(delta) > self._reservation_mismatch_tolerance_usdc)
         self._reservation_mismatch_candidate = mismatch
         self._reservation_mismatch_delta_usdc = delta
+        self._reservation_mismatch_evaluable = True
+        self._reservation_mismatch_semantics = provider_locked_semantics
         self._reservation_mismatch_detail = (
+            f"provider_locked_usdc_semantics={provider_locked_semantics}:"
             f"exposed_locked_usdc={exposed_locked:.9f}:canonical_locked_usdc={canonical_locked:.9f}:"
             f"delta={delta:.9f}:tolerance={self._reservation_mismatch_tolerance_usdc:.9f}"
         )
@@ -316,6 +347,8 @@ class WalletDoctrineBase(ABC):
                     "ts_utc": utc_iso(),
                     "context": str(context or "unknown"),
                     "defect_candidate": True,
+                    "reservation_mismatch_evaluable": True,
+                    "reservation_mismatch_semantics": provider_locked_semantics,
                     "exposed_locked_usdc": float(exposed_locked),
                     "canonical_locked_usdc": float(canonical_locked),
                     "mismatch_delta_usdc": float(delta),
@@ -330,7 +363,7 @@ class WalletDoctrineBase(ABC):
         self._last_reconcile_ts_mono = time.monotonic()
         self._wallet_snapshot = dataclasses.replace(
             self._wallet_snapshot,
-            locked_usdc=self._locked_usdc_total(),
+            locked_usdc=self._total_locked_usdc(),
             protected_reserve_usdc=self._protected_reserve_usdc,
             deployable_usdc=self._deployable_usdc(),
         )
@@ -426,6 +459,13 @@ class WalletDoctrineBase(ABC):
 
     def status(self) -> Dict[str, Any]:
         reserve_snapshot = self._reservations.snapshot()
+        reservation_locked_usdc = float(reserve_snapshot["locked_usdc"])
+        position_liability_locked_usdc = self._position_liability_locked_usdc()
+        total_locked_usdc = float(reservation_locked_usdc + position_liability_locked_usdc)
+        provider_locked_usdc_semantics = (
+            str(getattr(self._wallet_snapshot, "provider_locked_usdc_semantics", "unknown") or "unknown").strip().lower()
+            or "unknown"
+        )
         canonical_live_wallet_truth = {
             "wallet_snapshot": dataclasses.asdict(self._wallet_snapshot),
             "allowance_snapshot": dataclasses.asdict(self._allowance_snapshot),
@@ -456,7 +496,12 @@ class WalletDoctrineBase(ABC):
             "authoritative_refresh_completed": bool(self._authoritative_refresh_completed),
             "pending_lock_usdc": reserve_snapshot["pending_lock_usdc"],
             "order_lock_usdc": reserve_snapshot["order_lock_usdc"],
-            "locked_usdc": reserve_snapshot["locked_usdc"],
+            "reservation_locked_usdc": float(reservation_locked_usdc),
+            "position_liability_locked_usdc": float(position_liability_locked_usdc),
+            "locked_total_usdc": float(total_locked_usdc),
+            "provider_locked_usdc_semantics": provider_locked_usdc_semantics,
+            "reservation_mismatch_evaluable": bool(self._reservation_mismatch_evaluable),
+            "reservation_mismatch_semantics": str(self._reservation_mismatch_semantics),
             "reservation_mismatch_candidate": bool(self._reservation_mismatch_candidate),
             "reservation_mismatch_delta_usdc": float(self._reservation_mismatch_delta_usdc),
             "reservation_mismatch_detail": str(self._reservation_mismatch_detail),
@@ -645,8 +690,8 @@ class WalletDoctrineBase(ABC):
         global_exposure_guard = dict(guardian_order_law_state.get("global_exposure_guard") or {})
         if bool(global_exposure_guard.get("enabled", False)) and not bool(global_exposure_guard.get("within_cap", True)):
             detail = (
-                "projected_global_notional="
-                + f"{float(global_exposure_guard.get('projected_total_notional', 0.0) or 0.0):.2f},"
+                "projected_global_capital="
+                + f"{float(global_exposure_guard.get('projected_total_capital_usd', 0.0) or 0.0):.2f},"
                 + "effective_global_cap="
                 + f"{float(global_exposure_guard.get('effective_cap_usd', 0.0) or 0.0):.2f}"
             )
@@ -694,7 +739,11 @@ class WalletDoctrineBase(ABC):
                 detail=f"size={requested_size:.9f}:price={price:.9f}",
             )
 
-        requested_notional = requested_size * price
+        requested_notional = binary_order_capital_usd(
+            side=str(intent.side or "").strip().upper(),
+            price=price,
+            size_shares=requested_size,
+        )
         deployable = self._deployable_usdc()
         if deployable <= self._reconcile_tolerance_usdc:
             return WalletAuthorization(
@@ -791,8 +840,12 @@ class WalletDoctrineBase(ABC):
                     halt=bool(self.mode == "live"),
                 )
 
-        approved_size = approved_notional / price if price > 0 else 0.0
-        approved_size_tolerance = self._reconcile_tolerance_usdc / price if price > 0 else self._reconcile_tolerance_usdc
+        if str(intent.side or "").strip().upper() == "SELL":
+            approved_size = approved_notional
+            approved_size_tolerance = self._reconcile_tolerance_usdc
+        else:
+            approved_size = approved_notional / price if price > 0 else 0.0
+            approved_size_tolerance = self._reconcile_tolerance_usdc / price if price > 0 else self._reconcile_tolerance_usdc
         if approved_size <= approved_size_tolerance:
             return WalletAuthorization(
                 allowed=False,
@@ -802,7 +855,11 @@ class WalletDoctrineBase(ABC):
                 detail=f"approved_notional={approved_notional:.6f}",
             )
 
-        lock_notional = approved_size * price
+        lock_notional = binary_order_capital_usd(
+            side=str(intent.side or "").strip().upper(),
+            price=price,
+            size_shares=approved_size,
+        )
         lock_id = self._reservations.create_pending(lock_notional)
         self._emit(
             "wallet_reservation_created",
@@ -894,14 +951,33 @@ class WalletDoctrineBase(ABC):
     def on_fill(self, fill: FillEvent) -> None:
         notional = abs(float(fill.price) * float(fill.size))
         side = str(fill.side or "").strip().upper()
+        pos = self._positions.setdefault(str(fill.token_id or "").strip(), Position(token_id=str(fill.token_id or "").strip()))
         if side == "BUY":
             self._net_usdc_outflow += notional
+            pos.net_shares += float(fill.size)
+            pos.buy_shares += float(fill.size)
+            pos.bought_notional += notional
         elif side == "SELL":
             self._net_usdc_outflow -= notional
+            pos.net_shares -= float(fill.size)
+            pos.sell_shares += float(fill.size)
+            pos.sold_notional += notional
+        self._net_usdc_outflow += max(0.0, float(fill.taker_fee_usd or 0.0))
+        self._net_usdc_outflow -= max(0.0, float(fill.maker_rebate_usd or 0.0))
+        pos.taker_fee_usd += max(0.0, float(fill.taker_fee_usd or 0.0))
+        pos.maker_rebate_usd += max(0.0, float(fill.maker_rebate_usd or 0.0))
+        pos.slippage_cost_usd += max(0.0, float(fill.slippage_cost_usd or 0.0))
+        pos.adverse_selection_cost_usd += max(0.0, float(fill.adverse_selection_cost_usd or 0.0))
+        if abs(float(pos.net_shares)) <= 1e-9:
+            pos.net_shares = 0.0
 
         self._reservations.settle_fill(
             order_id=(str(fill.order_id or "").strip() or None),
-            notional_usd=notional,
+            notional_usd=(
+                max(0.0, float(fill.reserved_capital_release_usd))
+                if isinstance(fill.reserved_capital_release_usd, (int, float))
+                else binary_order_capital_usd(side=side, price=float(fill.price), size_shares=float(fill.size))
+            ),
             tolerance=self._reconcile_tolerance_usdc,
         )
         self.reconcile(pre_execution=False)
@@ -1145,20 +1221,35 @@ class WalletDoctrineBase(ABC):
         size_shares: float,
         settlement_price: float,
         ts_utc: Optional[str] = None,
+        target_ref: Optional[str] = None,
+        market_key: Optional[str] = None,
+        token_side: Optional[str] = None,
     ) -> Dict[str, Any]:
         token = str(token_id or "").strip()
         side = str(settlement_side or "").strip().upper()
         size = max(0.0, float(size_shares))
         price = max(0.0, min(1.0, float(settlement_price)))
         notional = float(size * price)
+        pos = self._positions.setdefault(token, Position(token_id=token))
         if side == "BUY":
             self._net_usdc_outflow += notional
+            pos.net_shares += size
+            pos.buy_shares += size
+            pos.bought_notional += notional
         elif side == "SELL":
             self._net_usdc_outflow -= notional
+            pos.net_shares -= size
+            pos.sell_shares += size
+            pos.sold_notional += notional
+        if abs(float(pos.net_shares)) <= 1e-9:
+            pos.net_shares = 0.0
         self.reconcile(pre_execution=False)
         payload = {
             "ts_utc": str(ts_utc or utc_iso()),
             "token_id": token,
+            "target_ref": str(target_ref or "").strip(),
+            "market_key": str(market_key or "").strip(),
+            "token_side": str(token_side or "").strip(),
             "settlement_side": side,
             "settlement_size_shares": float(size),
             "settlement_price": float(price),
@@ -1168,11 +1259,23 @@ class WalletDoctrineBase(ABC):
         return payload
 
     def _locked_usdc_total(self) -> float:
+        return self._total_locked_usdc()
+
+    def _reservation_locked_usdc(self) -> float:
         return float(self._reservations.locked_total())
+
+    def _position_liability_locked_usdc(self) -> float:
+        total = 0.0
+        for pos in self._positions.values():
+            total += binary_short_position_liability_usd(net_shares=float(getattr(pos, "net_shares", 0.0) or 0.0))
+        return float(total)
+
+    def _total_locked_usdc(self) -> float:
+        return float(self._reservation_locked_usdc() + self._position_liability_locked_usdc())
 
     def _deployable_usdc(self) -> float:
         free = max(0.0, float(self._wallet_snapshot.usdc_balance) - float(self._protected_reserve_usdc))
-        return free - self._locked_usdc_total()
+        return free - self._total_locked_usdc()
 
     def _gas_reserve_policy_state(self) -> Dict[str, Any]:
         raw_balance_pol = max(0.0, float(self._wallet_snapshot.pol_balance or 0.0))
@@ -1300,17 +1403,20 @@ class WalletDoctrineBase(ABC):
                 "enabled": bool(enabled),
                 "base_cap_usd": float(global_guard_raw.get("base_cap_usd", 0.0) or 0.0),
                 "effective_cap_usd": float(global_guard_raw.get("effective_cap_usd", 0.0) or 0.0),
-                "taker_reserved_notional_usd": float(global_guard_raw.get("taker_reserved_notional_usd", 0.0) or 0.0),
+                "taker_reserved_capital_usd": float(global_guard_raw.get("taker_reserved_capital_usd", 0.0) or 0.0),
                 "taker_reserve_applied": bool(global_guard_raw.get("taker_reserve_applied", False)),
                 "near_cap_ratio": float(global_guard_raw.get("near_cap_ratio", 0.0) or 0.0),
-                "projected_total_notional": float(global_guard_raw.get("projected_total_notional", 0.0) or 0.0),
+                "projected_total_capital_usd": float(global_guard_raw.get("projected_total_capital_usd", 0.0) or 0.0),
                 "projected_to_cap_ratio": float(global_guard_raw.get("projected_to_cap_ratio", 0.0) or 0.0),
-                "position_notional": float(global_guard_raw.get("position_notional", 0.0) or 0.0),
-                "resting_open_order_notional": float(global_guard_raw.get("resting_open_order_notional", 0.0) or 0.0),
-                "incoming_intent_notional": float(global_guard_raw.get("incoming_intent_notional", 0.0) or 0.0),
+                "position_capital_usd": float(global_guard_raw.get("position_capital_usd", 0.0) or 0.0),
+                "short_position_liability_usd": float(global_guard_raw.get("short_position_liability_usd", 0.0) or 0.0),
+                "resting_open_order_capital_usd": float(global_guard_raw.get("resting_open_order_capital_usd", 0.0) or 0.0),
+                "resting_short_order_liability_usd": float(global_guard_raw.get("resting_short_order_liability_usd", 0.0) or 0.0),
+                "incoming_intent_capital_usd": float(global_guard_raw.get("incoming_intent_capital_usd", 0.0) or 0.0),
                 "unknown_position_tokens": list(global_guard_raw.get("unknown_position_tokens", []) or []),
                 "within_cap": bool(global_guard_raw.get("within_cap", True)),
                 "near_cap": bool(global_guard_raw.get("near_cap", False)),
+                "capital_semantics": str(global_guard_raw.get("capital_semantics") or "legacy_notional"),
             },
         }
 
@@ -1453,6 +1559,7 @@ class PaperWalletDoctrine(WalletDoctrineBase):
             pol_balance=self._paper_pol_balance,
             usdc_balance=max(0.0, usdc_balance),
             locked_usdc=self._locked_usdc_total(),
+            provider_locked_usdc_semantics="reservation_plus_position_liability",
             protected_reserve_usdc=self._protected_reserve_usdc,
             deployable_usdc=0.0,
             ts_utc=now,

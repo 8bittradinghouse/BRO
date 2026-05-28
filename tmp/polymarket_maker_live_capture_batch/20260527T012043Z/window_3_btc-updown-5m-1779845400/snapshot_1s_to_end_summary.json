@@ -1,0 +1,33 @@
+{
+  "captured_at_unix": 1779845699,
+  "captured_at_utc": "2026-05-27T01:34:59Z",
+  "seconds_to_end": 1,
+  "book_summary": {
+    "95871109752066565859411115886312980989819436976114555465526260010294047456257": {
+      "top_bid": null,
+      "top_ask": {
+        "price": "0.99",
+        "size": "2960.58"
+      },
+      "bid_levels": 0,
+      "ask_levels": 59,
+      "last_trade": {
+        "price": "0.01",
+        "side": "BUY"
+      }
+    },
+    "108720937572211349249749063451407508246269979457607493145460086550594664471777": {
+      "top_bid": {
+        "price": "0.01",
+        "size": "2966.58"
+      },
+      "top_ask": null,
+      "bid_levels": 60,
+      "ask_levels": 0,
+      "last_trade": {
+        "price": "0.99",
+        "side": "SELL"
+      }
+    }
+  }
+}

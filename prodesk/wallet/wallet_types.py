@@ -44,6 +44,7 @@ class WalletSnapshot:
     deployable_usdc: float
     ts_utc: str
     source: str
+    provider_locked_usdc_semantics: str = "unknown"
     healthy: bool = True
     detail: str = ""
     truth_domain: str = TRUTH_DOMAIN_CANONICAL_LIVE_WALLET

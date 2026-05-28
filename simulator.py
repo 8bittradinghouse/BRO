@@ -959,10 +959,8 @@ def run_scenario(
                         is_taker = bool(post_only is False or tif in {"IOC", "FOK"})
                         if is_taker:
                             p = clamp(price, 0.001, 0.999)
-                            taker_fees += notional * (p * (1.0 - p) * taker_fee_curve_rate)
+                            taker_fees += size * taker_fee_curve_rate * p * (1.0 - p)
                             slippage_cost += notional * (taker_slippage_bps / 10_000.0)
-                        else:
-                            maker_rebates += notional * (maker_rebate_bps / 10_000.0)
                         top = books.get(token_id)
                         if top is not None and top.midpoint is not None:
                             mid = float(top.midpoint)

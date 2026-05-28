@@ -34,25 +34,16 @@ runtime:
   maker_replace_min_rest_sec: 3.0
   paper_enforce_setup_lock: true
   paper_expected_profile_name: paper_universal
-  paper_expected_config_fingerprint_sha256: "db262d6b5f66a0aad18f0cb92adbf480a1e00c566098665952b224b104e0f401"
+  paper_expected_config_fingerprint_sha256: "553402635d2fef5164d0d69214262ebfba0788e744f8cca6682a90c07a48a6c6"
   held_ws_missing_or_unusable_refresh_min_unpriceable_age_sec: 20.0
   held_ws_missing_or_unusable_refresh_interval_sec: 45.0
-  # Doctrine-aligned handoff ladder:
-  # maker gate opens at 15s to expiry,
-  # maker new risk may live only until the taker handoff at 7s,
-  # reduce-only recovery starts at 15s,
-  # emergency taker / hard halt begin at <=7s.
+  # Current active paper OG-tight alignment packet:
+  # maker gate is open only in the final 8-12s band,
+  # taker gate is open only in the final 8-12s band,
+  # transition/dead-zone regimes are fail-closed by hard lane filters.
 
 latency_verifier:
-  min_samples: 80
   hit_threshold_ms: 120
-  armed_min_median_ms: 120
-  armed_min_hit_rate: 0.60
-  probation_min_median_ms: 80
-  probation_min_hit_rate: 0.45
-  score_min_for_maker: 0.35
-  score_min_for_taker: 0.60
-  require_armed_for_taker: true
 
 strategy:
   max_order_size: 8000.0
@@ -65,21 +56,21 @@ lifecycle:
     enabled: true
     max_sec_to_expiry: 90.0
     min_market_age_sec: 60.0
-    maker_min_depth_multiple_band: [1.45, 1.5]
-    maker_min_depth_multiple: 1.45
-    taker_min_fill_ratio: 1.0
+    maker_min_depth_multiple_band: [1.5, 1.5]
+    maker_min_depth_multiple: 1.5
+    taker_min_fill_ratio: 1.5
     require_secondary_oracle_confirmation: true
     cannon_target_notional_usd: 100.0
-    max_same_target_submit_count_prior: 1
-    max_same_target_side_submit_count_prior: 1
+    max_same_target_submit_count_prior: 0
+    max_same_target_side_submit_count_prior: 0
     replacement_margin: 0.0
     replacement_dwell_sec: 0.0
     ownership_fail_dwell_sec: 0.0
   phase:
-    # Intended late-window doctrine:
-    # maker opens at 15s and yields to taker at 7s.
-    maker_window_open_sec: 15.0
-    taker_window_open_sec: 7.0
+    maker_window_open_sec: 12.0
+    maker_window_close_sec: 8.0
+    taker_window_open_sec: 12.0
+    taker_window_close_sec: 8.0
   lane_gates:
     maker:
       timing_gate_enabled: true
@@ -90,13 +81,21 @@ lifecycle:
       spread_mult_min: 1.0
       requote_delta_mult_min: 1.0
       one_sided_enabled: true
-      one_sided_edge_threshold_abs: 0.15
+      one_sided_edge_threshold_abs: 0.20
+      regime_filter_enabled: true
+      allowed_session_regime_classes:
+        - usa_europe_peak_heuristic
+        - asia_dominant_heuristic
     taker:
       final_window_enabled: true
       aggressive_window_enabled: false
-      aggressive_window_sec: 7.0
+      aggressive_window_sec: 12.0
       multi_oracle_boost_enabled: false
-      multi_oracle_boost_window_sec: 7.0
+      multi_oracle_boost_window_sec: 12.0
+      regime_filter_enabled: true
+      allowed_session_regime_classes:
+        - usa_europe_peak_heuristic
+        - asia_dominant_heuristic
 
 # Maker competitiveness sizing: enforce desk-viable minimum quote presence and
 # bind to visible depth while preserving deterministic, bounded behavior.
@@ -127,13 +126,18 @@ wallet:
   treasury_mode: logical
   treasury_wallet_address: ""
 
+simulation:
+  # Active paper lane is BTC crypto, so prefer explicit fee-category authority.
+  fee_category_override: crypto
+  fees_enabled_override: true
+
 risk:
-  # Keep maker and shared non-taker new exposure out of the pre-expiry reduce-only
-  # interval while letting taker timing be governed by its own stage/final-window doctrine.
-  min_sec_to_expiry_for_new_exposure: 15.0
+  # Keep both lanes inside the OG 8-12s late-window band at the generic
+  # risk-gate layer as well as the lane-local timing contracts.
+  min_sec_to_expiry_for_new_exposure: 12.0
   min_sec_to_expiry_for_new_exposure_by_lane:
-    maker: 7.0
-    taker: 0.0
+    maker: 8.0
+    taker: 8.0
   # Treat untradeable (< min order size) post-expiry residuals as dust candidates
   # once lifecycle obligations are otherwise clear.
   position_dust_shares_epsilon: 1.0
@@ -142,6 +146,8 @@ risk:
   max_abs_position_shares: 8000.0
   max_notional_per_token: 1300.0
   max_order_size: 8000.0
+  max_open_orders_per_token: 4
+  max_total_open_orders: 6
   dynamic_scaling:
     enabled: true
     volatility_enabled: true
@@ -162,9 +168,10 @@ risk:
     unknown_input_policy: no_aggressive_uplift
   global_exposure_guard:
     enabled: true
-    max_global_notional_usd: 2500.0
-    taker_reserved_notional_usd: 300.0
+    max_global_capital_usd: 2500.0
+    taker_reserved_capital_usd: 300.0
     near_cap_ratio: 0.85
+  max_total_loss: 280.0
 
 # Grok-informed bounded lag accommodation:
 # keep fail-closed behavior but avoid overreacting to short-lived oracle jitter.
@@ -183,29 +190,27 @@ secondary_oracle:
     max_tick_age_sec: 15.0
 
 taker:
-  require_lag_verification: true
   enabled: true
-  target_usd: 20.0
+  target_usd: 25.0
   max_orders_per_cycle: 1
-  min_edge: 0.11
+  min_edge: 0.20
   competitiveness:
     enabled: true
-    hard_min_target_usd: 20.0
+    hard_min_target_usd: 25.0
     hard_min_enforcement: skip_if_unachievable
     dynamic_size_enabled: false
     dynamic_size_edge_start_abs: 0.16
     dynamic_size_edge_full_abs: 0.35
-    dynamic_size_target_usd_cap: 20.0
+    dynamic_size_target_usd_cap: 25.0
     conviction_model: edge_plus_latency_score
     edge_weight: 0.65
     latency_score_weight: 0.35
     dynamic_preview_enabled: false
     price_aggress_bps_max: 8.0
     multi_oracle_edge_threshold_abs: 0.20
-    multi_oracle_target_usd_cap: 20.0
+    multi_oracle_target_usd_cap: 25.0
     multi_oracle_capital_pct_cap: 0.18
-    allow_complement_buy_route: true
-    min_visible_fill_ratio: 1.0
+    min_visible_fill_ratio: 1.5
 
 storage:
   log_dir: /logs/paper_universal

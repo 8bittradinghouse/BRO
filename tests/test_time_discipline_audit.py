@@ -166,6 +166,8 @@ class TimeDisciplineAuditTests(unittest.TestCase):
             cfg["storage"]["log_dir"] = str(root / "logs")
             cfg["preflight"]["check_clock_sync"] = True
             cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 15.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 15.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"]["maker"] = 15.0
             cfg["targets"]["discovery"]["enabled"] = True
             cfg_path = root / "cfg.yaml"
             cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")

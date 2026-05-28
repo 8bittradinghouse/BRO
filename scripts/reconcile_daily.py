@@ -15,6 +15,7 @@ from prodesk.artifact_identity import build_artifact_identity
 from prodesk.config import load_execution_config
 from prodesk.edge_truth_contract import is_taker_reason
 from prodesk.gateway import GatewayError, LiveClobGateway
+from prodesk.money_math import resolve_fee_authority
 
 REPORT_SCHEMA_VERSION = 3
 
@@ -88,10 +89,9 @@ def _bot_ledger_summary(events: List[Dict[str, Any]], simulation_cfg: Dict[str, 
     net_cashflow = 0.0
     taker_fees = 0.0
     maker_rebate = 0.0
+    slippage_cost = 0.0
+    adverse_selection_cost = 0.0
     by_token: Dict[str, Dict[str, float]] = {}
-
-    rebate_bps = _safe_float(simulation_cfg.get("maker_rebate_bps"), default=0.0)
-    taker_curve_rate = _safe_float(simulation_cfg.get("taker_fee_curve_rate"), default=0.0)
 
     for evt in events:
         event_type = str(evt.get("event_type") or "")
@@ -130,13 +130,33 @@ def _bot_ledger_summary(events: List[Dict[str, Any]], simulation_cfg: Dict[str, 
         token_row["qty"] += size
         token_row["notional"] += notional
 
-        order_id = str(evt.get("order_id") or "")
-        reason = order_reason_by_id.get(order_id, "")
-        if is_taker_reason(reason):
-            effective_fee_rate = max(0.0, min(1.0, price * (1.0 - price) * taker_curve_rate))
-            taker_fees += notional * effective_fee_rate
+        modeled_taker_fee = _safe_float(evt.get("taker_fee_usd"), default=-1.0)
+        modeled_maker_rebate = _safe_float(evt.get("maker_rebate_usd"), default=-1.0)
+        if modeled_taker_fee >= 0.0 or modeled_maker_rebate >= 0.0:
+            taker_fees += max(0.0, modeled_taker_fee)
+            maker_rebate += max(0.0, modeled_maker_rebate)
+            slippage_cost += max(0.0, _safe_float(evt.get("slippage_cost_usd"), default=0.0))
+            adverse_selection_cost += max(0.0, _safe_float(evt.get("adverse_selection_cost_usd"), default=0.0))
         else:
-            maker_rebate += notional * (rebate_bps / 10000.0)
+            order_id = str(evt.get("order_id") or "")
+            reason = order_reason_by_id.get(order_id, "")
+            fee_category_hint = str(evt.get("fee_category") or "").strip().lower() or None
+            fees_enabled_hint = evt.get("fees_enabled") if isinstance(evt.get("fees_enabled"), bool) else None
+            fee_authority = resolve_fee_authority(
+                fee_category_hint=fee_category_hint,
+                fees_enabled_hint=fees_enabled_hint,
+                fee_category_override=simulation_cfg.get("fee_category_override"),
+                fees_enabled_override=simulation_cfg.get("fees_enabled_override"),
+            )
+            taker_curve_rate = 0.0
+            if isinstance(evt.get("taker_fee_curve_rate"), (int, float)) and bool(evt.get("fee_authoritative", False)):
+                taker_curve_rate = max(0.0, _safe_float(evt.get("taker_fee_curve_rate"), default=0.0))
+            elif fee_authority.fees_enabled is not False:
+                taker_curve_rate = max(0.0, float(fee_authority.taker_fee_curve_rate or 0.0))
+            if is_taker_reason(reason):
+                taker_fees += size * max(0.0, taker_curve_rate) * price * (1.0 - price)
+                slippage_cost += notional * (_safe_float(simulation_cfg.get("taker_slippage_bps"), default=0.0) / 10_000.0)
+            adverse_selection_cost += notional * (_safe_float(simulation_cfg.get("adverse_selection_bps"), default=0.0) / 10_000.0)
 
     return {
         "orders_placed": orders_placed,
@@ -147,6 +167,8 @@ def _bot_ledger_summary(events: List[Dict[str, Any]], simulation_cfg: Dict[str, 
         "realized_pnl_cashflow_estimate": net_cashflow,
         "fees_paid_taker_estimate": taker_fees,
         "maker_rebate_estimate": maker_rebate,
+        "slippage_cost_estimate": slippage_cost,
+        "adverse_selection_cost_estimate": adverse_selection_cost,
         "per_token": by_token,
     }
 

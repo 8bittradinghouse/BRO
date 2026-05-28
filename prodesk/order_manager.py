@@ -18,6 +18,7 @@ from .edge_truth_contract import (
     lifecycle_phase_from_payload,
     lifecycle_phase_surface_fields,
     lineage_stage_surface_fields,
+    maker_gate_contract_from_payload,
     normalize_block_reason,
 )
 from .execution_quality import ExecutionQualityModel
@@ -276,8 +277,11 @@ class OrderManager:
             # must stay inside the canonical maker window instead of inheriting
             # the much earlier market-admission floor.
             selection_gate_min_sec_to_expiry = lifecycle_phase_cfg.get(
-                "taker_window_open_sec",
-                selection_gate_min_sec_to_expiry,
+                "maker_window_close_sec",
+                lifecycle_phase_cfg.get(
+                    "taker_window_open_sec",
+                    selection_gate_min_sec_to_expiry,
+                ),
             )
             selection_gate_max_sec_to_expiry = lifecycle_phase_cfg.get(
                 "maker_window_open_sec",
@@ -534,19 +538,6 @@ class OrderManager:
         return f"{str(target_ref or '').strip() or 'unknown'}|{str(side or '').strip().upper() or 'UNKNOWN'}"
 
     @staticmethod
-    def _maker_queue_severity_class(queue_delta_shares: Optional[float]) -> str:
-        if not isinstance(queue_delta_shares, (int, float)):
-            return "unknown"
-        delta = float(queue_delta_shares)
-        if delta <= 0.0:
-            return "within_threshold"
-        if delta <= 25.0:
-            return "within_25"
-        if delta <= 50.0:
-            return "25_to_50"
-        return "gt_50"
-
-    @staticmethod
     def _selection_gate_reject_label(reason: str) -> Optional[str]:
         normalized = str(reason or "").strip().lower()
         if not normalized:
@@ -585,13 +576,13 @@ class OrderManager:
             or competitiveness_context.get("lifecycle_phase")
             or "scan"
         ).strip().lower() or "scan"
-        maker_window_open = lifecycle_phase == "maker_window"
         maker_phase_allowed = bool(
             snapshot_event.get(
                 EDGE_MAKER_PHASE_ALLOWED_FIELD,
                 competitiveness_context.get(EDGE_MAKER_PHASE_ALLOWED_FIELD, False),
             )
         )
+        maker_window_open = bool(lifecycle_phase == "maker_window" or maker_phase_allowed)
         gate_applied = bool(self.maker_selection_gate_enabled)
         depth_multiple_vs_cannon_target = None
         visible_depth_notional_usd = None
@@ -852,19 +843,11 @@ class OrderManager:
             viability_class = "viable_only"
 
         expected_fill_prob = None
-        min_expected_fill_prob = None
-        fill_prob_margin = None
         queue_ahead_size = None
-        max_queue_ahead_size = None
-        queue_delta_shares = None
         if self.quality.enabled:
             quality = self.quality.assess_quote(intent=desired_intent, top=top)
             expected_fill_prob = float(quality.expected_fill_prob)
-            min_expected_fill_prob = float(self.quality.min_expected_fill_prob)
-            fill_prob_margin = float(expected_fill_prob - min_expected_fill_prob)
             queue_ahead_size = float(quality.queue_ahead_size)
-            max_queue_ahead_size = float(self.quality.max_queue_ahead_size)
-            queue_delta_shares = float(queue_ahead_size - max_queue_ahead_size)
 
         visible_depth_shares = float(self._maker_visible_depth_shares(top, side))
         intended_size_shares = (
@@ -1021,12 +1004,7 @@ class OrderManager:
             "intended_size_shares": float(intended_size_shares) if isinstance(intended_size_shares, (int, float)) else None,
             "intended_notional_usd": float(intended_notional_usd) if isinstance(intended_notional_usd, (int, float)) else None,
             "expected_fill_prob": expected_fill_prob,
-            "min_expected_fill_prob": min_expected_fill_prob,
-            "fill_prob_margin": fill_prob_margin,
             "queue_ahead_size": queue_ahead_size,
-            "max_queue_ahead_size": max_queue_ahead_size,
-            "queue_delta_shares": queue_delta_shares,
-            "queue_severity_class": self._maker_queue_severity_class(queue_delta_shares),
             "visible_depth_shares": float(visible_depth_shares),
             "size_to_visible_depth_ratio": (
                 float(size_to_visible_depth_ratio)
@@ -1076,7 +1054,6 @@ class OrderManager:
             or selection_payload.get(EDGE_LIFECYCLE_PHASE_FIELD)
             or "scan"
         ).strip().lower() or "scan"
-        maker_window_open = lifecycle_phase == "maker_window"
         maker_phase_allowed = bool(
             snapshot_payload.get(
                 EDGE_MAKER_PHASE_ALLOWED_FIELD,
@@ -1095,6 +1072,7 @@ class OrderManager:
                 ),
             )
         )
+        maker_window_open = bool(lifecycle_phase == "maker_window" or maker_phase_allowed)
         target_ref = str(
             snapshot_payload.get("target_ref")
             or competitiveness_context.get("target_ref")
@@ -1132,27 +1110,26 @@ class OrderManager:
                 label = self._selection_gate_reject_label("selection_prior_same_side_submit")
                 if label:
                     selection_reject_reasons.append(label)
+        edge_abs = parse_float(
+            snapshot_payload.get("edge_abs")
+            if snapshot_payload.get("edge_abs") is not None
+            else posture_contract.get("edge_abs")
+        )
+        one_sided_threshold_abs = parse_float(
+            competitiveness_context.get("one_sided_edge_threshold_abs")
+        )
+        if (
+            desired_quote_present is not False
+            and isinstance(edge_abs, (int, float))
+            and isinstance(one_sided_threshold_abs, (int, float))
+            and float(edge_abs) + 1e-12 < float(one_sided_threshold_abs)
+        ):
+            selection_reject_reasons.append("maker_edge_below_min")
         reject_reasons.extend(selection_reject_reasons)
         viability_class = str(snapshot_payload.get("viability_class") or "").strip().lower()
         sizing_conflict = bool(snapshot_payload.get("sizing_conflict", False))
         if viability_class == "impossible_only" or sizing_conflict:
             reject_reasons.append("non_actionable_geometry")
-        expected_fill_prob = parse_float(snapshot_payload.get("expected_fill_prob"))
-        min_expected_fill_prob = parse_float(snapshot_payload.get("min_expected_fill_prob"))
-        queue_ahead_size = parse_float(snapshot_payload.get("queue_ahead_size"))
-        max_queue_ahead_size = parse_float(snapshot_payload.get("max_queue_ahead_size"))
-        if (
-            isinstance(queue_ahead_size, (int, float))
-            and isinstance(max_queue_ahead_size, (int, float))
-            and float(queue_ahead_size) > float(max_queue_ahead_size) + 1e-9
-        ):
-            reject_reasons.append("quote_quality_skip_queue_depth")
-        if (
-            isinstance(expected_fill_prob, (int, float))
-            and isinstance(min_expected_fill_prob, (int, float))
-            and float(expected_fill_prob) + 1e-9 < float(min_expected_fill_prob)
-        ):
-            reject_reasons.append("quote_quality_skip_fill_probability")
         if desired_quote_present is False and "no_desired_quote" not in reject_reasons:
             reject_reasons.append("no_desired_quote")
         deduped_reject_reasons: List[str] = []
@@ -1168,7 +1145,7 @@ class OrderManager:
             or snapshot_payload.get("run_id")
             or ""
         ).strip() or None
-        return {
+        payload = {
             "ts_utc": utc_iso(),
             "run_id": run_id_value,
             "viability_decision_id": str(snapshot_payload.get("market_snapshot_id") or self._next_maker_market_event_id(token_id, side)),
@@ -1266,11 +1243,7 @@ class OrderManager:
                 "cannon_depth_multiple_tuning_ceiling"
             ),
             "expected_fill_prob": snapshot_payload.get("expected_fill_prob"),
-            "min_expected_fill_prob": snapshot_payload.get("min_expected_fill_prob"),
-            "fill_prob_margin": snapshot_payload.get("fill_prob_margin"),
             "queue_ahead_size": snapshot_payload.get("queue_ahead_size"),
-            "max_queue_ahead_size": snapshot_payload.get("max_queue_ahead_size"),
-            "queue_delta_shares": snapshot_payload.get("queue_delta_shares"),
             "geometry_floor_price": snapshot_payload.get("geometry_floor_price"),
             "sizing_price_used": snapshot_payload.get("sizing_price_used"),
             "desired_quote_price": snapshot_payload.get("desired_quote_price"),
@@ -1291,6 +1264,8 @@ class OrderManager:
             "repeat_target_side_calm": selection_payload.get("repeat_target_side_calm"),
             "replace_guard_would_block": snapshot_payload.get("replace_guard_would_block"),
         }
+        payload.update(maker_gate_contract_from_payload(payload))
+        return payload
 
     def _log_maker_market_viability_event(self, viability_event: Optional[Dict[str, Any]]) -> None:
         if not isinstance(viability_event, dict):
@@ -1342,6 +1317,7 @@ class OrderManager:
             else None
         )
         payload["order_submit_id"] = str(order_submit_id).strip() if str(order_submit_id or "").strip() else None
+        payload.update(maker_gate_contract_from_payload(payload))
         self.events.log_event("maker_market_snapshot", payload)
 
     @staticmethod
@@ -1426,8 +1402,6 @@ class OrderManager:
             "pre_submit_cross_guarded": "pre_submit_cross_guarded",
             "post_only_reject": "post_only_reject",
             "order_soft_throttle": "soft_throttle",
-            "quote_quality_skip_fill_probability": "quote_quality_skip_fill_probability",
-            "quote_quality_skip_queue_depth": "quote_quality_skip_queue_depth",
             "non_actionable_geometry": "non_actionable_geometry",
             "maker_timing_gate_closed": "maker_timing_gate_closed",
             "phase_disallow_maker": "phase_disallow_maker",
@@ -1891,6 +1865,15 @@ class OrderManager:
                 if str(intent.decision_reference_ts_utc or "").strip()
                 else intent_ts
             ),
+            token_median_lag_ms=intent.token_median_lag_ms,
+            oracle_tick_age_sec=intent.oracle_tick_age_sec,
+            lifecycle_phase=intent.lifecycle_phase,
+            submission_lane=intent.submission_lane,
+            source_token_id=intent.source_token_id,
+            submit_token_id=intent.submit_token_id,
+            normal_taker_side_class=intent.normal_taker_side_class,
+            fee_category_hint=intent.fee_category_hint,
+            fees_enabled_hint=intent.fees_enabled_hint,
         )
         adjusted_intent, cross_clamp = self._maybe_clamp_post_only_intent(intent_sized, top)
         if cross_clamp is not None:
@@ -1938,6 +1921,19 @@ class OrderManager:
             _canonical_lifecycle_phase_from_payload(risk_context_payload)
             or "scan",
         )
+        risk_context_payload.setdefault(
+            "lineage_stage",
+            str(intent_sized.lineage_stage or "").strip().upper() or "UNKNOWN",
+        )
+        if str(intent_sized.source_token_id or "").strip():
+            risk_context_payload.setdefault("source_token_id", str(intent_sized.source_token_id).strip())
+        if str(intent_sized.submit_token_id or "").strip():
+            risk_context_payload.setdefault("submit_token_id", str(intent_sized.submit_token_id).strip())
+        if str(intent_sized.normal_taker_side_class or "").strip():
+            risk_context_payload.setdefault(
+                "normal_taker_side_class",
+                str(intent_sized.normal_taker_side_class).strip(),
+            )
         wallet_guardian_order_law_snapshot = self.risk.wallet_guardian_order_law_snapshot(
             intent=intent_sized,
             open_orders_all=list(open_orders_all or open_orders_for_token),
@@ -2154,6 +2150,15 @@ class OrderManager:
                 decision_reference_source=intent_sized.decision_reference_source,
                 decision_reference_lookup_key=intent_sized.decision_reference_lookup_key,
                 decision_reference_ts_utc=intent_sized.decision_reference_ts_utc,
+                token_median_lag_ms=intent_sized.token_median_lag_ms,
+                oracle_tick_age_sec=intent_sized.oracle_tick_age_sec,
+                lifecycle_phase=intent_sized.lifecycle_phase,
+                submission_lane=intent_sized.submission_lane,
+                source_token_id=intent_sized.source_token_id,
+                submit_token_id=intent_sized.submit_token_id,
+                normal_taker_side_class=intent_sized.normal_taker_side_class,
+                fee_category_hint=intent_sized.fee_category_hint,
+                fees_enabled_hint=intent_sized.fees_enabled_hint,
             )
             self.telemetry.incr("wallet_authorize_reduce")
         else:
@@ -2463,6 +2468,26 @@ class OrderManager:
                     if str(intent_authorized.target_ref or "").strip()
                     else None
                 ),
+                "lineage_stage": (
+                    str(intent_authorized.lineage_stage).strip().upper()
+                    if str(intent_authorized.lineage_stage or "").strip()
+                    else None
+                ),
+                "source_token_id": (
+                    str(intent_authorized.source_token_id).strip()
+                    if str(intent_authorized.source_token_id or "").strip()
+                    else None
+                ),
+                "submit_token_id": (
+                    str(intent_authorized.submit_token_id).strip()
+                    if str(intent_authorized.submit_token_id or "").strip()
+                    else None
+                ),
+                "normal_taker_side_class": (
+                    str(intent_authorized.normal_taker_side_class).strip()
+                    if str(intent_authorized.normal_taker_side_class or "").strip()
+                    else None
+                ),
                 "decision_linkage_key": (
                     (
                         "target_ref:"
@@ -2602,6 +2627,7 @@ class OrderManager:
         details: Dict[str, Any] = {
             "sizing_mode": mode,
             "submission_lane": lane,
+            "configured_price_source": str(self.sizing_price_source),
             "price_source": str(self.sizing_price_source),
             "global_min_usd": float(self.sizing_min_usd),
             "global_max_usd": float(self.sizing_max_usd),
@@ -2614,7 +2640,11 @@ class OrderManager:
             details["resolved_notional_usd"] = None
             return passthrough, details
 
-        price = self._sizing_price(top, intent.side)
+        if lane == "taker" and isinstance(intent.price, (int, float)) and float(intent.price) > 0.0:
+            price = float(intent.price)
+            details["price_source"] = "taker_executable_price"
+        else:
+            price = self._sizing_price(top, intent.side)
         if price is None or price <= 0:
             details["size_decision_reasons"] = ["price_unavailable"]
             details["resolved_shares"] = None
@@ -2844,8 +2874,38 @@ class OrderManager:
                 "fill_policy_basis": fill.fill_policy_basis,
                 "execution_realism_class": fill.execution_realism_class,
                 "decision_input_type": fill.decision_input_type,
+                "lifecycle_phase": (
+                    str(fill.lifecycle_phase).strip().lower()
+                    if str(fill.lifecycle_phase or "").strip()
+                    else None
+                ),
+                "lineage_stage": (
+                    str(fill.lineage_stage).strip().upper()
+                    if str(fill.lineage_stage or "").strip()
+                    else None
+                ),
                 "target_ref": (
                     str(fill.target_ref).strip() if str(fill.target_ref or "").strip() else None
+                ),
+                "submission_lane": (
+                    str(fill.submission_lane).strip().lower()
+                    if str(fill.submission_lane or "").strip()
+                    else None
+                ),
+                "source_token_id": (
+                    str(fill.source_token_id).strip()
+                    if str(fill.source_token_id or "").strip()
+                    else None
+                ),
+                "submit_token_id": (
+                    str(fill.submit_token_id).strip()
+                    if str(fill.submit_token_id or "").strip()
+                    else None
+                ),
+                "normal_taker_side_class": (
+                    str(fill.normal_taker_side_class).strip()
+                    if str(fill.normal_taker_side_class or "").strip()
+                    else None
                 ),
                 "paper_liquidity_depth_multiplier": (
                     float(fill.paper_liquidity_depth_multiplier)
@@ -2885,6 +2945,45 @@ class OrderManager:
                 "paper_chainlink_lag_penalty_bps": (
                     float(fill.paper_chainlink_lag_penalty_bps)
                     if isinstance(fill.paper_chainlink_lag_penalty_bps, (int, float))
+                    else None
+                ),
+                "taker_fee_usd": float(fill.taker_fee_usd or 0.0),
+                "maker_rebate_usd": float(fill.maker_rebate_usd or 0.0),
+                "slippage_cost_usd": float(fill.slippage_cost_usd or 0.0),
+                "adverse_selection_cost_usd": float(fill.adverse_selection_cost_usd or 0.0),
+                "reference_midpoint": (
+                    float(fill.reference_midpoint)
+                    if isinstance(fill.reference_midpoint, (int, float))
+                    else None
+                ),
+                "fee_authority_source": (
+                    str(fill.fee_authority_source).strip().lower()
+                    if str(fill.fee_authority_source or "").strip()
+                    else None
+                ),
+                "fee_category": (
+                    str(fill.fee_category).strip().lower()
+                    if str(fill.fee_category or "").strip()
+                    else None
+                ),
+                "fees_enabled": (
+                    bool(fill.fees_enabled)
+                    if isinstance(fill.fees_enabled, bool)
+                    else None
+                ),
+                "fee_authoritative": (
+                    bool(fill.fee_authoritative)
+                    if isinstance(fill.fee_authoritative, bool)
+                    else None
+                ),
+                "taker_fee_curve_rate": (
+                    float(fill.taker_fee_curve_rate)
+                    if isinstance(fill.taker_fee_curve_rate, (int, float))
+                    else None
+                ),
+                "reserved_capital_release_usd": (
+                    float(fill.reserved_capital_release_usd)
+                    if isinstance(fill.reserved_capital_release_usd, (int, float))
                     else None
                 ),
             },
@@ -3027,6 +3126,28 @@ class OrderManager:
         context_lineage_stage = _resolved_lineage_stage_from_payload(competitiveness_context)
         explicit_lineage_stage = str(lineage_stage or "").strip().upper()
         resolved_lineage_stage = explicit_lineage_stage if explicit_lineage_stage else context_lineage_stage
+        route_context = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        source_token_id = str(
+            route_context.get("source_token_id")
+            or route_context.get("normal_taker_source_token_id")
+            or token_id
+        ).strip()
+        submit_token_id = str(
+            route_context.get("submit_token_id")
+            or route_context.get("normal_taker_submit_token_id")
+            or token_id
+        ).strip()
+        normal_taker_side_class = (
+            str(route_context.get("normal_taker_side_class") or "").strip() or None
+        )
+        fee_category_hint = (
+            str(route_context.get("fee_category_hint") or "").strip().lower() or None
+        )
+        fees_enabled_hint = (
+            bool(route_context.get("fees_enabled_hint"))
+            if isinstance(route_context.get("fees_enabled_hint"), bool)
+            else None
+        )
         intent = OrderIntent(
             token_id=token_id,
             side=side,
@@ -3067,29 +3188,26 @@ class OrderManager:
                 if isinstance(oracle_tick_age_sec, (int, float))
                 else None
             ),
+            lifecycle_phase=resolved_lifecycle_phase,
+            submission_lane="taker",
+            source_token_id=source_token_id or token_id,
+            submit_token_id=submit_token_id or token_id,
+            normal_taker_side_class=normal_taker_side_class,
+            fee_category_hint=fee_category_hint,
+            fees_enabled_hint=fees_enabled_hint,
         )
         open_orders = self.tx_manager.get_open_orders()
         token_orders = [o for o in open_orders if o.token_id == token_id]
-        risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
-        risk_context_payload.setdefault("submission_lane", "taker")
-        risk_context_payload.setdefault(
-            EDGE_LIFECYCLE_PHASE_FIELD,
-            resolved_lifecycle_phase,
+        risk_context_payload = route_context
+        risk_context_payload["submission_lane"] = "taker"
+        risk_context_payload[EDGE_LIFECYCLE_PHASE_FIELD] = resolved_lifecycle_phase
+        risk_context_payload["lineage_stage"] = (
+            str(intent.lineage_stage or "").strip().upper() or "UNKNOWN"
         )
-        risk_context_payload.setdefault(
-            "lineage_stage",
-            str(
-                risk_context_payload.get("lineage_stage")
-                or lineage_stage_from_payload(risk_context_payload)
-                or resolved_lineage_stage
-                or "UNKNOWN"
-            ).strip().upper()
-            or "UNKNOWN",
-        )
-        risk_context_payload.setdefault(
-            "lineage_stage",
-            str(intent.lineage_stage or "").strip().upper() or "UNKNOWN",
-        )
+        risk_context_payload["source_token_id"] = source_token_id or token_id
+        risk_context_payload["submit_token_id"] = submit_token_id or token_id
+        if normal_taker_side_class is not None:
+            risk_context_payload["normal_taker_side_class"] = normal_taker_side_class
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
@@ -3160,6 +3278,28 @@ class OrderManager:
         context_lineage_stage = _resolved_lineage_stage_from_payload(competitiveness_context)
         explicit_lineage_stage = str(lineage_stage or "").strip().upper()
         resolved_lineage_stage = explicit_lineage_stage if explicit_lineage_stage else context_lineage_stage
+        route_context = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
+        source_token_id = str(
+            route_context.get("source_token_id")
+            or route_context.get("normal_taker_source_token_id")
+            or token_id
+        ).strip()
+        submit_token_id = str(
+            route_context.get("submit_token_id")
+            or route_context.get("normal_taker_submit_token_id")
+            or token_id
+        ).strip()
+        normal_taker_side_class = (
+            str(route_context.get("normal_taker_side_class") or "").strip() or None
+        )
+        fee_category_hint = (
+            str(route_context.get("fee_category_hint") or "").strip().lower() or None
+        )
+        fees_enabled_hint = (
+            bool(route_context.get("fees_enabled_hint"))
+            if isinstance(route_context.get("fees_enabled_hint"), bool)
+            else None
+        )
         base_intent = OrderIntent(
             token_id=token_id,
             side=side,
@@ -3169,29 +3309,26 @@ class OrderManager:
             post_only=False,
             reason=reason,
             lineage_stage=resolved_lineage_stage,
+            lifecycle_phase=resolved_lifecycle_phase,
+            submission_lane="taker",
+            source_token_id=source_token_id or token_id,
+            submit_token_id=submit_token_id or token_id,
+            normal_taker_side_class=normal_taker_side_class,
+            fee_category_hint=fee_category_hint,
+            fees_enabled_hint=fees_enabled_hint,
         )
         open_orders = self.tx_manager.get_open_orders()
         token_orders = [o for o in open_orders if o.token_id == token_id]
-        risk_context_payload = dict(competitiveness_context) if isinstance(competitiveness_context, dict) else {}
-        risk_context_payload.setdefault("submission_lane", "taker")
-        risk_context_payload.setdefault(
-            EDGE_LIFECYCLE_PHASE_FIELD,
-            resolved_lifecycle_phase,
+        risk_context_payload = route_context
+        risk_context_payload["submission_lane"] = "taker"
+        risk_context_payload[EDGE_LIFECYCLE_PHASE_FIELD] = resolved_lifecycle_phase
+        risk_context_payload["lineage_stage"] = (
+            str(base_intent.lineage_stage or "").strip().upper() or "UNKNOWN"
         )
-        risk_context_payload.setdefault(
-            "lineage_stage",
-            str(
-                risk_context_payload.get("lineage_stage")
-                or lineage_stage_from_payload(risk_context_payload)
-                or resolved_lineage_stage
-                or "UNKNOWN"
-            ).strip().upper()
-            or "UNKNOWN",
-        )
-        risk_context_payload.setdefault(
-            "lineage_stage",
-            str(base_intent.lineage_stage or "").strip().upper() or "UNKNOWN",
-        )
+        risk_context_payload["source_token_id"] = source_token_id or token_id
+        risk_context_payload["submit_token_id"] = submit_token_id or token_id
+        if normal_taker_side_class is not None:
+            risk_context_payload["normal_taker_side_class"] = normal_taker_side_class
         risk_context_payload.setdefault("financial_posture_class", "UNKNOWN")
         if isinstance(realized_volatility, (int, float)):
             risk_context_payload["realized_volatility"] = float(realized_volatility)
@@ -3217,6 +3354,13 @@ class OrderManager:
                 post_only=base_intent.post_only,
                 reason=base_intent.reason,
                 lineage_stage=base_intent.lineage_stage,
+                lifecycle_phase=base_intent.lifecycle_phase,
+                submission_lane=base_intent.submission_lane,
+                source_token_id=base_intent.source_token_id,
+                submit_token_id=base_intent.submit_token_id,
+                normal_taker_side_class=base_intent.normal_taker_side_class,
+                fee_category_hint=base_intent.fee_category_hint,
+                fees_enabled_hint=base_intent.fees_enabled_hint,
             )
             decision = self.risk.preview_order_feasibility(
                 probe_intent,
@@ -3349,8 +3493,6 @@ class OrderManager:
             "post_only_reject": 2,
             "pre_submit_cross_guarded": 2,
             "order_soft_throttle": 2,
-            "quote_quality_skip_fill_probability": 2,
-            "quote_quality_skip_queue_depth": 2,
             "non_actionable_geometry": 2,
             "risk_reject": 2,
             "open_order_cleanup_required": 2,
@@ -3729,41 +3871,6 @@ class OrderManager:
                     primary_reject_reason = str(
                         viability_event.get("primary_reject_reason") or "maker_market_viability_reject"
                     ).strip().lower() or "maker_market_viability_reject"
-                    if primary_reject_reason in {
-                        "quote_quality_skip_queue_depth",
-                        "quote_quality_skip_fill_probability",
-                    }:
-                        self.telemetry.incr("low_quality_quote_skips")
-                        self.events.log_event(
-                            "quote_quality_skip",
-                            {
-                                "ts_utc": utc_iso(),
-                                "token_id": token_id,
-                                "side": side,
-                                "price": snapshot_event.get("desired_quote_price"),
-                                "size": snapshot_event.get("intended_size_shares"),
-                                "skip_reason": (
-                                    "queue_ahead_too_deep"
-                                    if primary_reject_reason == "quote_quality_skip_queue_depth"
-                                    else "expected_fill_prob_below_min"
-                                ),
-                                "queue_ahead_size": snapshot_event.get("queue_ahead_size"),
-                                "max_queue_ahead_size": snapshot_event.get("max_queue_ahead_size"),
-                                "expected_fill_prob": snapshot_event.get("expected_fill_prob"),
-                                "default_min_expected_fill_prob": snapshot_event.get(
-                                    "min_expected_fill_prob"
-                                ),
-                                "default_max_queue_ahead_size": snapshot_event.get(
-                                    "max_queue_ahead_size"
-                                ),
-                                "effective_min_expected_fill_prob": snapshot_event.get(
-                                    "min_expected_fill_prob"
-                                ),
-                                "effective_max_queue_ahead_size": snapshot_event.get(
-                                    "max_queue_ahead_size"
-                                ),
-                            },
-                        )
                     _record_maker_no_submission_reason(
                         token_id,
                         primary_reject_reason,

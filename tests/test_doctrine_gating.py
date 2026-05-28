@@ -44,11 +44,10 @@ class DoctrineGatingTests(unittest.TestCase):
         cfg["targets"]["token_ids"] = ["t1"]
         cfg["targets"]["discovery"]["enabled"] = False
         cfg["chainlink"]["enabled"] = False
-        cfg["latency_verifier"]["score_enabled"] = False
-        cfg["latency_verifier"]["require_armed_for_maker"] = False
         cfg["storage"]["log_dir"] = td.name
         cfg["storage"]["state_path"] = str(Path(td.name) / "state.json")
-        return ExecutionRunner(cfg)
+        runner = ExecutionRunner(cfg)
+        return runner
 
     def _maker_info(
         self,
@@ -175,7 +174,7 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertNotIn("stage", info)
         self.assertFalse(info["observe_hold_active"])
 
-    def test_maker_fail_closed_when_fair_is_missing(self):
+    def test_maker_does_not_fail_closed_on_removed_fair_probability_family(self):
         runner = self._runner()
         now = dt.datetime.now(dt.timezone.utc)
         runner.token_expiry_dt_by_token["t1"] = now + dt.timedelta(seconds=80)
@@ -188,7 +187,7 @@ class DoctrineGatingTests(unittest.TestCase):
             latency_snapshot=snapshot,
             oracle_fresh=True,
         )
-        self.assertEqual(reason, "fair_probability_unavailable")
+        self.assertEqual(reason, "")
 
     def test_maker_timing_gate_is_fail_closed_outside_window(self):
         runner = self._runner()
@@ -256,7 +255,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
             )
         self.assertEqual(out["submitted"], 1)
         placed.assert_called_once()
@@ -318,7 +316,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
             )
             getattr(runner, "_taker_window_submit_lock_keys", set()).clear()
             out_extreme_live = runner._run_taker(
@@ -327,7 +324,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
             )
         self.assertEqual(out_extreme_with_residue["submitted"], 1)
         self.assertEqual(out_extreme_live["submitted"], 1)
@@ -357,7 +353,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
             )
         self.assertEqual(out["submitted"], 1)
         self.assertEqual(out["fills_accepted"], 1)
@@ -391,10 +386,9 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_submitted_order_ids_by_token={},
             maker_no_submission_reason_by_token={},
             maker_no_submission_category_by_token={},
-            maker_prereq_failure_by_token={"t1": "fair_probability_unavailable"},
+            maker_prereq_failure_by_token={"t1": "maker_timing_gate_closed"},
             fair_probability_by_token={},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=1,
         )
         runner.events.close()
@@ -410,7 +404,7 @@ class DoctrineGatingTests(unittest.TestCase):
         row = event_rows[-1]
         self.assertEqual(str(row.get("evaluation_scope") or ""), "maker")
         self.assertEqual(str(row.get("action_taken") or ""), "none")
-        self.assertEqual(str(row.get("block_reason") or ""), "fair_probability_unavailable")
+        self.assertEqual(str(row.get("block_reason") or ""), "maker_timing_gate_closed")
 
     def test_maker_edge_evaluation_emits_one_row_per_evaluated_token(self):
         runner = self._runner()
@@ -435,10 +429,9 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_submitted_order_ids_by_token={"t2": ["ord-maker-1"]},
             maker_no_submission_reason_by_token={},
             maker_no_submission_category_by_token={},
-            maker_prereq_failure_by_token={"t1": "fair_probability_unavailable"},
+            maker_prereq_failure_by_token={"t1": "maker_timing_gate_closed"},
             fair_probability_by_token={"t2": 0.55},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=2,
         )
         runner.events.close()
@@ -492,7 +485,6 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_prereq_failure_by_token={},
             fair_probability_by_token={"t1": 0.55},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=2,
         )
         runner.events.close()
@@ -637,7 +629,6 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_prereq_failure_by_token={},
             fair_probability_by_token={"t1": 0.55},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=3,
         )
         runner.events.close()
@@ -682,7 +673,6 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_prereq_failure_by_token={},
             fair_probability_by_token={"t1": 0.70},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=4,
         )
         runner.events.close()
@@ -815,7 +805,6 @@ class DoctrineGatingTests(unittest.TestCase):
             fair_probability_by_token={"t1": 0.61},
             maker_market_reference_by_token=market_reference_by_token,
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=7,
         )
         runner.events.close()
@@ -901,7 +890,6 @@ class DoctrineGatingTests(unittest.TestCase):
             maker_prereq_failure_by_token={},
             fair_probability_by_token={"t1": 0.70},
             oracle_tick_age_sec=0.2,
-            latency_state="armed",
             cycle_index=5,
         )
         runner.events.close()
@@ -967,7 +955,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
                 cycle_index=6,
             )
         self.assertEqual(out["submitted"], 0)
@@ -1032,7 +1019,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1", "t2"],
                 lifecycle_info_by_token=stage_info,
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1", "t2"],
                 cycle_index=3,
             )
         runner.events.close()
@@ -1091,7 +1077,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token=stage_info,
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
                 cycle_index=8,
             )
         self.assertEqual(out["submitted"], 1)
@@ -1138,7 +1123,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
                 cycle_index=4,
             )
         self.assertEqual(out["submitted"], 0)
@@ -1182,7 +1166,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
                 oracle_fresh=False,
-                lag_verified_token_ids=["t1"],
                 cycle_index=5,
             )
         self.assertEqual(out["submitted"], 0)
@@ -1219,6 +1202,7 @@ class DoctrineGatingTests(unittest.TestCase):
         )
         runner.taker_competitiveness_cfg = comp_cfg
         runner.taker_competitiveness_engine = TakerCompetitivenessEngine(comp_cfg)
+        runner.lifecycle_taker_window_open_sec = 5.0
         top = BookTop(
             token_id="t1",
             ts_utc=utc_iso(),
@@ -1235,7 +1219,6 @@ class DoctrineGatingTests(unittest.TestCase):
                 token_ids=["t1"],
                 lifecycle_info_by_token={"t1": self._taker_info()},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
                 cycle_index=6,
             )
         self.assertEqual(out["submitted"], 0)
@@ -1253,8 +1236,7 @@ class DoctrineGatingTests(unittest.TestCase):
                     decision_rows.append(payload)
                 elif event_type == "edge_evaluation":
                     edge_rows.append(payload)
-        self.assertTrue(bool(decision_rows))
-        self.assertEqual(str(decision_rows[-1].get("block_reason") or ""), "taker_outside_final_window")
+        self.assertFalse(bool(decision_rows))
         taker_rows = [row for row in edge_rows if str(row.get("evaluation_scope") or "") == "taker"]
         self.assertTrue(bool(taker_rows))
         self.assertEqual(str(taker_rows[-1].get("block_reason") or ""), "taker_outside_final_window")
@@ -1269,7 +1251,7 @@ class DoctrineGatingTests(unittest.TestCase):
             {
                 "enabled": True,
                 "final_window_enabled": True,
-                "final_window_sec": 7.0,
+                "final_window_sec": 5.0,
                 "hard_min_target_usd": 1.0,
                 "dynamic_size_target_usd_cap": 1.0,
             }
@@ -1299,9 +1281,8 @@ class DoctrineGatingTests(unittest.TestCase):
                 books={"t1": top},
                 fair_probability_by_token={"t1": 0.70},
                 token_ids=["t1"],
-                lifecycle_info_by_token={"t1": self._taker_info()},
+                lifecycle_info_by_token={"t1": self._taker_info(sec_to_expiry=4.0)},
                 oracle_tick_age_sec=0.0,
-                lag_verified_token_ids=["t1"],
                 cycle_index=7,
             )
         self.assertEqual(out["submitted"], 0)
@@ -1321,7 +1302,7 @@ class DoctrineGatingTests(unittest.TestCase):
                     edge_rows.append(payload)
         self.assertTrue(bool(decision_rows))
         self.assertEqual(str(decision_rows[-1].get("timing_window_class") or ""), "final_window")
-        self.assertAlmostEqual(float(decision_rows[-1].get("sec_to_expiry") or 0.0), 6.0, places=9)
+        self.assertAlmostEqual(float(decision_rows[-1].get("sec_to_expiry") or 0.0), 4.0, places=9)
         self.assertEqual(str(decision_rows[-1].get("lifecycle_phase") or ""), "taker_window")
         self.assertTrue(bool(decision_rows[-1].get("taker_phase_allowed")))
         self.assertFalse(bool(decision_rows[-1].get("maker_phase_allowed")))
@@ -1346,6 +1327,7 @@ class DoctrineGatingTests(unittest.TestCase):
 
     def test_taker_window_semantic_check_uses_canonical_final_window_owner(self):
         runner = self._runner()
+        runner.lifecycle_taker_window_open_sec = 5.0
         runner.taker_competitiveness_cfg = TakerCompetitivenessConfig.from_mapping(
             {
                 "enabled": True,
@@ -1367,7 +1349,7 @@ class DoctrineGatingTests(unittest.TestCase):
         self.assertTrue(bool(semantic_rows))
         row = semantic_rows[-1]
         self.assertEqual(str(row.get("semantic_status") or ""), "ok")
-        self.assertAlmostEqual(float(row.get("canonical_live_final_window_sec") or 0.0), 7.0, places=9)
+        self.assertAlmostEqual(float(row.get("canonical_live_final_window_sec") or 0.0), 5.0, places=9)
         phase_rows = row.get("phase_rows") or {}
         prepare_row = phase_rows.get("prepare") or {}
         commitment_row = phase_rows.get("taker_window") or {}
@@ -1376,7 +1358,7 @@ class DoctrineGatingTests(unittest.TestCase):
             str(prepare_row.get("semantic_dead_reason") or ""),
             "phase_disallow_taker",
         )
-        self.assertAlmostEqual(float(commitment_row.get("effective_final_window_sec") or 0.0), 7.0, places=9)
+        self.assertAlmostEqual(float(commitment_row.get("effective_final_window_sec") or 0.0), 5.0, places=9)
 
 
 if __name__ == "__main__":

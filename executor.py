@@ -41,6 +41,10 @@ from prodesk.edge_truth_contract import (
     EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD,
     EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD,
     EDGE_MAKER_GATE_OPEN_FIELD,
+    EDGE_MAKER_GATE_OWNER_FAMILY_FIELD,
+    EDGE_MAKER_GATE_REASON_FIELD,
+    EDGE_MAKER_GATE_STAGE_FIELD,
+    EDGE_MAKER_GATE_TERMINAL_FIELD,
     EDGE_MAKER_PHASE_ALLOWED_FIELD,
     EDGE_MARKET_TRUTH_REQUIRED_FIELD,
     EDGE_OWNED_MARKET_REF_FIELD,
@@ -58,6 +62,7 @@ from prodesk.edge_truth_contract import (
     EDGE_EVAL_SCOPE_MAKER,
     EDGE_EVAL_SCOPES,
     EDGE_EVAL_SCOPE_TAKER,
+    MAKER_GATE_STAGE_TRUTH_REFERENCE,
     TAKER_CHAINLINK_REASON,
     compute_edge_value,
     is_canonical_block_reason,
@@ -67,6 +72,7 @@ from prodesk.edge_truth_contract import (
     lifecycle_surface_fields,
     lineage_stage_surface_fields,
     market_truth_surface_fields,
+    maker_gate_contract_from_payload,
     ownership_surface_fields,
     lineage_stage_from_payload,
     validate_edge_inputs,
@@ -83,9 +89,6 @@ from prodesk.exposure_classifier import (
 from prodesk.gateway import BaseGateway, GatewayError, LiveClobGateway, PaperGateway
 from prodesk.logging_utils import EventLogger, configure_console_logging
 from prodesk.latency_verifier import (
-    STATE_ARMED,
-    STATE_DISARMED,
-    STATE_PROBATION,
     LatencySnapshot,
     LatencyVerifier,
 )
@@ -541,7 +544,6 @@ class ExecutionRunner:
         self.taker_cancel_orphan_action_budget = int(taker_cfg.get("cancel_orphan_action_budget", 12))
         self.taker_order_rate_soft_limit_pct = float(taker_cfg.get("order_rate_soft_limit_pct", 1.0))
         self.taker_cancel_rate_soft_limit_pct = float(taker_cfg.get("cancel_rate_soft_limit_pct", 1.0))
-        self.taker_require_lag_verification = bool(taker_cfg.get("require_lag_verification", True))
         self.taker_max_chainlink_tick_age_sec = float(taker_cfg.get("max_chainlink_tick_age_sec", 1.5))
         self.taker_fair_vol_scale = float(taker_cfg.get("fair_vol_scale", 1.0))
         self.chainlink_latency_sample_mid_move_min_delta = float(
@@ -551,16 +553,6 @@ class ExecutionRunner:
             )
         )
         verifier_cfg = dict(self.cfg.get("latency_verifier", {}))
-        if "window_samples" not in verifier_cfg:
-            verifier_cfg["window_samples"] = int(taker_cfg.get("lag_window_samples", 300))
-        if "min_samples" not in verifier_cfg:
-            verifier_cfg["min_samples"] = int(taker_cfg.get("lag_min_samples", 80))
-        if "hit_threshold_ms" not in verifier_cfg:
-            verifier_cfg["hit_threshold_ms"] = float(taker_cfg.get("lag_hit_threshold_ms", 120.0))
-        if "armed_min_median_ms" not in verifier_cfg:
-            verifier_cfg["armed_min_median_ms"] = float(taker_cfg.get("lag_min_median_ms", 120.0))
-        if "armed_min_hit_rate" not in verifier_cfg:
-            verifier_cfg["armed_min_hit_rate"] = float(taker_cfg.get("lag_min_hit_rate", 0.6))
         self.latency_verifier = LatencyVerifier(verifier_cfg)
         self.taker_enabled = bool(taker_cfg.get("enabled", False))
         self.taker_min_edge = float(taker_cfg.get("min_edge", 0.015))
@@ -588,6 +580,9 @@ class ExecutionRunner:
         lifecycle_cfg = self.cfg.get("lifecycle", {})
         if not isinstance(lifecycle_cfg, dict):
             lifecycle_cfg = {}
+        lifecycle_selection_cfg = lifecycle_cfg.get("selection", {})
+        if not isinstance(lifecycle_selection_cfg, dict):
+            lifecycle_selection_cfg = {}
         lifecycle_phase_cfg = lifecycle_cfg.get("phase", {})
         if not isinstance(lifecycle_phase_cfg, dict):
             lifecycle_phase_cfg = {}
@@ -606,6 +601,15 @@ class ExecutionRunner:
         self.lifecycle_taker_window_open_sec = float(
             lifecycle_phase_cfg.get("taker_window_open_sec", 7.0)
         )
+        self.lifecycle_maker_window_close_sec = float(
+            lifecycle_phase_cfg.get("maker_window_close_sec", self.lifecycle_taker_window_open_sec)
+        )
+        self.lifecycle_taker_window_close_sec = float(
+            lifecycle_phase_cfg.get("taker_window_close_sec", 0.0)
+        )
+        self.taker_require_secondary_oracle_confirmation = bool(
+            lifecycle_selection_cfg.get("require_secondary_oracle_confirmation", True)
+        )
         taker_competitiveness_cfg = (
             dict(taker_cfg.get("competitiveness", {}))
             if isinstance(taker_cfg.get("competitiveness", {}), dict)
@@ -618,6 +622,9 @@ class ExecutionRunner:
             )
         )
         taker_competitiveness_cfg["final_window_sec"] = float(self.lifecycle_taker_window_open_sec)
+        taker_competitiveness_cfg["final_window_floor_sec"] = float(
+            self.lifecycle_taker_window_close_sec
+        )
         taker_competitiveness_cfg["aggressive_window_enabled"] = bool(
             lifecycle_taker_lane_cfg.get(
                 "aggressive_window_enabled",
@@ -674,7 +681,7 @@ class ExecutionRunner:
         self.maker_comp_timing_gate_enabled = bool(
             lifecycle_maker_lane_cfg.get("timing_gate_enabled", False)
         )
-        self.maker_comp_timing_gate_min_sec_to_expiry = float(self.lifecycle_taker_window_open_sec)
+        self.maker_comp_timing_gate_min_sec_to_expiry = float(self.lifecycle_maker_window_close_sec)
         self.maker_comp_timing_gate_max_sec_to_expiry = float(self.lifecycle_maker_window_open_sec)
         self.maker_comp_edge_scale_enabled = bool(
             lifecycle_maker_lane_cfg.get("edge_scale_enabled", False)
@@ -700,6 +707,22 @@ class ExecutionRunner:
         self.maker_comp_one_sided_edge_threshold_abs = float(
             lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs", 0.18)
         )
+        self.maker_regime_filter_enabled = bool(
+            lifecycle_maker_lane_cfg.get("regime_filter_enabled", False)
+        )
+        self.maker_allowed_session_regime_classes = {
+            str(value).strip().lower()
+            for value in list(lifecycle_maker_lane_cfg.get("allowed_session_regime_classes", []))
+            if str(value).strip()
+        }
+        self.taker_regime_filter_enabled = bool(
+            lifecycle_taker_lane_cfg.get("regime_filter_enabled", False)
+        )
+        self.taker_allowed_session_regime_classes = {
+            str(value).strip().lower()
+            for value in list(lifecycle_taker_lane_cfg.get("allowed_session_regime_classes", []))
+            if str(value).strip()
+        }
         self.maker_comp_base_requote_delta = max(
             1e-9,
             float(self.cfg.get("runtime", {}).get("replace_threshold", 0.005)),
@@ -709,24 +732,16 @@ class ExecutionRunner:
             self.cfg.get("chainlink", {}).get("symbol_for_targets", chainlink_symbols[0] if chainlink_symbols else "")
         ).lower()
         self._taker_active = False
-        self._last_latency_state: str = STATE_DISARMED
         self._latency_sampling_inactive_cycles = 0
         self._latency_sampling_inactive_log_interval_sec = 60.0
         self._latency_sampling_last_log_mono = 0.0
         self._latest_latency_snapshot = LatencySnapshot(
-            state=STATE_DISARMED,
-            previous_state=STATE_DISARMED,
-            changed=False,
-            reason="init",
             sample_count=0,
             token_count=0,
             median_lag_ms=0.0,
             p90_lag_ms=0.0,
             p95_lag_ms=0.0,
             hit_rate=0.0,
-            armed=False,
-            probation=False,
-            disarmed=True,
         )
         self._last_taker_submit_mono_by_token: Dict[str, float] = {}
         self._taker_window_submit_lock_keys: set[str] = set()
@@ -763,12 +778,13 @@ class ExecutionRunner:
         risk_cfg["exposure_cap_mode"] = str(
             self.cfg.get("sizing", {}).get("exposure_cap_mode", risk_cfg.get("exposure_cap_mode", "per_market_total"))
         )
-        self.risk = RiskEngine(risk_cfg, positions)
+        simulation_cfg = dict(self.cfg.get("simulation", {})) if isinstance(self.cfg.get("simulation", {}), dict) else {}
+        self.risk = RiskEngine(risk_cfg, positions, simulation_cfg=simulation_cfg)
         self.strategy = MarketMakingStrategy(self.cfg["strategy"])
 
         mode = str(self.cfg["mode"]).lower()
         if mode == "paper":
-            self.gateway: BaseGateway = PaperGateway(self.cfg.get("runtime", {}))
+            self.gateway = PaperGateway(self.cfg.get("runtime", {}), simulation_cfg=simulation_cfg)
         else:
             self.gateway = LiveClobGateway(
                 self.cfg["auth"],
@@ -843,8 +859,6 @@ class ExecutionRunner:
         )
         self.manager.run_id = self.run_id
         self.manager.sizing_target_usd = float(self._active_target_usd)
-        if self.sizing_mode == "notional":
-            self.taker_target_usd = float(self._active_target_usd)
         raw_seen_trade_ids = state.get("seen_trade_ids", [])
         if not isinstance(raw_seen_trade_ids, list):
             raw_seen_trade_ids = []
@@ -1442,14 +1456,6 @@ class ExecutionRunner:
         return 1.0 / (1.0 + math.exp(-z))
 
     @staticmethod
-    def _latency_state_to_gauge(state: str) -> float:
-        if state == STATE_ARMED:
-            return 2.0
-        if state == STATE_PROBATION:
-            return 1.0
-        return 0.0
-
-    @staticmethod
     def _operating_mode_to_gauge(state: str) -> float:
         if state == MODE_NORMAL:
             return 0.0
@@ -1501,14 +1507,11 @@ class ExecutionRunner:
     def _threshold_reasons(self, threshold_cfg: Dict[str, Any], mode_snapshot: Any) -> list[str]:
         reasons: list[str] = []
         stale_threshold = self._parse_threshold(threshold_cfg.get("stale_reject_ratio"))
-        disarmed_threshold = self._parse_threshold(threshold_cfg.get("disarmed_ratio"))
         error_threshold = self._parse_threshold(threshold_cfg.get("error_ratio"))
         reconcile_threshold = self._parse_threshold(threshold_cfg.get("reconcile_mismatch_ratio"))
         transitions_threshold = self._parse_threshold(threshold_cfg.get("mode_transitions_window"))
         if stale_threshold is not None and mode_snapshot.stale_reject_ratio >= stale_threshold:
             reasons.append(f"stale_reject_ratio={mode_snapshot.stale_reject_ratio:.3f}")
-        if disarmed_threshold is not None and mode_snapshot.disarmed_ratio >= disarmed_threshold:
-            reasons.append(f"disarmed_ratio={mode_snapshot.disarmed_ratio:.3f}")
         if error_threshold is not None and mode_snapshot.error_ratio >= error_threshold:
             reasons.append(f"error_ratio={mode_snapshot.error_ratio:.3f}")
         if reconcile_threshold is not None and self._cached_reconcile_mismatch_ratio >= reconcile_threshold:
@@ -2933,21 +2936,6 @@ class ExecutionRunner:
             self._cached_reconcile_mismatch_ratio = 1.0
         return self._cached_reconcile_mismatch_ratio
 
-    def _disarmed_cycle_signal(self, latency_snapshot: LatencySnapshot) -> bool:
-        if not self.latency_verifier.enabled:
-            return False
-        if not bool(self.cfg.get("chainlink", {}).get("enabled", False)):
-            return False
-        if latency_snapshot.sample_count < self.latency_verifier.min_samples:
-            return False
-        reason = str(getattr(latency_snapshot, "reason", "") or "").strip().lower()
-        if reason == "lag_edge_not_present":
-            # No detectable lag edge is an opportunity/market condition, not an ingest/runtime fault.
-            # Keep trading gates fail-closed at the decision layer, but avoid escalating operating-mode
-            # safety severity from this non-fault condition alone.
-            return False
-        return bool(latency_snapshot.disarmed)
-
     def _ws_slo_bootstrap_guard_active(self, *, has_targets: bool) -> bool:
         grace_sec = max(0.0, float(getattr(self, "operating_mode_ws_slo_bootstrap_grace_sec", 0.0)))
         if (not has_targets) or (not self.operating_mode_ws_slo_enforce) or grace_sec <= 0.0:
@@ -3084,14 +3072,11 @@ class ExecutionRunner:
         normalized_scope = str(scope or "maker").strip().lower()
         if normalized_scope not in {"maker", "taker"}:
             raise ValueError(f"fair_probability_scope_invalid:{normalized_scope or 'missing'}")
-        apply_maker_latency_gates = normalized_scope == "maker"
         symbol_for_targets = self.chainlink_symbol_for_targets
         if not symbol_for_targets:
             return {}
         latest_chainlink = self.chainlink.get_latest(symbol_for_targets)
         if latest_chainlink is None:
-            return {}
-        if apply_maker_latency_gates and self.latency_verifier.require_armed_for_maker and not latency_snapshot.armed:
             return {}
         tick_age_sec = time.monotonic() - latest_chainlink.received_monotonic
         if tick_age_sec > self.doctrine_oracle_max_tick_age_sec:
@@ -3105,12 +3090,6 @@ class ExecutionRunner:
             strike = self._token_price_anchor(token_id)
             if strike is None or expiry_dt is None or side not in {"YES", "NO"}:
                 continue
-            if apply_maker_latency_gates and self.latency_verifier.require_armed_for_maker and not self._lag_verified(token_id):
-                continue
-            if apply_maker_latency_gates and self.latency_verifier.score_enabled:
-                score = self.latency_verifier.token_score(token_id)
-                if score < self.latency_verifier.score_min_for_maker:
-                    continue
             sec_to_expiry = max(0.0, (expiry_dt - now).total_seconds())
             p_up = self._fair_probability_up(spot=latest_chainlink.price, strike=strike, sec_to_expiry=sec_to_expiry)
             fair = p_up if side == "YES" else (1.0 - p_up)
@@ -3161,9 +3140,6 @@ class ExecutionRunner:
         if stats is None:
             return 0, 0.0, 0.0
         return stats.sample_count, stats.median_lag_ms, stats.hit_rate
-
-    def _lag_verified(self, token_id: str) -> bool:
-        return self.latency_verifier.token_is_verified(token_id)
 
     def _taker_context(self) -> Dict[str, Any]:
         now = utc_now()
@@ -3218,14 +3194,11 @@ class ExecutionRunner:
                 "active": False,
                 "token_ids": [],
                 "near_token_ids": [],
-                "lag_verified_token_ids": [],
                 "sec_to_expiry_min": None,
-                "lag_verified_token_count": 0,
                 "degraded_expiry_fallback_active": degraded_expiry_fallback_active,
             }
 
-        lag_verified_tokens = [token_id for token_id in near_tokens.keys() if self._lag_verified(token_id)]
-        active_tokens = lag_verified_tokens if self.taker_require_lag_verification else list(near_tokens.keys())
+        active_tokens = list(near_tokens.keys())
         sec_to_expiry_min = min(near_tokens.values())
         if active_tokens:
             sec_to_expiry_min = min(near_tokens[token_id] for token_id in active_tokens)
@@ -3233,9 +3206,7 @@ class ExecutionRunner:
             "active": bool(active_tokens),
             "token_ids": active_tokens,
             "near_token_ids": list(near_tokens.keys()),
-            "lag_verified_token_ids": lag_verified_tokens,
             "sec_to_expiry_min": sec_to_expiry_min,
-            "lag_verified_token_count": len(lag_verified_tokens),
             "degraded_expiry_fallback_active": degraded_expiry_fallback_active,
         }
 
@@ -3253,9 +3224,7 @@ class ExecutionRunner:
         beyond the current lifecycle law.
         """
 
-        window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("near_token_ids", [])) if str(token_id).strip()]
-        if not window_token_ids:
-            window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("token_ids", [])) if str(token_id).strip()]
+        window_token_ids = [str(token_id).strip() for token_id in list(taker_ctx.get("token_ids", [])) if str(token_id).strip()]
         if not window_token_ids:
             return []
         taker_phase_token_set = {str(token_id).strip() for token_id in taker_phase_tokens if str(token_id).strip()}
@@ -3284,12 +3253,10 @@ class ExecutionRunner:
             return "resolve"
         if hold_active:
             return "prepare"
-        taker_window_open_sec = float(getattr(self, "lifecycle_taker_window_open_sec", 7.0))
-        maker_window_open_sec = float(getattr(self, "lifecycle_maker_window_open_sec", 15.0))
-        if sec <= taker_window_open_sec + 1e-9:
-            return "taker_window"
-        if sec <= maker_window_open_sec + 1e-9:
+        if self._maker_window_open(sec):
             return "maker_window"
+        if self._taker_window_open(sec):
+            return "taker_window"
         return "prepare"
 
     @staticmethod
@@ -3323,11 +3290,9 @@ class ExecutionRunner:
         sec = float(sec_to_expiry)
         if sec < 0.0:
             return lineage_bucket
-        taker_window_open_sec = float(getattr(self, "lifecycle_taker_window_open_sec", 7.0))
-        maker_window_open_sec = float(getattr(self, "lifecycle_maker_window_open_sec", 15.0))
-        if sec <= taker_window_open_sec + 1e-9:
+        if self._taker_window_open(sec):
             return STAGE_TAKER_COMMITMENT
-        if sec <= maker_window_open_sec + 1e-9:
+        if self._maker_window_open(sec):
             return STAGE_MAKER_LATE_WINDOW
         return STAGE_LATE_DIAGNOSTIC
 
@@ -3385,23 +3350,37 @@ class ExecutionRunner:
         if not bool(self.taker_competitiveness_cfg.enabled):
             return
 
-        canonical_window_sec = max(0.0, float(self.lifecycle_taker_window_open_sec))
-        maker_window_open_sec = max(canonical_window_sec, float(self.lifecycle_maker_window_open_sec))
+        taker_window_open_sec = max(0.0, float(self.lifecycle_taker_window_open_sec))
+        taker_window_close_sec = max(0.0, float(self.lifecycle_taker_window_close_sec))
+        maker_window_open_sec = max(0.0, float(self.lifecycle_maker_window_open_sec))
+        maker_window_close_sec = max(0.0, float(self.lifecycle_maker_window_close_sec))
+        maker_taker_overlap = bool(
+            max(maker_window_close_sec, taker_window_close_sec)
+            <= min(maker_window_open_sec, taker_window_open_sec) + 1e-9
+        )
         phase_rows: Dict[str, Dict[str, Any]] = {}
         dead_count = 0
         phase_bands: Dict[str, Tuple[Optional[float], Optional[float], bool]] = {
             "scan": (maker_window_open_sec, None, False),
             "prepare": (maker_window_open_sec, None, False),
-            "maker_window": (canonical_window_sec, maker_window_open_sec, False),
-            "taker_window": (0.0, canonical_window_sec, canonical_window_sec > 0.0),
+            "maker_window": (
+                maker_window_close_sec,
+                maker_window_open_sec,
+                bool(maker_taker_overlap and taker_window_open_sec > taker_window_close_sec + 1e-9),
+            ),
+            "taker_window": (
+                taker_window_close_sec,
+                taker_window_open_sec,
+                taker_window_open_sec > taker_window_close_sec + 1e-9,
+            ),
             "resolve": (None, 0.0, False),
         }
         for phase_name, (lower_exclusive, upper_inclusive, phase_allows_taker) in phase_bands.items():
-            effective_window_sec = canonical_window_sec if phase_allows_taker else 0.0
+            effective_window_sec = taker_window_open_sec if phase_allows_taker else 0.0
             semantically_live = bool(
                 phase_allows_taker
                 and isinstance(lower_exclusive, (int, float))
-                and effective_window_sec > float(lower_exclusive)
+                and effective_window_sec > float(lower_exclusive) + 1e-9
             )
             semantic_dead_reason = None
             if not phase_allows_taker:
@@ -3423,6 +3402,9 @@ class ExecutionRunner:
                 ),
                 "phase_allows_taker": bool(phase_allows_taker),
                 "effective_final_window_sec": float(effective_window_sec),
+                "effective_final_window_floor_sec": (
+                    float(taker_window_close_sec) if phase_allows_taker else None
+                ),
                 "semantically_live": semantically_live,
                 "overlap_high_sec": (float(overlap_high) if semantically_live else None),
                 "semantic_dead_reason": semantic_dead_reason,
@@ -3435,7 +3417,11 @@ class ExecutionRunner:
                 "run_id": self.run_id,
                 "final_window_enabled": bool(self.taker_competitiveness_cfg.final_window_enabled),
                 "default_final_window_sec": float(self.taker_competitiveness_cfg.final_window_sec),
-                "canonical_live_final_window_sec": float(canonical_window_sec),
+                "default_final_window_floor_sec": float(
+                    self.taker_competitiveness_cfg.final_window_floor_sec
+                ),
+                "canonical_live_final_window_sec": float(taker_window_open_sec),
+                "canonical_live_final_window_floor_sec": float(taker_window_close_sec),
                 "phase_rows": phase_rows,
                 "semantic_dead_by_construction_count": int(dead_count),
                 "semantic_status": ("ok" if dead_count == 0 else "warn"),
@@ -3478,49 +3464,6 @@ class ExecutionRunner:
             return None
         value = min(caps)
         return float(value) if value > 0.0 else None
-
-    @staticmethod
-    def _binary_complement_side(side: Any) -> str:
-        normalized = str(side or "").strip().upper()
-        if normalized == "YES":
-            return "NO"
-        if normalized == "NO":
-            return "YES"
-        return ""
-
-    def _resolve_complement_token_id(
-        self,
-        token_id: str,
-        *,
-        active_token_ids: Optional[set[str]] = None,
-    ) -> Tuple[Optional[str], str]:
-        token = str(token_id or "").strip()
-        if not token:
-            return None, "complement_token_mapping_unavailable"
-        side = str(self.token_side_by_token.get(token, "")).strip().upper()
-        complement_side = self._binary_complement_side(side)
-        market_key = str(self.token_market_key_by_token.get(token, "")).strip()
-        if complement_side not in {"YES", "NO"}:
-            return None, "complement_token_mapping_unavailable"
-        if not market_key or "|" not in market_key:
-            return None, "complement_token_mapping_unavailable"
-        base_key, key_side = market_key.rsplit("|", 1)
-        if not base_key or str(key_side or "").strip().upper() != side:
-            return None, "complement_token_mapping_unavailable"
-        expected_market_key = f"{base_key}|{complement_side}"
-        active = {str(item).strip() for item in (active_token_ids or set()) if str(item).strip()}
-        matches = [
-            candidate_id
-            for candidate_id, candidate_market_key in self.token_market_key_by_token.items()
-            if str(candidate_id).strip()
-            and str(candidate_id).strip() != token
-            and (not active or str(candidate_id).strip() in active)
-            and str(candidate_market_key or "").strip() == expected_market_key
-            and str(self.token_side_by_token.get(str(candidate_id).strip(), "")).strip().upper() == complement_side
-        ]
-        if len(matches) != 1:
-            return None, "complement_token_mapping_unavailable"
-        return str(matches[0]).strip(), ""
 
     def _binary_settlement_value_for_token(self, *, token_id: str, resolution_price: float) -> Optional[float]:
         side = str(self.token_side_by_token.get(token_id, "")).strip().upper()
@@ -3579,6 +3522,9 @@ class ExecutionRunner:
                 size_shares=float(risk_settlement.get("settlement_size_shares") or 0.0),
                 settlement_price=float(settlement_value),
                 ts_utc=utc_iso(),
+                target_ref=self._target_ref_for_token(token),
+                market_key=str(self.token_market_key_by_token.get(token, "") or ""),
+                token_side=str(self.token_side_by_token.get(token, "") or ""),
             )
             self.telemetry.incr("binary_position_settled")
             settled_count += 1
@@ -3641,6 +3587,48 @@ class ExecutionRunner:
         sec = float(sec_to_expiry)
         return self.maker_comp_timing_gate_min_sec_to_expiry <= sec <= self.maker_comp_timing_gate_max_sec_to_expiry
 
+    def _maker_window_open(self, sec_to_expiry: Optional[float]) -> bool:
+        if not isinstance(sec_to_expiry, (int, float)):
+            return False
+        sec = float(sec_to_expiry)
+        return (
+            sec >= float(self.lifecycle_maker_window_close_sec) - 1e-9
+            and sec <= float(self.lifecycle_maker_window_open_sec) + 1e-9
+        )
+
+    def _taker_window_open(self, sec_to_expiry: Optional[float]) -> bool:
+        if not isinstance(sec_to_expiry, (int, float)):
+            return False
+        sec = float(sec_to_expiry)
+        return (
+            sec >= float(self.lifecycle_taker_window_close_sec) - 1e-9
+            and sec <= float(self.lifecycle_taker_window_open_sec) + 1e-9
+        )
+
+    @staticmethod
+    def _session_regime_class(ts_utc: Optional[dt.datetime]) -> str:
+        if not isinstance(ts_utc, dt.datetime):
+            return "unknown"
+        hour = int(ts_utc.astimezone(dt.timezone.utc).hour)
+        if 0 <= hour < 8:
+            return "asia_dominant_heuristic"
+        if 12 <= hour < 20:
+            return "usa_europe_peak_heuristic"
+        return "transition_heuristic"
+
+    def _lane_regime_filter_allowed(self, *, lane: str, session_regime_class: str) -> bool:
+        normalized_lane = str(lane or "").strip().lower()
+        normalized_regime = str(session_regime_class or "").strip().lower() or "unknown"
+        if normalized_lane == "maker":
+            if not bool(self.maker_regime_filter_enabled):
+                return True
+            return normalized_regime in self.maker_allowed_session_regime_classes
+        if normalized_lane == "taker":
+            if not bool(self.taker_regime_filter_enabled):
+                return True
+            return normalized_regime in self.taker_allowed_session_regime_classes
+        return False
+
     @staticmethod
     def _maker_cannon_probe_token_ids(
         *,
@@ -3685,6 +3673,49 @@ class ExecutionRunner:
             return "0p10_0p20"
         return "gt_0p20"
 
+    @staticmethod
+    def _resolve_secondary_oracle_confirmation(
+        *,
+        primary_edge_signed: Optional[float],
+        secondary_edge_signed: Optional[float],
+        base_status: str,
+    ) -> tuple[str, bool]:
+        normalized_status = str(base_status or "unknown").strip().lower() or "unknown"
+        secondary_oracle_confirmation = False
+        if normalized_status != "disabled":
+            if (
+                isinstance(primary_edge_signed, (int, float))
+                and isinstance(secondary_edge_signed, (int, float))
+                and abs(float(primary_edge_signed)) > 1e-12
+                and abs(float(secondary_edge_signed)) > 1e-12
+            ):
+                secondary_oracle_confirmation = bool(
+                    (float(primary_edge_signed) > 0.0) == (float(secondary_edge_signed) > 0.0)
+                )
+                normalized_status = (
+                    "confirmed" if secondary_oracle_confirmation else "direction_mismatch"
+                )
+            elif normalized_status == "available":
+                normalized_status = "unknown"
+        return normalized_status, bool(secondary_oracle_confirmation)
+
+    @staticmethod
+    def _secondary_oracle_price_delta(
+        *,
+        chainlink_spot_price: Optional[float],
+        secondary_oracle_spot_price: Optional[float],
+    ) -> tuple[Optional[float], Optional[float]]:
+        if not (
+            isinstance(chainlink_spot_price, (int, float))
+            and isinstance(secondary_oracle_spot_price, (int, float))
+        ):
+            return None, None
+        delta_abs = abs(float(chainlink_spot_price) - float(secondary_oracle_spot_price))
+        delta_bps = None
+        if abs(float(chainlink_spot_price)) > 1e-12:
+            delta_bps = (float(delta_abs) / abs(float(chainlink_spot_price))) * 10000.0
+        return float(delta_abs), (float(delta_bps) if isinstance(delta_bps, (int, float)) else None)
+
     def _maker_competitiveness_profile(
         self,
         *,
@@ -3727,35 +3758,19 @@ class ExecutionRunner:
             if (secondary_fair is not None and market_probability is not None)
             else None
         )
-        normalized_secondary_oracle_status = (
-            str(secondary_oracle_status or "unknown").strip().lower() or "unknown"
-        )
-        secondary_oracle_confirmation = False
-        if normalized_secondary_oracle_status != "disabled":
-            if (
-                isinstance(edge_signed, (int, float))
-                and isinstance(secondary_edge_signed, (int, float))
-                and abs(float(edge_signed)) > 1e-12
-                and abs(float(secondary_edge_signed)) > 1e-12
-            ):
-                secondary_oracle_confirmation = bool(
-                    (float(edge_signed) > 0.0) == (float(secondary_edge_signed) > 0.0)
-                )
-                normalized_secondary_oracle_status = (
-                    "confirmed" if secondary_oracle_confirmation else "direction_mismatch"
-                )
-            elif normalized_secondary_oracle_status == "available":
-                normalized_secondary_oracle_status = "unknown"
-        secondary_oracle_price_delta_abs = None
-        secondary_oracle_price_delta_bps = None
-        if isinstance(chainlink_spot_price, (int, float)) and isinstance(secondary_oracle_spot_price, (int, float)):
-            secondary_oracle_price_delta_abs = abs(
-                float(chainlink_spot_price) - float(secondary_oracle_spot_price)
+        normalized_secondary_oracle_status, secondary_oracle_confirmation = (
+            self._resolve_secondary_oracle_confirmation(
+                primary_edge_signed=edge_signed,
+                secondary_edge_signed=secondary_edge_signed,
+                base_status=secondary_oracle_status,
             )
-            if abs(float(chainlink_spot_price)) > 1e-12:
-                secondary_oracle_price_delta_bps = (
-                    float(secondary_oracle_price_delta_abs) / abs(float(chainlink_spot_price))
-                ) * 10000.0
+        )
+        secondary_oracle_price_delta_abs, secondary_oracle_price_delta_bps = (
+            self._secondary_oracle_price_delta(
+                chainlink_spot_price=chainlink_spot_price,
+                secondary_oracle_spot_price=secondary_oracle_spot_price,
+            )
+        )
         strength = self._maker_edge_strength(edge_abs)
         size_mult_comp = 1.0 + ((float(self.maker_comp_size_mult_max) - 1.0) * strength)
         spread_mult_comp = 1.0 - ((1.0 - float(self.maker_comp_spread_mult_min)) * strength)
@@ -3968,8 +3983,27 @@ class ExecutionRunner:
             hold_active=hold_active,
             stage_known=stage_known,
         )
-        maker_phase_allowed = lifecycle_phase == "maker_window"
-        taker_phase_allowed = lifecycle_phase == "taker_window"
+        session_regime_class = self._session_regime_class(utc_now())
+        maker_phase_allowed = bool(
+            stage_known
+            and not resolve_required
+            and not hold_active
+            and self._maker_window_open(sec_to_expiry)
+            and self._lane_regime_filter_allowed(
+                lane="maker",
+                session_regime_class=session_regime_class,
+            )
+        )
+        taker_phase_allowed = bool(
+            stage_known
+            and not resolve_required
+            and not hold_active
+            and self._taker_window_open(sec_to_expiry)
+            and self._lane_regime_filter_allowed(
+                lane="taker",
+                session_regime_class=session_regime_class,
+            )
+        )
         maker_gate_open = bool(maker_phase_allowed)
         taker_gate_open = bool(taker_phase_allowed)
         verdict = "pass" if stage_known else "fail"
@@ -3995,6 +4029,19 @@ class ExecutionRunner:
             "sec_to_expiry": sec_to_expiry,
             "maker_timing_gate_open": bool(maker_timing_gate_open),
             "maker_timing_stage_override_active": bool(maker_timing_stage_override_active),
+            "session_regime_class": session_regime_class,
+            "maker_regime_filter_allowed": bool(
+                self._lane_regime_filter_allowed(
+                    lane="maker",
+                    session_regime_class=session_regime_class,
+                )
+            ),
+            "taker_regime_filter_allowed": bool(
+                self._lane_regime_filter_allowed(
+                    lane="taker",
+                    session_regime_class=session_regime_class,
+                )
+            ),
             "market_key": market_key,
             "observe_hold_active": hold_active,
             "observe_hold_cycles_remaining": hold_cycles_remaining,
@@ -4199,15 +4246,6 @@ class ExecutionRunner:
             return "missing_side_metadata"
         if not oracle_fresh:
             return "oracle_unavailable_or_stale"
-        if self.latency_verifier.require_armed_for_maker and (not latency_snapshot.armed):
-            return "latency_not_armed_for_maker"
-        if self.latency_verifier.require_armed_for_maker and (not self._lag_verified(token_id)):
-            return "token_lag_not_verified_for_maker"
-        if self.latency_verifier.score_enabled:
-            if self.latency_verifier.token_score(token_id) < self.latency_verifier.score_min_for_maker:
-                return "token_score_below_maker_min"
-        if token_id not in fair_probability_by_token:
-            return "fair_probability_unavailable"
         return ""
 
     @staticmethod
@@ -4585,7 +4623,6 @@ class ExecutionRunner:
         market_probability: Optional[float],
         edge_value: Optional[float],
         oracle_tick_age_sec: Optional[float],
-        latency_state: str,
         maker_gate_state: bool,
         taker_gate_state: bool,
         action_taken: str,
@@ -4722,7 +4759,6 @@ class ExecutionRunner:
             "oracle_tick_age_sec": (
                 float(oracle_tick_age_sec) if isinstance(oracle_tick_age_sec, (int, float)) else None
             ),
-            "latency_state": str(latency_state or "").strip().lower() or None,
             **lifecycle_surface_fields(
                 open_order_cleanup_required=bool(open_order_cleanup_required),
                 settlement_hold_required=bool(settlement_hold_required),
@@ -4886,6 +4922,7 @@ class ExecutionRunner:
         payload["decision_input_emulated"] = bool(decision_input_emulated)
         payload["decision_input_data_class"] = decision_input_data_class
         payload["execution_realism_class"] = self._execution_realism_class_for_scope(normalized_scope)
+        payload.update(maker_gate_contract_from_payload(payload))
         self.events.log_event("edge_evaluation", payload)
 
     @staticmethod
@@ -4894,6 +4931,221 @@ class ExecutionRunner:
         if not normalized_token_id:
             return None
         return hashlib.sha256(normalized_token_id.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _book_top_prices(top: Any) -> tuple[Optional[float], Optional[float]]:
+        if top is None:
+            return None, None
+        best_bid = getattr(top, "best_bid_price", None)
+        best_ask = getattr(top, "best_ask_price", None)
+        bid_value = float(best_bid) if isinstance(best_bid, (int, float)) else None
+        ask_value = float(best_ask) if isinstance(best_ask, (int, float)) else None
+        return bid_value, ask_value
+
+    @classmethod
+    def _classify_market_window_geometry(cls, *, token_ids: Collection[str], books: Mapping[str, Any]) -> str:
+        rich = False
+        cheap = False
+        hard_rich = False
+        hard_cheap = False
+        for token_id in token_ids:
+            bid_value, ask_value = cls._book_top_prices(books.get(str(token_id)))
+            if (
+                isinstance(bid_value, (int, float))
+                and bid_value >= 0.98
+                and (ask_value is None or ask_value >= 0.99)
+            ):
+                rich = True
+                if bid_value >= 0.99 and (
+                    ask_value is None or ask_value >= 0.999999
+                ):
+                    hard_rich = True
+            if (
+                isinstance(ask_value, (int, float))
+                and ask_value <= 0.02
+                and (bid_value is None or bid_value <= 0.01)
+            ):
+                cheap = True
+                if ask_value <= 0.01 and (
+                    bid_value is None or bid_value <= 0.000001
+                ):
+                    hard_cheap = True
+        if hard_rich and hard_cheap:
+            return "hard_pinned"
+        if rich and cheap:
+            return "near_pinned"
+        return "normal"
+
+    @staticmethod
+    def _market_window_geometry_block_reason(geometry_class: str) -> Optional[str]:
+        normalized = str(geometry_class or "").strip().lower()
+        if normalized == "hard_pinned":
+            return "window_geometry_hard_pinned"
+        if normalized == "near_pinned":
+            return "window_geometry_near_pinned"
+        return None
+
+    def _market_window_geometry_class_by_token(
+        self,
+        *,
+        token_ids: Collection[str],
+        books: Mapping[str, Any],
+        lifecycle_info_by_token: Mapping[str, Mapping[str, Any]],
+    ) -> Dict[str, str]:
+        tokens_by_market_ref: Dict[str, List[str]] = {}
+        for token_id in {str(item) for item in token_ids if str(item).strip()}:
+            info = lifecycle_info_by_token.get(token_id, {})
+            market_ref = str(info.get(EDGE_OWNED_MARKET_REF_FIELD) or "").strip() or token_id
+            tokens_by_market_ref.setdefault(market_ref, []).append(token_id)
+        all_market_tokens_by_ref: Dict[str, List[str]] = {}
+        if isinstance(lifecycle_info_by_token, Mapping):
+            for lifecycle_token_id, info in lifecycle_info_by_token.items():
+                token_text = str(lifecycle_token_id).strip()
+                if not token_text:
+                    continue
+                market_ref = str((info or {}).get(EDGE_OWNED_MARKET_REF_FIELD) or "").strip() or token_text
+                all_market_tokens_by_ref.setdefault(market_ref, []).append(token_text)
+        class_by_token: Dict[str, str] = {}
+        for market_ref, token_group in tokens_by_market_ref.items():
+            full_market_group = sorted(
+                {
+                    str(item)
+                    for item in list(token_group) + list(all_market_tokens_by_ref.get(market_ref, []))
+                    if str(item).strip()
+                }
+            )
+            geometry_class = self._classify_market_window_geometry(
+                token_ids=full_market_group,
+                books=books,
+            )
+            for token_id in token_group:
+                class_by_token[str(token_id)] = geometry_class
+        return class_by_token
+
+    @staticmethod
+    def _market_ref_for_lifecycle_token(
+        token_id: str,
+        lifecycle_info_by_token: Mapping[str, Mapping[str, Any]],
+    ) -> str:
+        info = lifecycle_info_by_token.get(str(token_id), {})
+        return str(info.get(EDGE_OWNED_MARKET_REF_FIELD) or "").strip() or str(token_id)
+
+    @staticmethod
+    def _maker_profile_edge_abs(profile: Mapping[str, Any]) -> float:
+        context = dict(profile.get("context") or {}) if isinstance(profile, Mapping) else {}
+        raw_value = context.get("edge_abs")
+        return float(raw_value) if isinstance(raw_value, (int, float)) else float("-inf")
+
+    def _active_maker_expression_tokens_by_market_ref(
+        self,
+        *,
+        lifecycle_info_by_token: Mapping[str, Mapping[str, Any]],
+    ) -> Dict[str, set[str]]:
+        by_market_ref: Dict[str, set[str]] = {}
+
+        tx_manager = getattr(self, "tx_manager", None)
+        if tx_manager is not None and hasattr(tx_manager, "get_open_orders"):
+            try:
+                open_orders = tx_manager.get_open_orders()
+            except Exception:
+                open_orders = []
+            for order in open_orders or []:
+                token_id = str(getattr(order, "token_id", "") or "").strip()
+                if not token_id:
+                    continue
+                market_ref = self._market_ref_for_lifecycle_token(token_id, lifecycle_info_by_token)
+                by_market_ref.setdefault(market_ref, set()).add(token_id)
+
+        risk_engine = getattr(self, "risk", None)
+        positions = getattr(risk_engine, "positions", {}) if risk_engine is not None else {}
+        if isinstance(positions, Mapping):
+            for token_id, position in positions.items():
+                token_text = str(token_id).strip()
+                if not token_text:
+                    continue
+                net_shares = getattr(position, "net_shares", 0.0)
+                if not isinstance(net_shares, (int, float)) or abs(float(net_shares)) <= 1e-9:
+                    continue
+                market_ref = self._market_ref_for_lifecycle_token(token_text, lifecycle_info_by_token)
+                by_market_ref.setdefault(market_ref, set()).add(token_text)
+
+        return by_market_ref
+
+    def _prune_maker_eligible_tokens(
+        self,
+        *,
+        maker_eligible_tokens: Collection[str],
+        books: Mapping[str, Any],
+        lifecycle_info_by_token: Mapping[str, Mapping[str, Any]],
+        maker_competitiveness_profiles_by_token: Mapping[str, Mapping[str, Any]],
+    ) -> tuple[set[str], Dict[str, str]]:
+        remaining = {str(token_id) for token_id in maker_eligible_tokens if str(token_id).strip()}
+        reasons_by_token: Dict[str, str] = {}
+        market_geometry_class_by_token = self._market_window_geometry_class_by_token(
+            token_ids=remaining,
+            books=books,
+            lifecycle_info_by_token=lifecycle_info_by_token,
+        )
+        for token_id in sorted(list(remaining)):
+            geometry_class = str(market_geometry_class_by_token.get(token_id) or "").strip().lower()
+            geometry_block_reason = self._market_window_geometry_block_reason(geometry_class)
+            if not geometry_block_reason:
+                continue
+            remaining.discard(token_id)
+            reasons_by_token[str(token_id)] = geometry_block_reason
+
+        for token_id in sorted(list(remaining)):
+            profile = maker_competitiveness_profiles_by_token.get(str(token_id), {})
+            posture_contract = dict(profile.get("posture_contract") or {}) if isinstance(profile, Mapping) else {}
+            one_sided_active = bool(posture_contract.get("one_sided_active", False))
+            if one_sided_active:
+                continue
+            remaining.discard(str(token_id))
+            reasons_by_token[str(token_id)] = "maker_edge_below_min"
+
+        eligible_tokens_by_market_ref: Dict[str, List[str]] = {}
+        for token_id in sorted(remaining):
+            market_ref = self._market_ref_for_lifecycle_token(
+                token_id,
+                lifecycle_info_by_token,
+            )
+            eligible_tokens_by_market_ref.setdefault(market_ref, []).append(token_id)
+        for token_group in eligible_tokens_by_market_ref.values():
+            if len(token_group) <= 1:
+                continue
+            sorted_group = sorted(
+                token_group,
+                key=lambda candidate_token_id: (
+                    -self._maker_profile_edge_abs(
+                        maker_competitiveness_profiles_by_token.get(candidate_token_id, {})
+                    ),
+                    str(candidate_token_id),
+                ),
+            )
+            for token_id in sorted_group[1:]:
+                remaining.discard(token_id)
+                reasons_by_token[str(token_id)] = "maker_single_market_expression_pruned"
+
+        active_market_tokens_by_ref = self._active_maker_expression_tokens_by_market_ref(
+            lifecycle_info_by_token=lifecycle_info_by_token,
+        )
+        for market_ref, token_group in eligible_tokens_by_market_ref.items():
+            active_tokens = {
+                str(token_id)
+                for token_id in active_market_tokens_by_ref.get(str(market_ref), set())
+                if str(token_id).strip()
+            }
+            if not active_tokens:
+                continue
+            for token_id in token_group:
+                token_text = str(token_id)
+                if token_text in active_tokens:
+                    continue
+                if token_text not in remaining:
+                    continue
+                remaining.discard(token_text)
+                reasons_by_token[token_text] = "maker_single_market_expression_pruned"
+        return remaining, reasons_by_token
 
     def _emit_maker_edge_evaluations(
         self,
@@ -4910,7 +5162,6 @@ class ExecutionRunner:
         fair_probability_by_token: Dict[str, float],
         maker_competitiveness_profiles_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
         oracle_tick_age_sec: Optional[float],
-        latency_state: str,
         cycle_index: int,
         maker_market_reference_by_token: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
@@ -4964,13 +5215,11 @@ class ExecutionRunner:
                     market_probability=market_probability,
                     time_remaining_sec=time_remaining_sec,
                     oracle_tick_age_sec=oracle_tick_age_sec,
-                    latency_state=latency_state,
                     lifecycle_phase=lifecycle_phase,
                     lineage_stage=lineage_stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
-                require_latency_state=bool(self.latency_verifier.require_armed_for_maker),
             )
 
             submitted = token_id in maker_submitted_token_ids
@@ -5062,7 +5311,6 @@ class ExecutionRunner:
                 market_probability=market_probability if isinstance(market_probability, (int, float)) else None,
                 edge_value=edge_value if isinstance(edge_value, (int, float)) else None,
                 oracle_tick_age_sec=oracle_tick_age_sec,
-                latency_state=latency_state,
                 maker_gate_state=maker_gate_state,
                 taker_gate_state=taker_gate_state,
                 open_order_cleanup_required=open_order_cleanup_required,
@@ -5180,8 +5428,6 @@ class ExecutionRunner:
         oracle_tick_age_sec: Optional[float] = None,
         latency_snapshot: Optional[LatencySnapshot] = None,
         mode_state: str = MODE_NORMAL,
-        lag_ready_for_taker: bool = True,
-        lag_verified_token_ids: Optional[list[str]] = None,
         taker_ramp_allowed: bool = True,
         cycle_index: Optional[int] = None,
         oracle_fresh: bool = True,
@@ -5203,18 +5449,13 @@ class ExecutionRunner:
         filled_token_ids: set[str] = set()
         max_orders = max(0, int(self.taker_max_orders_per_cycle))
         lifecycle_info_by_token = lifecycle_info_by_token or {}
-        lag_verified_set = {str(x) for x in (lag_verified_token_ids or [])}
         maker_submitted_token_ids = {str(token_id) for token_id in (maker_submitted_token_ids or set())}
         maker_no_submission_reason_by_token = {
             str(token_id): str(reason).strip().lower()
             for token_id, reason in dict(maker_no_submission_reason_by_token or {}).items()
             if str(token_id).strip() and str(reason).strip()
         }
-        latency_state = (
-            str(latency_snapshot.state).strip().lower()
-            if isinstance(latency_snapshot, LatencySnapshot)
-            else str(self._last_latency_state or "").strip().lower()
-        )
+        del latency_snapshot
         competitiveness_enabled = bool(self.taker_competitiveness_cfg.enabled)
         stable_cycle_index = int(self._doctrine_cycle_index if cycle_index is None else cycle_index)
         secondary_fair_probability_by_token = dict(secondary_fair_probability_by_token or {})
@@ -5238,14 +5479,26 @@ class ExecutionRunner:
                 token_id,
             )
         )
-        active_token_ids = {str(token_id).strip() for token_id in token_order if str(token_id).strip()}
         open_order_token_ids = self._open_order_token_ids()
+        market_window_geometry_class_by_token = self._market_window_geometry_class_by_token(
+            token_ids=token_order,
+            books=books,
+            lifecycle_info_by_token=lifecycle_info_by_token,
+        )
         normal_side_policy = (
             str(self.taker_competitiveness_cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
             or "buy_expected_winner_only"
         )
-        allow_complement_buy_route = bool(self.taker_competitiveness_cfg.allow_complement_buy_route)
         min_visible_fill_ratio = max(0.0, float(self.taker_competitiveness_cfg.min_visible_fill_ratio))
+        latest_chainlink_targets = None
+        latest_pyth_targets = None
+        symbol_for_targets = str(self.chainlink_symbol_for_targets or "").strip()
+        if symbol_for_targets:
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
+                latest_chainlink_targets = self.chainlink.get_latest(symbol_for_targets)
+        if bool(getattr(self.pyth, "enabled", False)):
+            with contextlib.suppress(*EXECUTION_RUNTIME_EXCEPTIONS):
+                latest_pyth_targets = self.pyth.get_latest(self.pyth_symbol_for_targets)
 
         def _build_route_block_decision(
             *,
@@ -5293,6 +5546,8 @@ class ExecutionRunner:
                 predicted_reject_reason=None,
                 preview_authority="none",
                 dynamic_size_capped_by_risk=False,
+                secondary_oracle_status="unknown",
+                secondary_oracle_confirmation=False,
                 multi_oracle_confirmation=False,
                 multi_oracle_boost_eligible=False,
                 multi_oracle_boost_applied=False,
@@ -5312,11 +5567,7 @@ class ExecutionRunner:
             submit_midpoint: Optional[float],
             submit_fair_probability: Optional[float],
             submit_edge_value: Optional[float],
-            confidence_score_value: float,
-            source_token_score_value: Optional[float],
-            submit_token_score_value: Optional[float],
             cooldown_sec_value: float,
-            complement_token_id: Optional[str],
             decision_info_row: Dict[str, Any],
             decision_row: TakerDecision,
         ) -> None:
@@ -5336,30 +5587,12 @@ class ExecutionRunner:
                     "token_id": str(submit_token_id),
                     "source_token_id": str(source_token_id),
                     "submit_token_id": str(submit_token_id),
-                    "complement_token_id": (
-                        str(complement_token_id).strip() if str(complement_token_id or "").strip() else None
-                    ),
-                    "complement_route_applied": bool(
-                        str(complement_token_id or "").strip()
-                        and str(submit_token_id).strip() != str(source_token_id).strip()
-                    ),
                     "midpoint": submit_midpoint,
                     "fair_probability": submit_fair_probability,
                     "edge": submit_edge_value,
                     "source_midpoint": source_midpoint,
                     "source_fair_probability": source_fair_probability,
                     "source_edge": source_edge_value,
-                    "confidence_score": float(confidence_score_value),
-                    "normal_taker_source_token_score": (
-                        float(source_token_score_value)
-                        if isinstance(source_token_score_value, (int, float))
-                        else None
-                    ),
-                    "normal_taker_submit_token_score": (
-                        float(submit_token_score_value)
-                        if isinstance(submit_token_score_value, (int, float))
-                        else None
-                    ),
                     "cooldown_sec_applied": float(cooldown_sec_value),
                     **lifecycle_phase_surface_fields(lifecycle_phase=decision_lifecycle_phase),
                     **ownership_surface_fields(
@@ -5438,7 +5671,6 @@ class ExecutionRunner:
             decision_source_midpoint = midpoint
             decision_source_fair = fair
             decision_source_edge = edge
-            complement_token_id: Optional[str] = None
             normal_taker_side_class = (
                 "buy_expected_winner"
                 if isinstance(edge, (int, float)) and float(edge) > 0.0
@@ -5450,13 +5682,11 @@ class ExecutionRunner:
                     market_probability=midpoint,
                     time_remaining_sec=time_remaining_sec,
                     oracle_tick_age_sec=oracle_tick_age_sec,
-                    latency_state=latency_state,
                     lifecycle_phase=lifecycle_phase,
                     lineage_stage=lineage_stage,
                     evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
                 ),
                 oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
-                require_latency_state=bool(self.latency_verifier.require_armed_for_taker),
             )
 
             action_taken = EDGE_ACTION_NONE
@@ -5468,6 +5698,14 @@ class ExecutionRunner:
             decision_target_ref = self._target_ref_for_token(token_id)
             required_min_edge = self._resolve_taker_required_min_edge(lineage_stage)
             decision: Optional[TakerDecision] = None
+            decision_secondary_fair: Optional[float] = None
+            decision_secondary_edge: Optional[float] = None
+            decision_secondary_oracle_status = "unknown"
+            decision_secondary_oracle_confirmation = False
+            decision_chainlink_spot_price: Optional[float] = None
+            decision_secondary_oracle_spot_price: Optional[float] = None
+            decision_secondary_oracle_price_delta_abs: Optional[float] = None
+            decision_secondary_oracle_price_delta_bps: Optional[float] = None
 
             if not self.taker_enabled:
                 block_reason = "taker_disabled"
@@ -5483,109 +5721,60 @@ class ExecutionRunner:
                 block_reason = "operating_mode_safe_stop"
             elif mode_state != MODE_NORMAL:
                 block_reason = "operating_mode_non_normal"
-            elif not lag_ready_for_taker:
-                block_reason = "latency_not_armed"
             elif not taker_ramp_allowed:
                 block_reason = "ramp_taker_disabled"
-            elif self.taker_require_lag_verification and token_id not in lag_verified_set:
-                block_reason = "token_lag_not_verified"
             elif not taker_gate_state:
                 block_reason = "normal_taker_authority_closed"
-            elif not oracle_fresh:
-                block_reason = "oracle_unavailable_or_stale"
             elif (
-                self.doctrine_mode == "canonical"
-                and top is not None
-                and (not self._book_source_is_ws(top))
+                isinstance(sec_to_expiry, (int, float))
+                and float(sec_to_expiry) >= 0.0
+                and float(sec_to_expiry) <= float(self.lifecycle_maker_window_open_sec) + 1e-9
+                and not self._taker_window_open(float(sec_to_expiry))
             ):
-                block_reason = "taker_requires_ws_book_source"
-            elif not validation.valid:
-                block_reason = str(validation.reason_code or "")
-            elif edge is None:
-                block_reason = "edge_value_invalid"
-            elif abs(float(edge)) < float(required_min_edge):
-                block_reason = "edge_below_min"
+                block_reason = "taker_outside_final_window"
+            elif (
+                str(lifecycle_phase or "").strip().lower() == "taker_window"
+                and isinstance(sec_to_expiry, (int, float))
+                and (
+                    float(sec_to_expiry) < 0.0
+                    or float(sec_to_expiry) > float(self.lifecycle_taker_window_open_sec)
+                )
+            ):
+                block_reason = "taker_outside_final_window"
+            elif (
+                isinstance(sec_to_expiry, (int, float))
+                and float(sec_to_expiry) < 0.0
+            ):
+                block_reason = "taker_outside_final_window"
             else:
+                geometry_block_reason = self._market_window_geometry_block_reason(
+                    str(market_window_geometry_class_by_token.get(token_id) or "").strip().lower()
+                )
+                if geometry_block_reason:
+                    block_reason = geometry_block_reason
+            if block_reason is None:
+                if not oracle_fresh:
+                    block_reason = "oracle_unavailable_or_stale"
+                elif (
+                    self.doctrine_mode == "canonical"
+                    and top is not None
+                    and (not self._book_source_is_ws(top))
+                ):
+                    block_reason = "taker_requires_ws_book_source"
+                elif not validation.valid:
+                    block_reason = str(validation.reason_code or "")
+                elif edge is None:
+                    block_reason = "edge_value_invalid"
+                elif abs(float(edge)) < float(required_min_edge):
+                    block_reason = "edge_below_min"
+            if block_reason is None:
                 if (
-                    block_reason is None
-                    and isinstance(edge, (int, float))
+                    isinstance(edge, (int, float))
                     and float(edge) < 0.0
                     and normal_side_policy == "buy_expected_winner_only"
                 ):
-                    if not allow_complement_buy_route:
-                        block_reason = "complement_route_disabled_pending_validation"
-                        normal_taker_side_class = "complement_route_disabled"
-                    else:
-                        resolved_complement_token_id, complement_block_reason = self._resolve_complement_token_id(
-                            token_id=token_id,
-                            active_token_ids=active_token_ids,
-                        )
-                        if not resolved_complement_token_id:
-                            block_reason = complement_block_reason or "complement_token_mapping_unavailable"
-                            normal_taker_side_class = "complement_mapping_unavailable"
-                        else:
-                            complement_token_id = str(resolved_complement_token_id)
-                            decision_token_id = str(resolved_complement_token_id)
-                            decision_info = lifecycle_info_by_token.get(decision_token_id, info) or info
-                            decision_lifecycle_phase = str(
-                                decision_info.get(EDGE_LIFECYCLE_PHASE_FIELD)
-                                or lifecycle_phase_from_payload(decision_info)
-                                or ""
-                            ).strip().lower() or "scan"
-                            decision_lineage_stage = self._lineage_stage_from_lifecycle_info(
-                                decision_info,
-                                fallback_lineage_stage=lineage_stage,
-                            )
-                            required_min_edge = self._resolve_taker_required_min_edge(decision_lineage_stage)
-                            decision_time_remaining_sec = decision_info.get("sec_to_expiry", time_remaining_sec)
-                            decision_sec_to_expiry = (
-                                float(decision_time_remaining_sec)
-                                if isinstance(decision_time_remaining_sec, (int, float))
-                                else None
-                            )
-                            decision_top = books.get(decision_token_id)
-                            decision_market_reference = self._resolve_taker_market_reference(top=decision_top)
-                            decision_midpoint = decision_market_reference.get("market_probability")
-                            decision_fair = fair_probability_by_token.get(decision_token_id)
-                            decision_edge = compute_edge_value(
-                                fair_probability=decision_fair,
-                                market_probability=decision_midpoint,
-                            )
-                            decision_target_ref = self._target_ref_for_token(decision_token_id)
-                            normal_taker_side_class = "complement_buy"
-                            if decision_fair is None:
-                                block_reason = "complement_token_fair_probability_unavailable"
-                                normal_taker_side_class = "complement_fair_unavailable"
-                            elif decision_top is None or not isinstance(
-                                getattr(decision_top, "best_ask_price", None),
-                                (int, float),
-                            ):
-                                block_reason = "complement_token_price_unavailable"
-                                normal_taker_side_class = "complement_price_unavailable"
-                            else:
-                                complement_validation = validate_edge_inputs(
-                                    EdgeInputSnapshot(
-                                        fair_probability=decision_fair,
-                                        market_probability=decision_midpoint,
-                                        time_remaining_sec=decision_time_remaining_sec,
-                                        oracle_tick_age_sec=oracle_tick_age_sec,
-                                        latency_state=latency_state,
-                                        lifecycle_phase=decision_lifecycle_phase,
-                                        lineage_stage=decision_lineage_stage,
-                                        evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
-                                    ),
-                                    oracle_max_tick_age_sec=float(self.doctrine_oracle_max_tick_age_sec),
-                                    require_latency_state=bool(self.latency_verifier.require_armed_for_taker),
-                                )
-                                if not complement_validation.valid:
-                                    block_reason = str(complement_validation.reason_code or "")
-                                elif decision_edge is None:
-                                    block_reason = "edge_value_invalid"
-                                elif float(decision_edge) <= 0.0:
-                                    block_reason = "edge_below_min"
-                                    normal_taker_side_class = "complement_edge_not_positive"
-                                elif float(decision_edge) < float(required_min_edge):
-                                    block_reason = "edge_below_min"
+                    block_reason = "normal_taker_same_token_sell_forbidden"
+                    normal_taker_side_class = "same_token_sell_blocked"
                 now_mono = time.monotonic()
                 cooldown_token_id = decision_token_id
                 taker_window_lock_token_id = decision_source_token_id
@@ -5600,25 +5789,10 @@ class ExecutionRunner:
                 ):
                     block_reason = "taker_token_cooldown"
                 else:
-                    score_token_id = decision_token_id
-                    submit_confidence_score = float(self.latency_verifier.token_score(score_token_id))
-                    source_confidence_score = float(submit_confidence_score)
-                    confidence_score = float(submit_confidence_score)
-                    if (
-                        str(normal_taker_side_class or "").strip().lower() == "complement_buy"
-                    ):
-                        source_confidence_score = float(
-                            self.latency_verifier.token_score(decision_source_token_id)
-                        )
-                        confidence_score = max(float(submit_confidence_score), float(source_confidence_score))
-                    if self.latency_verifier.score_enabled:
-                        score = float(confidence_score)
-                        if score < self.latency_verifier.score_min_for_taker:
-                            block_reason = "token_score_below_taker_min"
                     if (
                         competitiveness_enabled
                         and decision is None
-                        and str(normal_taker_side_class or "").strip().lower().startswith("complement_")
+                        and str(normal_taker_side_class or "").strip().lower() == "same_token_sell_blocked"
                         and block_reason is not None
                     ):
                         decision = _build_route_block_decision(
@@ -5628,7 +5802,7 @@ class ExecutionRunner:
                             decision_sec_to_expiry=decision_sec_to_expiry,
                             edge_signed_value=decision_edge,
                             required_min_edge_value=float(required_min_edge),
-                            token_score_value=float(confidence_score),
+                            token_score_value=None,
                             block_reason_value=str(block_reason),
                             side_class_value=normal_taker_side_class,
                         )
@@ -5665,14 +5839,52 @@ class ExecutionRunner:
                                 if isinstance(decision_edge, (int, float))
                                 else None
                             ),
-                            confidence_score_value=float(confidence_score),
-                            source_token_score_value=float(source_confidence_score),
-                            submit_token_score_value=float(submit_confidence_score),
                             cooldown_sec_value=float(cooldown_sec),
-                            complement_token_id=complement_token_id,
                             decision_info_row=decision_info,
                             decision_row=decision,
                         )
+                    decision_secondary_fair = (
+                        secondary_fair_probability_by_token.get(decision_token_id)
+                        if isinstance(secondary_fair_probability_by_token, dict)
+                        else None
+                    )
+                    decision_secondary_edge = compute_edge_value(
+                        fair_probability=decision_secondary_fair,
+                        market_probability=decision_midpoint,
+                    )
+                    decision_secondary_oracle_status, decision_secondary_oracle_confirmation = (
+                        self._resolve_secondary_oracle_confirmation(
+                            primary_edge_signed=decision_edge,
+                            secondary_edge_signed=decision_secondary_edge,
+                            base_status=secondary_oracle_base_status,
+                        )
+                    )
+                    decision_chainlink_spot_price = (
+                        float(latest_chainlink_targets.price)
+                        if latest_chainlink_targets is not None
+                        and isinstance(getattr(latest_chainlink_targets, "price", None), (int, float))
+                        else None
+                    )
+                    decision_secondary_oracle_spot_price = (
+                        float(latest_pyth_targets.price)
+                        if latest_pyth_targets is not None
+                        and isinstance(getattr(latest_pyth_targets, "price", None), (int, float))
+                        else None
+                    )
+                    (
+                        decision_secondary_oracle_price_delta_abs,
+                        decision_secondary_oracle_price_delta_bps,
+                    ) = self._secondary_oracle_price_delta(
+                        chainlink_spot_price=decision_chainlink_spot_price,
+                        secondary_oracle_spot_price=decision_secondary_oracle_spot_price,
+                    )
+                    if (
+                        block_reason is None
+                        and self.taker_require_secondary_oracle_confirmation
+                        and str(decision_secondary_oracle_status).strip().lower() != "disabled"
+                        and not bool(decision_secondary_oracle_confirmation)
+                    ):
+                        block_reason = "secondary_oracle_not_confirmed"
                     if block_reason is None and submitted >= max_orders:
                         block_reason = "taker_order_budget_exhausted"
                     if block_reason is None:
@@ -5691,36 +5903,8 @@ class ExecutionRunner:
                                 and isinstance(getattr(token_stats, "median_lag_ms", None), (int, float))
                                 else None
                             )
-                            multi_oracle_status = secondary_oracle_base_status
-                            multi_oracle_confirmation = False
-                            if competitiveness_enabled and bool(
-                                self.taker_competitiveness_cfg.multi_oracle_boost_enabled
-                            ):
-                                secondary_fair = secondary_fair_probability_by_token.get(decision_token_id)
-                                if secondary_oracle_base_status == "disabled":
-                                    multi_oracle_status = "disabled"
-                                elif not (
-                                    isinstance(secondary_fair, (int, float))
-                                    and isinstance(decision_midpoint, (int, float))
-                                    and isinstance(decision_fair, (int, float))
-                                    and isinstance(decision_edge, (int, float))
-                                ):
-                                    multi_oracle_status = "unknown"
-                                else:
-                                    secondary_edge = compute_edge_value(
-                                        fair_probability=float(secondary_fair),
-                                        market_probability=float(decision_midpoint),
-                                    )
-                                    if (
-                                        secondary_edge is None
-                                        or abs(float(secondary_edge)) <= 1e-12
-                                        or abs(float(decision_edge)) <= 1e-12
-                                    ):
-                                        multi_oracle_status = "unknown"
-                                    else:
-                                        same_direction = (float(secondary_edge) > 0.0) == (float(decision_edge) > 0.0)
-                                        multi_oracle_confirmation = bool(same_direction)
-                                        multi_oracle_status = "confirmed" if same_direction else "direction_mismatch"
+                            multi_oracle_status = decision_secondary_oracle_status
+                            multi_oracle_confirmation = bool(decision_secondary_oracle_confirmation)
                             if competitiveness_enabled:
                                 self._refresh_taker_multi_oracle_cap_from_wallet()
                                 static_max_feasible_target_usd = self._taker_effective_max_target_usd(
@@ -5782,7 +5966,7 @@ class ExecutionRunner:
                                                 if isinstance(decision_top_for_submit.best_ask_price, (int, float))
                                                 else None
                                             ),
-                                            token_score=float(confidence_score),
+                                            token_score=None,
                                             max_feasible_target_usd=static_max_feasible_target_usd,
                                             predicted_dynamic_feasible_target_usd=(
                                                 float(dynamic_preview.get("predicted_feasible_target_usd"))
@@ -5797,6 +5981,8 @@ class ExecutionRunner:
                                                 if str(dynamic_preview.get("predicted_reject_reason") or "").strip()
                                                 else None
                                             ),
+                                            secondary_oracle_status=str(decision_secondary_oracle_status),
+                                            secondary_oracle_confirmation=bool(decision_secondary_oracle_confirmation),
                                             multi_oracle_confirmation=bool(multi_oracle_confirmation),
                                             multi_oracle_status=str(multi_oracle_status),
                                             multi_oracle_cap_usd=(
@@ -5851,12 +6037,6 @@ class ExecutionRunner:
                                             block_reason="taker_visible_fill_ratio_below_min",
                                             submit_capable_static=False,
                                         )
-                                if normal_taker_side_class == "complement_buy":
-                                    decision = dataclasses.replace(
-                                        decision,
-                                        normal_side_policy=normal_side_policy,
-                                        normal_taker_side_class="complement_buy",
-                                    )
                                 _log_taker_decision(
                                     source_token_id=decision_source_token_id,
                                     submit_token_id=decision_token_id,
@@ -5890,11 +6070,7 @@ class ExecutionRunner:
                                         if isinstance(decision_edge, (int, float))
                                         else None
                                     ),
-                                    confidence_score_value=float(confidence_score),
-                                    source_token_score_value=float(source_confidence_score),
-                                    submit_token_score_value=float(submit_confidence_score),
                                     cooldown_sec_value=float(cooldown_sec),
-                                    complement_token_id=complement_token_id,
                                     decision_info_row=decision_info,
                                     decision_row=decision,
                                 )
@@ -5908,14 +6084,8 @@ class ExecutionRunner:
                                     self.telemetry.incr("taker_multi_oracle_boost_applied")
                                 if str(decision.normal_taker_side_class or "").strip().lower() == "same_token_sell_blocked":
                                     self.telemetry.incr("taker_same_token_sell_blocked")
-                                if str(decision.normal_taker_side_class or "").strip().lower() == "complement_buy":
-                                    self.telemetry.incr("taker_complement_buy")
-                                if str(decision.normal_taker_side_class or "").strip().lower() == "complement_route_disabled":
-                                    self.telemetry.incr("taker_complement_route_disabled")
                                 if str(decision.block_reason or "").strip().lower() == "taker_visible_fill_ratio_below_min":
                                     self.telemetry.incr("taker_visible_fill_ratio_blocked")
-                                if str(decision.block_reason or "").strip().lower() == "complement_token_mapping_unavailable":
-                                    self.telemetry.incr("taker_complement_mapping_failure")
                                 if not decision.should_submit:
                                     block_reason = str(decision.block_reason or "taker_submit_rejected")
                             if block_reason is None:
@@ -5955,6 +6125,14 @@ class ExecutionRunner:
                                     )
                                 )
                                 competitiveness_context.setdefault(
+                                    "source_token_id",
+                                    decision_source_token_id,
+                                )
+                                competitiveness_context.setdefault(
+                                    "submit_token_id",
+                                    decision_token_id,
+                                )
+                                competitiveness_context.setdefault(
                                     "normal_side_policy",
                                     normal_side_policy,
                                 )
@@ -5970,21 +6148,6 @@ class ExecutionRunner:
                                     decision_token_id,
                                 )
                                 competitiveness_context.setdefault(
-                                    "normal_taker_complement_token_id",
-                                    (
-                                        str(complement_token_id).strip()
-                                        if str(complement_token_id or "").strip()
-                                        else None
-                                    ),
-                                )
-                                competitiveness_context.setdefault(
-                                    "normal_taker_complement_route_applied",
-                                    bool(
-                                        str(complement_token_id or "").strip()
-                                        and str(decision_token_id).strip() != str(decision_source_token_id).strip()
-                                    ),
-                                )
-                                competitiveness_context.setdefault(
                                     "normal_taker_source_edge",
                                     (
                                         float(decision_source_edge)
@@ -5997,22 +6160,6 @@ class ExecutionRunner:
                                     (
                                         float(decision_edge)
                                         if isinstance(decision_edge, (int, float))
-                                        else None
-                                    ),
-                                )
-                                competitiveness_context.setdefault(
-                                    "normal_taker_source_token_score",
-                                    (
-                                        float(source_confidence_score)
-                                        if isinstance(source_confidence_score, (int, float))
-                                        else None
-                                    ),
-                                )
-                                competitiveness_context.setdefault(
-                                    "normal_taker_submit_token_score",
-                                    (
-                                        float(submit_confidence_score)
-                                        if isinstance(submit_confidence_score, (int, float))
                                         else None
                                     ),
                                 )
@@ -6071,6 +6218,7 @@ class ExecutionRunner:
                                         "submission_lane": "taker",
                                         "token_id": actual_submit_token_id,
                                         "source_token_id": decision_source_token_id,
+                                        "submit_token_id": decision_token_id,
                                         "order_id": emitted_order_id,
                                         "side": submit_side,
                                         "price": float(submit_price),
@@ -6106,7 +6254,6 @@ class ExecutionRunner:
                                             )
                                         ),
                                         "required_min_edge": float(required_min_edge),
-                                        "confidence_score": float(confidence_score),
                                         "open_order_cleanup_required": bool(open_order_cleanup_required),
                                         "settlement_hold_required": bool(settlement_hold_required),
                                         "unresolved_lifecycle_obligation": bool(unresolved_lifecycle_obligation),
@@ -6139,6 +6286,9 @@ class ExecutionRunner:
                                                 ),
                                                 "multi_oracle_status": str(
                                                     decision.multi_oracle_status or "unknown"
+                                                ),
+                                                "normal_taker_side_class": str(
+                                                    decision.normal_taker_side_class or "unknown"
                                                 ),
                                             }
                                         )
@@ -6219,7 +6369,6 @@ class ExecutionRunner:
                 ),
                 edge_value=decision_edge if isinstance(decision_edge, (int, float)) else None,
                 oracle_tick_age_sec=oracle_tick_age_sec,
-                latency_state=latency_state,
                 maker_gate_state=maker_gate_state,
                 taker_gate_state=taker_gate_state,
                 open_order_cleanup_required=open_order_cleanup_required,
@@ -6250,6 +6399,33 @@ class ExecutionRunner:
                 taker_submit_reject_reason=taker_submit_reject_reason,
                 held_net_shares=info.get("held_net_shares"),
                 held_open_order_present=info.get("held_open_order_present"),
+                secondary_fair_probability=(
+                    decision_secondary_fair
+                    if isinstance(decision_secondary_fair, (int, float))
+                    else None
+                ),
+                secondary_oracle_status=decision_secondary_oracle_status,
+                secondary_oracle_confirmation=decision_secondary_oracle_confirmation,
+                chainlink_spot_price=(
+                    decision_chainlink_spot_price
+                    if isinstance(decision_chainlink_spot_price, (int, float))
+                    else None
+                ),
+                secondary_oracle_spot_price=(
+                    decision_secondary_oracle_spot_price
+                    if isinstance(decision_secondary_oracle_spot_price, (int, float))
+                    else None
+                ),
+                secondary_oracle_price_delta_abs=(
+                    decision_secondary_oracle_price_delta_abs
+                    if isinstance(decision_secondary_oracle_price_delta_abs, (int, float))
+                    else None
+                ),
+                secondary_oracle_price_delta_bps=(
+                    decision_secondary_oracle_price_delta_bps
+                    if isinstance(decision_secondary_oracle_price_delta_bps, (int, float))
+                    else None
+                ),
             )
 
         return {
@@ -6387,9 +6563,7 @@ class ExecutionRunner:
         context: Dict[str, Any] = {
             "submission_lane": str(submission_lane or "unknown"),
             **lifecycle_phase_surface_fields(lifecycle_phase=lifecycle_phase_value),
-            **lineage_stage_surface_fields(
-                lineage_stage=lineage_stage_from_payload(lifecycle_info) or lineage_stage_value
-            ),
+            **lineage_stage_surface_fields(lineage_stage=lineage_stage_value),
             **ownership_surface_fields(
                 owned_market_ref=lifecycle_info.get(EDGE_OWNED_MARKET_REF_FIELD),
                 challenger_market_ref=lifecycle_info.get(EDGE_CHALLENGER_MARKET_REF_FIELD),
@@ -6593,8 +6767,23 @@ class ExecutionRunner:
         if not unique_tokens:
             return {"forced_refresh_tokens": [], "suppressed_held_tokens": []}
         held_tokens = held_exposure_tokens if held_exposure_tokens is not None else self._held_exposure_token_ids()
-        forced_refresh_tokens = [token_id for token_id in unique_tokens if token_id not in held_tokens]
-        held_missing_tokens = [token_id for token_id in unique_tokens if token_id in held_tokens]
+        bootstrap_guard_active = self._ws_slo_bootstrap_guard_active(has_targets=bool(self.token_ids))
+        book_feed_status = self.book_feed.status() if bootstrap_guard_active else {}
+        forced_refresh_tokens: List[str] = []
+        held_missing_tokens: List[str] = []
+        bootstrap_suppressed_tokens: List[str] = []
+        for token_id in unique_tokens:
+            if token_id in held_tokens:
+                held_missing_tokens.append(token_id)
+                continue
+            if self._ws_missing_or_unusable_bootstrap_suppressed(
+                token_id=token_id,
+                bootstrap_guard_active=bootstrap_guard_active,
+                book_feed_status=book_feed_status,
+            ):
+                bootstrap_suppressed_tokens.append(token_id)
+                continue
+            forced_refresh_tokens.append(token_id)
         forced_held_recovery_tokens: List[str] = []
         suppressed_held_tokens: List[str] = []
         now_mono = time.monotonic()
@@ -6637,6 +6826,25 @@ class ExecutionRunner:
                     "refresh_interval_sec": float(self.held_ws_missing_or_unusable_refresh_interval_sec),
                 },
             )
+        if bootstrap_suppressed_tokens:
+            self.telemetry.incr("target_refresh_suppressed_ws_bootstrap_missing_or_unusable")
+            self.events.log_event(
+                "target_refresh_suppressed_ws_bootstrap_missing_or_unusable",
+                {
+                    "ts_utc": utc_iso(),
+                    "run_id": self.run_id,
+                    "token_count": len(bootstrap_suppressed_tokens),
+                    "token_ids": list(bootstrap_suppressed_tokens),
+                    "book_feed_subscription_state": str(book_feed_status.get("subscription_state") or ""),
+                    "book_feed_token_count": int(parse_float(book_feed_status.get("token_count")) or 0),
+                    "book_feed_cached_books": int(parse_float(book_feed_status.get("cached_books")) or 0),
+                    "book_feed_connected": bool(book_feed_status.get("connected", False)),
+                    "book_feed_transport_connected": bool(book_feed_status.get("transport_connected", False)),
+                    "book_feed_primed": bool(book_feed_status.get("primed", False)),
+                    "book_feed_worker_usable": bool(book_feed_status.get("worker_usable", False)),
+                    "reason": "fresh_target_book_feed_bootstrap_grace",
+                },
+            )
         if forced_refresh_tokens:
             self.telemetry.incr("target_refresh_forced_ws_missing_or_unusable")
             self.events.log_event(
@@ -6669,6 +6877,44 @@ class ExecutionRunner:
             "forced_refresh_tokens": list(forced_refresh_tokens),
             "suppressed_held_tokens": list(suppressed_held_tokens),
         }
+
+    def _ws_missing_or_unusable_bootstrap_suppressed(
+        self,
+        *,
+        token_id: str,
+        bootstrap_guard_active: bool,
+        book_feed_status: Mapping[str, Any],
+    ) -> bool:
+        token = str(token_id or "").strip()
+        if not token or token not in self.token_ids or not bootstrap_guard_active:
+            return False
+        active_target_count = len([active_token for active_token in self.token_ids if str(active_token).strip()])
+        if active_target_count <= 0:
+            return False
+        token_count = int(parse_float(book_feed_status.get("token_count")) or 0)
+        cached_books = int(parse_float(book_feed_status.get("cached_books")) or 0)
+        subscription_state = str(book_feed_status.get("subscription_state") or "").strip().lower()
+        connected = bool(book_feed_status.get("connected", False))
+        transport_connected = bool(book_feed_status.get("transport_connected", False))
+        primed = bool(book_feed_status.get("primed", False))
+        worker_usable = bool(book_feed_status.get("worker_usable", False))
+        if token_count < active_target_count:
+            return True
+        if cached_books < active_target_count:
+            return True
+        if subscription_state in {
+            "",
+            "idle",
+            "configured",
+            "reconfigure_pending",
+            "resubscribe_requested",
+            "disconnected",
+            "restart_pending",
+        }:
+            return True
+        if (not connected) or (not transport_connected) or (not primed) or (not worker_usable):
+            return True
+        return False
 
     def _sync_book_feed_watch_tokens(self) -> None:
         watch_token_ids = self._transport_watch_token_ids()
@@ -7297,6 +7543,9 @@ class ExecutionRunner:
         next_state_flush = time.monotonic()
         status_window_actions = 0
         status_window_fills = 0
+        status_window_maker_actions = 0
+        status_window_maker_fills = 0
+        status_window_maker_submitted_token_count = 0
         status_window_taker_actions = 0
         status_window_taker_submitted = 0
         status_window_taker_fills = 0
@@ -7394,8 +7643,6 @@ class ExecutionRunner:
                 cycle_had_error = False
                 self._apply_external_guard_stop()
                 self.manager.sizing_target_usd = float(self._active_target_usd)
-                if self.sizing_mode == "notional":
-                    self.taker_target_usd = float(self._active_target_usd)
                 self.telemetry.set_gauge("active_target_usd", float(self._active_target_usd))
                 self.telemetry.set_gauge("taker_ramp_allowed", 1.0 if self._taker_ramp_allowed else 0.0)
                 phase_market_started = time.monotonic()
@@ -7622,10 +7869,6 @@ class ExecutionRunner:
                             self.telemetry.set_gauge(f"leadlag_samples.{token_id}", float(lag_count))
                             self.telemetry.set_gauge(f"leadlag_median_ms.{token_id}", lag_median)
                             self.telemetry.set_gauge(f"leadlag_hit_rate.{token_id}", lag_hit_rate)
-                            self.telemetry.set_gauge(
-                                f"leadlag_verified.{token_id}",
-                                1.0 if self._lag_verified(token_id) else 0.0,
-                            )
                             if accepted and self.latency_verifier.log_sample_events:
                                 self.events.log_event(
                                     "latency_sample",
@@ -7739,34 +7982,12 @@ class ExecutionRunner:
 
                 latency_snapshot = self.latency_verifier.snapshot(active_tokens=self.token_ids)
                 self._latest_latency_snapshot = latency_snapshot
-                if latency_snapshot.changed or latency_snapshot.state != self._last_latency_state:
-                    self.events.log_event(
-                        "latency_regime_change",
-                        {
-                            "ts_utc": utc_iso(),
-                            "run_id": self.run_id,
-                            "state": latency_snapshot.state,
-                            "previous_state": latency_snapshot.previous_state,
-                            "reason": latency_snapshot.reason,
-                            "sample_count": latency_snapshot.sample_count,
-                            "token_count": latency_snapshot.token_count,
-                            "median_lag_ms": latency_snapshot.median_lag_ms,
-                            "p90_lag_ms": latency_snapshot.p90_lag_ms,
-                            "p95_lag_ms": latency_snapshot.p95_lag_ms,
-                            "hit_rate": latency_snapshot.hit_rate,
-                        },
-                    )
-                self._last_latency_state = latency_snapshot.state
-                self.telemetry.set_gauge(
-                    "latency_verifier_state",
-                    self._latency_state_to_gauge(latency_snapshot.state),
-                )
-                self.telemetry.set_gauge("latency_verifier_sample_count", float(latency_snapshot.sample_count))
-                self.telemetry.set_gauge("latency_verifier_token_count", float(latency_snapshot.token_count))
-                self.telemetry.set_gauge("latency_verifier_median_lag_ms", latency_snapshot.median_lag_ms)
-                self.telemetry.set_gauge("latency_verifier_p90_lag_ms", latency_snapshot.p90_lag_ms)
-                self.telemetry.set_gauge("latency_verifier_p95_lag_ms", latency_snapshot.p95_lag_ms)
-                self.telemetry.set_gauge("latency_verifier_hit_rate", latency_snapshot.hit_rate)
+                self.telemetry.set_gauge("latency_signal_sample_count", float(latency_snapshot.sample_count))
+                self.telemetry.set_gauge("latency_signal_token_count", float(latency_snapshot.token_count))
+                self.telemetry.set_gauge("latency_signal_median_lag_ms", latency_snapshot.median_lag_ms)
+                self.telemetry.set_gauge("latency_signal_p90_lag_ms", latency_snapshot.p90_lag_ms)
+                self.telemetry.set_gauge("latency_signal_p95_lag_ms", latency_snapshot.p95_lag_ms)
+                self.telemetry.set_gauge("latency_signal_hit_rate", latency_snapshot.hit_rate)
                 if (
                     bool(self.cfg.get("chainlink", {}).get("enabled", False))
                     and bool(chainlink_status_live.get("connected", False))
@@ -7800,26 +8021,12 @@ class ExecutionRunner:
                     self.telemetry.set_gauge("latency_sampling_inactive_cycles", 0.0)
                 phase_market_data_ms = max(0.0, (time.monotonic() - phase_market_started) * 1000.0)
                 phase_strategy_started = time.monotonic()
-                confidence_scores_by_token: Dict[str, float] = {}
                 size_multiplier_by_token: Dict[str, float] = {}
                 spread_multiplier_by_token: Dict[str, float] = {}
                 if books:
                     for token_id in books.keys():
-                        score = self.latency_verifier.token_score(token_id)
-                        confidence_scores_by_token[token_id] = score
-                        size_mult = self.latency_verifier.token_size_multiplier(token_id)
-                        spread_mult = 1.0 + ((1.0 - max(0.0, min(score, 1.0))) * 0.5)
-                        size_multiplier_by_token[token_id] = size_mult
-                        spread_multiplier_by_token[token_id] = spread_mult
-                        self.telemetry.set_gauge(f"edge_confidence_score.{token_id}", score)
-                        self.telemetry.set_gauge(f"edge_size_multiplier.{token_id}", size_mult)
-                        self.telemetry.set_gauge(f"edge_spread_multiplier.{token_id}", spread_mult)
-                if confidence_scores_by_token:
-                    avg_score = sum(confidence_scores_by_token.values()) / float(len(confidence_scores_by_token))
-                else:
-                    avg_score = 0.0
-                self.telemetry.set_gauge("edge_confidence_score_avg", avg_score)
-                self.telemetry.set_gauge("edge_confidence_token_count", float(len(confidence_scores_by_token)))
+                        size_multiplier_by_token[token_id] = 1.0
+                        spread_multiplier_by_token[token_id] = 1.0
 
                 lifecycle_info_by_token = {
                     token_id: self._token_lifecycle_info(token_id) for token_id in self.token_ids
@@ -7930,7 +8137,6 @@ class ExecutionRunner:
                 if not near_tokens:
                     near_tokens = list(taker_ctx.get("token_ids", []))
                 self.telemetry.set_gauge("taker_near_token_count", float(len(near_tokens)))
-                lag_ready_for_taker = (not self.latency_verifier.require_armed_for_taker) or latency_snapshot.armed
                 taker_runtime_token_ids = self._taker_window_token_ids(
                     taker_ctx=taker_ctx,
                     taker_phase_tokens=taker_phase_tokens,
@@ -7952,7 +8158,17 @@ class ExecutionRunner:
                 secondary_fair_probability_by_token, secondary_oracle_base_status = (
                     self._build_secondary_fair_probability_map(self.token_ids)
                 )
-                self.telemetry.set_gauge("fair_probability_token_count", float(len(fair_probability_by_token)))
+                all_fair_probability_token_ids = set(fair_probability_by_token.keys()) | set(
+                    taker_fair_probability_by_token.keys()
+                )
+                self.telemetry.set_gauge(
+                    "fair_probability_token_count",
+                    float(len(all_fair_probability_token_ids)),
+                )
+                self.telemetry.set_gauge(
+                    "maker_fair_probability_token_count",
+                    float(len(fair_probability_by_token)),
+                )
                 self.telemetry.set_gauge(
                     "taker_fair_probability_token_count",
                     float(len(taker_fair_probability_by_token)),
@@ -7961,6 +8177,7 @@ class ExecutionRunner:
                     "secondary_fair_probability_token_count",
                     float(len(secondary_fair_probability_by_token)),
                 )
+                self.telemetry.set_gauge("taker_target_usd", float(self.taker_target_usd))
                 latest_chainlink_targets = self.chainlink.get_latest(self.chainlink_symbol_for_targets)
                 latest_pyth_targets = self.pyth.get_latest(self.pyth_symbol_for_targets)
                 oracle_fresh, oracle_tick_age_sec, oracle_freshness_reason = self._oracle_freshness()
@@ -8050,10 +8267,6 @@ class ExecutionRunner:
                 sec_to_expiry_min = taker_ctx.get("sec_to_expiry_min")
                 if isinstance(sec_to_expiry_min, (int, float)):
                     self.telemetry.set_gauge("taker_sec_to_expiry_min", float(sec_to_expiry_min))
-                self.telemetry.set_gauge(
-                    "taker_lag_verified_token_count",
-                    float(taker_ctx.get("lag_verified_token_count", 0)),
-                )
                 if taker_active != self._taker_active:
                     self._taker_active = taker_active
                     self.events.log_event(
@@ -8065,8 +8278,6 @@ class ExecutionRunner:
                             "token_count": len(candidate_taker_tokens),
                             "token_ids": candidate_taker_tokens,
                             "sec_to_expiry_min": sec_to_expiry_min,
-                            "lag_verified_token_count": taker_ctx.get("lag_verified_token_count", 0),
-                            "lag_state": latency_snapshot.state,
                             "effective_poll_interval_sec": effective_poll_interval,
                             "max_actions_override": max_actions_override,
                         },
@@ -8118,6 +8329,38 @@ class ExecutionRunner:
                         maker_preclassified_no_submission_category_by_token[token_id] = (
                             "market_reference_not_authoritative"
                         )
+                maker_truth_reference_insufficient_count = 0
+                for token_id in sorted(maker_observational_token_ids):
+                    prereq_reason = str(maker_prereq_failure_by_token.get(token_id, "")).strip().lower()
+                    preclassified_reason = str(
+                        maker_preclassified_no_submission_reason_by_token.get(token_id, "")
+                    ).strip().lower()
+                    preclassified_category = str(
+                        maker_preclassified_no_submission_category_by_token.get(token_id, "")
+                    ).strip().lower()
+                    if prereq_reason:
+                        maker_gate_contract = maker_gate_contract_from_payload(
+                            {"block_reason": prereq_reason}
+                        )
+                    elif preclassified_reason or preclassified_category:
+                        maker_gate_contract = maker_gate_contract_from_payload(
+                            {
+                                "block_reason": "maker_no_submission",
+                                "maker_no_submission_cause": preclassified_reason or None,
+                                "maker_no_submission_category": preclassified_category or None,
+                            }
+                        )
+                    else:
+                        maker_gate_contract = {}
+                    if (
+                        str(maker_gate_contract.get(EDGE_MAKER_GATE_STAGE_FIELD) or "").strip().lower()
+                        == MAKER_GATE_STAGE_TRUTH_REFERENCE
+                    ):
+                        maker_truth_reference_insufficient_count += 1
+                self.telemetry.set_gauge(
+                    "doctrine_maker_truth_reference_insufficient_count",
+                    float(maker_truth_reference_insufficient_count),
+                )
                 self.telemetry.set_gauge("doctrine_maker_viable_token_count", float(len(maker_eligible_tokens)))
                 maker_books_for_evaluation = dict(books)
                 maker_books_for_evaluation.update(maker_resolved_books_by_token)
@@ -8185,6 +8428,16 @@ class ExecutionRunner:
                     elif side_policy == "SELL_ONLY":
                         maker_one_sided_sell_active_count += 1
 
+                maker_eligible_tokens, maker_pruned_reason_by_token = self._prune_maker_eligible_tokens(
+                    maker_eligible_tokens=maker_eligible_tokens,
+                    books=maker_books_for_evaluation,
+                    lifecycle_info_by_token=lifecycle_info_by_token,
+                    maker_competitiveness_profiles_by_token=maker_competitiveness_profiles_by_token,
+                )
+                for token_id, reason in maker_pruned_reason_by_token.items():
+                    maker_preclassified_no_submission_reason_by_token[str(token_id)] = str(reason)
+                    maker_preclassified_no_submission_category_by_token[str(token_id)] = str(reason)
+
                 maker_timing_gate_blocked_count = sum(
                     1
                     for token_id in maker_phase_tokens
@@ -8214,13 +8467,14 @@ class ExecutionRunner:
                     "filled_token_ids": [],
                 }
                 self.telemetry.set_gauge("maker_submitted_token_count_last_cycle", 0.0)
+                self.telemetry.set_gauge("maker_actions_last_cycle", 0.0)
+                self.telemetry.set_gauge("maker_fills_last_cycle", 0.0)
                 self.telemetry.set_gauge("maker_no_submission_token_count_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_attempts_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_actions_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_submitted_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_fills_last_cycle", 0.0)
                 self.telemetry.set_gauge("taker_filled_token_count_last_cycle", 0.0)
-                lag_verified_token_ids = [str(x) for x in list(taker_ctx.get("lag_verified_token_ids", []))]
                 valuation_state = self._apply_valuation_controls(books=valuation_books, phase="pre_submit")
 
                 if not books:
@@ -8250,7 +8504,6 @@ class ExecutionRunner:
                             fair_probability_by_token=fair_probability_by_token,
                             maker_competitiveness_profiles_by_token=maker_competitiveness_profiles_by_token,
                             oracle_tick_age_sec=oracle_tick_age_sec,
-                            latency_state=latency_snapshot.state,
                             cycle_index=int(self._doctrine_cycle_index),
                         )
                     if taker_runtime_token_ids:
@@ -8272,8 +8525,6 @@ class ExecutionRunner:
                             oracle_fresh=oracle_fresh,
                             latency_snapshot=latency_snapshot,
                             mode_state=mode_state,
-                            lag_ready_for_taker=lag_ready_for_taker,
-                            lag_verified_token_ids=lag_verified_token_ids,
                             taker_ramp_allowed=self._taker_ramp_allowed,
                             cycle_index=int(self._doctrine_cycle_index),
                             maker_submitted_token_ids=maker_submitted_token_ids,
@@ -8285,6 +8536,18 @@ class ExecutionRunner:
                     self.telemetry.set_gauge("total_pnl", total_pnl)
                     for token_id, token_pnl in pnl_by_token.items():
                         self.telemetry.set_gauge(f"token_pnl.{token_id}", token_pnl)
+                    economics = self.risk.economic_adjustment_summary()
+                    self.telemetry.set_gauge("economic_taker_fee_usd", float(economics.get("taker_fee_usd", 0.0)))
+                    self.telemetry.set_gauge("economic_maker_rebate_usd", float(economics.get("maker_rebate_usd", 0.0)))
+                    self.telemetry.set_gauge("economic_slippage_cost_usd", float(economics.get("slippage_cost_usd", 0.0)))
+                    self.telemetry.set_gauge(
+                        "economic_adverse_selection_cost_usd",
+                        float(economics.get("adverse_selection_cost_usd", 0.0)),
+                    )
+                    self.telemetry.set_gauge(
+                        "economic_net_cash_adjustment_usd",
+                        float(economics.get("net_cash_adjustment_usd", 0.0)),
+                    )
 
                     wallet_drawdown_snapshot = self.risk.wallet_guardian_drawdown_snapshot(mids)
                     wallet_drawdown_check = self.wallet.evaluate_drawdown_guard(
@@ -8420,7 +8683,6 @@ class ExecutionRunner:
                                 fair_probability_by_token=fair_probability_by_token,
                                 maker_competitiveness_profiles_by_token=maker_competitiveness_profiles_by_token,
                                 oracle_tick_age_sec=oracle_tick_age_sec,
-                                latency_state=latency_snapshot.state,
                                 cycle_index=int(self._doctrine_cycle_index),
                             )
                         if taker_runtime_token_ids:
@@ -8437,8 +8699,6 @@ class ExecutionRunner:
                                 oracle_fresh=oracle_fresh,
                                 latency_snapshot=latency_snapshot,
                                 mode_state=mode_state,
-                                lag_ready_for_taker=lag_ready_for_taker,
-                                lag_verified_token_ids=lag_verified_token_ids,
                                 taker_ramp_allowed=self._taker_ramp_allowed,
                                 cycle_index=int(self._doctrine_cycle_index),
                                 maker_submitted_token_ids=maker_submitted_token_ids,
@@ -8446,17 +8706,28 @@ class ExecutionRunner:
                             )
                             if taker_summary["attempts"] > 0:
                                 self.telemetry.incr("taker_attempts", taker_summary["attempts"])
-                            if taker_summary["submitted"] > 0:
-                                self.telemetry.incr("taker_submitted", taker_summary["submitted"])
+                        if taker_summary["submitted"] > 0:
+                            self.telemetry.incr("taker_submitted", taker_summary["submitted"])
                         self.telemetry.set_gauge("open_orders", float(summary["open_orders"]))
-                        self.telemetry.set_gauge("actions_last_cycle", float(summary["actions"]))
-                        self.telemetry.set_gauge("fills_last_cycle", float(summary["fills"]))
-                        status_window_actions += int(summary.get("actions", 0) or 0)
-                        status_window_fills += int(summary.get("fills", 0) or 0)
+                        maker_actions_last_cycle = int(summary.get("actions", 0) or 0)
+                        maker_fills_last_cycle = int(summary.get("fills", 0) or 0)
+                        taker_actions_last_cycle = int(taker_summary.get("submitted", 0) or 0)
+                        taker_fills_last_cycle = int(taker_summary.get("fills_accepted", 0) or 0)
+                        total_actions_last_cycle = maker_actions_last_cycle + taker_actions_last_cycle
+                        total_fills_last_cycle = maker_fills_last_cycle + taker_fills_last_cycle
+                        self.telemetry.set_gauge("actions_last_cycle", float(total_actions_last_cycle))
+                        self.telemetry.set_gauge("fills_last_cycle", float(total_fills_last_cycle))
+                        self.telemetry.set_gauge("maker_actions_last_cycle", float(maker_actions_last_cycle))
+                        self.telemetry.set_gauge("maker_fills_last_cycle", float(maker_fills_last_cycle))
+                        status_window_actions += total_actions_last_cycle
+                        status_window_fills += total_fills_last_cycle
+                        status_window_maker_actions += maker_actions_last_cycle
+                        status_window_maker_fills += maker_fills_last_cycle
                         self.telemetry.set_gauge(
                             "maker_submitted_token_count_last_cycle",
                             float(len(maker_submitted_token_ids)),
                         )
+                        status_window_maker_submitted_token_count += int(len(maker_submitted_token_ids))
                         self.telemetry.set_gauge(
                             "maker_no_submission_token_count_last_cycle",
                             float(len(maker_no_submission_reason_by_token)),
@@ -8467,19 +8738,19 @@ class ExecutionRunner:
                         )
                         self.telemetry.set_gauge(
                             "taker_actions_last_cycle",
-                            float(taker_summary.get("submitted", 0)),
+                            float(taker_actions_last_cycle),
                         )
                         self.telemetry.set_gauge(
                             "taker_submitted_last_cycle",
-                            float(taker_summary.get("submitted", 0)),
+                            float(taker_actions_last_cycle),
                         )
                         self.telemetry.set_gauge(
                             "taker_fills_last_cycle",
-                            float(taker_summary.get("fills_accepted", 0)),
+                            float(taker_fills_last_cycle),
                         )
-                        status_window_taker_actions += int(taker_summary.get("submitted", 0) or 0)
-                        status_window_taker_submitted += int(taker_summary.get("submitted", 0) or 0)
-                        status_window_taker_fills += int(taker_summary.get("fills_accepted", 0) or 0)
+                        status_window_taker_actions += taker_actions_last_cycle
+                        status_window_taker_submitted += taker_actions_last_cycle
+                        status_window_taker_fills += taker_fills_last_cycle
                         self.telemetry.set_gauge(
                             "taker_filled_token_count_last_cycle",
                             float(len(taker_summary.get("filled_token_ids", []))),
@@ -8502,6 +8773,18 @@ class ExecutionRunner:
                         self.telemetry.set_gauge("total_pnl", total_pnl)
                         for token_id, token_pnl in pnl_by_token.items():
                             self.telemetry.set_gauge(f"token_pnl.{token_id}", token_pnl)
+                        economics = self.risk.economic_adjustment_summary()
+                        self.telemetry.set_gauge("economic_taker_fee_usd", float(economics.get("taker_fee_usd", 0.0)))
+                        self.telemetry.set_gauge("economic_maker_rebate_usd", float(economics.get("maker_rebate_usd", 0.0)))
+                        self.telemetry.set_gauge("economic_slippage_cost_usd", float(economics.get("slippage_cost_usd", 0.0)))
+                        self.telemetry.set_gauge(
+                            "economic_adverse_selection_cost_usd",
+                            float(economics.get("adverse_selection_cost_usd", 0.0)),
+                        )
+                        self.telemetry.set_gauge(
+                            "economic_net_cash_adjustment_usd",
+                            float(economics.get("net_cash_adjustment_usd", 0.0)),
+                        )
 
                         wallet_drawdown_snapshot = self.risk.wallet_guardian_drawdown_snapshot(mids)
                         wallet_drawdown_check = self.wallet.evaluate_drawdown_guard(
@@ -8628,19 +8911,16 @@ class ExecutionRunner:
                     )
                 self._last_ws_slo_degraded = bool(ws_slo_degraded)
                 self._last_ws_slo_reason = ws_slo_reason
-                disarmed_cycle = self._disarmed_cycle_signal(latency_snapshot)
                 mode_snapshot = self.operating_mode.observe_cycle(
                     risk_rejects=effective_risk_rejects_delta,
                     stale_rejects=stale_rejects_delta,
                     outage_cycle=bool(has_targets and (not ws_slo_bootstrap_active) and ((not books) or ws_slo_degraded)),
-                    disarmed_cycle=disarmed_cycle,
                     error_cycle=bool(cycle_had_error),
                 )
                 reconcile_mismatch_ratio = self._read_reconcile_mismatch_ratio()
                 ramp_snapshot = self.ramp.observe_cycle(
                     reject_ratio=(1.0 if risk_rejects_delta > 0 else 0.0),
                     stale_oracle_ratio=(1.0 if stale_oracle_cycle else 0.0),
-                    disarmed_ratio=(1.0 if disarmed_cycle else 0.0),
                     reconcile_mismatch_ratio=reconcile_mismatch_ratio,
                 )
                 self.telemetry.set_gauge("ramp_enabled", 1.0 if ramp_snapshot.enabled else 0.0)
@@ -8651,8 +8931,6 @@ class ExecutionRunner:
                     self._active_target_usd = float(ramp_snapshot.target_usd)
                     self._taker_ramp_allowed = bool(ramp_snapshot.taker_ramp_enabled)
                     self.manager.sizing_target_usd = float(self._active_target_usd)
-                    if self.sizing_mode == "notional":
-                        self.taker_target_usd = float(self._active_target_usd)
                 if ramp_snapshot.changed:
                     self.events.log_event(
                         "ramp_transition",
@@ -8668,7 +8946,6 @@ class ExecutionRunner:
                 self.telemetry.set_gauge("operating_mode_state", self._operating_mode_to_gauge(mode_snapshot.state))
                 self.telemetry.set_gauge("operating_mode_stale_reject_ratio", mode_snapshot.stale_reject_ratio)
                 self.telemetry.set_gauge("operating_mode_outage_ratio", mode_snapshot.outage_ratio)
-                self.telemetry.set_gauge("operating_mode_disarmed_ratio", mode_snapshot.disarmed_ratio)
                 self.telemetry.set_gauge("operating_mode_error_ratio", mode_snapshot.error_ratio)
                 self.telemetry.set_gauge("operating_mode_risk_reject_count", float(mode_snapshot.risk_reject_count))
                 self.telemetry.set_gauge("operating_mode_stale_reject_count", float(mode_snapshot.stale_reject_count))
@@ -8690,7 +8967,6 @@ class ExecutionRunner:
                             "stale_reject_count": mode_snapshot.stale_reject_count,
                             "stale_reject_ratio": mode_snapshot.stale_reject_ratio,
                             "outage_ratio": mode_snapshot.outage_ratio,
-                            "disarmed_ratio": mode_snapshot.disarmed_ratio,
                             "error_ratio": mode_snapshot.error_ratio,
                         },
                     )
@@ -8788,6 +9064,12 @@ class ExecutionRunner:
                     self._update_runtime_semantics(has_targets=bool(self.token_ids))
                     self.telemetry.set_gauge("actions_last_status_window", float(status_window_actions))
                     self.telemetry.set_gauge("fills_last_status_window", float(status_window_fills))
+                    self.telemetry.set_gauge("maker_actions_last_status_window", float(status_window_maker_actions))
+                    self.telemetry.set_gauge("maker_fills_last_status_window", float(status_window_maker_fills))
+                    self.telemetry.set_gauge(
+                        "maker_submitted_token_count_last_status_window",
+                        float(status_window_maker_submitted_token_count),
+                    )
                     self.telemetry.set_gauge("taker_actions_last_status_window", float(status_window_taker_actions))
                     self.telemetry.set_gauge("taker_submitted_last_status_window", float(status_window_taker_submitted))
                     self.telemetry.set_gauge("taker_fills_last_status_window", float(status_window_taker_fills))
@@ -8881,7 +9163,16 @@ class ExecutionRunner:
                         "wallet_gas_ok": bool(wallet_contract.get("gas_ok", False)),
                         "wallet_stable_balance_total": float(wallet_contract.get("stable_balance_total", 0.0)),
                         "wallet_protected_reserve": float(wallet_contract.get("protected_reserve", 0.0)),
-                        "wallet_open_reserved": float(wallet_contract.get("open_reserved", 0.0)),
+                        "wallet_reservation_locked_usdc": float(
+                            wallet_contract.get("reservation_locked_usdc", 0.0)
+                        ),
+                        "wallet_position_liability_locked_usdc": float(
+                            wallet_contract.get("position_liability_locked_usdc", 0.0)
+                        ),
+                        "wallet_locked_total_usdc": float(wallet_contract.get("locked_total_usdc", 0.0)),
+                        "wallet_provider_locked_usdc_semantics": str(
+                            wallet_contract.get("provider_locked_usdc_semantics", "unknown")
+                        ),
                         "wallet_deployable_capital": float(wallet_contract.get("deployable_capital", 0.0)),
                         "wallet_approval_ok": bool(wallet_contract.get("approval_ok", False)),
                         "wallet_nonce_ok": bool(wallet_contract.get("nonce_ok", False)),
@@ -9073,6 +9364,9 @@ class ExecutionRunner:
                     next_status = now + status_interval
                     status_window_actions = 0
                     status_window_fills = 0
+                    status_window_maker_actions = 0
+                    status_window_maker_fills = 0
+                    status_window_maker_submitted_token_count = 0
                     status_window_taker_actions = 0
                     status_window_taker_submitted = 0
                     status_window_taker_fills = 0

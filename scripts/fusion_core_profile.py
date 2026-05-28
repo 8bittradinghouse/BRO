@@ -1246,10 +1246,9 @@ def _build_maker_profiles(
         )
 
     maker_submits_total = sum(float(_coerce_float(row.get("maker_submits")) or 0.0) for row in rows)
-    quote_skip_total = sum(float(_coerce_float(row.get("maker_quote_quality_skip_total_count")) or 0.0) for row in rows)
     sizing_reject_total = sum(float(_coerce_float(row.get("maker_sizing_reject_total_count")) or 0.0) for row in rows)
     no_submit_total = sum(float(_coerce_float(row.get("maker_no_submit_total_count")) or 0.0) for row in rows)
-    if maker_submits_total > 0 or quote_skip_total > 0 or sizing_reject_total > 0 or no_submit_total > 0:
+    if maker_submits_total > 0 or sizing_reject_total > 0 or no_submit_total > 0:
         no_submit_category_distribution: Counter[str] = Counter()
         no_submit_cause_distribution: Counter[str] = Counter()
         sizing_reject_side_event_count = 0.0
@@ -1268,7 +1267,6 @@ def _build_maker_profiles(
             "summary_level": "decision_row_and_submit_row_aggregate",
             "submit_row_count": maker_submits_total,
             "no_submit_decision_row_count": no_submit_total,
-            "quote_quality_skip_decision_row_count": quote_skip_total,
             "sizing_reject_decision_row_count": sizing_reject_total,
             "sizing_reject_side_event_count": sizing_reject_side_event_count,
             "sizing_resolution_row_count": sizing_resolution_row_count,
@@ -1292,10 +1290,8 @@ def _build_maker_profiles(
                 cohort_dimensions={"slice": "friction_burden"},
                 metrics={
                     "maker_submits_total": maker_submits_total,
-                    "quote_quality_skip_total": quote_skip_total,
                     "sizing_reject_total": sizing_reject_total,
                     "no_submit_total": no_submit_total,
-                    "quote_quality_skip_per_submit": _safe_ratio(quote_skip_total, maker_submits_total),
                     "sizing_reject_per_submit": _safe_ratio(sizing_reject_total, maker_submits_total),
                     "no_submit_per_submit": _safe_ratio(no_submit_total, maker_submits_total),
                     "maker_no_submission_category_distribution": _sorted_counter_dict(no_submit_category_distribution),
@@ -1308,7 +1304,6 @@ def _build_maker_profiles(
                 compatibility_flags=[],
                 top_signals=[
                     f"maker_submits_total={maker_submits_total}",
-                    f"quote_quality_skip_total={quote_skip_total}",
                     f"sizing_reject_total={sizing_reject_total}",
                 ],
                 population_accounting=population_accounting,
@@ -1326,22 +1321,6 @@ def _build_maker_profiles(
     )
     mixed_target_total = sum(
         float(_coerce_float(row.get("maker_window_mixed_viability_target_count")) or 0.0) for row in rows
-    )
-    queue_depth_on_viable_targets_total = sum(
-        float(_coerce_float(row.get("maker_window_queue_depth_on_viable_targets_count")) or 0.0)
-        for row in rows
-    )
-    queue_depth_on_impossible_targets_total = sum(
-        float(_coerce_float(row.get("maker_window_queue_depth_on_impossible_targets_count")) or 0.0)
-        for row in rows
-    )
-    raw_queue_depth_near_threshold_total = sum(
-        float(_coerce_float(row.get("maker_raw_queue_depth_near_threshold_event_count")) or 0.0)
-        for row in rows
-    )
-    raw_queue_depth_hard_miss_total = sum(
-        float(_coerce_float(row.get("maker_raw_queue_depth_hard_miss_event_count")) or 0.0)
-        for row in rows
     )
     conflict_rows_total = sum(
         float(_coerce_float(row.get("maker_min_notional_max_shares_conflict_rows")) or 0.0)
@@ -1398,10 +1377,6 @@ def _build_maker_profiles(
                     "viable_target_total": viable_target_total,
                     "impossible_target_total": impossible_target_total,
                     "mixed_target_total": mixed_target_total,
-                    "queue_depth_on_viable_targets_total": queue_depth_on_viable_targets_total,
-                    "queue_depth_on_impossible_targets_total": queue_depth_on_impossible_targets_total,
-                    "raw_queue_depth_near_threshold_event_count_total": raw_queue_depth_near_threshold_total,
-                    "raw_queue_depth_hard_miss_event_count_total": raw_queue_depth_hard_miss_total,
                     "maker_min_notional_max_shares_conflict_rows_total": conflict_rows_total,
                     "low_price_conflict_band_min_summary": _numeric_summary(low_price_band_mins),
                     "low_price_conflict_band_p50_summary": _numeric_summary(low_price_band_p50s),
@@ -1412,15 +1387,12 @@ def _build_maker_profiles(
                 compatibility_flags=[],
                 top_signals=[
                     f"impossible_row_total={impossible_row_total}",
-                    f"queue_depth_on_impossible_targets_total={queue_depth_on_impossible_targets_total}",
                     f"conflict_rows_total={conflict_rows_total}",
                 ],
                 population_accounting={
                     "summary_level": "active_window_geometry_shadow",
                     "note": (
-                        "Viability shadow metrics are geometry-first active-window summaries. "
-                        "Raw queue-depth near-threshold vs hard-miss counts come from quote_quality_skip events "
-                        "and are not the same population as edge-evaluation no-submit assignments."
+                        "Viability shadow metrics are geometry-first active-window summaries."
                     ),
                 },
             )
@@ -1829,8 +1801,6 @@ def _build_candidate_blanks(profiles: list[dict[str, Any]]) -> list[dict[str, An
             focus = "inspect repeated target engagement clusters before tuning aggression"
         elif family == "complement_pair_cluster" and (_coerce_float(metrics.get("complement_pair_cluster_count_total")) or 0.0) > 0.0:
             focus = "inspect mirrored complement-pair wounds before changing maker doctrine"
-        elif family == "friction_burden" and (_coerce_float(metrics.get("quote_quality_skip_per_submit")) or 0.0) > 0.1:
-            focus = "reduce maker pre-fire friction before touching live behavior"
         elif family == "singlefill_strength" and (_coerce_float(metrics.get("singlefill_correct_ratio")) or 0.0) >= 0.6:
             focus = "preserve and isolate stable single-fill maker geometry"
         elif family == "outcome_balance" and (_coerce_float(metrics.get("complete_bad_ratio")) or 0.0) >= 0.6:
@@ -1874,7 +1844,6 @@ def _flatten_headline_metric(profile: dict[str, Any]) -> tuple[str | None, Any]:
         "complement_pair_cluster_count_total",
         "repeat_cluster_count_total",
         "decision_to_submit_rate_total",
-        "quote_quality_skip_per_submit",
     ):
         if key in metrics:
             return key, metrics[key]

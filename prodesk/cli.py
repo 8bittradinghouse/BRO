@@ -20,20 +20,27 @@ CANONICAL_PAPER_SESSION_SCRIPT = "scripts/canonical_paper_session.sh"
 BROCTL_SUBPROCESS_TIMEOUT_SEC = max(30.0, float(os.getenv("BROCTL_SUBPROCESS_TIMEOUT_SEC", "1800")))
 
 
-def _run(cmd: List[str], *, cwd: pathlib.Path) -> int:
+def _run(cmd: List[str], *, cwd: pathlib.Path, timeout_sec: float | None = BROCTL_SUBPROCESS_TIMEOUT_SEC) -> int:
     print(f"[broctl] exec: {' '.join(cmd)}")
     try:
+        if timeout_sec is not None:
+            return subprocess.run(
+                cmd,
+                check=False,
+                cwd=str(cwd),
+                timeout=float(timeout_sec),
+            ).returncode
         return subprocess.run(
             cmd,
             check=False,
             cwd=str(cwd),
-            timeout=float(BROCTL_SUBPROCESS_TIMEOUT_SEC),
         ).returncode
     except subprocess.TimeoutExpired:
+        timeout_label = "none" if timeout_sec is None else f"{float(timeout_sec):.1f}s"
         print(
             "[broctl] timeout: "
             + " ".join(cmd)
-            + f" exceeded {float(BROCTL_SUBPROCESS_TIMEOUT_SEC):.1f}s",
+            + f" exceeded {timeout_label}",
             file=sys.stderr,
         )
         return 124
@@ -176,7 +183,9 @@ def _run_canonical_paper_session(repo_root: pathlib.Path, *, extra: List[str]) -
         if _has_option(normalized, opt):
             raise SystemExit(f"[broctl] canonical paper session forbids {opt}; use default canonical path")
     cmd = [str((repo_root / CANONICAL_PAPER_SESSION_SCRIPT).resolve()), *normalized]
-    return _run(cmd, cwd=repo_root)
+    # The canonical paper session owns its own active/validation lifecycle and
+    # must not be preempted by the generic broctl subprocess timeout.
+    return _run(cmd, cwd=repo_root, timeout_sec=None)
 
 
 def main() -> None:

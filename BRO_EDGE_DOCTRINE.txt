@@ -65,12 +65,24 @@ Any historical aliasing belongs only in replay, rejectors, or negative tests.
 
 Maker doctrine anchors
 
-Current intended maker doctrine anchors remain:
+Current maker timing authorities are:
 
-- `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
-  - maker gate opens at `15s`
-  - taker handoff opens at `7s`
-- `docs/DOCTRINE_RUNBOOK.md`
+- current active paper OG-tight alignment packet:
+  - maker gate band `8-12s`
+  - taker gate band `8-12s`
+  - effective maker new-risk submit window remains `[8.0, 12.0]`
+  - current active owner surfaces:
+    - `docs/DOCTRINE_RUNBOOK.md`
+    - `docs/PROJECT_TRUTH_STATE.md`
+    - `docs/NEXT_PACKET_PLAN.md`
+    - `docs/OPEN_LIMITATIONS.md`
+- historical blueprint ancestry:
+  - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
+    - maker gate opens at `15s`
+    - taker handoff opens at `7s`
+
+The older `15s / 7s` target remains useful ancestry, not automatic proof that
+the current active paper timing experiment must match it exactly.
 
 Market-reference asymmetry
 

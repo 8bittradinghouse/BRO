@@ -18,14 +18,29 @@ from prodesk.artifact_identity import build_artifact_identity
 from prodesk.edge_truth_contract import (
     EDGE_ACTION_MAKER,
     EDGE_ACTION_TAKER,
+    EDGE_MAKER_GATE_OWNER_FAMILY_FIELD,
+    EDGE_MAKER_GATE_REASON_FIELD,
+    EDGE_MAKER_GATE_STAGE_FIELD,
+    EDGE_MAKER_GATE_TERMINAL_FIELD,
     EDGE_MAKER_PHASE_ALLOWED_FIELD,
     EDGE_TAKER_PHASE_ALLOWED_FIELD,
+    MAKER_GATE_STAGE_FEASIBILITY,
+    MAKER_GATE_STAGE_FILLED,
+    MAKER_GATE_STAGE_LANE_READINESS,
+    MAKER_GATE_STAGE_PHASE,
+    MAKER_GATE_STAGE_QUOTE_QUALITY,
+    MAKER_GATE_STAGE_SELECTION,
+    MAKER_GATE_STAGE_SHARED_SAFETY,
+    MAKER_GATE_STAGE_SUBMIT_PATH,
+    MAKER_GATE_STAGE_SUBMITTED,
+    MAKER_GATE_STAGE_TRUTH_REFERENCE,
     is_taker_decision_event_type,
     is_taker_reason,
     is_taker_submit_event_type,
     is_taker_window_semantic_check_event_type,
     lineage_stage_from_payload,
     lifecycle_phase_from_payload,
+    maker_gate_contract_from_payload,
     normalize_block_reason,
     phase_allows_action,
     taker_phase_allowed_from_payload,
@@ -47,6 +62,7 @@ from prodesk.historical_recovery_replay_compat import (
 )
 from prodesk.jsonl_utils import load_jsonl
 from prodesk.lineage_stage import normalize_lineage_stage
+from prodesk.money_math import canonical_net_cash_adjustment_usd
 from prodesk.models import BookTop, OrderIntent
 from prodesk.run_contract import (
     apply_contract_bounds,
@@ -94,6 +110,12 @@ MAKER_ZERO_SUBMIT_SPECIMEN_LABEL_BY_RUN_ID = {
     "76a4be3b-9b26-461d-a952-4ad90fbf7f1b": "packet_b_350",
     "7117fb46-fd75-4e8d-85fe-6d5a70eab731": "caliber_250",
 }
+RETIRED_MAKER_QUOTE_QUALITY_REASONS = frozenset(
+    {
+        "quote_quality_skip_fill_probability",
+        "quote_quality_skip_queue_depth",
+    }
+)
 
 
 def parse_ts(value: Any) -> Optional[dt.datetime]:
@@ -488,14 +510,52 @@ def _is_quote_active_row(row: Dict[str, Any]) -> bool:
     actions_last_cycle = row.get("gauge.actions_last_cycle")
     if isinstance(actions_last_cycle, (int, float)) and float(actions_last_cycle) > 0:
         return True
+    actions_last_status_window = row.get("gauge.actions_last_status_window")
+    if isinstance(actions_last_status_window, (int, float)) and float(actions_last_status_window) > 0:
+        return True
+    maker_actions_last_cycle = row.get("gauge.maker_actions_last_cycle")
+    if isinstance(maker_actions_last_cycle, (int, float)) and float(maker_actions_last_cycle) > 0:
+        return True
+    maker_actions_last_status_window = row.get("gauge.maker_actions_last_status_window")
+    if isinstance(maker_actions_last_status_window, (int, float)) and float(maker_actions_last_status_window) > 0:
+        return True
+    maker_fills_last_cycle = row.get("gauge.maker_fills_last_cycle")
+    if isinstance(maker_fills_last_cycle, (int, float)) and float(maker_fills_last_cycle) > 0:
+        return True
+    maker_fills_last_status_window = row.get("gauge.maker_fills_last_status_window")
+    if isinstance(maker_fills_last_status_window, (int, float)) and float(maker_fills_last_status_window) > 0:
+        return True
+    maker_submitted_token_count_last_cycle = row.get("gauge.maker_submitted_token_count_last_cycle")
+    if isinstance(maker_submitted_token_count_last_cycle, (int, float)) and float(
+        maker_submitted_token_count_last_cycle
+    ) > 0:
+        return True
+    maker_submitted_token_count_last_status_window = row.get(
+        "gauge.maker_submitted_token_count_last_status_window"
+    )
+    if isinstance(maker_submitted_token_count_last_status_window, (int, float)) and float(
+        maker_submitted_token_count_last_status_window
+    ) > 0:
+        return True
     taker_actions_last_cycle = row.get("gauge.taker_actions_last_cycle")
     if isinstance(taker_actions_last_cycle, (int, float)) and float(taker_actions_last_cycle) > 0:
+        return True
+    taker_actions_last_status_window = row.get("gauge.taker_actions_last_status_window")
+    if isinstance(taker_actions_last_status_window, (int, float)) and float(taker_actions_last_status_window) > 0:
         return True
     taker_submitted_last_cycle = row.get("gauge.taker_submitted_last_cycle")
     if isinstance(taker_submitted_last_cycle, (int, float)) and float(taker_submitted_last_cycle) > 0:
         return True
+    taker_submitted_last_status_window = row.get("gauge.taker_submitted_last_status_window")
+    if isinstance(taker_submitted_last_status_window, (int, float)) and float(
+        taker_submitted_last_status_window
+    ) > 0:
+        return True
     taker_fills_last_cycle = row.get("gauge.taker_fills_last_cycle")
     if isinstance(taker_fills_last_cycle, (int, float)) and float(taker_fills_last_cycle) > 0:
+        return True
+    taker_fills_last_status_window = row.get("gauge.taker_fills_last_status_window")
+    if isinstance(taker_fills_last_status_window, (int, float)) and float(taker_fills_last_status_window) > 0:
         return True
     return False
 
@@ -766,6 +826,13 @@ def _counter_delta(current_value: Any, prev_value: Optional[float]) -> Tuple[flo
     return max(0.0, current), current
 
 
+def _normalize_current_normal_taker_side_class(value: Any) -> str:
+    normalized = str(value or "").strip().lower() or "unknown"
+    if normalized in {"buy_expected_winner", "same_token_sell_blocked", "unknown"}:
+        return normalized
+    return "unknown"
+
+
 def _market_data_source_stats(status_rows: List[Dict[str, Any]]) -> Dict[str, float]:
     ws_delta = 0.0
     total_delta = 0.0
@@ -1007,37 +1074,9 @@ def _taker_lineage_stage_net_breakout(events: List[Dict[str, Any]]) -> Dict[str,
     return out
 
 
-def _edge_quality_by_regime(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
-    order_reason_by_id: Dict[str, str] = {}
-    regime = "disarmed"
-    taker_submits = Counter()
-    taker_fills = Counter()
-
-    for evt in events:
-        event_type = str(evt.get("event_type") or "")
-        if event_type == "latency_regime_change":
-            regime = str(evt.get("state") or regime)
-        elif is_taker_submit_event_type(event_type):
-            taker_submits[regime] += 1
-        elif event_type == "order_submit":
-            order_id = str(evt.get("order_id") or "")
-            reason = str(evt.get("reason") or "")
-            if order_id:
-                order_reason_by_id[order_id] = reason
-        elif event_type == "fill":
-            order_id = str(evt.get("order_id") or "")
-            reason = order_reason_by_id.get(order_id, "")
-            if _is_taker_submit_reason(reason):
-                taker_fills[regime] += 1
-
-    out: Dict[str, Dict[str, float]] = {}
-    regimes = set(taker_submits.keys()) | set(taker_fills.keys())
-    for name in sorted(regimes):
-        submits = float(taker_submits.get(name, 0))
-        fills = float(taker_fills.get(name, 0))
-        fill_rate = (fills / submits) if submits > 0 else 0.0
-        out[name] = {"taker_submits": submits, "taker_fills": fills, "taker_fill_rate": fill_rate}
-    return out
+def _edge_activation_quality_by_signal_posture(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    _ = events
+    return {}
 
 
 def _filter_rows_by_run_id(rows: List[Dict[str, Any]], run_id: Optional[str]) -> List[Dict[str, Any]]:
@@ -1092,7 +1131,6 @@ def _run_duration_minutes(events: List[Dict[str, Any]], status: List[Dict[str, A
 def _stale_data_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
     stale_book_rejects = 0.0
     stale_oracle_blocks = 0.0
-    disarmed_blocks = 0.0
     for evt in events:
         event_type = str(evt.get("event_type") or "")
         if event_type == "risk_reject":
@@ -1106,12 +1144,9 @@ def _stale_data_stats(events: List[Dict[str, Any]]) -> Dict[str, float]:
             reason = str(evt.get("block_reason") or "").strip().lower()
             if "stale" in reason:
                 stale_oracle_blocks += 1.0
-            if "latency_not_armed" in reason or "token_lag_not_verified" in reason:
-                disarmed_blocks += 1.0
     return {
         "stale_book_rejects": stale_book_rejects,
         "stale_oracle_edge_blocks": stale_oracle_blocks,
-        "disarmed_edge_blocks": disarmed_blocks,
     }
 
 
@@ -1275,6 +1310,11 @@ def _new_financial_bucket() -> Dict[str, Any]:
         "gross_filled_notional_usd": 0.0,
         "gross_filled_size_shares": 0.0,
         "gross_settlement_notional_usd": 0.0,
+        "taker_fee_usd": 0.0,
+        "maker_rebate_usd": 0.0,
+        "slippage_cost_usd": 0.0,
+        "adverse_selection_cost_usd": 0.0,
+        "net_cash_adjustment_usd": 0.0,
         "net_pnl_usd": 0.0,
         "_closed_trade_pnls": [],
     }
@@ -1364,9 +1404,87 @@ def _finalize_financial_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
     return bucket
 
 
+def _ordered_wallet_contract_snapshots(
+    status_rows: List[Dict[str, Any]],
+    events: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    def _event_wallet_contract(evt: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(evt, dict):
+            return {}
+        candidate = dict(evt)
+        authoritative_keys = {
+            "gas_balance",
+            "gas_reserve_min",
+            "gas_ok",
+            "stable_balance_total",
+            "protected_reserve",
+            "reservation_locked_usdc",
+            "position_liability_locked_usdc",
+            "locked_total_usdc",
+            "deployable_capital",
+            "approval_ok",
+            "nonce_ok",
+            "reconcile_ok",
+            "wallet_health_ok",
+            "authority_status_class",
+            "order_capable_live",
+            "order_submit_eligible",
+            "canonical_live_nonce_available",
+            "canonical_live_pending_wallet_tx_available",
+            "live_truth_gap_reasons",
+            "reservation_mismatch_evaluable",
+            "reservation_mismatch_semantics",
+            "reservation_mismatch_candidate",
+            "reservation_mismatch_delta_usdc",
+            "reservation_mismatch_detail",
+        }
+        if not any(key in candidate for key in authoritative_keys):
+            return {}
+        return candidate
+
+    snapshots: List[Dict[str, Any]] = []
+    for row_index, row in enumerate(status_rows):
+        wallet_contract = row.get("wallet_contract")
+        if not isinstance(wallet_contract, dict):
+            continue
+        snapshots.append(
+            {
+                "ts": parse_ts(row.get("ts_utc")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                "ts_utc": str(row.get("ts_utc") or "").strip() or None,
+                "wallet_contract": dict(wallet_contract),
+                "source": "status_wallet_contract",
+                "index": row_index,
+            }
+        )
+    for event_index, evt in enumerate(events):
+        if str(evt.get("event_type") or "").strip() != "wallet_state_refresh":
+            continue
+        wallet_contract = _event_wallet_contract(evt)
+        if not wallet_contract:
+            continue
+        snapshots.append(
+            {
+                "ts": parse_ts(evt.get("ts_utc")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                "ts_utc": str(evt.get("ts_utc") or "").strip() or None,
+                "wallet_contract": wallet_contract,
+                "source": "wallet_state_refresh_event",
+                "index": event_index,
+            }
+        )
+    snapshots.sort(
+        key=lambda item: (
+            item.get("ts") or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+            1 if str(item.get("source") or "") == "wallet_state_refresh_event" else 0,
+            int(item.get("index") or 0),
+        )
+    )
+    return snapshots
+
+
 def _financial_capital_progression_summary(
     run_manifest: Dict[str, Any],
     status_rows: List[Dict[str, Any]],
+    events: List[Dict[str, Any]],
     latest_total_pnl_usd: Optional[float],
 ) -> Dict[str, Any]:
     config = run_manifest.get("config") if isinstance(run_manifest, dict) else {}
@@ -1400,76 +1518,75 @@ def _financial_capital_progression_summary(
     ending_wallet_stable_balance_total_usd: Optional[float] = None
     ending_wallet_deployable_capital_usd: Optional[float] = None
     ending_wallet_protected_reserve_usd: Optional[float] = None
-    ending_wallet_open_reserved_usd: Optional[float] = None
+    ending_wallet_reservation_locked_usd: Optional[float] = None
+    ending_wallet_position_liability_locked_usd: Optional[float] = None
+    ending_wallet_locked_total_usd: Optional[float] = None
     ending_wallet_source = "missing"
 
-    ordered_status_rows = [
-        row
-        for _, row in sorted(
-            enumerate(status_rows),
-            key=lambda pair: (
-                parse_ts(pair[1].get("ts_utc")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
-                pair[0],
-            ),
-        )
-    ]
-
-    for row in ordered_status_rows:
-        wallet_contract = row.get("wallet_contract")
-        if not isinstance(wallet_contract, dict):
-            continue
-        opening_wallet_ts_utc = str(row.get("ts_utc") or "").strip() or None
+    wallet_snapshots = _ordered_wallet_contract_snapshots(status_rows, events)
+    if wallet_snapshots:
+        opening_wallet = dict(wallet_snapshots[0].get("wallet_contract") or {})
+        opening_wallet_ts_utc = str(wallet_snapshots[0].get("ts_utc") or "").strip() or None
         opening_wallet_authority_status_class = (
-            str(wallet_contract.get("authority_status_class") or "unknown").strip().lower() or "unknown"
+            str(opening_wallet.get("authority_status_class") or "unknown").strip().lower() or "unknown"
         )
         opening_wallet_stable_balance_total_usd = (
-            float(wallet_contract.get("stable_balance_total"))
-            if isinstance(wallet_contract.get("stable_balance_total"), (int, float))
+            float(opening_wallet.get("stable_balance_total"))
+            if isinstance(opening_wallet.get("stable_balance_total"), (int, float))
             else None
         )
         opening_wallet_deployable_capital_usd = (
-            float(wallet_contract.get("deployable_capital"))
-            if isinstance(wallet_contract.get("deployable_capital"), (int, float))
+            float(opening_wallet.get("deployable_capital"))
+            if isinstance(opening_wallet.get("deployable_capital"), (int, float))
             else None
         )
         opening_wallet_protected_reserve_usd = (
-            float(wallet_contract.get("protected_reserve"))
-            if isinstance(wallet_contract.get("protected_reserve"), (int, float))
+            float(opening_wallet.get("protected_reserve"))
+            if isinstance(opening_wallet.get("protected_reserve"), (int, float))
             else None
         )
-        opening_wallet_source = "wallet_contract"
-        break
+        opening_wallet_source = str(wallet_snapshots[0].get("source") or "missing")
 
-    for row in reversed(ordered_status_rows):
-        wallet_contract = row.get("wallet_contract")
-        if not isinstance(wallet_contract, dict):
-            continue
-        ending_wallet_ts_utc = str(row.get("ts_utc") or "").strip() or None
+        ending_wallet = dict(wallet_snapshots[-1].get("wallet_contract") or {})
+        ending_wallet_ts_utc = str(wallet_snapshots[-1].get("ts_utc") or "").strip() or None
         ending_wallet_authority_status_class = (
-            str(wallet_contract.get("authority_status_class") or "unknown").strip().lower() or "unknown"
+            str(ending_wallet.get("authority_status_class") or "unknown").strip().lower() or "unknown"
         )
         ending_wallet_stable_balance_total_usd = (
-            float(wallet_contract.get("stable_balance_total"))
-            if isinstance(wallet_contract.get("stable_balance_total"), (int, float))
+            float(ending_wallet.get("stable_balance_total"))
+            if isinstance(ending_wallet.get("stable_balance_total"), (int, float))
             else None
         )
         ending_wallet_deployable_capital_usd = (
-            float(wallet_contract.get("deployable_capital"))
-            if isinstance(wallet_contract.get("deployable_capital"), (int, float))
+            float(ending_wallet.get("deployable_capital"))
+            if isinstance(ending_wallet.get("deployable_capital"), (int, float))
             else None
         )
         ending_wallet_protected_reserve_usd = (
-            float(wallet_contract.get("protected_reserve"))
-            if isinstance(wallet_contract.get("protected_reserve"), (int, float))
+            float(ending_wallet.get("protected_reserve"))
+            if isinstance(ending_wallet.get("protected_reserve"), (int, float))
             else None
         )
-        ending_wallet_open_reserved_usd = (
-            float(wallet_contract.get("open_reserved"))
-            if isinstance(wallet_contract.get("open_reserved"), (int, float))
+        ending_wallet_reservation_locked_usd = (
+            float(ending_wallet.get("reservation_locked_usdc"))
+            if isinstance(ending_wallet.get("reservation_locked_usdc"), (int, float))
+            else (
+                float(ending_wallet.get("open_reserved"))
+                if isinstance(ending_wallet.get("open_reserved"), (int, float))
+                else None
+            )
+        )
+        ending_wallet_position_liability_locked_usd = (
+            float(ending_wallet.get("position_liability_locked_usdc"))
+            if isinstance(ending_wallet.get("position_liability_locked_usdc"), (int, float))
             else None
         )
-        ending_wallet_source = "wallet_contract"
-        break
+        ending_wallet_locked_total_usd = (
+            float(ending_wallet.get("locked_total_usdc"))
+            if isinstance(ending_wallet.get("locked_total_usdc"), (int, float))
+            else None
+        )
+        ending_wallet_source = str(wallet_snapshots[-1].get("source") or "missing")
 
     opening_wallet_matches_configured_base_capital = (
         bool(abs(opening_wallet_stable_balance_total_usd - configured_base_capital_usd) <= 1e-6)
@@ -1523,7 +1640,9 @@ def _financial_capital_progression_summary(
         "ending_wallet_stable_balance_total_usd": ending_wallet_stable_balance_total_usd,
         "ending_wallet_deployable_capital_usd": ending_wallet_deployable_capital_usd,
         "ending_wallet_protected_reserve_usd": ending_wallet_protected_reserve_usd,
-        "ending_wallet_open_reserved_usd": ending_wallet_open_reserved_usd,
+        "ending_wallet_reservation_locked_usd": ending_wallet_reservation_locked_usd,
+        "ending_wallet_position_liability_locked_usd": ending_wallet_position_liability_locked_usd,
+        "ending_wallet_locked_total_usd": ending_wallet_locked_total_usd,
         "ending_wallet_source": ending_wallet_source,
         "ending_wallet_minus_opening_stable_balance_usd": ending_wallet_minus_opening_stable_balance_usd,
         "ending_wallet_matches_opening_plus_total_pnl": ending_wallet_matches_opening_plus_total_pnl,
@@ -1545,13 +1664,13 @@ def _financial_performance_summary(
             ),
         )
     ]
-    latest_total_pnl_usd: Optional[float] = None
-    latest_total_pnl_ts_utc: Optional[str] = None
+    latest_status_total_pnl_usd: Optional[float] = None
+    latest_status_total_pnl_ts_utc: Optional[str] = None
     for row in status_rows:
         pnl_value = row.get("gauge.total_pnl")
         if isinstance(pnl_value, (int, float)):
-            latest_total_pnl_usd = float(pnl_value)
-            latest_total_pnl_ts_utc = str(row.get("ts_utc") or "").strip() or None
+            latest_status_total_pnl_usd = float(pnl_value)
+            latest_status_total_pnl_ts_utc = str(row.get("ts_utc") or "").strip() or None
 
     order_meta: Dict[str, Dict[str, Any]] = {}
     campaign_ledger: Dict[str, Dict[str, Any]] = {}
@@ -1657,6 +1776,14 @@ def _financial_performance_summary(
             if side not in {"BUY", "SELL"} or price <= 0.0 or size <= 0.0:
                 continue
             notional = float(price * size)
+            taker_fee_usd = _safe_float(evt.get("taker_fee_usd"))
+            maker_rebate_usd = _safe_float(evt.get("maker_rebate_usd"))
+            slippage_cost_usd = _safe_float(evt.get("slippage_cost_usd"))
+            adverse_selection_cost_usd = _safe_float(evt.get("adverse_selection_cost_usd"))
+            net_cash_adjustment_usd = canonical_net_cash_adjustment_usd(
+                maker_rebate_usd=float(maker_rebate_usd),
+                taker_fee_usd=float(taker_fee_usd),
+            )
             if order_id not in campaign["filled_order_ids"]:
                 campaign["filled_order_ids"].add(order_id)
                 overall_bucket["filled_order_count"] += 1
@@ -1667,7 +1794,17 @@ def _financial_performance_summary(
             overall_bucket["gross_filled_size_shares"] += size
             lane_buckets[lane]["gross_filled_notional_usd"] += notional
             lane_buckets[lane]["gross_filled_size_shares"] += size
-            campaign["cashflow_pnl_usd"] += (-notional if side == "BUY" else notional)
+            overall_bucket["taker_fee_usd"] += taker_fee_usd
+            overall_bucket["maker_rebate_usd"] += maker_rebate_usd
+            overall_bucket["slippage_cost_usd"] += slippage_cost_usd
+            overall_bucket["adverse_selection_cost_usd"] += adverse_selection_cost_usd
+            overall_bucket["net_cash_adjustment_usd"] += net_cash_adjustment_usd
+            lane_buckets[lane]["taker_fee_usd"] += taker_fee_usd
+            lane_buckets[lane]["maker_rebate_usd"] += maker_rebate_usd
+            lane_buckets[lane]["slippage_cost_usd"] += slippage_cost_usd
+            lane_buckets[lane]["adverse_selection_cost_usd"] += adverse_selection_cost_usd
+            lane_buckets[lane]["net_cash_adjustment_usd"] += net_cash_adjustment_usd
+            campaign["cashflow_pnl_usd"] += ((-notional if side == "BUY" else notional) + net_cash_adjustment_usd)
             campaign["net_shares"] += (size if side == "BUY" else -size)
             continue
 
@@ -1683,6 +1820,11 @@ def _financial_performance_summary(
         ):
             continue
 
+        settlement_key = _campaign_key(
+            target_ref=evt.get("target_ref"),
+            token_id=evt.get("token_id"),
+            order_id="",
+        )
         matching_campaigns = [
             campaign
             for campaign in campaign_ledger.values()
@@ -1697,9 +1839,15 @@ def _financial_performance_summary(
             if abs(abs(float(campaign.get("net_shares", 0.0))) - float(settlement_size)) <= 1e-6
         ]
         matched_campaign: Optional[Dict[str, Any]] = None
-        if len(exact_matches) == 1:
+        keyed_campaign = campaign_ledger.get(settlement_key) if settlement_key else None
+        if isinstance(keyed_campaign, dict):
+            expected_short = settlement_side == "BUY" and float(keyed_campaign.get("net_shares", 0.0)) < -1e-9
+            expected_long = settlement_side == "SELL" and float(keyed_campaign.get("net_shares", 0.0)) > 1e-9
+            if (expected_short or expected_long) and abs(abs(float(keyed_campaign.get("net_shares", 0.0))) - float(settlement_size)) <= 1e-3:
+                matched_campaign = keyed_campaign
+        if matched_campaign is None and len(exact_matches) == 1:
             matched_campaign = exact_matches[0]
-        elif len(exact_matches) == 0 and len(matching_campaigns) == 1:
+        elif matched_campaign is None and len(exact_matches) == 0 and len(matching_campaigns) == 1:
             candidate = matching_campaigns[0]
             if abs(abs(float(candidate.get("net_shares", 0.0))) - float(settlement_size)) <= 1e-3:
                 matched_campaign = candidate
@@ -1774,24 +1922,39 @@ def _financial_performance_summary(
 
     reconciliation_gap_usd: Optional[float] = None
     reconciled_with_status_total_pnl: Optional[bool] = None
-    if latest_total_pnl_usd is not None:
-        reconciliation_gap_usd = float(latest_total_pnl_usd - float(overall_bucket.get("net_pnl_usd", 0.0)))
+    if latest_status_total_pnl_usd is not None:
+        reconciliation_gap_usd = float(
+            latest_status_total_pnl_usd - float(overall_bucket.get("net_pnl_usd", 0.0))
+        )
         reconciled_with_status_total_pnl = bool(abs(reconciliation_gap_usd) <= 1e-6)
+
+    latest_total_pnl_usd = float(overall_bucket.get("net_pnl_usd", 0.0))
+    latest_total_pnl_ts_utc = latest_status_total_pnl_ts_utc
+    latest_total_pnl_source = "fill_cashflow_plus_cash_adjustments_plus_wallet_position_settled"
+    if latest_status_total_pnl_usd is not None and reconciled_with_status_total_pnl:
+        latest_total_pnl_source = "status_gauge_total_pnl_reconciled"
+    elif latest_status_total_pnl_usd is not None:
+        latest_total_pnl_source = "ledger_closeout_over_status_snapshot"
 
     return {
         "ledger_version": 2,
-        "accounting_basis": "fill_cashflow_plus_wallet_position_settled",
+        "accounting_basis": "fill_cashflow_plus_cash_adjustments_plus_wallet_position_settled",
         "win_rate_basis": "closed_target_ref_campaigns_with_zero_remaining_position",
         "lane_mapping_basis": "order_submit.submission_lane_with_reason_fallback",
         "capital_progression": _financial_capital_progression_summary(
             run_manifest,
             status_rows,
+            ordered_events,
             latest_total_pnl_usd,
         ),
         "overall": overall_bucket,
         "by_lane": finalized_lanes,
         "latest_total_pnl_usd": latest_total_pnl_usd,
         "latest_total_pnl_ts_utc": latest_total_pnl_ts_utc,
+        "latest_total_pnl_source": latest_total_pnl_source,
+        "latest_total_pnl_authoritative_for_closeout": True,
+        "latest_status_total_pnl_usd": latest_status_total_pnl_usd,
+        "latest_status_total_pnl_ts_utc": latest_status_total_pnl_ts_utc,
         "reconciliation_to_status_total_pnl_usd": reconciliation_gap_usd,
         "reconciled_with_status_total_pnl": reconciled_with_status_total_pnl,
         "closed_trade_unit": "target_ref_campaign",
@@ -1827,7 +1990,9 @@ def _financial_outcome_reconciliation(
             "closed_trade_unit": str(financial.get("closed_trade_unit") or ""),
             "lane_mapping_basis": str(financial.get("lane_mapping_basis") or ""),
             "latest_total_pnl_usd": _safe_float(financial.get("latest_total_pnl_usd")),
-            "interpretation": "realized_cashflow_plus_wallet_position_settled",
+            "latest_total_pnl_source": str(financial.get("latest_total_pnl_source") or ""),
+            "latest_status_total_pnl_usd": _safe_float(financial.get("latest_status_total_pnl_usd")),
+            "interpretation": "realized_cashflow_plus_cash_adjustments_plus_wallet_position_settled",
         },
         "outcome_surface": {
             "available": bool(outcome_audit),
@@ -1991,13 +2156,17 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
     latest_contract: Dict[str, Any] = {}
     contract_surface_source = "missing"
     fallback_used = False
-    for row in reversed(status_rows):
-        contract = row.get("wallet_contract")
-        if isinstance(contract, dict):
-            latest_contract = dict(contract)
-            contract_surface_source = "wallet_contract"
-            break
-        if "wallet_health_ok" in row:
+    latest_contract_ts_utc = ""
+    wallet_snapshots = _ordered_wallet_contract_snapshots(status_rows, events)
+    if wallet_snapshots:
+        latest_snapshot = wallet_snapshots[-1]
+        latest_contract = dict(latest_snapshot.get("wallet_contract") or {})
+        contract_surface_source = str(latest_snapshot.get("source") or "missing")
+        latest_contract_ts_utc = str(latest_snapshot.get("ts_utc") or "").strip()
+    else:
+        for row in reversed(status_rows):
+            if "wallet_health_ok" not in row:
+                continue
             # Legacy-only fallback for older status rows that predate wallet_contract.
             # This reconstructed surface is intentionally non-authoritative and must
             # never be treated as readiness truth for order permission.
@@ -2007,7 +2176,13 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
                 "gas_ok": bool(row.get("wallet_gas_ok", False)),
                 "stable_balance_total": _safe_float(row.get("wallet_stable_balance_total")),
                 "protected_reserve": _safe_float(row.get("wallet_protected_reserve")),
-                "open_reserved": _safe_float(row.get("wallet_open_reserved")),
+                "reservation_locked_usdc": _safe_float(
+                    row.get("wallet_reservation_locked_usdc", row.get("wallet_open_reserved"))
+                ),
+                "position_liability_locked_usdc": _safe_float(row.get("wallet_position_liability_locked_usdc")),
+                "locked_total_usdc": _safe_float(
+                    row.get("wallet_locked_total_usdc", row.get("wallet_open_reserved"))
+                ),
                 "deployable_capital": _safe_float(row.get("wallet_deployable_capital")),
                 "approval_ok": bool(row.get("wallet_approval_ok", False)),
                 "nonce_ok": bool(row.get("wallet_nonce_ok", False)),
@@ -2020,6 +2195,9 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
                 "canonical_live_nonce_available": False,
                 "canonical_live_pending_wallet_tx_available": False,
                 "live_truth_gap_reasons": ["legacy_wallet_contract_fallback_reconstructed_surface"],
+                "provider_locked_usdc_semantics": "unknown",
+                "reservation_mismatch_evaluable": False,
+                "reservation_mismatch_semantics": "unknown",
                 "reservation_mismatch_candidate": False,
                 "reservation_mismatch_delta_usdc": 0.0,
                 "reservation_mismatch_detail": "legacy_wallet_contract_fallback_reconstructed_surface",
@@ -2031,9 +2209,12 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
     return {
         "event_counts": dict(sorted(event_counts.items(), key=lambda kv: kv[0])),
         "latest_contract": latest_contract,
+        "latest_contract_ts_utc": latest_contract_ts_utc,
         "wallet_contract_surface_source": contract_surface_source,
         "legacy_fallback_used": bool(fallback_used),
-        "authoritative_wallet_contract_present": bool(contract_surface_source == "wallet_contract"),
+        "authoritative_wallet_contract_present": bool(
+            contract_surface_source in {"wallet_contract", "wallet_state_refresh_event"}
+        ),
         "authority_status_class": str(latest_contract.get("authority_status_class") or "unknown"),
         "order_capable_live": bool(latest_contract.get("order_capable_live", False)),
         "order_submit_eligible": bool(latest_contract.get("order_submit_eligible", False)),
@@ -2042,6 +2223,8 @@ def _wallet_authority_stats(status_rows: List[Dict[str, Any]], events: List[Dict
             latest_contract.get("canonical_live_pending_wallet_tx_available", False)
         ),
         "live_truth_gap_reasons": list(latest_contract.get("live_truth_gap_reasons") or []),
+        "reservation_mismatch_evaluable": bool(latest_contract.get("reservation_mismatch_evaluable", False)),
+        "reservation_mismatch_semantics": str(latest_contract.get("reservation_mismatch_semantics") or "unknown"),
         "reservation_mismatch_candidate": bool(latest_contract.get("reservation_mismatch_candidate", False)),
         "reservation_mismatch_delta_usdc": _safe_float(latest_contract.get("reservation_mismatch_delta_usdc")),
         "reservation_mismatch_detail": str(latest_contract.get("reservation_mismatch_detail") or ""),
@@ -2581,12 +2764,6 @@ def _maker_regression_sentinel(
         maker_no_submission_categories = {}
 
     watch_categories = {
-        "quote_quality_skip_fill_probability": int(
-            _safe_float(maker_no_submission_categories.get("quote_quality_skip_fill_probability"))
-        ),
-        "quote_quality_skip_queue_depth": int(
-            _safe_float(maker_no_submission_categories.get("quote_quality_skip_queue_depth"))
-        ),
         "replace_guard_min_rest": int(
             _safe_float(maker_no_submission_categories.get("replace_guard_min_rest"))
         ),
@@ -2608,7 +2785,7 @@ def _maker_regression_sentinel(
             "low_fill_rate_threshold": float(low_fill_rate_threshold),
             "low_fill_rate_requires_submits": float(low_fill_rate_requires_submits),
         },
-        "watch_item_primary": "quote_quality_skip_and_replace_guard_distribution",
+        "watch_item_primary": "replace_guard_distribution",
         "watch_item_distribution": watch_categories,
     }
 
@@ -2663,9 +2840,13 @@ def _edge_truth_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                 maker_reasons[reason] += 1
                 if reason == "maker_no_submission":
                     cause = str(row.get("maker_no_submission_cause") or "").strip().lower() or "unspecified"
-                    maker_no_submission_causes[cause] += 1
+                    if cause not in RETIRED_MAKER_QUOTE_QUALITY_REASONS and not cause.startswith(
+                        "submit_rejected_quote_quality_"
+                    ):
+                        maker_no_submission_causes[cause] += 1
                     category = str(row.get("maker_no_submission_category") or "").strip().lower() or "unknown"
-                    maker_no_submission_categories[category] += 1
+                    if category not in RETIRED_MAKER_QUOTE_QUALITY_REASONS:
+                        maker_no_submission_categories[category] += 1
             elif scope == "taker":
                 taker_blocked_rows += 1
                 taker_reasons[reason] += 1
@@ -2734,8 +2915,6 @@ def _maker_fireability_window_stats(
     maker_competitive_max_shares = _optional_float_local(
         maker_gate.get("maker_competitive_max_shares")
     )
-    min_expected_fill_prob = _optional_float_local(maker_gate.get("min_expected_fill_prob"))
-    max_queue_ahead_size = _optional_float_local(maker_gate.get("max_queue_ahead_size"))
     viability_price_floor = None
     if (
         maker_competitive_min_notional_usd is not None
@@ -2752,8 +2931,6 @@ def _maker_fireability_window_stats(
     active_window_row_count = 0.0
     active_window_submit_count = 0.0
     active_window_replace_guard_count = 0.0
-    active_window_quote_quality_skip_fill_probability_count = 0.0
-    active_window_quote_quality_skip_queue_depth_count = 0.0
     active_window_sizing_reject_count = 0.0
     active_window_viable_row_count = 0.0
     active_window_impossible_row_count = 0.0
@@ -2767,8 +2944,6 @@ def _maker_fireability_window_stats(
             "window_row_count": 0.0,
             "submitted_count": 0.0,
             "replace_guard_min_rest_count": 0.0,
-            "quote_quality_skip_fill_probability_count": 0.0,
-            "quote_quality_skip_queue_depth_count": 0.0,
             "sizing_reject_count": 0.0,
             "submit_sec_to_expiry": [],
             "market_probability": [],
@@ -2778,10 +2953,6 @@ def _maker_fireability_window_stats(
         }
     )
 
-    fill_probability_delta_bins: Counter[str] = Counter()
-    queue_depth_delta_bins: Counter[str] = Counter()
-    raw_quote_quality_skip_event_count = 0.0
-    raw_queue_depth_event_count = 0.0
     low_price_conflict_prices: List[float] = []
 
     if config_complete:
@@ -2842,66 +3013,14 @@ def _maker_fireability_window_stats(
             if reason_key == "replace_guard_min_rest":
                 active_window_replace_guard_count += 1.0
                 target_row["replace_guard_min_rest_count"] += 1.0
-            elif reason_key == "quote_quality_skip_fill_probability":
-                active_window_quote_quality_skip_fill_probability_count += 1.0
-                target_row["quote_quality_skip_fill_probability_count"] += 1.0
-            elif reason_key == "quote_quality_skip_queue_depth":
-                active_window_quote_quality_skip_queue_depth_count += 1.0
-                target_row["quote_quality_skip_queue_depth_count"] += 1.0
             elif reason_key == "sizing_reject":
                 active_window_sizing_reject_count += 1.0
                 target_row["sizing_reject_count"] += 1.0
-
-    for evt in events:
-        if str(evt.get("event_type") or "").strip() != "quote_quality_skip":
-            continue
-        if _has_historical_recovery_lineage(evt):
-            continue
-        raw_quote_quality_skip_event_count += 1.0
-        skip_reason = str(evt.get("skip_reason") or "").strip().lower()
-        if skip_reason == "expected_fill_prob_below_min":
-            expected_fill_prob = _safe_float(evt.get("expected_fill_prob"), default=-1.0)
-            effective_min_expected_fill_prob = _safe_float(
-                evt.get("min_expected_fill_prob", evt.get("effective_min_expected_fill_prob")),
-                default=-1.0,
-            )
-            if expected_fill_prob >= 0.0 and effective_min_expected_fill_prob >= 0.0:
-                delta = float(effective_min_expected_fill_prob - expected_fill_prob)
-                if delta <= 0.005:
-                    fill_probability_delta_bins["within_0p005"] += 1
-                elif delta <= 0.015:
-                    fill_probability_delta_bins["0p005_to_0p015"] += 1
-                else:
-                    fill_probability_delta_bins["gt_0p015"] += 1
-        elif skip_reason == "queue_ahead_too_deep":
-            raw_queue_depth_event_count += 1.0
-            queue_ahead_size = _safe_float(evt.get("queue_ahead_size"), default=-1.0)
-            effective_max_queue_ahead_size = _safe_float(
-                evt.get("max_queue_ahead_size", evt.get("effective_max_queue_ahead_size")),
-                default=-1.0,
-            )
-            if queue_ahead_size >= 0.0 and effective_max_queue_ahead_size >= 0.0:
-                delta = float(queue_ahead_size - effective_max_queue_ahead_size)
-                if delta <= 25.0:
-                    queue_depth_delta_bins["within_25"] += 1
-                elif delta <= 50.0:
-                    queue_depth_delta_bins["25_to_50"] += 1
-                else:
-                    queue_depth_delta_bins["gt_50"] += 1
-
-    active_window_quote_quality_skip_total_count = (
-        active_window_quote_quality_skip_fill_probability_count
-        + active_window_quote_quality_skip_queue_depth_count
-    )
     active_window_target_summary: List[Dict[str, Any]] = []
     active_window_viable_target_count = 0.0
     active_window_impossible_target_count = 0.0
     active_window_mixed_viability_target_count = 0.0
     active_window_unknown_viability_target_count = 0.0
-    active_window_queue_depth_on_viable_targets_count = 0.0
-    active_window_queue_depth_on_impossible_targets_count = 0.0
-    active_window_queue_depth_on_mixed_targets_count = 0.0
-    active_window_queue_depth_on_unknown_targets_count = 0.0
     for target_ref, target_row in active_window_target_rows.items():
         submit_secs = sorted(
             (float(value) for value in target_row["submit_sec_to_expiry"] if isinstance(value, (int, float))),
@@ -2920,9 +3039,6 @@ def _maker_fireability_window_stats(
         if impossible_viability_row_count > 0.0 and viable_viability_row_count > 0.0:
             viability_class = "mixed_viability"
             active_window_mixed_viability_target_count += 1.0
-            active_window_queue_depth_on_mixed_targets_count += float(
-                target_row["quote_quality_skip_queue_depth_count"]
-            )
         elif impossible_viability_row_count > 0.0:
             viability_class = (
                 "impossible_with_unknown"
@@ -2930,9 +3046,6 @@ def _maker_fireability_window_stats(
                 else "impossible_only"
             )
             active_window_impossible_target_count += 1.0
-            active_window_queue_depth_on_impossible_targets_count += float(
-                target_row["quote_quality_skip_queue_depth_count"]
-            )
         elif viable_viability_row_count > 0.0:
             viability_class = (
                 "viable_with_unknown"
@@ -2940,27 +3053,15 @@ def _maker_fireability_window_stats(
                 else "viable_only"
             )
             active_window_viable_target_count += 1.0
-            active_window_queue_depth_on_viable_targets_count += float(
-                target_row["quote_quality_skip_queue_depth_count"]
-            )
         else:
             viability_class = "unknown_viability"
             active_window_unknown_viability_target_count += 1.0
-            active_window_queue_depth_on_unknown_targets_count += float(
-                target_row["quote_quality_skip_queue_depth_count"]
-            )
         active_window_target_summary.append(
             {
                 "target_ref": target_ref,
                 "window_row_count": float(target_row["window_row_count"]),
                 "submitted_count": float(target_row["submitted_count"]),
                 "replace_guard_min_rest_count": float(target_row["replace_guard_min_rest_count"]),
-                "quote_quality_skip_fill_probability_count": float(
-                    target_row["quote_quality_skip_fill_probability_count"]
-                ),
-                "quote_quality_skip_queue_depth_count": float(
-                    target_row["quote_quality_skip_queue_depth_count"]
-                ),
                 "sizing_reject_count": float(target_row["sizing_reject_count"]),
                 "viability_class": viability_class,
                 "viable_viability_row_count": viable_viability_row_count,
@@ -2985,26 +3086,13 @@ def _maker_fireability_window_stats(
         "p50": _percentile(low_price_conflict_prices, 0.50),
         "max": max(low_price_conflict_prices) if low_price_conflict_prices else None,
     }
-    raw_queue_depth_near_threshold_event_count = float(
-        queue_depth_delta_bins.get("within_25", 0)
-        + queue_depth_delta_bins.get("25_to_50", 0)
-    )
-    raw_queue_depth_hard_miss_event_count = float(queue_depth_delta_bins.get("gt_50", 0))
-    raw_queue_depth_unknown_severity_event_count = float(
-        max(
-            0.0,
-            raw_queue_depth_event_count
-            - raw_queue_depth_near_threshold_event_count
-            - raw_queue_depth_hard_miss_event_count,
-        )
-    )
 
     return {
         "claim_boundary": (
             "report_only_maker_fireability_window; active-window counts are derived from maker "
-            "edge-evaluation rows inside the manifest-configured maker timing gate and paired with "
-            "raw non-recovery quote_quality_skip event severity bins; maker-facing lifecycle semantics "
-            "lead with lifecycle-phase and lane authority while legacy stage buckets are compatibility ancestry only"
+            "edge-evaluation rows inside the manifest-configured maker timing gate; maker-facing lifecycle "
+            "semantics lead with lifecycle-phase and lane authority while legacy stage buckets are "
+            "compatibility ancestry only"
         ),
         "config_complete": bool(config_complete),
         "timing_gate_min_sec_to_expiry": timing_gate_min_sec_to_expiry,
@@ -3013,21 +3101,10 @@ def _maker_fireability_window_stats(
         "maker_competitive_max_shares": maker_competitive_max_shares,
         "viability_geometry_complete": bool(viability_price_floor is not None),
         "active_window_low_price_viability_floor": viability_price_floor,
-        "min_expected_fill_prob": min_expected_fill_prob,
-        "max_queue_ahead_size": max_queue_ahead_size,
         "active_window_row_count": float(active_window_row_count),
         "active_window_submit_count": float(active_window_submit_count),
         "active_window_replace_guard_count": float(active_window_replace_guard_count),
-        "active_window_quote_quality_skip_fill_probability_count": float(
-            active_window_quote_quality_skip_fill_probability_count
-        ),
-        "active_window_quote_quality_skip_queue_depth_count": float(
-            active_window_quote_quality_skip_queue_depth_count
-        ),
         "active_window_sizing_reject_count": float(active_window_sizing_reject_count),
-        "active_window_quote_quality_skip_total_count": float(
-            active_window_quote_quality_skip_total_count
-        ),
         "active_window_submit_rate": (
             float(active_window_submit_count / active_window_row_count)
             if active_window_row_count > 0.0
@@ -3035,11 +3112,6 @@ def _maker_fireability_window_stats(
         ),
         "active_window_replace_guard_rate": (
             float(active_window_replace_guard_count / active_window_row_count)
-            if active_window_row_count > 0.0
-            else 0.0
-        ),
-        "active_window_quote_quality_skip_rate": (
-            float(active_window_quote_quality_skip_total_count / active_window_row_count)
             if active_window_row_count > 0.0
             else 0.0
         ),
@@ -3056,18 +3128,6 @@ def _maker_fireability_window_stats(
         "active_window_mixed_viability_target_count": float(active_window_mixed_viability_target_count),
         "active_window_unknown_viability_target_count": float(active_window_unknown_viability_target_count),
         "active_window_low_price_conflict_price_band": low_price_conflict_price_band,
-        "active_window_queue_depth_on_viable_targets_count": float(
-            active_window_queue_depth_on_viable_targets_count
-        ),
-        "active_window_queue_depth_on_impossible_targets_count": float(
-            active_window_queue_depth_on_impossible_targets_count
-        ),
-        "active_window_queue_depth_on_mixed_targets_count": float(
-            active_window_queue_depth_on_mixed_targets_count
-        ),
-        "active_window_queue_depth_on_unknown_targets_count": float(
-            active_window_queue_depth_on_unknown_targets_count
-        ),
         "active_window_block_reason_distribution": dict(
             sorted(active_window_block_reasons.items(), key=lambda item: item[0])
         ),
@@ -3091,27 +3151,6 @@ def _maker_fireability_window_stats(
             "geometry_only_classification; viable vs impossible rows are derived from maker market_probability "
             "against manifest sizing floor min_notional/max_shares and do not assign broader causal blame"
         ),
-        "active_window_queue_depth_snapshot_claim_boundary": (
-            "queue-depth target burden uses maker edge-evaluation no-submit assignments by target; raw near-threshold "
-            "vs hard-miss counts come from non-recovery quote_quality_skip event deltas and are a different population"
-        ),
-        "raw_queue_depth_event_count": float(raw_queue_depth_event_count),
-        "raw_queue_depth_near_threshold_event_count": raw_queue_depth_near_threshold_event_count,
-        "raw_queue_depth_hard_miss_event_count": raw_queue_depth_hard_miss_event_count,
-        "raw_queue_depth_unknown_severity_event_count": raw_queue_depth_unknown_severity_event_count,
-        "raw_quote_quality_skip_severity": {
-            "claim_boundary": (
-                "raw_local_reject_sparks_non_recovery_only; quote_quality_skip events are event-level "
-                "reject sparks and are not the same population as maker edge-evaluation no-submit assignments"
-            ),
-            "raw_quote_quality_skip_event_count": float(raw_quote_quality_skip_event_count),
-            "fill_probability_delta_bins": dict(
-                sorted(fill_probability_delta_bins.items(), key=lambda item: item[0])
-            ),
-            "queue_depth_delta_bins": dict(
-                sorted(queue_depth_delta_bins.items(), key=lambda item: item[0])
-            ),
-        },
     }
 
 
@@ -3242,13 +3281,9 @@ def _resolve_starvation_mode(
         inferred_mode = {
             "normal_taker_authority_closed": "late_window_authority_gate",
             "phase_disallow_taker": "late_window_authority_gate",
-            "latency_not_armed": "latency_gate",
             "fair_probability_missing": "probability_gate",
             "taker_requires_ws_book_source": "book_source_gate",
             "maker_timing_gate_closed": "maker_timing_gate",
-            "token_lag_not_verified_for_maker": "lag_verification_gate",
-            "quote_quality_skip_queue_depth": "maker_quality_gate",
-            "quote_quality_skip_fill_probability": "maker_quality_gate",
             "sizing_reject": "maker_sizing_gate",
         }.get(top_block_reason, "")
         if inferred_mode:
@@ -3330,7 +3365,6 @@ def _protection_path_trigger_chain(
     first_mode_transition = _first_event(ordered_events, "operating_mode_transition")
     first_auto_stop = _first_event(ordered_events, "alert_policy_auto_stop")
     first_kill_switch_cancel = _first_event(ordered_events, "kill_switch_cancel_all")
-    first_latency_regime_change = _first_event(ordered_events, "latency_regime_change")
     suppression_dominated = bool(starvation.get("suppression_dominated_run", False))
     if suppression_dominated:
         interpretation = "causal_suppression_chain"
@@ -3340,7 +3374,6 @@ def _protection_path_trigger_chain(
         "trigger_chain_interpretation": interpretation,
         "suppression_dominated_run": suppression_dominated,
         "first_blocked_edge_signal": first_block,
-        "first_latency_regime_change": first_latency_regime_change,
         "first_operating_mode_transition": first_mode_transition,
         "first_alert_policy_auto_stop": first_auto_stop,
         "first_kill_switch_cancel_all": first_kill_switch_cancel,
@@ -3461,15 +3494,43 @@ def _execution_quality_lane_attribution(
             )
         )
 
+    def _has_canonical_normal_taker_contract(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+        lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp.get("lineage_stage"))
+        lifecycle_phase = str(
+            evt.get("lifecycle_phase") or comp.get("lifecycle_phase") or ""
+        ).strip().lower()
+        submission_lane = str(
+            evt.get("submission_lane") or comp.get("submission_lane") or ""
+        ).strip().lower()
+        side_class = str(
+            evt.get("normal_taker_side_class") or comp.get("normal_taker_side_class") or ""
+        ).strip().lower()
+        requested = _safe_float(
+            evt.get("target_usd_requested", comp.get("target_usd_requested")),
+            default=-1.0,
+        )
+        resolved = _safe_float(
+            evt.get("target_usd_resolved", comp.get("target_usd_resolved")),
+            default=-1.0,
+        )
+        return (
+            submission_lane == "taker"
+            and lifecycle_phase == "taker_window"
+            and lineage_stage == "TAKER_COMMITMENT"
+            and side_class == "buy_expected_winner"
+            and requested > 0.0
+            and resolved > 0.0
+        )
+
     def _classify_submit(evt: Dict[str, Any]) -> Tuple[str, str, str]:
         reason = str(evt.get("reason") or "").strip().lower()
         comp = _payload_dict(evt.get("taker_competitiveness"))
-        lineage_stage = _normalize_lineage_stage(comp.get("lineage_stage") or evt.get("lineage_stage"))
+        lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp.get("lineage_stage"))
         edge_bucket = _taker_edge_bucket(comp.get("edge_abs") if comp else evt.get("edge_abs"))
         if _is_taker_submit_reason(reason):
             if _is_lifecycle_residue_override_submit(evt, comp):
                 return "lifecycle_residue_taker", lineage_stage, edge_bucket
-            if _has_normal_competitiveness_payload(comp):
+            if _has_normal_competitiveness_payload(comp) or _has_canonical_normal_taker_contract(evt, comp):
                 return "normal_taker", lineage_stage, edge_bucket
             return "unknown_taker", lineage_stage, edge_bucket
         return "maker", lineage_stage, edge_bucket
@@ -3732,6 +3793,12 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
     def _payload_dict(value: Any) -> Dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
+    def _normalize_current_normal_taker_side_class(value: Any) -> str:
+        normalized = str(value or "").strip().lower() or "unknown"
+        if normalized in {"buy_expected_winner", "same_token_sell_blocked", "unknown"}:
+            return normalized
+        return "unknown"
+
     def _normalize_lineage_stage(value: Any) -> str:
         return normalize_lineage_stage(value)
 
@@ -3760,17 +3827,45 @@ def _execution_quality_decision_reference_lane_attribution(events: List[Dict[str
             )
         )
 
+    def _has_canonical_normal_taker_contract(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+        lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp.get("lineage_stage"))
+        lifecycle_phase = str(
+            evt.get("lifecycle_phase") or comp.get("lifecycle_phase") or ""
+        ).strip().lower()
+        submission_lane = str(
+            evt.get("submission_lane") or comp.get("submission_lane") or ""
+        ).strip().lower()
+        side_class = str(
+            evt.get("normal_taker_side_class") or comp.get("normal_taker_side_class") or ""
+        ).strip().lower()
+        requested = _safe_float(
+            evt.get("target_usd_requested", comp.get("target_usd_requested")),
+            default=-1.0,
+        )
+        resolved = _safe_float(
+            evt.get("target_usd_resolved", comp.get("target_usd_resolved")),
+            default=-1.0,
+        )
+        return (
+            submission_lane == "taker"
+            and lifecycle_phase == "taker_window"
+            and lineage_stage == "TAKER_COMMITMENT"
+            and side_class == "buy_expected_winner"
+            and requested > 0.0
+            and resolved > 0.0
+        )
+
     def _classify_submit(evt: Dict[str, Any]) -> Tuple[str, str]:
         reason = str(evt.get("reason") or "").strip().lower()
         lane = str(evt.get("submission_lane") or "").strip().lower()
         comp = _payload_dict(evt.get("taker_competitiveness"))
         if not comp:
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
-        lineage_stage = _normalize_lineage_stage(comp.get("lineage_stage") or evt.get("lineage_stage"))
+        lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp.get("lineage_stage"))
         if _is_taker_submit_reason(reason) or lane == "taker":
             if _is_lifecycle_residue_submit(evt, comp):
                 return "lifecycle_residue_taker", lineage_stage
-            if _has_normal_competitiveness_payload(comp):
+            if _has_normal_competitiveness_payload(comp) or _has_canonical_normal_taker_contract(evt, comp):
                 return "normal_taker", lineage_stage
             return "unknown_taker", lineage_stage
         return "maker", lineage_stage
@@ -4023,11 +4118,16 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         comp = _payload_dict(evt.get("taker_competitiveness"))
         if not comp:
             comp = _payload_dict(_payload_dict(evt.get("size_resolution")).get("taker_competitiveness"))
+        order_id = str(evt.get("order_id") or "").strip()
         reason = str(evt.get("reason") or "").strip().lower()
         lane = str(evt.get("submission_lane") or "").strip().lower()
         is_taker_event = is_taker_decision_event_type(event_type) or is_taker_submit_event_type(event_type)
         is_taker_submit = _is_taker_submit_reason(reason) or lane == "taker"
         is_taker_edge_eval = event_type == "edge_evaluation" and evaluation_scope == "taker"
+        if event_type == "fill" and order_id:
+            inherited_intent = order_intent_by_id.get(order_id, "")
+            if inherited_intent:
+                return inherited_intent, comp
         if not is_taker_event and not is_taker_submit and not is_taker_edge_eval:
             return "", comp
         if _is_recovery(evt, comp):
@@ -4038,6 +4138,7 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
             return "normal_competitiveness", comp
         return "true_unknown", comp
 
+    order_intent_by_id: Dict[str, str] = {}
     for evt in events:
         fingerprint = str(evt.get("config_fingerprint_sha256") or "").strip()
         if fingerprint:
@@ -4050,6 +4151,13 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
         if is_taker_window_semantic_check_event_type(event_type):
             stage_window_checks += 1.0
             latest_stage_window_ts = str(evt.get("ts_utc") or evt.get("timestamp_utc") or "")
+            phase_rows = (
+                evt.get("phase_rows")
+                if isinstance(evt.get("phase_rows"), dict)
+                else evt.get("stage_rows")
+                if isinstance(evt.get("stage_rows"), dict)
+                else {}
+            )
             latest_stage_window_semantics = {
                 "final_window_enabled": bool(evt.get("final_window_enabled", False)),
                 "default_final_window_sec": _safe_float(evt.get("default_final_window_sec")),
@@ -4057,13 +4165,18 @@ def _taker_intent_gate_posture_matrix(events: List[Dict[str, Any]]) -> Dict[str,
                     evt.get("semantic_dead_by_construction_count")
                 ),
                 "semantic_status": str(evt.get("semantic_status") or "unknown"),
-                "stage_rows": evt.get("stage_rows") if isinstance(evt.get("stage_rows"), dict) else {},
+                "phase_rows": phase_rows,
+                "stage_rows": phase_rows,
             }
             continue
 
         intent, comp = _classify_taker_event(evt)
         if not intent:
             continue
+        if event_type == "order_submit":
+            order_id = str(evt.get("order_id") or "").strip()
+            if order_id:
+                order_intent_by_id[order_id] = str(intent)
         event_class_distribution[intent] += 1
         _counter_for(event_type_distribution_by_intent, intent)[event_type] += 1
         if event_type == "order_submit" or is_taker_submit_event_type(event_type):
@@ -4351,14 +4464,9 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
     normal_can_open_inside_taker_final_window = bool(final_window_overlap_stages)
 
     posture_flags: List[str] = []
-    if _optional_bool(taker.get("require_lag_verification")) is False:
-        posture_flags.append("taker_require_lag_verification_false")
     latency_hit_threshold = _optional_float(latency.get("hit_threshold_ms"))
     if latency_hit_threshold is not None and latency_hit_threshold <= 40.0:
         posture_flags.append("latency_verifier_hit_threshold_le_40ms")
-    maker_score_min = _optional_float(latency.get("score_min_for_maker"))
-    if maker_score_min is not None and maker_score_min <= 0.08:
-        posture_flags.append("maker_latency_score_min_le_0p08")
     if final_window_sec is not None and final_window_sec >= 60.0:
         posture_flags.append("taker_default_final_window_ge_60s")
     if normal_can_open_inside_recovery:
@@ -4403,26 +4511,9 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
                 else 0.0
             ),
         },
-        "taker_lag_gate": {
-            "require_lag_verification": _optional_bool(taker.get("require_lag_verification")),
-            "lag_min_samples": _optional_float(taker.get("lag_min_samples")),
-            "lag_min_median_ms": _optional_float(taker.get("lag_min_median_ms")),
-            "lag_min_hit_rate": _optional_float(taker.get("lag_min_hit_rate")),
-            "lag_hit_threshold_ms": _optional_float(taker.get("lag_hit_threshold_ms")),
-            "max_chainlink_tick_age_sec": _optional_float(taker.get("max_chainlink_tick_age_sec")),
-        },
         "latency_verifier": {
             "enabled": _optional_bool(latency.get("enabled")),
-            "require_armed_for_maker": _optional_bool(latency.get("require_armed_for_maker")),
-            "require_armed_for_taker": _optional_bool(latency.get("require_armed_for_taker")),
-            "min_samples": _optional_float(latency.get("min_samples")),
             "hit_threshold_ms": latency_hit_threshold,
-            "armed_min_median_ms": _optional_float(latency.get("armed_min_median_ms")),
-            "armed_min_hit_rate": _optional_float(latency.get("armed_min_hit_rate")),
-            "probation_min_median_ms": _optional_float(latency.get("probation_min_median_ms")),
-            "probation_min_hit_rate": _optional_float(latency.get("probation_min_hit_rate")),
-            "score_min_for_maker": maker_score_min,
-            "score_min_for_taker": _optional_float(latency.get("score_min_for_taker")),
         },
         "normal_taker_entry_gates": {
             "min_sec_to_expiry_for_new_exposure": min_new_exposure_sec,
@@ -4454,8 +4545,16 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
                 else _optional_bool(maker_comp.get("timing_gate_enabled"))
             ),
             "timing_gate_min_sec_to_expiry": (
-                _optional_float(lifecycle_phase.get("taker_window_open_sec"))
-                if "taker_window_open_sec" in lifecycle_phase
+                _optional_float(
+                    lifecycle_phase.get(
+                        "maker_window_close_sec",
+                        lifecycle_phase.get("taker_window_open_sec"),
+                    )
+                )
+                if (
+                    "maker_window_close_sec" in lifecycle_phase
+                    or "taker_window_open_sec" in lifecycle_phase
+                )
                 else _optional_float(maker_comp.get("timing_gate_min_sec_to_expiry"))
             ),
             "timing_gate_max_sec_to_expiry": (
@@ -4475,8 +4574,6 @@ def _taker_config_gate_posture(run_manifest: Dict[str, Any]) -> Dict[str, Any]:
             ),
             "maker_competitive_min_notional_usd": _optional_float(sizing.get("maker_competitive_min_notional_usd")),
             "maker_competitive_max_shares": _optional_float(sizing.get("maker_competitive_max_shares")),
-            "min_expected_fill_prob": _optional_float(execution_quality.get("min_expected_fill_prob")),
-            "max_queue_ahead_size": _optional_float(execution_quality.get("max_queue_ahead_size")),
         },
         "risk_dynamic_scaling": {
             "enabled": _optional_bool(dynamic_scaling.get("enabled")),
@@ -4618,7 +4715,7 @@ def _maker_complete_outcome_rates(records: List[Dict[str, Any]]) -> Dict[str, An
     }
 
 
-def _maker_fight_admission_population_class(row: Dict[str, Any]) -> str:
+def _maker_snapshot_population_class(row: Dict[str, Any]) -> str:
     posture = str(row.get("financial_posture_class") or "").strip().upper()
     if _has_historical_recovery_lineage(row):
         return "external_blocked"
@@ -4628,11 +4725,7 @@ def _maker_fight_admission_population_class(row: Dict[str, Any]) -> str:
         return "truth_thin"
     if str(row.get("market_reference_class") or "").strip().lower() != "authoritative":
         return "truth_thin"
-    required_numeric_fields = (
-        "queue_delta_shares",
-        "fill_prob_margin",
-        "same_target_side_snapshot_count_prior",
-    )
+    required_numeric_fields = ("same_target_side_snapshot_count_prior",)
     for field in required_numeric_fields:
         if not isinstance(row.get(field), (int, float)):
             return "truth_thin"
@@ -4644,29 +4737,13 @@ def _maker_fight_admission_population_class(row: Dict[str, Any]) -> str:
     return "candidate"
 
 
-def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
+def _maker_snapshot_quality_score(row: Dict[str, Any]) -> Dict[str, Any]:
     viability_class = str(row.get("viability_class") or "").strip().lower()
     sizing_conflict = bool(row.get("sizing_conflict", False))
-    queue_delta = float(row.get("queue_delta_shares") or 0.0)
-    fill_prob_margin = float(row.get("fill_prob_margin") or 0.0)
     repeat_count = int(float(row.get("same_target_side_snapshot_count_prior") or 0.0))
     ratio = row.get("size_to_visible_depth_ratio")
 
     geometry_score = 30 if viability_class == "viable_only" and not sizing_conflict else 0
-    if queue_delta <= 0.0:
-        queue_score = 25
-    elif queue_delta <= 25.0:
-        queue_score = 12
-    elif queue_delta <= 50.0:
-        queue_score = 5
-    else:
-        queue_score = 0
-    if fill_prob_margin >= 0.015:
-        fill_prob_score = 20
-    elif fill_prob_margin >= 0.0:
-        fill_prob_score = 10
-    else:
-        fill_prob_score = 0
     if repeat_count <= 0:
         repeat_score = 15
     elif repeat_count == 1:
@@ -4686,24 +4763,14 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
 
     component_scores = {
         "geometry": int(geometry_score),
-        "queue": int(queue_score),
-        "fill_probability": int(fill_prob_score),
         "repeat_pressure": int(repeat_score),
         "size_liquidity": int(size_liquidity_score),
     }
     hard_fail_reasons: List[str] = []
     if viability_class != "viable_only" or sizing_conflict:
         hard_fail_reasons.append("non_viable_geometry_or_sizing_conflict")
-    if queue_delta > 50.0:
-        hard_fail_reasons.append("queue_delta_gt_50")
-    if fill_prob_margin < -0.015:
-        hard_fail_reasons.append("fill_prob_margin_lt_neg_0p015")
 
     soft_driver_flags: List[str] = []
-    if queue_delta > 0.0:
-        soft_driver_flags.append("queue_delta_pressure")
-    if fill_prob_margin < 0.015:
-        soft_driver_flags.append("fill_prob_cushion_thin")
     if repeat_count >= 1:
         soft_driver_flags.append("repeat_target_side_pressure")
     if not isinstance(ratio, (int, float)) or float(ratio) > 1.0:
@@ -4713,7 +4780,9 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
     if sizing_conflict:
         soft_driver_flags.append("sizing_conflict")
 
-    score = int(sum(component_scores.values()))
+    max_component_score = 55
+    raw_score = int(sum(component_scores.values()))
+    score = int(round((float(raw_score) / float(max_component_score)) * 100.0)) if max_component_score > 0 else 0
     if hard_fail_reasons:
         admission_class = "trash"
     elif score >= 80:
@@ -4725,8 +4794,6 @@ def _maker_fight_admission_score(row: Dict[str, Any]) -> Dict[str, Any]:
 
     deficits = {
         "geometry_pressure": 30 - geometry_score,
-        "queue_delta_pressure": 25 - queue_score,
-        "fill_prob_cushion_thin": 20 - fill_prob_score,
         "repeat_target_side_pressure": 15 - repeat_score,
         "size_liquidity_pressure": 10 - size_liquidity_score,
     }
@@ -4753,7 +4820,7 @@ def _maker_outcome_lookup(records: List[Dict[str, Any]]) -> Dict[str, Dict[str, 
     return lookup
 
 
-def _maker_fight_admission_examples(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _maker_snapshot_examples(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     examples: List[Dict[str, Any]] = []
     for row in rows[:5]:
         examples.append(
@@ -4767,8 +4834,8 @@ def _maker_fight_admission_examples(rows: List[Dict[str, Any]]) -> List[Dict[str
                 "decision_block_reason": row.get("decision_block_reason"),
                 "decision_quality": row.get("decision_quality"),
                 "outcome_truth_status": row.get("outcome_truth_status"),
-                "queue_delta_shares": row.get("queue_delta_shares"),
-                "fill_prob_margin": row.get("fill_prob_margin"),
+                "expected_fill_prob": row.get("expected_fill_prob"),
+                "queue_ahead_size": row.get("queue_ahead_size"),
                 "same_target_side_snapshot_count_prior": row.get("same_target_side_snapshot_count_prior"),
             }
         )
@@ -4807,14 +4874,6 @@ def _infer_side_from_edge_value(edge_value: Any) -> Optional[str]:
 
 
 def _maker_admission_thresholds_for_report(run_manifest: Dict[str, Any]) -> Dict[str, float]:
-    min_expected_fill_prob = _safe_float(
-        _dict_path(run_manifest, ("config", "strategy", "execution_quality", "min_expected_fill_prob"), 0.045),
-        default=0.045,
-    )
-    max_queue_ahead_size = _safe_float(
-        _dict_path(run_manifest, ("config", "strategy", "execution_quality", "max_queue_ahead_size"), 300.0),
-        default=300.0,
-    )
     maker_min_notional = _safe_float(
         _dict_path(run_manifest, ("config", "sizing", "maker_competitive_min_notional_usd"), 0.0),
         default=0.0,
@@ -4830,12 +4889,18 @@ def _maker_admission_thresholds_for_report(run_manifest: Dict[str, Any]) -> Dict
         _dict_path(run_manifest, ("config", "lifecycle", "phase", "maker_window_open_sec"), None),
         default=None,
     )
+    lifecycle_maker_window_close_sec = _safe_float(
+        _dict_path(run_manifest, ("config", "lifecycle", "phase", "maker_window_close_sec"), None),
+        default=None,
+    )
     lifecycle_taker_window_open_sec = _safe_float(
         _dict_path(run_manifest, ("config", "lifecycle", "phase", "taker_window_open_sec"), None),
         default=None,
     )
     maker_timing_gate_min_sec_to_expiry = (
-        float(lifecycle_taker_window_open_sec)
+        float(lifecycle_maker_window_close_sec)
+        if lifecycle_maker_window_close_sec is not None
+        else float(lifecycle_taker_window_open_sec)
         if lifecycle_taker_window_open_sec is not None
         else None
     )
@@ -4847,8 +4912,6 @@ def _maker_admission_thresholds_for_report(run_manifest: Dict[str, Any]) -> Dict
     selection_gate_min_sec_to_expiry = maker_timing_gate_min_sec_to_expiry
     selection_gate_max_sec_to_expiry = maker_timing_gate_max_sec_to_expiry
     return {
-        "min_expected_fill_prob": float(min_expected_fill_prob),
-        "max_queue_ahead_size": float(max_queue_ahead_size),
         "geometry_floor_price": float(geometry_floor_price),
         "maker_timing_gate_min_sec_to_expiry": (
             float(maker_timing_gate_min_sec_to_expiry)
@@ -5988,7 +6051,7 @@ def _legacy_sizing_conflict(price_used: Any, geometry_floor_price: float) -> boo
     return bool(geometry_floor_price > 0.0 and price_value > 0.0 and price_value + 1e-9 < geometry_floor_price)
 
 
-def _legacy_maker_fight_admission_rows(
+def _legacy_maker_snapshot_backfill_rows(
     *,
     events: List[Dict[str, Any]],
     status: List[Dict[str, Any]],
@@ -6071,9 +6134,6 @@ def _legacy_maker_fight_admission_rows(
             or ("authoritative" if bool(evt.get("decision_reference_recoverable")) else "")
         )
         expected_fill_prob = evt.get("expected_fill_prob")
-        default_min_fill = thresholds["min_expected_fill_prob"]
-        effective_min_fill = _safe_float(evt.get("effective_min_expected_fill_prob"), default=default_min_fill)
-        max_queue_ahead = _safe_float(evt.get("effective_max_queue_ahead_size"), default=thresholds["max_queue_ahead_size"])
         queue_ahead_size = evt.get("queue_ahead_size")
         intended_size_shares = evt.get("size")
         if intended_size_shares is None:
@@ -6089,12 +6149,6 @@ def _legacy_maker_fight_admission_rows(
         intended_notional_usd = None
         if isinstance(intended_size_shares, (int, float)) and isinstance(sizing_price_used, (int, float)):
             intended_notional_usd = float(intended_size_shares) * float(sizing_price_used)
-        fill_prob_margin = None
-        if isinstance(expected_fill_prob, (int, float)):
-            fill_prob_margin = float(expected_fill_prob) - float(effective_min_fill)
-        queue_delta_shares = None
-        if isinstance(queue_ahead_size, (int, float)):
-            queue_delta_shares = float(queue_ahead_size) - float(max_queue_ahead)
         size_to_visible_depth_ratio = None
         if isinstance(intended_size_shares, (int, float)) and isinstance(visible_depth_shares, (int, float)):
             if float(visible_depth_shares) > 0.0:
@@ -6158,11 +6212,7 @@ def _legacy_maker_fight_admission_rows(
             "sizing_conflict": sizing_conflict,
             "desired_quote_price": evt.get("price"),
             "expected_fill_prob": expected_fill_prob,
-            "min_expected_fill_prob": effective_min_fill,
-            "fill_prob_margin": fill_prob_margin,
             "queue_ahead_size": queue_ahead_size,
-            "max_queue_ahead_size": max_queue_ahead,
-            "queue_delta_shares": queue_delta_shares,
             "visible_depth_shares": visible_depth_shares,
             "intended_size_shares": intended_size_shares,
             "intended_notional_usd": intended_notional_usd,
@@ -6235,7 +6285,7 @@ def _maker_market_snapshot_bundle(
         for evt in events
         if str(evt.get("event_type") or "").strip() == "maker_market_snapshot"
     ]
-    snapshot_rows_raw = runtime_snapshot_rows or _legacy_maker_fight_admission_rows(
+    snapshot_rows_raw = runtime_snapshot_rows or _legacy_maker_snapshot_backfill_rows(
         events=events,
         status=status,
         run_manifest=run_manifest,
@@ -6281,7 +6331,7 @@ def _maker_market_snapshot_bundle(
             or ("runtime_raw" if runtime_snapshot_rows else "legacy_quote_or_submit_backfill_v1")
         )
         _apply_maker_market_snapshot_fields(row)
-        population_class = _maker_fight_admission_population_class(row)
+        population_class = _maker_snapshot_population_class(row)
         row["population_class"] = population_class
         row["admission_score"] = None
         row["admission_class"] = None
@@ -6315,7 +6365,7 @@ def _maker_market_snapshot_bundle(
             cannon_depth_multiple_values.append(float(row["depth_multiple_vs_cannon_target"]))
 
         if population_class == "candidate":
-            scored = _maker_fight_admission_score(row)
+            scored = _maker_snapshot_quality_score(row)
             row.update(scored)
             admission_class = str(row.get("admission_class") or "")
             candidate_counts_by_timing_band[maker_timing_band] += 1
@@ -6549,8 +6599,8 @@ def _maker_market_snapshot_bundle(
             class_name: {key: int(counter[key]) for key in sorted(counter)}
             for class_name, counter in sorted(evaluation_horizon_by_class.items())
         },
-        "clean_but_bad_examples": _maker_fight_admission_examples(clean_but_bad_rows),
-        "trash_but_okay_examples": _maker_fight_admission_examples(trash_but_okay_rows),
+        "clean_but_bad_examples": _maker_snapshot_examples(clean_but_bad_rows),
+        "trash_but_okay_examples": _maker_snapshot_examples(trash_but_okay_rows),
     }
     return {
         "rows": normalized_rows,
@@ -6566,7 +6616,7 @@ def _maker_selection_window_bounds(run_manifest: Dict[str, Any]) -> Tuple[Option
     phase_cfg = lifecycle_cfg.get("phase") if isinstance(lifecycle_cfg, dict) else {}
     if not isinstance(phase_cfg, dict):
         phase_cfg = {}
-    min_sec = phase_cfg.get("taker_window_open_sec")
+    min_sec = phase_cfg.get("maker_window_close_sec", phase_cfg.get("taker_window_open_sec"))
     max_sec = phase_cfg.get("maker_window_open_sec")
     min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
     max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
@@ -6576,7 +6626,7 @@ def _maker_selection_window_bounds(run_manifest: Dict[str, Any]) -> Tuple[Option
     legacy_phase_cfg = legacy_lifecycle_cfg.get("phase") if isinstance(legacy_lifecycle_cfg, dict) else {}
     if not isinstance(legacy_phase_cfg, dict):
         legacy_phase_cfg = {}
-    min_sec = legacy_phase_cfg.get("taker_window_open_sec")
+    min_sec = legacy_phase_cfg.get("maker_window_close_sec", legacy_phase_cfg.get("taker_window_open_sec"))
     max_sec = legacy_phase_cfg.get("maker_window_open_sec")
     min_value = float(min_sec) if isinstance(min_sec, (int, float)) else None
     max_value = float(max_sec) if isinstance(max_sec, (int, float)) else None
@@ -6805,11 +6855,11 @@ def _canonical_maker_selection_counterfactual_policy() -> Dict[str, Any]:
         "authority_contract": EDGE_MAKER_PHASE_ALLOWED_FIELD,
         "allowed_lifecycle_phases": ["maker_window"],
         "require_secondary_oracle_confirmation": True,
-        "max_same_target_submit_count_prior": 1,
-        "max_same_target_side_submit_count_prior": 1,
+        "max_same_target_submit_count_prior": 0,
+        "max_same_target_side_submit_count_prior": 0,
         "min_depth_multiple": 1.5,
         "timing_authority": "external_existing_maker_timing_gate_only",
-        "market_family_authority": "deferred_missing_clean_truth_surface",
+        "market_family_authority": "single_market_expression_runtime_guard",
     }
 
 
@@ -6850,10 +6900,10 @@ def _maker_selection_runtime_config(run_manifest: Dict[str, Any]) -> Dict[str, A
             _safe_float(selection_owner.get("cannon_target_notional_usd"), 100.0)
         ),
         "max_same_target_submit_count_prior": int(
-            _safe_float(selection_owner.get("max_same_target_submit_count_prior"), 1.0)
+            _safe_float(selection_owner.get("max_same_target_submit_count_prior"), 0.0)
         ),
         "max_same_target_side_submit_count_prior": int(
-            _safe_float(selection_owner.get("max_same_target_side_submit_count_prior"), 1.0)
+            _safe_float(selection_owner.get("max_same_target_side_submit_count_prior"), 0.0)
         ),
         "min_depth_multiple": float(
             _safe_float(
@@ -7277,50 +7327,89 @@ def _maker_selection_authority_bundle(
 
 
 def _maker_blocker_runtime_reason(row: Dict[str, Any]) -> str:
-    reason = str(
-        row.get("runtime_decision_block_reason")
-        or row.get("decision_block_reason")
-        or row.get("selection_gate_primary_reject_reason")
-        or ""
-    ).strip().lower()
-    if reason:
-        if reason == "insufficient_depth_multiple":
-            return "launch_safe_selection_insufficient_depth_multiple"
-        return reason
-    if str(row.get("order_submit_id") or "").strip():
-        return "submitted"
-    if str(row.get("decision_result") or "").strip().lower() == "submitted":
-        return "submitted"
-    return "unknown"
+    contract = maker_gate_contract_from_payload(row)
+    reason = str(contract.get(EDGE_MAKER_GATE_REASON_FIELD) or "").strip().lower()
+    return reason or "unknown"
 
 
-def _maker_blocker_bucket(reason: str) -> str:
-    normalized = str(reason or "").strip().lower()
-    if normalized.startswith("launch_safe_selection_"):
+def _maker_blocker_gate_stage(row: Dict[str, Any]) -> str:
+    contract = maker_gate_contract_from_payload(row)
+    stage = str(contract.get(EDGE_MAKER_GATE_STAGE_FIELD) or "").strip().lower()
+    return stage or "unknown"
+
+
+def _maker_blocker_owner_family(row: Dict[str, Any]) -> str:
+    contract = maker_gate_contract_from_payload(row)
+    owner_family = str(contract.get(EDGE_MAKER_GATE_OWNER_FAMILY_FIELD) or "").strip().lower()
+    return owner_family or "unknown"
+
+
+def _maker_blocker_bucket(stage: str) -> str:
+    normalized = str(stage or "").strip().lower()
+    if normalized == MAKER_GATE_STAGE_PHASE:
+        return "phase_gate"
+    if normalized == MAKER_GATE_STAGE_TRUTH_REFERENCE:
+        return "truth_reference_gate"
+    if normalized == MAKER_GATE_STAGE_LANE_READINESS:
+        return "lane_readiness_gate"
+    if normalized == MAKER_GATE_STAGE_SELECTION:
         return "selection_gate"
-    if normalized == "quote_quality_skip_queue_depth":
-        return "quote_quality"
-    if normalized == "sizing_reject":
-        return "sizing"
-    if normalized == "submitted":
+    if normalized == MAKER_GATE_STAGE_FEASIBILITY:
+        return "feasibility_gate"
+    if normalized == MAKER_GATE_STAGE_SHARED_SAFETY:
+        return "shared_safety_lifecycle_gate"
+    if normalized == MAKER_GATE_STAGE_QUOTE_QUALITY:
+        return "quote_quality_gate"
+    if normalized == MAKER_GATE_STAGE_SUBMIT_PATH:
+        return "submit_path_gate"
+    if normalized == MAKER_GATE_STAGE_SUBMITTED:
         return "submitted"
+    if normalized == MAKER_GATE_STAGE_FILLED:
+        return "filled"
     return "other"
 
 
 def _maker_blocker_ledger_bundle(
     *,
+    maker_edge_rows: Optional[List[Dict[str, Any]]] = None,
     snapshot_rows: List[Dict[str, Any]],
     selection_authority_rows: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    maker_edge_rows = list(maker_edge_rows or [])
+    whole_lane_reason_counts: Counter[str] = Counter()
+    whole_lane_stage_counts: Counter[str] = Counter()
+    whole_lane_owner_counts: Counter[str] = Counter()
     runtime_reason_counts: Counter[str] = Counter()
     bucket_counts: Counter[str] = Counter()
     selection_depth_values: List[float] = []
-    queue_depth_values: List[float] = []
+
+    if maker_edge_rows:
+        for row in maker_edge_rows:
+            stage = _maker_blocker_gate_stage(row)
+            reason = _maker_blocker_runtime_reason(row)
+            owner_family = _maker_blocker_owner_family(row)
+            if reason in RETIRED_MAKER_QUOTE_QUALITY_REASONS:
+                continue
+            whole_lane_stage_counts[stage] += 1
+            whole_lane_reason_counts[reason] += 1
+            whole_lane_owner_counts[owner_family] += 1
+    else:
+        for row in selection_authority_rows:
+            stage = _maker_blocker_gate_stage(row)
+            reason = _maker_blocker_runtime_reason(row)
+            owner_family = _maker_blocker_owner_family(row)
+            if reason in RETIRED_MAKER_QUOTE_QUALITY_REASONS:
+                continue
+            whole_lane_stage_counts[stage] += 1
+            whole_lane_reason_counts[reason] += 1
+            whole_lane_owner_counts[owner_family] += 1
 
     for row in selection_authority_rows:
         reason = _maker_blocker_runtime_reason(row)
+        if reason in RETIRED_MAKER_QUOTE_QUALITY_REASONS:
+            continue
         runtime_reason_counts[reason] += 1
-        bucket_counts[_maker_blocker_bucket(reason)] += 1
+        bucket_counts[_maker_blocker_bucket(_maker_blocker_gate_stage(row))] += 1
 
     for row in snapshot_rows:
         reason = _maker_blocker_runtime_reason(row)
@@ -7332,11 +7421,7 @@ def _maker_blocker_ledger_bundle(
                 if visible_depth_shares is not None and desired_quote_price is not None:
                     visible_depth_notional = float(visible_depth_shares) * float(desired_quote_price)
             selection_depth_values.append(float(visible_depth_notional or 0.0))
-        elif reason == "quote_quality_skip_queue_depth":
-            queue_depth_values.append(float(row.get("queue_ahead_size") or 0.0))
-
     selection_count = int(runtime_reason_counts.get("launch_safe_selection_insufficient_depth_multiple", 0))
-    quote_quality_count = int(runtime_reason_counts.get("quote_quality_skip_queue_depth", 0))
     sizing_count = int(runtime_reason_counts.get("sizing_reject", 0))
     submitted_count = int(runtime_reason_counts.get("submitted", 0))
     selection_depth_zero_count = sum(1 for value in selection_depth_values if value <= 1e-9)
@@ -7351,13 +7436,6 @@ def _maker_blocker_ledger_bundle(
         if selection_count > 0
         else "not_present"
     )
-    quote_quality_verdict = (
-        "keep_now_steel"
-        if quote_quality_count > 0 and queue_depth_values and min(queue_depth_values) > 0.0
-        else "minor_residue"
-        if quote_quality_count > 0
-        else "not_present"
-    )
     sizing_verdict = (
         "minor_residue"
         if sizing_count > 0 and sizing_count <= 1
@@ -7367,43 +7445,40 @@ def _maker_blocker_ledger_bundle(
     )
     runtime_blocker_family_closed = bool(
         selection_verdict == "keep_now_steel"
-        and quote_quality_verdict in {"keep_now_steel", "not_present"}
         and sizing_verdict in {"minor_residue", "not_present"}
     )
-    if selection_verdict == "active_patient":
-        next_packet2_patient = "selection_gate_depth_multiple"
-    elif quote_quality_verdict == "active_patient":
-        next_packet2_patient = "quote_quality_queue_depth"
-    elif sizing_verdict == "active_patient":
-        next_packet2_patient = "accessory_maker_sizing_feasibility"
-    else:
-        next_packet2_patient = "support_snapshot_schoolhouse_cleanup"
-    summary = {
-        "maker_blocker_ledger_version": 1,
-        "current_owner_artifact": "maker_blocker_ledger.json",
-        "authoritative_for_runtime_blocker_truth": True,
-        "claim_boundary": (
-            "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census"
-        ),
-        "historical_family_labels_retired_from_active_owner_surfaces": True,
+    dominant_whole_lane_reason = "none"
+    if whole_lane_reason_counts:
+        dominant_whole_lane_reason = max(
+            sorted(whole_lane_reason_counts),
+            key=lambda key: whole_lane_reason_counts[key],
+        )
+    dominant_whole_lane_stage = "none"
+    if whole_lane_stage_counts:
+        dominant_whole_lane_stage = max(
+            sorted(whole_lane_stage_counts),
+            key=lambda key: whole_lane_stage_counts[key],
+        )
+    dominant_whole_lane_owner = "none"
+    if whole_lane_owner_counts:
+        dominant_whole_lane_owner = max(
+            sorted(whole_lane_owner_counts),
+            key=lambda key: whole_lane_owner_counts[key],
+        )
+    later_stage_runtime_diagnostic_truth = {
         "runtime_reason_distribution": _counter_to_sorted_int_dict(runtime_reason_counts),
         "runtime_bucket_distribution": _counter_to_sorted_int_dict(bucket_counts),
         "dominant_runtime_blocker_reason": (
             "launch_safe_selection_insufficient_depth_multiple"
-            if selection_count >= max(quote_quality_count, sizing_count)
-            else "quote_quality_skip_queue_depth"
-            if quote_quality_count >= sizing_count
+            if selection_count >= sizing_count
             else "sizing_reject"
         ),
         "dominant_runtime_blocker_bucket": (
             "selection_gate"
-            if selection_count >= max(quote_quality_count, sizing_count)
-            else "quote_quality"
-            if quote_quality_count >= sizing_count
-            else "sizing"
+            if selection_count >= sizing_count
+            else "feasibility_gate"
         ),
         "selection_gate_verdict": selection_verdict,
-        "quote_quality_verdict": quote_quality_verdict,
         "sizing_verdict": sizing_verdict,
         "support_snapshot_verdict": "support_only",
         "runtime_blocker_family_status": (
@@ -7411,7 +7486,6 @@ def _maker_blocker_ledger_bundle(
             if runtime_blocker_family_closed
             else "open_runtime_patient"
         ),
-        "next_packet2_patient": next_packet2_patient,
         "selection_gate_depth_summary": {
             "row_count": int(selection_count),
             "zero_visible_depth_count": int(selection_depth_zero_count),
@@ -7425,17 +7499,30 @@ def _maker_blocker_ledger_bundle(
                 float(max(selection_depth_values)) if selection_depth_values else 0.0
             ),
         },
-        "quote_quality_summary": {
-            "row_count": int(quote_quality_count),
-            "min_queue_ahead_size": float(min(queue_depth_values)) if queue_depth_values else 0.0,
-            "max_queue_ahead_size": float(max(queue_depth_values)) if queue_depth_values else 0.0,
-        },
         "sizing_summary": {
             "row_count": int(sizing_count),
         },
         "submitted_summary": {
             "row_count": int(submitted_count),
         },
+    }
+    summary = {
+        "maker_blocker_ledger_version": 3,
+        "current_owner_artifact": "maker_blocker_ledger.json",
+        "authoritative_for_runtime_blocker_truth": True,
+        "claim_boundary": (
+            "runtime_first_blocker_tribunal; support artifacts may explain but may not outrank the runtime blocker census"
+        ),
+        "historical_family_labels_retired_from_active_owner_surfaces": True,
+        "whole_lane_runtime_blocker_truth": {
+            "maker_gate_stage_distribution": _counter_to_sorted_int_dict(whole_lane_stage_counts),
+            "maker_gate_reason_distribution": _counter_to_sorted_int_dict(whole_lane_reason_counts),
+            "maker_gate_owner_family_distribution": _counter_to_sorted_int_dict(whole_lane_owner_counts),
+            "dominant_earliest_blocker_stage": dominant_whole_lane_stage,
+            "dominant_earliest_blocker_reason": dominant_whole_lane_reason,
+            "dominant_earliest_blocker_owner_family": dominant_whole_lane_owner,
+        },
+        "later_stage_runtime_diagnostic_truth": later_stage_runtime_diagnostic_truth,
     }
     return {"summary": summary}
 
@@ -7668,8 +7755,25 @@ def _maker_quote_starvation_bundle(
         "maker_zero_submit_audit_version": int(MAKER_ZERO_SUBMIT_AUDIT_VERSION),
         "row_count": int(len(rows)),
         "quote_starvation_row_count": int(len(rows)),
-        "maker_no_submission_cause_distribution": _counter_to_sorted_int_dict(cause_counts),
-        "maker_no_submission_category_distribution": _counter_to_sorted_int_dict(category_counts),
+        "maker_no_submission_cause_distribution": _counter_to_sorted_int_dict(
+            Counter(
+                {
+                    reason: count
+                    for reason, count in cause_counts.items()
+                    if reason not in RETIRED_MAKER_QUOTE_QUALITY_REASONS
+                    and not str(reason).startswith("submit_rejected_quote_quality_")
+                }
+            )
+        ),
+        "maker_no_submission_category_distribution": _counter_to_sorted_int_dict(
+            Counter(
+                {
+                    reason: count
+                    for reason, count in category_counts.items()
+                    if reason not in RETIRED_MAKER_QUOTE_QUALITY_REASONS
+                }
+            )
+        ),
         "desired_quote_presence_distribution": _counter_to_sorted_int_dict(desired_quote_presence_counts),
         "market_reference_class_distribution": _counter_to_sorted_int_dict(market_reference_counts),
         "market_reference_mode_distribution": _counter_to_sorted_int_dict(market_reference_mode_counts),
@@ -7697,13 +7801,18 @@ def _maker_quote_starvation_bundle(
 
 
 def _maker_prequote_prereq_pass_rows(probe_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        row
-        for row in probe_rows
-        if row.get("launch_safe_selection_timing_window_met") is True
-        and _maker_phase_allowed_from_row(row)
-        and bool(row.get("secondary_oracle_confirmation", False))
-    ]
+    rows: List[Dict[str, Any]] = []
+    for row in probe_rows:
+        if row.get("launch_safe_selection_timing_window_met") is not True:
+            continue
+        if not _maker_phase_allowed_from_row(row):
+            continue
+        contract = maker_gate_contract_from_payload(row)
+        stage = str(contract.get(EDGE_MAKER_GATE_STAGE_FIELD) or "").strip().lower()
+        if stage in {MAKER_GATE_STAGE_PHASE, MAKER_GATE_STAGE_LANE_READINESS}:
+            continue
+        rows.append(row)
+    return rows
 
 
 def _maker_truth_reference_starvation_bundle(
@@ -8034,6 +8143,21 @@ def _maker_participation_waterfall_bundle(
         if str(evt.get("event_type") or "").strip() == "edge_evaluation"
         and str(evt.get("evaluation_scope") or "").strip().lower() == "maker"
     ]
+    canonical_gate_stage_counts: Counter[str] = Counter()
+    canonical_gate_reason_counts: Counter[str] = Counter()
+    canonical_gate_owner_counts: Counter[str] = Counter()
+    canonical_gate_reason_counts_by_stage: Dict[str, Counter[str]] = defaultdict(Counter)
+    for row in maker_rows:
+        contract = maker_gate_contract_from_payload(row)
+        stage = str(contract.get(EDGE_MAKER_GATE_STAGE_FIELD) or "").strip().lower() or "unknown"
+        reason = str(contract.get(EDGE_MAKER_GATE_REASON_FIELD) or "").strip().lower() or "unknown"
+        owner_family = (
+            str(contract.get(EDGE_MAKER_GATE_OWNER_FAMILY_FIELD) or "").strip().lower() or "unknown"
+        )
+        canonical_gate_stage_counts[stage] += 1
+        canonical_gate_reason_counts[reason] += 1
+        canonical_gate_owner_counts[owner_family] += 1
+        canonical_gate_reason_counts_by_stage[stage][reason] += 1
     outcome_by_submit_id = _maker_outcome_lookup(outcome_truth_records)
     terminal_path_counts: Counter[str] = Counter()
     stage_band_exclusion_reason_counts: Counter[str] = Counter()
@@ -8114,18 +8238,14 @@ def _maker_participation_waterfall_bundle(
             stage_band_exclusion_reason_counts[exclusion_reason] += 1
 
     for row in active_band_probe_rows:
-        if _maker_phase_allowed_from_row(row) and bool(
-            row.get("secondary_oracle_confirmation", False)
-        ):
+        contract = maker_gate_contract_from_payload(row)
+        stage = str(contract.get(EDGE_MAKER_GATE_STAGE_FIELD) or "").strip().lower()
+        reason = str(contract.get(EDGE_MAKER_GATE_REASON_FIELD) or "").strip().lower() or "unknown"
+        if stage not in {MAKER_GATE_STAGE_LANE_READINESS, ""}:
             continue
-        terminal_path_counts["prequote_prereq_blocked"] += 1
-        if not _maker_phase_allowed_from_row(row):
-            prequote_prereq_block_reason_counts[
-                str(row.get("block_reason") or "runtime_stage_disallowed").strip().lower()
-                or "runtime_stage_disallowed"
-            ] += 1
-        else:
-            prequote_prereq_block_reason_counts["secondary_oracle_not_confirmed"] += 1
+        if stage == MAKER_GATE_STAGE_LANE_READINESS:
+            terminal_path_counts["prequote_prereq_blocked"] += 1
+            prequote_prereq_block_reason_counts[reason] += 1
 
     for row in actionable_prequote_rows:
         if row.get("desired_quote_present") is True:
@@ -8297,6 +8417,17 @@ def _maker_participation_waterfall_bundle(
         "authoritative_for_canonical_selection": False,
         "applicability": "descriptive_only",
         "current_owner_artifact": "maker_blocker_ledger.json",
+        "canonical_gate_truth": {
+            "maker_gate_stage_distribution": _counter_to_sorted_int_dict(canonical_gate_stage_counts),
+            "maker_gate_reason_distribution": _counter_to_sorted_int_dict(canonical_gate_reason_counts),
+            "maker_gate_owner_family_distribution": _counter_to_sorted_int_dict(
+                canonical_gate_owner_counts
+            ),
+            "maker_gate_reason_distribution_by_stage": {
+                stage: _counter_to_sorted_int_dict(reason_counts)
+                for stage, reason_counts in sorted(canonical_gate_reason_counts_by_stage.items())
+            },
+        },
         "stages": stages,
         "terminal_path_counts": terminal_path_dict,
         "reconciliation": {
@@ -8632,7 +8763,6 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
     lane_reject_reason_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
     lane_suppression_class_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
     lane_book_source_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
-    lane_latency_state_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
     lane_edge_bucket_count: Dict[str, Counter[str]] = {"normal": Counter(), residue_lane: Counter()}
     lane_submit_candidate_count = Counter()
     lane_taker_action_count = Counter()
@@ -8689,7 +8819,7 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             return "edge_filter"
         if block_reason in {"fair_probability_missing", "market_probability_missing"}:
             return "truth_missing"
-        if block_reason in {"latency_not_armed", "taker_requires_ws_book_source", "token_score_below_taker_min"}:
+        if block_reason == "taker_requires_ws_book_source":
             return "source_or_quality_gate"
         if block_reason == "taker_token_cooldown":
             return "cooldown"
@@ -8757,7 +8887,6 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
             _bool_label(evt.get(_HISTORICAL_EMERGENCY_ALLOWED_FIELD))
         ] += 1
         lane_book_source_count[lane][_norm(evt.get("book_source"))] += 1
-        lane_latency_state_count[lane][_norm(evt.get("latency_state"))] += 1
         lane_edge_bucket_count[lane][_taker_edge_bucket(_edge_abs_from_eval(evt))] += 1
         if block_reason not in {"normal_taker_authority_closed", "phase_disallow_taker"}:
             lane_phase_enabled_eval_count[lane] += 1
@@ -8812,7 +8941,6 @@ def _taker_opportunity_suppression_stats(events: List[Dict[str, Any]]) -> Dict[s
                 lane_historical_emergency_unwind_authority_lineage_count[lane]
             ),
             "book_source_distribution": _counter(lane_book_source_count[lane]),
-            "latency_state_distribution": _counter(lane_latency_state_count[lane]),
             "edge_bucket_distribution": _counter(lane_edge_bucket_count[lane]),
         }
 
@@ -8862,6 +8990,9 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     fill_lineage_stage_distribution = Counter()
     fill_class_distribution = Counter()
     lag_class_distribution = Counter()
+    fill_policy_basis_distribution = Counter()
+    fill_execution_realism_class_distribution = Counter()
+    fill_queue_position_mode_distribution = Counter()
     aggressiveness_application_counts = Counter()
     order_edge_bucket_by_id: Dict[str, str] = {}
     order_is_taker_by_id: Dict[str, bool] = {}
@@ -8875,7 +9006,6 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
     multi_oracle_boost_eligible_count = 0.0
     multi_oracle_boost_applied_count = 0.0
     normal_taker_same_token_sell_blocked_count = 0.0
-    complement_token_mapping_failure_count = 0.0
     outside_window_blocked_count_edge_eval = 0.0
     submit_without_competitiveness_payload_count = 0.0
     submit_unknown_lineage_stage_count = 0.0
@@ -8985,6 +9115,34 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 "submit_capable_static",
                 "submit_capable_dynamic_predicted",
             )
+        )
+
+    def _has_canonical_normal_taker_contract(evt: Dict[str, Any], comp: Dict[str, Any]) -> bool:
+        lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp.get("lineage_stage"))
+        lifecycle_phase = str(
+            evt.get("lifecycle_phase") or comp.get("lifecycle_phase") or ""
+        ).strip().lower()
+        submission_lane = str(
+            evt.get("submission_lane") or comp.get("submission_lane") or ""
+        ).strip().lower()
+        side_class = str(
+            evt.get("normal_taker_side_class") or comp.get("normal_taker_side_class") or ""
+        ).strip().lower()
+        requested = _safe_float(
+            evt.get("target_usd_requested", comp.get("target_usd_requested")),
+            default=-1.0,
+        )
+        resolved = _safe_float(
+            evt.get("target_usd_resolved", comp.get("target_usd_resolved")),
+            default=-1.0,
+        )
+        return (
+            submission_lane == "taker"
+            and lifecycle_phase == "taker_window"
+            and lineage_stage == "TAKER_COMMITMENT"
+            and side_class == "buy_expected_winner"
+            and requested > 0.0
+            and resolved > 0.0
         )
 
     def _latency_summary(values: List[float]) -> Dict[str, float]:
@@ -9101,14 +9259,14 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             decision_aggressiveness[aggressiveness_level] += 1
             multi_oracle_status = str(evt.get("multi_oracle_status") or "unknown").strip().lower() or "unknown"
             decision_multi_oracle_status[multi_oracle_status] += 1
-            normal_side_class = str(evt.get("normal_taker_side_class") or "unknown").strip().lower() or "unknown"
+            normal_side_class = _normalize_current_normal_taker_side_class(
+                evt.get("normal_taker_side_class") or "unknown"
+            )
             decision_normal_taker_side_class[normal_side_class] += 1
             normal_side_policy = str(evt.get("normal_side_policy") or "unknown").strip().lower() or "unknown"
             decision_normal_side_policy[normal_side_policy] += 1
             if normal_side_class == "same_token_sell_blocked":
                 normal_taker_same_token_sell_blocked_count += 1.0
-            if block_reason == "complement_token_mapping_unavailable":
-                complement_token_mapping_failure_count += 1.0
             if _is_multi_oracle_available(multi_oracle_status):
                 multi_oracle_available_count += 1.0
                 lineage_stage_row["multi_oracle_available_count"] += 1.0
@@ -9145,7 +9303,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
                 lifecycle_residue_override_submit_count += 1.0
                 if not has_normal_payload:
                     lifecycle_residue_override_without_normal_payload_count += 1.0
-            elif isinstance(comp, dict) and has_normal_payload:
+            elif (isinstance(comp, dict) and has_normal_payload) or _has_canonical_normal_taker_contract(evt, comp_dict):
                 submit_class = "normal_competitiveness"
                 normal_competitiveness_submit_count += 1.0
             else:
@@ -9159,7 +9317,7 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             if order_id:
                 order_submit_class_by_id[order_id] = submit_class
 
-            lineage_stage = _normalize_lineage_stage(comp_dict.get("lineage_stage") or evt.get("lineage_stage"))
+            lineage_stage = _normalize_lineage_stage(evt.get("lineage_stage") or comp_dict.get("lineage_stage"))
             if lineage_stage == "UNKNOWN":
                 submit_unknown_lineage_stage_count += 1.0
             lineage_stage_row = _lineage_stage_row(lineage_stage)
@@ -9194,7 +9352,11 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
             submit_conviction_bucket[conviction_bucket] += 1
             submit_timing_window[timing_window] += 1
             submit_normal_taker_side_class[
-                str(comp_dict.get("normal_taker_side_class") or "unknown").strip().lower() or "unknown"
+                _normalize_current_normal_taker_side_class(
+                    evt.get("normal_taker_side_class")
+                    or comp_dict.get("normal_taker_side_class")
+                    or "unknown"
+                )
             ] += 1
             submit_normal_side_policy[
                 str(comp_dict.get("normal_side_policy") or "unknown").strip().lower() or "unknown"
@@ -9239,6 +9401,15 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         fill_class_distribution[order_submit_class_by_id.get(order_id, "true_unknown")] += 1
         lag_class = str(evt.get("paper_chainlink_lag_class") or "unknown").strip().lower() or "unknown"
         lag_class_distribution[lag_class] += 1
+        fill_policy_basis_distribution[
+            str(evt.get("fill_policy_basis") or "unknown").strip().lower() or "unknown"
+        ] += 1
+        fill_execution_realism_class_distribution[
+            str(evt.get("execution_realism_class") or "unknown").strip().lower() or "unknown"
+        ] += 1
+        fill_queue_position_mode_distribution[
+            str(evt.get("paper_queue_position_mode") or "unknown").strip().lower() or "unknown"
+        ] += 1
 
     decision_to_submit_rate = (actual_submit_count / decision_count) if decision_count > 0.0 else 0.0
     submit_capable_to_submit_rate = (
@@ -9464,6 +9635,15 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "fill_edge_bucket_distribution": dict(sorted(fill_edge_bucket.items(), key=lambda item: item[0])),
         "fill_lineage_stage_distribution": dict(sorted(fill_lineage_stage_distribution.items(), key=lambda item: item[0])),
         "fill_class_distribution": dict(sorted(fill_class_distribution.items(), key=lambda item: item[0])),
+        "fill_policy_basis_distribution": dict(
+            sorted(fill_policy_basis_distribution.items(), key=lambda item: item[0])
+        ),
+        "fill_execution_realism_class_distribution": dict(
+            sorted(fill_execution_realism_class_distribution.items(), key=lambda item: item[0])
+        ),
+        "fill_queue_position_mode_distribution": dict(
+            sorted(fill_queue_position_mode_distribution.items(), key=lambda item: item[0])
+        ),
         "submit_unknown_lineage_stage_count": float(submit_unknown_lineage_stage_count),
         "fill_without_submit_lineage_stage_count": float(fill_without_submit_lineage_stage_count),
         "lag_class_distribution": dict(sorted(lag_class_distribution.items(), key=lambda item: item[0])),
@@ -9480,7 +9660,6 @@ def _taker_competitiveness_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]
         "multi_oracle_boost_eligible_count_decision": float(multi_oracle_boost_eligible_count),
         "multi_oracle_boost_applied_count_decision": float(multi_oracle_boost_applied_count),
         "normal_taker_same_token_sell_blocked_count_decision": float(normal_taker_same_token_sell_blocked_count),
-        "complement_token_mapping_failure_count_decision": float(complement_token_mapping_failure_count),
         "lineage_stage_funnel_metrics": lineage_stage_funnel_sorted,
         "lineage_stage_reduction_cause_counters": lineage_stage_reduction_sorted,
         "lineage_stage_reduction_primary_cause_counters": lineage_stage_primary_reduction_sorted,
@@ -9808,6 +9987,12 @@ def build_report(
         events = _filter_rows_by_run_id(load_jsonl(event_files, max_lines_per_file=max_lines_per_file), resolved_run_id)
         status = _filter_rows_by_run_id(load_jsonl(status_files, max_lines_per_file=max_lines_per_file), resolved_run_id)
         errors = _filter_rows_by_run_id(load_jsonl(error_files, max_lines_per_file=max_lines_per_file), resolved_run_id)
+    maker_rows = [
+        evt
+        for evt in events
+        if str(evt.get("event_type") or "").strip().lower() == "edge_evaluation"
+        and str(evt.get("evaluation_scope") or "").strip().lower() == "maker"
+    ]
     run_manifest = _load_run_manifest(resolved_log_dir, resolved_run_id)
     outcome_truth_records = _load_outcome_truth_records(resolved_log_dir, resolved_run_id)
     outcome_truth_audit = _load_outcome_truth_audit(resolved_log_dir, resolved_run_id)
@@ -9851,7 +10036,7 @@ def build_report(
     by_component = Counter(str(err.get("component") or "unknown") for err in errors)
     capture_stats = _fill_capture_stats(events)
     taker_lineage_stage_net_breakout = _taker_lineage_stage_net_breakout(events)
-    edge_quality = _edge_quality_by_regime(events)
+    edge_quality = _edge_activation_quality_by_signal_posture(events)
     maker_market_viability = _maker_market_viability_stats(events)
     maker_complete_outcomes = _maker_complete_outcome_rates(outcome_truth_records)
     taker_competitiveness = _taker_competitiveness_stats(events)
@@ -9947,9 +10132,19 @@ def build_report(
         run_id=resolved_run_id,
     )
     maker_blocker_ledger_bundle = _maker_blocker_ledger_bundle(
+        maker_edge_rows=maker_rows,
         snapshot_rows=maker_market_snapshot_bundle["rows"],
         selection_authority_rows=maker_selection_authority_bundle["rows"],
     )
+    maker_participation_waterfall["authoritative_for_runtime_blocker_truth"] = False
+    maker_participation_waterfall["applicability"] = "descriptive_only"
+    maker_participation_waterfall["current_owner_artifact"] = "maker_blocker_ledger.json"
+    maker_zero_submit_root_cause_audit["authoritative_for_runtime_blocker_truth"] = False
+    maker_zero_submit_root_cause_audit["current_owner_artifact"] = "maker_blocker_ledger.json"
+    maker_quote_integrity_bundle["summary"]["authoritative_for_runtime_blocker_truth"] = False
+    maker_quote_integrity_bundle["summary"]["authoritative_for_current_owner_law"] = False
+    maker_quote_integrity_bundle["summary"]["applicability"] = "descriptive_only"
+    maker_quote_integrity_bundle["summary"]["current_owner_artifact"] = "maker_blocker_ledger.json"
     kill_switch_events = float(
         sum(1 for evt in events if str(evt.get("event_type") or "") == "kill_switch_cancel_all")
     )
@@ -10150,7 +10345,7 @@ def build_report(
         "market_data_source": market_data_source,
         "execution_quality": capture_stats,
         "taker_lineage_stage_net_breakout": taker_lineage_stage_net_breakout,
-        "edge_activation_quality_by_regime": edge_quality,
+        "edge_activation_quality_by_signal_posture": edge_quality,
         "runtime_classification": runtime_classification,
         "runtime_resource": runtime_resource,
     }
@@ -10372,6 +10567,10 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{_safe_float(financial_capital.get('ending_wallet_deployable_capital_usd')):.4f},"
             + f"net_pnl_usd={_safe_float(financial_overall.get('net_pnl_usd')):.4f},"
             + f"latest_total_pnl_usd={_safe_float(financial.get('latest_total_pnl_usd')):.4f},"
+            + "latest_total_pnl_source="
+            + f"{str(financial.get('latest_total_pnl_source') or 'unknown')},"
+            + "latest_status_total_pnl_usd="
+            + f"{_safe_float(financial.get('latest_status_total_pnl_usd')):.4f},"
             + f"win_rate={_safe_float(financial_overall.get('win_rate')):.4f},"
             + f"closed_trades={int(_safe_float(financial_overall.get('closed_trade_count')))},"
             + "avg_submitted_order_notional_usd="
@@ -10469,8 +10668,6 @@ def render_human_summary(report: Dict[str, Any]) -> str:
             + f"{_safe_float((taker_config_gate.get('boundary_alignment') or {}).get('max_normal_entry_width_inside_final_window_sec')):.2f},"
             + "final_window_sec="
             + f"{_safe_float((taker_config_gate.get('normal_taker_entry_gates') or {}).get('final_window_sec')):.2f},"
-            + "require_lag_verification="
-            + f"{json.dumps((taker_config_gate.get('taker_lag_gate') or {}).get('require_lag_verification'))},"
             + "latency_hit_threshold_ms="
             + f"{_safe_float((taker_config_gate.get('latency_verifier') or {}).get('hit_threshold_ms')):.2f},"
             + f"flags={json.dumps(taker_config_gate.get('posture_flags', []), sort_keys=True)}"
@@ -10547,8 +10744,7 @@ def render_human_summary(report: Dict[str, Any]) -> str:
         (
             "stale="
             + f"stale_book_rejects={int(_safe_float(stale.get('stale_book_rejects')))},"
-            + f"stale_oracle_blocks={int(_safe_float(stale.get('stale_oracle_edge_blocks')))},"
-            + f"disarmed_blocks={int(_safe_float(stale.get('disarmed_edge_blocks')))}"
+            + f"stale_oracle_blocks={int(_safe_float(stale.get('stale_oracle_edge_blocks')))}"
         ),
         (
             "pickoff="
@@ -11752,7 +11948,7 @@ def _maker_quote_integrity_bundle(
         else "none"
     )
 
-    next_repair_lane = "D. Peak-hours confirmation specimen"
+    next_repair_lane = "D. Peak-hours confirmation follow-up"
     next_repair_lane_reason = (
         "Model, quote, and survival planes came back internally consistent; peak-hours confirmation is the next clean proof step."
     )
@@ -11787,6 +11983,9 @@ def _maker_quote_integrity_bundle(
     summary = {
         "maker_quote_integrity_audit_version": int(MAKER_QUOTE_INTEGRITY_AUDIT_VERSION),
         "primary_run_id": str(run_id),
+        "authoritative_for_runtime_blocker_truth": False,
+        "authoritative_for_current_owner_law": False,
+        "applicability": "descriptive_only",
         "logic_pathology_specimen_only": bool(run_id == MAKER_QUOTE_INTEGRITY_PRIMARY_RUN_ID),
         "specimen_regime_class": (
             "overnight_logic_specimen" if overnight_logic_specimen else "non_overnight_logic_specimen"
@@ -11808,8 +12007,13 @@ def _maker_quote_integrity_bundle(
         "next_repair_lane": next_repair_lane,
         "next_repair_lane_reason": next_repair_lane_reason,
         "disclosures": [
-            "The repaired $250 specimen occurred around 02:04 AM Central, so economic fill-rate and PnL conclusions remain non-authoritative.",
-            "Logic findings from quote certification, launch mutation, execution-quality semantics, and submit-to-cancel survival remain authoritative.",
+            "This artifact is support-only and may not outrank canonical runtime blocker truth.",
+            (
+                "Economic fill-rate and PnL conclusions remain non-authoritative for this overnight logic specimen."
+                if overnight_logic_specimen
+                else "Economic fill-rate and PnL conclusions remain non-authoritative until a dedicated peak-hours confirmation specimen is earned."
+            ),
+            "Logic findings from quote certification, launch mutation, execution-quality semantics, and submit-to-cancel survival remain bounded support evidence only.",
         ],
     }
     manifest = {
@@ -11946,12 +12150,22 @@ def _write_support_artifacts(report_dir: pathlib.Path, support_artifacts: Dict[s
     maker_submit_count = sum(
         1 for row in rows if str(row.get("decision_result") or "").strip().lower() == "submitted"
     )
+    maker_participation_waterfall["authoritative_for_runtime_blocker_truth"] = False
+    maker_participation_waterfall["applicability"] = "descriptive_only"
+    maker_participation_waterfall["current_owner_artifact"] = "maker_blocker_ledger.json"
+    maker_zero_submit_root_cause_audit["authoritative_for_runtime_blocker_truth"] = False
+    maker_zero_submit_root_cause_audit["current_owner_artifact"] = "maker_blocker_ledger.json"
+    maker_quote_integrity_summary["authoritative_for_runtime_blocker_truth"] = False
+    maker_quote_integrity_summary["authoritative_for_current_owner_law"] = False
+    maker_quote_integrity_summary["applicability"] = "descriptive_only"
+    maker_quote_integrity_summary["current_owner_artifact"] = "maker_blocker_ledger.json"
     if maker_submit_count > 0:
         for artifact in (
             maker_participation_waterfall,
             quote_construction_summary,
             truth_reference_summary,
             calibration_audit,
+            maker_quote_integrity_summary,
         ):
             artifact["authoritative_for_canonical_selection"] = False
             artifact["applicability"] = "descriptive_only"

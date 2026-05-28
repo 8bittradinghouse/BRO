@@ -30,6 +30,9 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     gas_reserve_policy = _as_mapping(status.get("gas_reserve_policy"))
     reconcile_state = _as_mapping(status.get("integrity_tripwire_reconcile_state"))
     reconcile = reconcile_state or _as_mapping(status.get("last_reconcile_result"))
+    wallet_guardian_law_state = _as_mapping(status.get("wallet_guardian_law_state"))
+    order_submission_law = _as_mapping(wallet_guardian_law_state.get("order_submission"))
+    global_exposure_guard = _as_mapping(order_submission_law.get("global_exposure_guard"))
 
     gas_balance = float(wallet_snapshot.get("pol_balance", 0.0) or 0.0)
     gas_reserve_min = float(status.get("min_pol_gas_reserve", 0.0) or 0.0)
@@ -38,8 +41,25 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
 
     stable_total = float(wallet_snapshot.get("usdc_balance", 0.0) or 0.0)
     protected = float(wallet_snapshot.get("protected_reserve_usdc", 0.0) or 0.0)
-    open_reserved = float(status.get("locked_usdc", 0.0) or 0.0)
+    reservation_locked = float(
+        status.get(
+            "reservation_locked_usdc",
+            status.get("open_reserved", status.get("locked_usdc", 0.0)),
+        )
+        or 0.0
+    )
+    pending_lock = float(status.get("pending_lock_usdc", 0.0) or 0.0)
+    order_lock = float(status.get("order_lock_usdc", 0.0) or 0.0)
+    position_liability_locked = float(status.get("position_liability_locked_usdc", 0.0) or 0.0)
+    locked_total = float(
+        status.get(
+            "locked_total_usdc",
+            status.get("locked_usdc", reservation_locked + position_liability_locked),
+        )
+        or 0.0
+    )
     deployable = float(status.get("deployable_usdc", 0.0) or 0.0)
+    provider_locked_usdc_semantics = str(status.get("provider_locked_usdc_semantics") or "unknown")
 
     approval_target_identity_verified = bool(allowance_snapshot.get("target_identity_verified", False))
     approval_spender_targets_matched = list(allowance_snapshot.get("matched_spender_targets") or [])
@@ -67,6 +87,8 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
     reservation_mismatch_candidate = bool(status.get("reservation_mismatch_candidate", False))
     reservation_mismatch_delta_usdc = float(status.get("reservation_mismatch_delta_usdc", 0.0) or 0.0)
     reservation_mismatch_detail = str(status.get("reservation_mismatch_detail") or "")
+    reservation_mismatch_evaluable = bool(status.get("reservation_mismatch_evaluable", False))
+    reservation_mismatch_semantics = str(status.get("reservation_mismatch_semantics") or "unknown")
 
     canonical_live_nonce_source = str(nonce_snapshot.get("source") or "")
     canonical_live_nonce_detail = str(nonce_snapshot.get("detail") or "")
@@ -143,8 +165,13 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "gas_balance_usd_estimate": gas_reserve_policy.get("usd_balance_estimate"),
         "stable_balance_total": stable_total,
         "protected_reserve": protected,
-        "open_reserved": open_reserved,
+        "pending_lock_usdc": pending_lock,
+        "order_lock_usdc": order_lock,
+        "reservation_locked_usdc": reservation_locked,
+        "position_liability_locked_usdc": position_liability_locked,
+        "locked_total_usdc": locked_total,
         "deployable_capital": deployable,
+        "provider_locked_usdc_semantics": provider_locked_usdc_semantics,
         "approval_ok": bool(approval_ok),
         "approval_target_identity_verified": bool(approval_target_identity_verified),
         "approval_spender_targets_matched": approval_spender_targets_matched,
@@ -170,7 +197,10 @@ def build_wallet_health_contract(*, status: Mapping[str, Any], enforce_startup_b
         "web3_provider_trustworthy": bool(web3_provider_trustworthy),
         "live_truth_gap_reasons": live_truth_gap_reasons,
         "reconcile_scope": reconcile_scope,
+        "reservation_mismatch_evaluable": bool(reservation_mismatch_evaluable),
+        "reservation_mismatch_semantics": reservation_mismatch_semantics,
         "reservation_mismatch_candidate": bool(reservation_mismatch_candidate),
         "reservation_mismatch_delta_usdc": float(reservation_mismatch_delta_usdc),
         "reservation_mismatch_detail": reservation_mismatch_detail,
+        "global_exposure_guard": global_exposure_guard,
     }

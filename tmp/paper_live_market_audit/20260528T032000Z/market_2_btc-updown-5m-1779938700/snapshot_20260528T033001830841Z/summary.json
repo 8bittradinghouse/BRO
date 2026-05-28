@@ -1,0 +1,51 @@
+{
+  "books": {
+    "100109747129944425590427968498055525127114376623767060592293090881225659351965": {
+      "ask_levels": 76,
+      "bid_levels": 0,
+      "status_code": 200,
+      "top_ask": {
+        "price": "0.01",
+        "size": "1197699.27"
+      },
+      "top_bid": null
+    },
+    "114550573834249269370374382446218272876407689348721629886554741417379726244787": {
+      "ask_levels": 0,
+      "bid_levels": 76,
+      "status_code": 200,
+      "top_ask": null,
+      "top_bid": {
+        "price": "0.99",
+        "size": "1197800.27"
+      }
+    }
+  },
+  "bro_event": {
+    "action_taken": "",
+    "block_reason": "",
+    "edge": null,
+    "edge_value": null,
+    "evaluation_scope": "",
+    "event_type": "lifecycle_phase_transition",
+    "fair_probability": null,
+    "lifecycle_phase": "scan",
+    "lineage_stage": "",
+    "maker_gate_reason": "",
+    "market_key": "",
+    "market_probability": null,
+    "outcome_hint": "",
+    "owned_market_ref": "",
+    "price": null,
+    "side": "",
+    "size": null,
+    "submission_lane": "",
+    "taker_submit_reject_reason": "",
+    "target_ref": "",
+    "token_id": "",
+    "ts_event_utc": "2026-05-28T03:30:01.417Z"
+  },
+  "captured_at_utc": "2026-05-28T03:30:01.830Z",
+  "condition_id": "0x15fc855dbe4e79cca4e2fa385b5528275f5e76fcc8afefcc13400e20ebe63aa8",
+  "reason": "transition_scan"
+}

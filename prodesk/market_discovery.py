@@ -201,6 +201,39 @@ def _http_get_json(
     raise RuntimeError(f"exhausted retries for {url}")
 
 
+def _extract_markets_list(payload: Any) -> List[Dict[str, Any]]:
+    markets = payload.get("markets") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and markets is None:
+        markets = payload.get("data")
+    if not isinstance(markets, list):
+        return []
+    return [market for market in markets if isinstance(market, dict)]
+
+
+def _extract_markets_from_event_payload(payload: Any) -> List[Dict[str, Any]]:
+    events = payload.get("events") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and events is None:
+        events = payload.get("data")
+    if not isinstance(events, list):
+        return []
+    markets: List[Dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        for market in _extract_markets_list({"markets": event.get("markets")}):
+            enriched = dict(market)
+            if "question" not in enriched and isinstance(event.get("title"), str):
+                enriched["question"] = event.get("title")
+            if "slug" not in enriched and isinstance(event.get("slug"), str):
+                enriched["slug"] = event.get("slug")
+            if "description" not in enriched and isinstance(event.get("description"), str):
+                enriched["description"] = event.get("description")
+            if "tags" not in enriched and isinstance(event.get("tags"), list):
+                enriched["tags"] = list(event.get("tags") or [])
+            markets.append(enriched)
+    return markets
+
+
 @dataclass
 class DiscoveryResult:
     token_ids: List[str]
@@ -227,6 +260,7 @@ class MarketDiscovery:
 
         self.gamma_url = str(disc.get("gamma_url", "https://gamma-api.polymarket.com")).rstrip("/")
         self.markets_path = str(disc.get("markets_path", "/markets"))
+        self.events_path = str(disc.get("events_path", "/events"))
         self.page_limit = int(disc.get("page_limit", 200))
         self.max_pages = int(disc.get("max_pages", 10))
         self.max_markets_scan = int(disc.get("max_markets_scan", 1200))
@@ -416,6 +450,7 @@ class MarketDiscovery:
         fee_eligible_markets = 0
         contract_rejected_pairs = 0
         candidates: List[Tuple[Optional[dt.datetime], Dict[str, Any]]] = []
+        primary_discovery_error: Optional[Exception] = None
 
         for page_idx in range(self.max_pages):
             offset = page_idx * self.page_limit
@@ -426,16 +461,18 @@ class MarketDiscovery:
                 "limit": self.page_limit,
                 "offset": offset,
             }
-            payload = _http_get_json(
-                self.session,
-                markets_url,
-                params=params,
-                timeout_sec=self.timeout_sec,
-                max_retries=self.max_retries,
-            )
-            markets = payload.get("markets") if isinstance(payload, dict) else payload
-            if isinstance(payload, dict) and markets is None:
-                markets = payload.get("data")
+            try:
+                payload = _http_get_json(
+                    self.session,
+                    markets_url,
+                    params=params,
+                    timeout_sec=self.timeout_sec,
+                    max_retries=self.max_retries,
+                )
+            except (requests.RequestException, ValueError) as exc:
+                primary_discovery_error = exc
+                break
+            markets = _extract_markets_list(payload)
             if not isinstance(markets, list) or not markets:
                 break
 
@@ -465,6 +502,8 @@ class MarketDiscovery:
 
         if not candidates and self.event_slug_probe_enabled and self.event_slug_prefix:
             candidates.extend(self._discover_by_event_slug(markets_url=markets_url, now=now))
+        elif primary_discovery_error is not None:
+            raise primary_discovery_error
 
         def _sort_key(item: Tuple[Optional[dt.datetime], Dict[str, Any]]) -> Tuple[int, dt.datetime]:
             end_time = item[0]
@@ -550,25 +589,38 @@ class MarketDiscovery:
     def _discover_by_event_slug(self, *, markets_url: str, now: dt.datetime) -> List[Tuple[Optional[dt.datetime], Dict[str, Any]]]:
         candidates: List[Tuple[Optional[dt.datetime], Dict[str, Any]]] = []
         seen_condition: set[str] = set()
+        events_url = f"{self.gamma_url}{self.events_path}"
         bucket = int(now.timestamp()) // 300 * 300
         for step in range(-self.event_slug_probe_span, self.event_slug_probe_span + 1):
             ts_bucket = bucket + (step * 300)
             slug = f"{self.event_slug_prefix}-{ts_bucket}"
-            payload = _http_get_json(
-                self.session,
-                markets_url,
-                params={"slug": slug, "limit": 5, "offset": 0},
-                timeout_sec=self.timeout_sec,
-                max_retries=self.max_retries,
-            )
-            markets = payload.get("markets") if isinstance(payload, dict) else payload
-            if isinstance(payload, dict) and markets is None:
-                markets = payload.get("data")
-            if not isinstance(markets, list):
+            markets: List[Dict[str, Any]] = []
+            try:
+                payload = _http_get_json(
+                    self.session,
+                    markets_url,
+                    params={"slug": slug, "limit": 5, "offset": 0},
+                    timeout_sec=self.timeout_sec,
+                    max_retries=self.max_retries,
+                )
+                markets = _extract_markets_list(payload)
+            except (requests.RequestException, ValueError):
+                markets = []
+            if not markets:
+                try:
+                    event_payload = _http_get_json(
+                        self.session,
+                        events_url,
+                        params={"slug": slug},
+                        timeout_sec=self.timeout_sec,
+                        max_retries=self.max_retries,
+                    )
+                    markets = _extract_markets_from_event_payload(event_payload)
+                except (requests.RequestException, ValueError):
+                    markets = []
+            if not markets:
                 continue
             for market in markets:
-                if not isinstance(market, dict):
-                    continue
                 if not self._market_fee_enabled(market):
                     continue
                 raw_ids = _parse_json_list(first_non_none(market.get("clobTokenIds"), market.get("clob_token_ids")))

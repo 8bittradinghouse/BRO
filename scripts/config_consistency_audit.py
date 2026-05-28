@@ -25,7 +25,6 @@ CRITICAL_PATHS: Tuple[str, ...] = (
     "taker.execution_cutoff_sec",
     "taker.late_fire_priority_band_sec",
     "taker.allow_without_expiry_metadata",
-    "taker.require_lag_verification",
     "doctrine.mode",
     "doctrine.oracle_max_tick_age_sec",
     "doctrine.min_observe_cycles_on_entry",

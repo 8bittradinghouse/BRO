@@ -5,7 +5,7 @@ set -euo pipefail
 # 1) image rebuild (default; --no-build is non-canonical fast path)
 # 2) hard stop
 # 3) clear local state/guard artifacts
-# 4) start maker+guardian
+# 4) start maker, wait for actual health, then start guardian
 # 5) print active run manifest identity
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -387,13 +387,60 @@ docker compose down
 echo "[deploy] clearing state and guard artifacts..."
 rm -f "${STATE_PATH}" "${GUARD_STOP_PATH}"
 
-echo "[deploy] starting stack..."
+echo "[deploy] starting maker..."
 BRO_CANONICAL_SESSION_CALL=1 \
 BRO_CANONICAL_SESSION_TOKEN="${BRO_CANONICAL_SESSION_TOKEN}" \
 BRO_CANONICAL_SESSION_CONTEXT_FILE="${BRO_CANONICAL_SESSION_CONTEXT_FILE_CONTAINER}" \
 BRO_RUN_ID="${RUN_ID}" \
 BRO_DOCKER_IMAGE_HASH="${BRO_DOCKER_IMAGE_HASH}" \
-docker compose up -d bro-maker bro-guardian
+docker compose up -d bro-maker
+
+MAKER_HEALTH_TIMEOUT_SEC="$("${PY_BIN}" - <<'PY' "${WAIT_SEC}"
+import sys
+try:
+    wait = float(sys.argv[1])
+except (TypeError, ValueError):
+    wait = 25.0
+print(int(max(240.0, wait + 180.0)))
+PY
+)"
+
+echo "[deploy] waiting for bro-maker health (timeout=${MAKER_HEALTH_TIMEOUT_SEC}s)..."
+MAKER_HEALTH_DEADLINE=$(( $(date +%s) + MAKER_HEALTH_TIMEOUT_SEC ))
+while true; do
+  MAKER_CID="$(docker compose ps -q bro-maker 2>/dev/null || true)"
+  if [[ -z "${MAKER_CID}" ]]; then
+    echo "deploy_maker_container_missing" >&2
+    docker compose ps >&2 || true
+    exit 1
+  fi
+  MAKER_HEALTH_STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "${MAKER_CID}" 2>/dev/null || true)"
+  MAKER_RUNTIME_STATUS="$(docker inspect --format '{{.State.Status}}' "${MAKER_CID}" 2>/dev/null || true)"
+  if [[ "${MAKER_HEALTH_STATUS}" == "healthy" ]]; then
+    break
+  fi
+  if [[ "${MAKER_RUNTIME_STATUS}" == "exited" || "${MAKER_RUNTIME_STATUS}" == "dead" ]]; then
+    echo "deploy_maker_runtime_not_running:${MAKER_RUNTIME_STATUS}" >&2
+    docker logs --tail 200 "${MAKER_CID}" >&2 || true
+    exit 1
+  fi
+  NOW_EPOCH="$(date +%s)"
+  if (( NOW_EPOCH >= MAKER_HEALTH_DEADLINE )); then
+    echo "deploy_maker_health_timeout:${MAKER_HEALTH_STATUS:-unknown}" >&2
+    docker compose ps >&2 || true
+    docker logs --tail 200 "${MAKER_CID}" >&2 || true
+    exit 1
+  fi
+  sleep 5
+done
+
+echo "[deploy] starting guardian..."
+BRO_CANONICAL_SESSION_CALL=1 \
+BRO_CANONICAL_SESSION_TOKEN="${BRO_CANONICAL_SESSION_TOKEN}" \
+BRO_CANONICAL_SESSION_CONTEXT_FILE="${BRO_CANONICAL_SESSION_CONTEXT_FILE_CONTAINER}" \
+BRO_RUN_ID="${RUN_ID}" \
+BRO_DOCKER_IMAGE_HASH="${BRO_DOCKER_IMAGE_HASH}" \
+docker compose up -d bro-guardian
 
 echo "[deploy] waiting ${WAIT_SEC}s for health..."
 sleep "${WAIT_SEC}"

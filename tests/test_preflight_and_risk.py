@@ -7,6 +7,7 @@ from pathlib import Path
 
 from prodesk.common import utc_iso
 from prodesk.config import DEFAULT_EXECUTION_CONFIG
+from prodesk.money_math import FeeAuthority, estimate_fill_economics
 from prodesk.models import BookTop, FillEvent, LiveOrder, OrderIntent, Position
 from prodesk.preflight import run_preflight_checks
 from prodesk.risk import RiskEngine
@@ -164,6 +165,53 @@ class PreflightAndRiskTests(unittest.TestCase):
         total_pnl, pnl_by_token = risk.mark_to_market({})
         self.assertAlmostEqual(total_pnl, 2.0, places=9)
         self.assertAlmostEqual(float(pnl_by_token.get("t1", 0.0)), 2.0, places=9)
+
+    def test_mark_to_market_counts_only_cash_adjustments_not_execution_attribution(self):
+        cfg = self._risk_cfg()
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        risk.on_fill(
+            FillEvent(
+                trade_id="x1",
+                token_id="t1",
+                side="BUY",
+                price=0.5,
+                size=10,
+                ts_utc="2026-01-01T00:00:00Z",
+                taker_fee_usd=0.1,
+                maker_rebate_usd=0.0,
+                slippage_cost_usd=1.25,
+                adverse_selection_cost_usd=2.5,
+            )
+        )
+        total_pnl, pnl_by_token = risk.mark_to_market({"t1": 0.5})
+        self.assertAlmostEqual(total_pnl, -0.1, places=9)
+        self.assertAlmostEqual(float(pnl_by_token.get("t1", 0.0)), -0.1, places=9)
+        economics = risk.economic_adjustment_summary()
+        self.assertAlmostEqual(float(economics.get("taker_fee_usd", 0.0)), 0.1, places=9)
+        self.assertAlmostEqual(float(economics.get("slippage_cost_usd", 0.0)), 1.25, places=9)
+        self.assertAlmostEqual(float(economics.get("adverse_selection_cost_usd", 0.0)), 2.5, places=9)
+        self.assertAlmostEqual(float(economics.get("net_cash_adjustment_usd", 0.0)), -0.1, places=9)
+
+    def test_estimate_fill_economics_uses_share_based_taker_fee_and_zero_maker_cash_rebate(self):
+        economics = estimate_fill_economics(
+            side="BUY",
+            price=0.99,
+            size_shares=100.0,
+            is_taker=True,
+            reference_midpoint=0.99,
+            fee_authority=FeeAuthority(
+                fee_authority_source="unit_test",
+                fee_category="crypto",
+                fees_enabled=True,
+                authoritative=True,
+                taker_fee_curve_rate=0.07,
+            ),
+            taker_slippage_bps=0.0,
+            adverse_selection_bps=0.0,
+        )
+        self.assertAlmostEqual(economics.taker_fee_usd, 0.0693, places=9)
+        self.assertAlmostEqual(economics.maker_rebate_usd, 0.0, places=9)
 
     def test_mark_to_market_tracks_missing_mid_skip_by_exposure_class(self):
         cfg = self._risk_cfg()
@@ -487,6 +535,32 @@ class PreflightAndRiskTests(unittest.TestCase):
             places=9,
         )
         self.assertEqual(str(allowed_taker.basis.get("min_sec_to_expiry_for_new_exposure_source") or ""), "lane_override")
+
+    def test_validate_order_allows_new_exposure_at_exact_expiry_floor(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
+        cfg["max_book_age_sec"] = 5.0
+        cfg["min_sec_to_expiry_for_new_exposure"] = 8.0
+        positions = {"t1": Position(token_id="t1")}
+        risk = RiskEngine(cfg, positions)
+        top = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.49,
+            best_bid_size=100,
+            best_ask_price=0.51,
+            best_ask_size=100,
+        )
+        from prodesk.models import OrderIntent
+
+        allowed = risk.validate_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.5, size=1.0),
+            top=top,
+            open_orders_for_token=[],
+            open_orders_total=0,
+            risk_context={"submission_lane": "maker", "stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 8.0},
+        )
+        self.assertTrue(allowed.allowed)
 
     def test_validate_order_requires_sec_to_expiry_when_lifecycle_context_enforced(self):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)["risk"]
@@ -919,7 +993,7 @@ class PreflightAndRiskTests(unittest.TestCase):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
-        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+        cfg["global_exposure_guard"]["max_global_capital_usd"] = 30.0
         positions = {
             "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
             "t2": Position(token_id="t2"),
@@ -958,13 +1032,16 @@ class PreflightAndRiskTests(unittest.TestCase):
         self.assertEqual(decision.reason, "global_exposure_cap")
         self.assertIsInstance(decision.basis, dict)
         guard = decision.basis.get("global_exposure_guard") if isinstance(decision.basis, dict) else {}
-        self.assertGreater(float(guard.get("projected_total_notional", 0.0)), float(guard.get("effective_cap_usd", 0.0)))
+        self.assertGreater(
+            float(guard.get("projected_total_capital_usd", 0.0)),
+            float(guard.get("effective_cap_usd", 0.0)),
+        )
 
     def test_wallet_guardian_order_law_snapshot_reports_global_exposure(self):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
-        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+        cfg["global_exposure_guard"]["max_global_capital_usd"] = 30.0
         positions = {
             "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
             "t2": Position(token_id="t2"),
@@ -995,8 +1072,8 @@ class PreflightAndRiskTests(unittest.TestCase):
         cfg = self._risk_cfg()
         cfg["max_book_age_sec"] = 5.0
         cfg["global_exposure_guard"]["enabled"] = True
-        cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
-        cfg["global_exposure_guard"]["taker_reserved_notional_usd"] = 5.0
+        cfg["global_exposure_guard"]["max_global_capital_usd"] = 30.0
+        cfg["global_exposure_guard"]["taker_reserved_capital_usd"] = 5.0
         positions = {
             "t1": Position(token_id="t1", net_shares=40.0, buy_shares=40.0, bought_notional=20.0),
         }

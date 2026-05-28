@@ -665,7 +665,9 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             "gas_reserve_policy",
             "stable_balance_total",
             "protected_reserve",
-            "open_reserved",
+            "reservation_locked_usdc",
+            "position_liability_locked_usdc",
+            "locked_total_usdc",
             "deployable_capital",
             "approval_ok",
             "nonce_ok",
@@ -903,6 +905,41 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         self.assertEqual(float(after["pending_lock_usdc"]), 0.0)
         self.assertGreater(float(after["order_lock_usdc"]), 0.0)
 
+    def test_wallet_short_fill_converts_order_lock_to_position_liability_lock(self) -> None:
+        wallet = PaperWalletDoctrine(
+            {
+                "paper_starting_usdc": 100.0,
+                "paper_allowance_usdc": 100.0,
+                "require_allowance": True,
+                "nonce_authority": "tx_manager",
+            },
+            mode="paper",
+        )
+        wallet.register_nonce_authority("tx_manager")
+        self._register_local_lifecycle_provider(wallet)
+        auth = wallet.authorize_intent(OrderIntent(token_id="tok", side="SELL", price=0.35, size=10.0))
+        self.assertTrue(auth.allowed)
+        self.assertTrue(wallet.confirm_submission(lock_id=auth.lock_id, order_id="ord-1", order_open=True))
+        before_fill = wallet.status()
+        self.assertAlmostEqual(float(before_fill["order_lock_usdc"]), 10.0, places=9)
+        self.assertAlmostEqual(float(before_fill["position_liability_locked_usdc"]), 0.0, places=9)
+        wallet.on_fill(
+            FillEvent(
+                trade_id="fill-1",
+                order_id="ord-1",
+                token_id="tok",
+                side="SELL",
+                price=0.35,
+                size=10.0,
+                ts_utc="2026-03-14T00:00:01.000Z",
+                reserved_capital_release_usd=10.0,
+            )
+        )
+        after_fill = wallet.status()
+        self.assertAlmostEqual(float(after_fill["order_lock_usdc"]), 0.0, places=9)
+        self.assertAlmostEqual(float(after_fill["position_liability_locked_usdc"]), 10.0, places=9)
+        self.assertAlmostEqual(float(after_fill["deployable_usdc"]), 93.5, places=9)
+
     def test_wallet_startup_barrier_blocks_authorization_until_authoritative_refresh_ready(self) -> None:
         wallet = PaperWalletDoctrine(
             {
@@ -945,7 +982,7 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
                     "global_exposure_guard": {
                         "enabled": True,
                         "within_cap": False,
-                        "projected_total_notional": 45.0,
+                        "projected_total_capital_usd": 45.0,
                         "effective_cap_usd": 30.0,
                     }
                 }
@@ -1140,7 +1177,7 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
         status = wallet.status()
         self.assertEqual(float(status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
         self.assertEqual(float(status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
-        self.assertEqual(float(status.get("locked_usdc", 0.0) or 0.0), 0.0)
+        self.assertEqual(float(status.get("locked_total_usdc", 0.0) or 0.0), 0.0)
 
     def test_wallet_reservation_mismatch_invariant_surfaces_defect_candidate(self) -> None:
         wallet = PaperWalletDoctrine(
@@ -1171,11 +1208,15 @@ class WalletDoctrineBoundaryTests(unittest.TestCase):
             result = wallet.reconcile(pre_execution=True)
         self.assertTrue(result.healthy)
         status = wallet.status()
+        self.assertTrue(bool(status.get("reservation_mismatch_evaluable", False)))
+        self.assertEqual(str(status.get("reservation_mismatch_semantics") or ""), "reservation_plus_position_liability")
         self.assertTrue(bool(status.get("reservation_mismatch_candidate", False)))
         self.assertAlmostEqual(float(status.get("reservation_mismatch_delta_usdc", 0.0) or 0.0), 2.5, places=9)
         self.assertIn("exposed_locked_usdc=", str(status.get("reservation_mismatch_detail") or ""))
 
         contract = wallet.status_contract()
+        self.assertTrue(bool(contract.get("reservation_mismatch_evaluable", False)))
+        self.assertEqual(str(contract.get("reservation_mismatch_semantics") or ""), "reservation_plus_position_liability")
         self.assertTrue(bool(contract.get("reservation_mismatch_candidate", False)))
         self.assertAlmostEqual(float(contract.get("reservation_mismatch_delta_usdc", 0.0) or 0.0), 2.5, places=9)
         mismatch_events = [payload for event_type, payload in emitted if event_type == "wallet_reservation_mismatch_candidate"]

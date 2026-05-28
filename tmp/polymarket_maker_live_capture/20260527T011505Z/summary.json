@@ -1,0 +1,25 @@
+{
+  "captured_at_unix": 1779844505,
+  "captured_at_utc": "2026-05-27T01:15:05Z",
+  "market_slug": "btc-updown-5m-1779844200",
+  "question": "Bitcoin Up or Down - May 26, 9:10PM-9:15PM ET",
+  "window_start_unix": 1779844200,
+  "window_end_unix": 1779844500,
+  "condition_id": "0x7f6576222a658b8e035e627ea2aed71e798d3b1206799a3136f2e25034c42064",
+  "token_ids": [
+    "95013403308488943377779607832505022895768933439944912145412960461095177651015",
+    "114673752956374091015115657259108160404340942265666074209054395161997240798758"
+  ],
+  "best_bid": 0.5,
+  "best_ask": 0.51,
+  "minimum_tick_size": 0.01,
+  "minimum_order_size": 5,
+  "accepting_orders": true,
+  "rewards_min_size": 50,
+  "rewards_max_spread": 4.5,
+  "outcome_prices": [
+    "0.655",
+    "0.345"
+  ],
+  "vol_num": 26.960783
+}

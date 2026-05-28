@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import yaml
 
 from .common import parse_float, parse_ts
+from .money_math import FEE_CATEGORY_RATE_BY_NAME
 from .paths import normalize_execution_paths
 from .taker_competitiveness import build_taker_competitiveness_policy
 from .wallet.wallet_truth_policy import (
@@ -146,24 +147,10 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
     },
     "latency_verifier": {
         "enabled": True,
-        "require_armed_for_maker": True,
-        "require_armed_for_taker": True,
         "window_samples": 400,
-        "min_samples": 80,
         "hit_threshold_ms": 120.0,
-        "armed_min_median_ms": 120.0,
-        "armed_min_hit_rate": 0.6,
-        "probation_min_median_ms": 80.0,
-        "probation_min_hit_rate": 0.45,
-        "arm_consecutive_cycles": 2,
-        "disarm_consecutive_cycles": 2,
         "log_sample_events": False,
         "max_sample_lag_ms": 20000.0,
-        "score_enabled": True,
-        "score_min_for_maker": 0.35,
-        "score_min_for_taker": 0.60,
-        "score_size_floor": 0.35,
-        "score_size_ceiling": 1.25,
         "drift_window_samples": 80,
         "drift_max_median_drop_ms": 40.0,
         "drift_max_hit_rate_drop": 0.20,
@@ -201,15 +188,17 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "taker_min_fill_ratio": 0.5,
             "require_secondary_oracle_confirmation": True,
             "cannon_target_notional_usd": 350.0,
-            "max_same_target_submit_count_prior": 1,
-            "max_same_target_side_submit_count_prior": 1,
+            "max_same_target_submit_count_prior": 0,
+            "max_same_target_side_submit_count_prior": 0,
             "replacement_margin": 0.0,
             "replacement_dwell_sec": 0.0,
             "ownership_fail_dwell_sec": 0.0,
         },
         "phase": {
             "maker_window_open_sec": 15.0,
+            "maker_window_close_sec": 7.0,
             "taker_window_open_sec": 7.0,
+            "taker_window_close_sec": 0.0,
         },
         "lane_gates": {
             "maker": {
@@ -222,6 +211,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "requote_delta_mult_min": 0.50,
                 "one_sided_enabled": False,
                 "one_sided_edge_threshold_abs": 0.18,
+                "regime_filter_enabled": False,
+                "allowed_session_regime_classes": [],
             },
             "taker": {
                 "final_window_enabled": True,
@@ -229,6 +220,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
                 "aggressive_window_sec": 7.0,
                 "multi_oracle_boost_enabled": False,
                 "multi_oracle_boost_window_sec": 7.0,
+                "regime_filter_enabled": False,
+                "allowed_session_regime_classes": [],
             },
         },
     },
@@ -249,12 +242,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "cancel_orphan_action_budget": 12,
         "order_rate_soft_limit_pct": 1.0,
         "cancel_rate_soft_limit_pct": 1.0,
-        "require_lag_verification": True,
-        "lag_window_samples": 300,
-        "lag_min_samples": 80,
-        "lag_hit_threshold_ms": 120.0,
-        "lag_min_median_ms": 120.0,
-        "lag_min_hit_rate": 0.6,
         "max_chainlink_tick_age_sec": 1.5,
         "fair_vol_scale": 1.0,
         "min_edge": 0.015,
@@ -286,7 +273,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
             "multi_oracle_target_usd_cap": 350.0,
             "multi_oracle_capital_pct_cap": 0.18,
             "normal_side_policy": "buy_expected_winner_only",
-            "allow_complement_buy_route": True,
             "min_visible_fill_ratio": 0.5,
         },
     },
@@ -395,6 +381,7 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "min_sec_to_expiry_for_new_exposure": 15.0,
         "min_sec_to_expiry_for_new_exposure_by_lane": {
             "maker": 7.0,
+            "taker": 0.0,
         },
         "one_sided_quote_max_age_sec": 6.0,
         "last_known_mid_max_age_sec": 6.0,
@@ -429,7 +416,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         },
         "global_exposure_guard": {
             "enabled": False,
-            "max_global_notional_usd": 800.0,
+            "max_global_capital_usd": 800.0,
+            "taker_reserved_capital_usd": 0.0,
             "near_cap_ratio": 0.85,
         },
     },
@@ -449,21 +437,18 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "guardian_hook_file": "",
         "warn_thresholds": {
             "stale_reject_ratio": 0.20,
-            "disarmed_ratio": 0.40,
             "error_ratio": 0.10,
             "reconcile_mismatch_ratio": 0.03,
             "mode_transitions_window": 6,
         },
         "page_thresholds": {
             "stale_reject_ratio": 0.35,
-            "disarmed_ratio": 0.60,
             "error_ratio": 0.20,
             "reconcile_mismatch_ratio": 0.05,
             "mode_transitions_window": 10,
         },
         "auto_stop_thresholds": {
             "stale_reject_ratio": 0.50,
-            "disarmed_ratio": 0.75,
             "error_ratio": 0.25,
             "reconcile_mismatch_ratio": 0.08,
             "mode_transitions_window": 16,
@@ -525,7 +510,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "evaluation_window_cycles": 200,
         "downshift_reject_ratio": 0.35,
         "downshift_stale_oracle_ratio": 0.25,
-        "downshift_disarmed_ratio": 0.60,
         "downshift_reconcile_mismatch_ratio": 0.05,
         "reconcile_status_path": "",
         "disable_taker_on_breach": True,
@@ -537,8 +521,6 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "maker_only_stale_reject_ratio": 0.55,
         "caution_outage_ratio": 0.20,
         "maker_only_outage_ratio": 0.40,
-        "caution_disarmed_ratio": 0.50,
-        "maker_only_disarmed_ratio": 0.75,
         "caution_error_ratio": 0.10,
         "maker_only_error_ratio": 0.25,
         "recover_healthy_cycles": 30,
@@ -555,6 +537,8 @@ DEFAULT_EXECUTION_CONFIG: Dict[str, Any] = {
         "ws_slo_bootstrap_grace_sec": 45.0,
     },
     "simulation": {
+        "fee_category_override": "",
+        "fees_enabled_override": None,
         "maker_rebate_bps": 0.50,
         "taker_fee_curve_rate": 0.0624,
         "taker_slippage_bps": 2.0,
@@ -702,8 +686,9 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
         selection["maker_min_depth_multiple"] = float(
             selection.get("maker_min_depth_multiple", 1.5)
         )
-    selection["taker_min_fill_ratio"] = float(
-        selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))
+    selection["taker_min_fill_ratio"] = max(
+        0.0,
+        float(selection.get("taker_min_fill_ratio", taker_comp.get("min_visible_fill_ratio", 0.5))),
     )
     selection["require_secondary_oracle_confirmation"] = bool(
         selection.get("require_secondary_oracle_confirmation", True)
@@ -712,10 +697,10 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
         selection.get("cannon_target_notional_usd", 350.0)
     )
     selection["max_same_target_submit_count_prior"] = int(
-        float(selection.get("max_same_target_submit_count_prior", 1))
+        float(selection.get("max_same_target_submit_count_prior", 0))
     )
     selection["max_same_target_side_submit_count_prior"] = int(
-        float(selection.get("max_same_target_side_submit_count_prior", 1))
+        float(selection.get("max_same_target_side_submit_count_prior", 0))
     )
     selection["replacement_margin"] = float(selection.get("replacement_margin", 0.0))
     selection["replacement_dwell_sec"] = float(selection.get("replacement_dwell_sec", 0.0))
@@ -729,6 +714,12 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
             "taker_window_open_sec",
             taker_comp.get("final_window_sec", 7.0),
         )
+    )
+    phase["maker_window_close_sec"] = float(
+        phase.get("maker_window_close_sec", phase["taker_window_open_sec"])
+    )
+    phase["taker_window_close_sec"] = float(
+        phase.get("taker_window_close_sec", 0.0)
     )
 
     maker_lane["timing_gate_enabled"] = bool(maker_lane.get("timing_gate_enabled", False))
@@ -752,6 +743,17 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
     maker_lane["one_sided_edge_threshold_abs"] = float(
         maker_lane.get("one_sided_edge_threshold_abs", 0.18)
     )
+    maker_lane["regime_filter_enabled"] = bool(
+        maker_lane.get("regime_filter_enabled", False)
+    )
+    raw_maker_allowed_regimes = maker_lane.get("allowed_session_regime_classes", [])
+    if not isinstance(raw_maker_allowed_regimes, list):
+        raw_maker_allowed_regimes = list(raw_maker_allowed_regimes or [])
+    maker_lane["allowed_session_regime_classes"] = [
+        str(value).strip().lower()
+        for value in raw_maker_allowed_regimes
+        if str(value).strip()
+    ]
 
     taker_lane["final_window_enabled"] = bool(
         taker_lane.get("final_window_enabled", taker_comp.get("final_window_enabled", True))
@@ -771,8 +773,20 @@ def _normalize_lifecycle_semantics(cfg: Dict[str, Any]) -> None:
             taker_comp.get("multi_oracle_boost_window_sec", phase["taker_window_open_sec"]),
         )
     )
+    taker_lane["regime_filter_enabled"] = bool(
+        taker_lane.get("regime_filter_enabled", False)
+    )
+    raw_taker_allowed_regimes = taker_lane.get("allowed_session_regime_classes", [])
+    if not isinstance(raw_taker_allowed_regimes, list):
+        raw_taker_allowed_regimes = list(raw_taker_allowed_regimes or [])
+    taker_lane["allowed_session_regime_classes"] = [
+        str(value).strip().lower()
+        for value in raw_taker_allowed_regimes
+        if str(value).strip()
+    ]
 
     taker_comp["final_window_sec"] = float(phase["taker_window_open_sec"])
+    taker_comp["final_window_floor_sec"] = float(phase["taker_window_close_sec"])
     taker_comp["aggressive_window_sec"] = float(taker_lane["aggressive_window_sec"])
     taker_comp["multi_oracle_boost_window_sec"] = float(taker_lane["multi_oracle_boost_window_sec"])
 
@@ -785,6 +799,41 @@ def _normalize_doctrine_semantics(cfg: Dict[str, Any]) -> None:
     doctrine["oracle_max_tick_age_sec"] = float(doctrine["oracle_max_tick_age_sec"])
     doctrine["min_observe_cycles_on_entry"] = int(doctrine.get("min_observe_cycles_on_entry", 2))
     doctrine["min_observe_seconds_on_entry"] = float(doctrine.get("min_observe_seconds_on_entry", 2.0))
+
+
+def _normalize_money_semantics(cfg: Dict[str, Any]) -> None:
+    risk_cfg = cfg.get("risk")
+    if isinstance(risk_cfg, dict):
+        global_guard = risk_cfg.get("global_exposure_guard")
+        if isinstance(global_guard, dict):
+            if "max_global_capital_usd" not in global_guard and "max_global_notional_usd" in global_guard:
+                global_guard["max_global_capital_usd"] = global_guard.get("max_global_notional_usd")
+            global_guard.pop("max_global_notional_usd", None)
+            if "taker_reserved_capital_usd" not in global_guard and "taker_reserved_notional_usd" in global_guard:
+                global_guard["taker_reserved_capital_usd"] = global_guard.get("taker_reserved_notional_usd")
+            global_guard.pop("taker_reserved_notional_usd", None)
+
+    simulation_cfg = cfg.get("simulation")
+    if isinstance(simulation_cfg, dict):
+        simulation_cfg["fee_category_override"] = str(
+            simulation_cfg.get("fee_category_override", "") or ""
+        ).strip().lower()
+        fees_enabled_override = simulation_cfg.get("fees_enabled_override")
+        if isinstance(fees_enabled_override, bool) or fees_enabled_override is None:
+            pass
+        elif isinstance(fees_enabled_override, str):
+            text = fees_enabled_override.strip().lower()
+            if text in {"true", "1", "yes", "y", "on"}:
+                simulation_cfg["fees_enabled_override"] = True
+            elif text in {"false", "0", "no", "n", "off"}:
+                simulation_cfg["fees_enabled_override"] = False
+            elif not text:
+                simulation_cfg["fees_enabled_override"] = None
+        elif isinstance(fees_enabled_override, (int, float)):
+            if float(fees_enabled_override) == 1.0:
+                simulation_cfg["fees_enabled_override"] = True
+            elif float(fees_enabled_override) == 0.0:
+                simulation_cfg["fees_enabled_override"] = False
 
 
 def _reject_retired_lifecycle_stage_surfaces(cfg: Dict[str, Any]) -> None:
@@ -829,6 +878,51 @@ def _reject_retired_lifecycle_stage_surfaces(cfg: Dict[str, Any]) -> None:
         raise ValueError(
             "taker.competitiveness.stage_priority_enabled is retired for current configs"
         )
+
+
+def _reject_retired_latency_authority_surfaces(cfg: Dict[str, Any]) -> None:
+    latency_cfg = cfg.get("latency_verifier") or {}
+    if isinstance(latency_cfg, dict):
+        retired_latency_keys = (
+            "aggregate_signal_min_samples",
+            "aggregate_signal_min_median_ms",
+            "aggregate_signal_min_hit_rate",
+            "maker_token_readiness_min_samples",
+            "maker_token_readiness_min_signal_median_ms",
+            "maker_token_readiness_min_signal_hit_rate",
+            "taker_token_readiness_min_samples",
+            "taker_token_readiness_min_signal_median_ms",
+            "taker_token_readiness_min_signal_hit_rate",
+        )
+        present_latency_keys = [key for key in retired_latency_keys if key in latency_cfg]
+        if present_latency_keys:
+            raise ValueError(
+                "latency_verifier contains retired latency-authority fields: "
+                + ",".join(present_latency_keys)
+            )
+    alerts_cfg = cfg.get("alerts") or {}
+    if isinstance(alerts_cfg, dict):
+        for threshold_label in ("warn_thresholds", "page_thresholds", "auto_stop_thresholds"):
+            threshold_cfg = alerts_cfg.get(threshold_label) or {}
+            if isinstance(threshold_cfg, dict) and "signal_degraded_ratio" in threshold_cfg:
+                raise ValueError(
+                    f"alerts.{threshold_label}.signal_degraded_ratio is retired for current configs"
+                )
+    ramp_cfg = cfg.get("ramp") or {}
+    if isinstance(ramp_cfg, dict) and "downshift_signal_degraded_ratio" in ramp_cfg:
+        raise ValueError("ramp.downshift_signal_degraded_ratio is retired for current configs")
+    operating_mode_cfg = cfg.get("operating_mode") or {}
+    if isinstance(operating_mode_cfg, dict):
+        retired_mode_keys = [
+            key
+            for key in ("caution_signal_degraded_ratio", "maker_only_signal_degraded_ratio")
+            if key in operating_mode_cfg
+        ]
+        if retired_mode_keys:
+            raise ValueError(
+                "operating_mode contains retired latency-authority fields: "
+                + ",".join(retired_mode_keys)
+            )
 
 
 def _raw_has_path(raw: Dict[str, Any], path: Tuple[str, ...]) -> bool:
@@ -909,6 +1003,7 @@ def extract_config_compatibility_metadata(cfg: Dict[str, Any]) -> Dict[str, Any]
 def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     raw, source_paths = _load_raw_with_extends(path)
     _reject_retired_lifecycle_stage_surfaces(raw)
+    _reject_retired_latency_authority_surfaces(raw)
     explicit_doctrine_oracle = _raw_has_path(raw, ("doctrine", "oracle_max_tick_age_sec"))
     explicit_taker_oracle = _raw_has_path(raw, ("taker", "max_chainlink_tick_age_sec"))
     removed_compatibility_surfaces: List[Tuple[str, str, Tuple[str, ...]]] = [
@@ -979,6 +1074,7 @@ def load_execution_config(path: pathlib.Path) -> Dict[str, Any]:
     _normalize_taker_semantics(cfg)
     _normalize_lifecycle_semantics(cfg)
     _normalize_doctrine_semantics(cfg)
+    _normalize_money_semantics(cfg)
     _apply_asset_profile(cfg)
     # Hash before runtime path normalization so setup-lock fingerprint is stable
     # across host and docker execution environments.
@@ -1071,12 +1167,14 @@ def _require_fraction(name: str, value: Any, *, allow_zero: bool = False) -> flo
 
 def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _reject_retired_lifecycle_stage_surfaces(cfg)
+    _reject_retired_latency_authority_surfaces(cfg)
     taker_comp_cfg_pre = ((cfg.get("taker") or {}).get("competitiveness") or {})
     if isinstance(taker_comp_cfg_pre, dict):
         build_taker_competitiveness_policy(taker_comp_cfg_pre, strict=True)
     _normalize_taker_semantics(cfg)
     _normalize_lifecycle_semantics(cfg)
     _normalize_doctrine_semantics(cfg)
+    _normalize_money_semantics(cfg)
 
     bot_name = str(cfg.get("bot_name", "")).strip()
     if not bot_name:
@@ -1225,11 +1323,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("taker.cancel_orphan_action_budget", cfg["taker"]["cancel_orphan_action_budget"])
     _require_fraction("taker.order_rate_soft_limit_pct", cfg["taker"]["order_rate_soft_limit_pct"])
     _require_fraction("taker.cancel_rate_soft_limit_pct", cfg["taker"]["cancel_rate_soft_limit_pct"])
-    _require_positive("taker.lag_window_samples", cfg["taker"]["lag_window_samples"])
-    _require_positive("taker.lag_min_samples", cfg["taker"]["lag_min_samples"])
-    _require_positive("taker.lag_hit_threshold_ms", cfg["taker"]["lag_hit_threshold_ms"])
-    _require_positive("taker.lag_min_median_ms", cfg["taker"]["lag_min_median_ms"])
-    _require_fraction("taker.lag_min_hit_rate", cfg["taker"]["lag_min_hit_rate"])
     _require_positive("taker.max_chainlink_tick_age_sec", cfg["taker"]["max_chainlink_tick_age_sec"])
     _require_positive("doctrine.oracle_max_tick_age_sec", cfg["doctrine"]["oracle_max_tick_age_sec"])
     _require_positive(
@@ -1312,34 +1405,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_positive("chainlink.mid_move_min_delta", cfg["chainlink"]["mid_move_min_delta"])
     _require_positive("chainlink.max_queue_size", cfg["chainlink"]["max_queue_size"])
     _require_positive("latency_verifier.window_samples", cfg["latency_verifier"]["window_samples"])
-    _require_positive("latency_verifier.min_samples", cfg["latency_verifier"]["min_samples"])
     _require_positive("latency_verifier.hit_threshold_ms", cfg["latency_verifier"]["hit_threshold_ms"])
-    _require_positive("latency_verifier.armed_min_median_ms", cfg["latency_verifier"]["armed_min_median_ms"])
-    _require_fraction("latency_verifier.armed_min_hit_rate", cfg["latency_verifier"]["armed_min_hit_rate"])
-    _require_positive(
-        "latency_verifier.probation_min_median_ms",
-        cfg["latency_verifier"]["probation_min_median_ms"],
-    )
-    _require_fraction(
-        "latency_verifier.probation_min_hit_rate",
-        cfg["latency_verifier"]["probation_min_hit_rate"],
-    )
-    _require_positive(
-        "latency_verifier.arm_consecutive_cycles",
-        cfg["latency_verifier"]["arm_consecutive_cycles"],
-    )
-    _require_positive(
-        "latency_verifier.disarm_consecutive_cycles",
-        cfg["latency_verifier"]["disarm_consecutive_cycles"],
-    )
     _require_positive(
         "latency_verifier.max_sample_lag_ms",
         cfg["latency_verifier"]["max_sample_lag_ms"],
     )
-    _require_fraction("latency_verifier.score_min_for_maker", cfg["latency_verifier"]["score_min_for_maker"])
-    _require_fraction("latency_verifier.score_min_for_taker", cfg["latency_verifier"]["score_min_for_taker"])
-    _require_positive("latency_verifier.score_size_floor", cfg["latency_verifier"]["score_size_floor"])
-    _require_positive("latency_verifier.score_size_ceiling", cfg["latency_verifier"]["score_size_ceiling"])
     _require_positive("latency_verifier.drift_window_samples", cfg["latency_verifier"]["drift_window_samples"])
     _require_positive(
         "latency_verifier.drift_max_median_drop_ms",
@@ -1503,6 +1573,9 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     maker_min_sec_to_expiry_for_new_exposure = float(
         min_sec_to_expiry_for_new_exposure_by_lane.get("maker", min_sec_to_expiry_for_new_exposure) or 0.0
     )
+    taker_min_sec_to_expiry_for_new_exposure = float(
+        min_sec_to_expiry_for_new_exposure_by_lane.get("taker", min_sec_to_expiry_for_new_exposure) or 0.0
+    )
     runtime_expiry_boundary_epsilon_sec = float(cfg["runtime"].get("expiry_boundary_epsilon_sec", 0.0) or 0.0)
     dust_shares_epsilon = float(cfg["risk"].get("position_dust_shares_epsilon", 0.0) or 0.0)
     dust_notional_usd_epsilon = float(cfg["risk"].get("position_dust_notional_usd_epsilon", 0.0) or 0.0)
@@ -1577,12 +1650,12 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     if not isinstance(risk_global_guard_cfg, dict):
         raise ValueError("risk.global_exposure_guard must be a mapping")
     _require_positive(
-        "risk.global_exposure_guard.max_global_notional_usd",
-        risk_global_guard_cfg.get("max_global_notional_usd"),
+        "risk.global_exposure_guard.max_global_capital_usd",
+        risk_global_guard_cfg.get("max_global_capital_usd"),
     )
     _require_positive(
-        "risk.global_exposure_guard.taker_reserved_notional_usd",
-        risk_global_guard_cfg.get("taker_reserved_notional_usd", 0.0),
+        "risk.global_exposure_guard.taker_reserved_capital_usd",
+        risk_global_guard_cfg.get("taker_reserved_capital_usd", 0.0),
         allow_zero=True,
     )
     _require_fraction(
@@ -1606,8 +1679,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     _require_fraction("operating_mode.maker_only_stale_reject_ratio", cfg["operating_mode"]["maker_only_stale_reject_ratio"])
     _require_fraction("operating_mode.caution_outage_ratio", cfg["operating_mode"]["caution_outage_ratio"])
     _require_fraction("operating_mode.maker_only_outage_ratio", cfg["operating_mode"]["maker_only_outage_ratio"])
-    _require_fraction("operating_mode.caution_disarmed_ratio", cfg["operating_mode"]["caution_disarmed_ratio"])
-    _require_fraction("operating_mode.maker_only_disarmed_ratio", cfg["operating_mode"]["maker_only_disarmed_ratio"])
     _require_fraction("operating_mode.caution_error_ratio", cfg["operating_mode"]["caution_error_ratio"])
     _require_fraction("operating_mode.maker_only_error_ratio", cfg["operating_mode"]["maker_only_error_ratio"])
     _require_positive("operating_mode.recover_healthy_cycles", cfg["operating_mode"]["recover_healthy_cycles"])
@@ -1638,13 +1709,21 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         "ramp.downshift_stale_oracle_ratio",
         cfg["ramp"].get("downshift_stale_oracle_ratio", cfg["ramp"].get("downshift_stale_ratio")),
     )
-    _require_fraction("ramp.downshift_disarmed_ratio", cfg["ramp"]["downshift_disarmed_ratio"])
     _require_fraction(
         "ramp.downshift_reconcile_mismatch_ratio",
         cfg["ramp"]["downshift_reconcile_mismatch_ratio"],
     )
     _require_positive("simulation.maker_rebate_bps", cfg["simulation"]["maker_rebate_bps"], allow_zero=True)
     _require_positive("simulation.taker_fee_curve_rate", cfg["simulation"]["taker_fee_curve_rate"], allow_zero=True)
+    fee_category_override = str(cfg["simulation"].get("fee_category_override", "") or "").strip().lower()
+    if fee_category_override and fee_category_override not in FEE_CATEGORY_RATE_BY_NAME:
+        raise ValueError(
+            "simulation.fee_category_override must be one of: "
+            + ",".join(sorted(FEE_CATEGORY_RATE_BY_NAME.keys()))
+        )
+    fees_enabled_override = cfg["simulation"].get("fees_enabled_override")
+    if fees_enabled_override is not None and not isinstance(fees_enabled_override, bool):
+        raise ValueError("simulation.fees_enabled_override must be boolean or null")
     _require_positive("simulation.taker_slippage_bps", cfg["simulation"]["taker_slippage_bps"], allow_zero=True)
     _require_positive("simulation.adverse_selection_bps", cfg["simulation"]["adverse_selection_bps"], allow_zero=True)
     _require_positive("strategy.volatility.window_sec", cfg["strategy"]["volatility"]["window_sec"])
@@ -1711,7 +1790,7 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
                 "lifecycle.selection.maker_min_depth_multiple must equal the lower edge of "
                 "lifecycle.selection.maker_min_depth_multiple_band"
             )
-    _require_fraction(
+    _require_positive(
         "lifecycle.selection.taker_min_fill_ratio",
         lifecycle_selection_cfg.get("taker_min_fill_ratio"),
         allow_zero=True,
@@ -1756,15 +1835,34 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         lifecycle_phase_cfg.get("maker_window_open_sec"),
     )
     _require_positive(
+        "lifecycle.phase.maker_window_close_sec",
+        lifecycle_phase_cfg.get("maker_window_close_sec"),
+        allow_zero=True,
+    )
+    _require_positive(
         "lifecycle.phase.taker_window_open_sec",
         lifecycle_phase_cfg.get("taker_window_open_sec"),
         allow_zero=True,
     )
+    _require_positive(
+        "lifecycle.phase.taker_window_close_sec",
+        lifecycle_phase_cfg.get("taker_window_close_sec"),
+        allow_zero=True,
+    )
     maker_window_open_sec = float(lifecycle_phase_cfg.get("maker_window_open_sec", 15.0) or 0.0)
+    maker_window_close_sec = float(
+        lifecycle_phase_cfg.get("maker_window_close_sec", lifecycle_phase_cfg.get("taker_window_open_sec", 7.0))
+        or 0.0
+    )
     taker_window_open_sec = float(lifecycle_phase_cfg.get("taker_window_open_sec", 7.0) or 0.0)
+    taker_window_close_sec = float(lifecycle_phase_cfg.get("taker_window_close_sec", 0.0) or 0.0)
     selection_max_sec_to_expiry = float(lifecycle_selection_cfg.get("max_sec_to_expiry", 0.0) or 0.0)
     if maker_window_open_sec + 1e-9 < taker_window_open_sec:
         raise ValueError("lifecycle.phase.maker_window_open_sec must be >= taker_window_open_sec")
+    if maker_window_close_sec > maker_window_open_sec + 1e-9:
+        raise ValueError("lifecycle.phase.maker_window_close_sec must be <= lifecycle.phase.maker_window_open_sec")
+    if taker_window_close_sec > taker_window_open_sec + 1e-9:
+        raise ValueError("lifecycle.phase.taker_window_close_sec must be <= lifecycle.phase.taker_window_open_sec")
     if (
         selection_max_sec_to_expiry > 0.0
         and selection_max_sec_to_expiry + 1e-9 < maker_window_open_sec
@@ -1779,6 +1877,30 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError(
             "the effective maker new-exposure expiry gate must be <= "
             "lifecycle.phase.maker_window_open_sec"
+        )
+    if (
+        maker_min_sec_to_expiry_for_new_exposure > 0.0
+        and maker_min_sec_to_expiry_for_new_exposure + 1e-9 < maker_window_close_sec
+    ):
+        raise ValueError(
+            "the effective maker new-exposure expiry gate must be >= "
+            "lifecycle.phase.maker_window_close_sec"
+        )
+    if (
+        taker_min_sec_to_expiry_for_new_exposure > 0.0
+        and taker_min_sec_to_expiry_for_new_exposure > (taker_window_open_sec + 1e-9)
+    ):
+        raise ValueError(
+            "the effective taker new-exposure expiry gate must be <= "
+            "lifecycle.phase.taker_window_open_sec"
+        )
+    if (
+        taker_min_sec_to_expiry_for_new_exposure > 0.0
+        and taker_min_sec_to_expiry_for_new_exposure + 1e-9 < taker_window_close_sec
+    ):
+        raise ValueError(
+            "the effective taker new-exposure expiry gate must be >= "
+            "lifecycle.phase.taker_window_close_sec"
         )
     if not isinstance(lifecycle_maker_lane_cfg.get("timing_gate_enabled"), bool):
         raise ValueError("lifecycle.lane_gates.maker.timing_gate_enabled must be boolean")
@@ -1825,12 +1947,40 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         lifecycle_maker_lane_cfg.get("one_sided_edge_threshold_abs"),
         allow_zero=True,
     )
+    if not isinstance(lifecycle_maker_lane_cfg.get("regime_filter_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.maker.regime_filter_enabled must be boolean")
+    maker_allowed_regimes = lifecycle_maker_lane_cfg.get("allowed_session_regime_classes", [])
+    if not isinstance(maker_allowed_regimes, list):
+        raise ValueError("lifecycle.lane_gates.maker.allowed_session_regime_classes must be a list")
+    for value in maker_allowed_regimes:
+        if str(value).strip().lower() not in {
+            "asia_dominant_heuristic",
+            "usa_europe_peak_heuristic",
+            "transition_heuristic",
+        }:
+            raise ValueError(
+                "lifecycle.lane_gates.maker.allowed_session_regime_classes contains an unknown regime class"
+            )
     if not isinstance(lifecycle_taker_lane_cfg.get("final_window_enabled"), bool):
         raise ValueError("lifecycle.lane_gates.taker.final_window_enabled must be boolean")
     if not isinstance(lifecycle_taker_lane_cfg.get("aggressive_window_enabled"), bool):
         raise ValueError("lifecycle.lane_gates.taker.aggressive_window_enabled must be boolean")
     if not isinstance(lifecycle_taker_lane_cfg.get("multi_oracle_boost_enabled"), bool):
         raise ValueError("lifecycle.lane_gates.taker.multi_oracle_boost_enabled must be boolean")
+    if not isinstance(lifecycle_taker_lane_cfg.get("regime_filter_enabled"), bool):
+        raise ValueError("lifecycle.lane_gates.taker.regime_filter_enabled must be boolean")
+    taker_allowed_regimes = lifecycle_taker_lane_cfg.get("allowed_session_regime_classes", [])
+    if not isinstance(taker_allowed_regimes, list):
+        raise ValueError("lifecycle.lane_gates.taker.allowed_session_regime_classes must be a list")
+    for value in taker_allowed_regimes:
+        if str(value).strip().lower() not in {
+            "asia_dominant_heuristic",
+            "usa_europe_peak_heuristic",
+            "transition_heuristic",
+        }:
+            raise ValueError(
+                "lifecycle.lane_gates.taker.allowed_session_regime_classes contains an unknown regime class"
+            )
     _require_positive(
         "lifecycle.lane_gates.taker.aggressive_window_sec",
         lifecycle_taker_lane_cfg.get("aggressive_window_sec"),
@@ -1882,11 +2032,11 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
     risk_global_guard_cfg = cfg["risk"].get("global_exposure_guard", {})
     if not isinstance(risk_global_guard_cfg, dict):
         raise ValueError("risk.global_exposure_guard must be a mapping")
-    max_global_notional_usd = float(risk_global_guard_cfg.get("max_global_notional_usd", 0.0) or 0.0)
-    taker_reserved_notional_usd = float(risk_global_guard_cfg.get("taker_reserved_notional_usd", 0.0) or 0.0)
-    if taker_reserved_notional_usd > max_global_notional_usd:
+    max_global_capital_usd = float(risk_global_guard_cfg.get("max_global_capital_usd", 0.0) or 0.0)
+    taker_reserved_capital_usd = float(risk_global_guard_cfg.get("taker_reserved_capital_usd", 0.0) or 0.0)
+    if taker_reserved_capital_usd > max_global_capital_usd:
         raise ValueError(
-            "risk.global_exposure_guard.taker_reserved_notional_usd must be <= max_global_notional_usd"
+            "risk.global_exposure_guard.taker_reserved_capital_usd must be <= max_global_capital_usd"
         )
     near_cap_ratio = float(risk_global_guard_cfg.get("near_cap_ratio", 0.85) or 0.0)
     if near_cap_ratio > 1.0:
@@ -1946,20 +2096,10 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("taker.execution_cutoff_sec must be <= taker.arming_horizon_sec")
     if cfg["taker"]["late_fire_priority_band_sec"] > cfg["taker"]["execution_cutoff_sec"]:
         raise ValueError("taker.late_fire_priority_band_sec must be <= taker.execution_cutoff_sec")
-    if cfg["latency_verifier"]["probation_min_median_ms"] > cfg["latency_verifier"]["armed_min_median_ms"]:
-        raise ValueError("latency_verifier.probation_min_median_ms must be <= latency_verifier.armed_min_median_ms")
-    if cfg["latency_verifier"]["probation_min_hit_rate"] > cfg["latency_verifier"]["armed_min_hit_rate"]:
-        raise ValueError("latency_verifier.probation_min_hit_rate must be <= latency_verifier.armed_min_hit_rate")
-    if cfg["latency_verifier"]["score_min_for_maker"] > cfg["latency_verifier"]["score_min_for_taker"]:
-        raise ValueError("latency_verifier.score_min_for_maker must be <= latency_verifier.score_min_for_taker")
-    if cfg["latency_verifier"]["score_size_ceiling"] < cfg["latency_verifier"]["score_size_floor"]:
-        raise ValueError("latency_verifier.score_size_ceiling must be >= latency_verifier.score_size_floor")
     if cfg["operating_mode"]["maker_only_stale_reject_ratio"] < cfg["operating_mode"]["caution_stale_reject_ratio"]:
         raise ValueError("operating_mode.maker_only_stale_reject_ratio must be >= operating_mode.caution_stale_reject_ratio")
     if cfg["operating_mode"]["maker_only_outage_ratio"] < cfg["operating_mode"]["caution_outage_ratio"]:
         raise ValueError("operating_mode.maker_only_outage_ratio must be >= operating_mode.caution_outage_ratio")
-    if cfg["operating_mode"]["maker_only_disarmed_ratio"] < cfg["operating_mode"]["caution_disarmed_ratio"]:
-        raise ValueError("operating_mode.maker_only_disarmed_ratio must be >= operating_mode.caution_disarmed_ratio")
     if cfg["operating_mode"]["maker_only_error_ratio"] < cfg["operating_mode"]["caution_error_ratio"]:
         raise ValueError("operating_mode.maker_only_error_ratio must be >= operating_mode.caution_error_ratio")
     if reconnect_backoff_max < reconnect_backoff_initial:
@@ -2358,7 +2498,7 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("alerts.contacts must be a mapping")
     for threshold_label in ("warn_thresholds", "page_thresholds", "auto_stop_thresholds"):
         threshold_cfg = cfg["alerts"][threshold_label]
-        for key in ("stale_reject_ratio", "disarmed_ratio", "error_ratio", "reconcile_mismatch_ratio"):
+        for key in ("stale_reject_ratio", "error_ratio", "reconcile_mismatch_ratio"):
             _require_fraction(f"alerts.{threshold_label}.{key}", threshold_cfg.get(key))
         _require_positive(
             f"alerts.{threshold_label}.mode_transitions_window",
@@ -2379,8 +2519,6 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("taker.allow_without_expiry_metadata must be boolean")
     if not isinstance(cfg["doctrine"]["mode"], str):
         raise ValueError("doctrine.mode must be a string")
-    if not isinstance(cfg["taker"]["require_lag_verification"], bool):
-        raise ValueError("taker.require_lag_verification must be boolean")
     if not isinstance(cfg["taker"]["enabled"], bool):
         raise ValueError("taker.enabled must be boolean")
     taker_comp_cfg = cfg["taker"]["competitiveness"]
@@ -2398,14 +2536,8 @@ def validate_execution_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("taker.competitiveness.multi_oracle_boost_enabled must be boolean")
     if not isinstance(cfg["latency_verifier"]["enabled"], bool):
         raise ValueError("latency_verifier.enabled must be boolean")
-    if not isinstance(cfg["latency_verifier"]["require_armed_for_maker"], bool):
-        raise ValueError("latency_verifier.require_armed_for_maker must be boolean")
-    if not isinstance(cfg["latency_verifier"]["require_armed_for_taker"], bool):
-        raise ValueError("latency_verifier.require_armed_for_taker must be boolean")
     if not isinstance(cfg["latency_verifier"]["log_sample_events"], bool):
         raise ValueError("latency_verifier.log_sample_events must be boolean")
-    if not isinstance(cfg["latency_verifier"]["score_enabled"], bool):
-        raise ValueError("latency_verifier.score_enabled must be boolean")
     if not isinstance(cfg["chainlink"]["enabled"], bool):
         raise ValueError("chainlink.enabled must be boolean")
     if not isinstance(cfg["chainlink"]["log_ticks"], bool):

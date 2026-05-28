@@ -79,12 +79,10 @@ class EdgeTruthContractTests(unittest.TestCase):
                 market_probability=0.50,
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=0.3,
-                latency_state="armed",
                 lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_MAKER,
             ),
             oracle_max_tick_age_sec=1.5,
-            require_latency_state=True,
         )
         self.assertTrue(bool(out.valid))
         self.assertEqual(str(out.reason_code), "ok")
@@ -96,12 +94,10 @@ class EdgeTruthContractTests(unittest.TestCase):
                 market_probability=0.50,
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=0.3,
-                latency_state="armed",
                 lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
             ),
             oracle_max_tick_age_sec=1.5,
-            require_latency_state=True,
         )
         self.assertFalse(bool(out.valid))
         self.assertEqual(str(out.reason_code), "fair_probability_missing")
@@ -113,32 +109,13 @@ class EdgeTruthContractTests(unittest.TestCase):
                 market_probability=0.50,
                 time_remaining_sec=45.0,
                 oracle_tick_age_sec=3.0,
-                latency_state="armed",
                 lifecycle_phase="prepare",
                 evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
             ),
             oracle_max_tick_age_sec=1.5,
-            require_latency_state=True,
         )
         self.assertFalse(bool(out.valid))
         self.assertEqual(str(out.reason_code), "oracle_tick_stale")
-
-    def test_validate_edge_inputs_fails_when_latency_required_but_missing(self) -> None:
-        out = validate_edge_inputs(
-            EdgeInputSnapshot(
-                fair_probability=0.55,
-                market_probability=0.50,
-                time_remaining_sec=45.0,
-                oracle_tick_age_sec=0.2,
-                latency_state=None,
-                lifecycle_phase="prepare",
-                evaluation_scope=EDGE_EVAL_SCOPE_TAKER,
-            ),
-            oracle_max_tick_age_sec=1.5,
-            require_latency_state=True,
-        )
-        self.assertFalse(bool(out.valid))
-        self.assertEqual(str(out.reason_code), "latency_state_missing")
 
     def test_phase_allows_action_follows_canonical_policy(self) -> None:
         self.assertTrue(phase_allows_action("maker_window", EDGE_ACTION_MAKER))
@@ -221,10 +198,14 @@ class EdgeTruthContractTests(unittest.TestCase):
         self.assertTrue(is_canonical_block_reason("taker_dynamic_size_capped_by_risk"))
         self.assertTrue(is_canonical_block_reason("taker_visible_fill_ratio_below_min"))
         self.assertTrue(is_canonical_block_reason("normal_taker_same_token_sell_forbidden"))
-        self.assertTrue(is_canonical_block_reason("complement_route_disabled_pending_validation"))
-        self.assertTrue(is_canonical_block_reason("complement_token_mapping_unavailable"))
-        self.assertTrue(is_canonical_block_reason("complement_token_fair_probability_unavailable"))
-        self.assertTrue(is_canonical_block_reason("complement_token_price_unavailable"))
+        self.assertTrue(is_canonical_block_reason("window_geometry_near_pinned"))
+        self.assertTrue(is_canonical_block_reason("maker_edge_below_min"))
+        retired_route_disabled = "complement" + "_route_disabled_pending_validation"
+        retired_mapping = "complement" + "_token_mapping_unavailable"
+        retired_price = "complement" + "_token_price_unavailable"
+        self.assertFalse(is_canonical_block_reason(retired_route_disabled))
+        self.assertFalse(is_canonical_block_reason(retired_mapping))
+        self.assertFalse(is_canonical_block_reason(retired_price))
         self.assertTrue(is_canonical_block_reason("open_order_cleanup_required"))
         self.assertTrue(is_canonical_block_reason("settlement_hold_required"))
         self.assertTrue(is_canonical_block_reason("phase_disallow_maker"))

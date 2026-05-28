@@ -18,8 +18,6 @@ class OperatingModeTests(unittest.TestCase):
             "maker_only_stale_reject_ratio": 0.4,
             "caution_outage_ratio": 0.2,
             "maker_only_outage_ratio": 0.5,
-            "caution_disarmed_ratio": 0.2,
-            "maker_only_disarmed_ratio": 0.5,
             "caution_error_ratio": 0.2,
             "maker_only_error_ratio": 0.5,
             "recover_healthy_cycles": 5,
@@ -38,7 +36,6 @@ class OperatingModeTests(unittest.TestCase):
                 risk_rejects=10,
                 stale_rejects=3,
                 outage_cycle=False,
-                disarmed_cycle=False,
                 error_cycle=False,
             )
         self.assertIsNotNone(snap)
@@ -52,7 +49,6 @@ class OperatingModeTests(unittest.TestCase):
                 risk_rejects=10,
                 stale_rejects=8,
                 outage_cycle=True,
-                disarmed_cycle=True,
                 error_cycle=True,
             )
             state = snap.state
@@ -67,7 +63,6 @@ class OperatingModeTests(unittest.TestCase):
                 risk_rejects=10,
                 stale_rejects=3,
                 outage_cycle=False,
-                disarmed_cycle=False,
                 error_cycle=False,
             )
         for _ in range(30):
@@ -75,7 +70,6 @@ class OperatingModeTests(unittest.TestCase):
                 risk_rejects=0,
                 stale_rejects=0,
                 outage_cycle=False,
-                disarmed_cycle=False,
                 error_cycle=False,
             )
         self.assertEqual(snap.state, MODE_NORMAL)
@@ -86,7 +80,6 @@ class OperatingModeTests(unittest.TestCase):
             risk_rejects=1,
             stale_rejects=1,
             outage_cycle=False,
-            disarmed_cycle=False,
             error_cycle=False,
         )
         self.assertEqual(snap.state, MODE_NORMAL)
@@ -105,7 +98,6 @@ class OperatingModeTests(unittest.TestCase):
             risk_rejects=2,
             stale_rejects=2,
             outage_cycle=False,
-            disarmed_cycle=False,
             error_cycle=False,
         )
         self.assertEqual(snap.state, MODE_MAKER_ONLY)
@@ -119,7 +111,6 @@ class OperatingModeTests(unittest.TestCase):
             risk_rejects=0,
             stale_rejects=0,
             outage_cycle=True,
-            disarmed_cycle=False,
             error_cycle=False,
         )
         self.assertEqual(snap.state, MODE_MAKER_ONLY)

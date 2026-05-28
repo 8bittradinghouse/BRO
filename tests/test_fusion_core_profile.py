@@ -348,9 +348,9 @@ class FusionCoreProfileTests(unittest.TestCase):
             self.assertIn("lane_depth_cap", families["window_conversion_overview"]["promotion_readiness"]["strong_blockers"])
             self.assertEqual(families["viability_shadow"]["stability_grade"], "strong")
             self.assertEqual(families["viability_shadow"]["metrics"]["impossible_row_total"], 12.0)
-            self.assertEqual(
-                families["viability_shadow"]["metrics"]["queue_depth_on_impossible_targets_total"],
-                6.0,
+            self.assertNotIn(
+                "queue_depth_on_impossible_targets_total",
+                families["viability_shadow"]["metrics"],
             )
             self.assertEqual(
                 families["viability_shadow"]["metrics"]["maker_min_notional_max_shares_conflict_rows_total"],
@@ -366,7 +366,10 @@ class FusionCoreProfileTests(unittest.TestCase):
                 families["valuation_pressure"]["metrics"]["valuation_bruise_state_distribution"],
                 {"recovered_clean": 3.0},
             )
-            self.assertIn("quote_quality_skip_decision_row_count", families["friction_burden"]["population_accounting"])
+            self.assertNotIn(
+                "quote_quality_skip_decision_row_count",
+                families["friction_burden"]["population_accounting"],
+            )
 
             blanks = json.loads((out_dir / "fusion_core_candidate_blanks.json").read_text(encoding="utf-8"))
             blank_families = {blank["profile_family"] for blank in blanks}

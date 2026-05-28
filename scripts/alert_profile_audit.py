@@ -54,7 +54,7 @@ def run_audit(*, config_path: pathlib.Path) -> Dict[str, Any]:
     page = alerts.get("page_thresholds", {}) if isinstance(alerts.get("page_thresholds"), dict) else {}
     auto = alerts.get("auto_stop_thresholds", {}) if isinstance(alerts.get("auto_stop_thresholds"), dict) else {}
 
-    for metric in ("stale_reject_ratio", "disarmed_ratio", "error_ratio", "reconcile_mismatch_ratio"):
+    for metric in ("stale_reject_ratio", "error_ratio", "reconcile_mismatch_ratio"):
         _check_metric_ladder(
             name=metric,
             warn=warn.get(metric),

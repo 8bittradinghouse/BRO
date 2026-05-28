@@ -71,24 +71,10 @@ doctrine:
   degraded_reason: nometrics_runtime_profile
 latency_verifier:
   enabled: true
-  require_armed_for_maker: true
-  require_armed_for_sniper: true
   window_samples: 400
-  min_samples: 80
   hit_threshold_ms: 120
-  armed_min_median_ms: 120
-  armed_min_hit_rate: 0.6
-  probation_min_median_ms: 80
-  probation_min_hit_rate: 0.45
-  arm_consecutive_cycles: 2
-  disarm_consecutive_cycles: 2
   log_sample_events: false
   max_sample_lag_ms: 20000
-  score_enabled: true
-  score_min_for_maker: 0.35
-  score_min_for_taker: 0.6
-  score_size_floor: 0.35
-  score_size_ceiling: 1.25
   drift_window_samples: 80
   drift_max_median_drop_ms: 40
   drift_max_hit_rate_drop: 0.2
@@ -130,12 +116,6 @@ sniper:
   cancel_orphan_action_budget: 12
   order_rate_soft_limit_pct: 1.0
   cancel_rate_soft_limit_pct: 1.0
-  require_lag_verification: true
-  lag_window_samples: 300
-  lag_min_samples: 80
-  lag_hit_threshold_ms: 120
-  lag_min_median_ms: 120
-  lag_min_hit_rate: 0.6
   max_chainlink_tick_age_sec: 1.5
   fair_vol_scale: 1.0
   taker:
@@ -205,17 +185,14 @@ alerts:
   guardian_hook_file: ./logs_exec/guardian_hook.jsonl
   warn_thresholds:
     stale_reject_ratio: 0.2
-    disarmed_ratio: 0.4
     error_ratio: 0.1
     mode_transitions_window: 6
   page_thresholds:
     stale_reject_ratio: 0.35
-    disarmed_ratio: 0.6
     error_ratio: 0.2
     mode_transitions_window: 10
   auto_stop_thresholds:
     stale_reject_ratio: 0.5
-    disarmed_ratio: 0.75
     error_ratio: 0.25
     mode_transitions_window: 16
   auto_stop_min_samples: 12
@@ -246,8 +223,6 @@ operating_mode:
   maker_only_stale_reject_ratio: 0.55
   caution_outage_ratio: 0.2
   maker_only_outage_ratio: 0.4
-  caution_disarmed_ratio: 0.5
-  maker_only_disarmed_ratio: 0.75
   caution_error_ratio: 0.1
   maker_only_error_ratio: 0.25
   recover_healthy_cycles: 30
@@ -257,6 +232,8 @@ operating_mode:
   cautious_spread_mult: 1.1
   maker_only_spread_mult: 1.25
 simulation:
+  fee_category_override: ''
+  fees_enabled_override: null
   maker_rebate_bps: 0.5
   taker_fee_curve_rate: 0.0624
   taker_slippage_bps: 2.0

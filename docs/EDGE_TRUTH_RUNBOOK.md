@@ -10,8 +10,8 @@ Hard rule:
 
 Authority boundary:
 - this file defines the edge-evaluation measurement/audit contract only
-- it does not define fighter-specific runtime lifecycle or weapon policy
-- current BRO fighter-specific runtime/lifecycle authority lives in
+- it does not define runtime lifecycle or weapon policy
+- current BRO runtime/lifecycle authority lives in
   `docs/DOCTRINE_RUNBOOK.md`
 - active edge truth must follow the lifecycle-owned contract in
   `prodesk.edge_truth_contract`

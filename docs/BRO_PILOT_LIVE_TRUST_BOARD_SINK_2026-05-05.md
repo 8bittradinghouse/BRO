@@ -5,7 +5,7 @@
   qualification program.
 - `docs/JIN_RELOCK_PACK_2026-05-12.md` is the BRO-wide anti-drift relock front
   door that must be loaded before this board is trusted for active pickup.
-- It does not replace the whole-fighter truth owners:
+- It does not replace the full-system truth owners:
   - `docs/PROJECT_TRUTH_STATE.md` as the broad repo truth screen
   - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
 - It owns the live-trust lane state, drift register, ambiguity register,
@@ -34,6 +34,14 @@
   - taker fired `1 submit / 1 fill`
   - maker stayed selective with `0 submits`
   - this is low-opportunity shoulder truth, not default maker choke proof
+- latest Packet 1 taker restoration proof anchor:
+  `9eca7bdf-defb-4db3-a2f0-f4d728092228`
+  - normal taker decision / submit / fill all preserved `TAKER_COMMITMENT`
+  - taker requested/resolved target stayed `5.0 / 5.0`
+  - actual filled spend reconciled at `4.9992`
+  - taker report fill-lineage distribution stayed `TAKER_COMMITMENT: 1`
+  - Packet 1 earns pre-wallet taker `GO`; actual wallet hookup remains
+    Packet 3-gated
 - current in-flight packet body carries:
   - maker depth-band support (`1.45-1.5`)
   - legacy `EXTREME_ONLY` to `LINEAGE_ONLY_0_TO_20S` lineage deauthority
@@ -61,13 +69,20 @@
 - macro lane: `live trust qualification`
 - current lane status: `open`
 - current active implementation lane:
-  `Packet 3 wallet guardian implementation / live-truth hardening / compatibility residue retirement`
-- active Packet 2 entry artifact:
-  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
-  - companion board + hardening stack:
-    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_*_2026-05-10.md`
-  - surgery-entry hardening artifact for runtime family cuts:
-    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_SURGERY_SELF_HARDENING_PACK_2026-05-11.md`
+  `Packet 2 maker runtime-truth tribunal`
+- current immediate follow-on lane:
+  `Packet 1 taker support-authority tribunal`
+- downstream lane after the tribunal pair:
+  `Packet 3 wallet live-truth qualification / approved-hookup prep`
+- active Packet 1 owner artifacts:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md`
+- active downstream wallet entry artifact:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
+- bounded ancestry but not current pickup:
+  - Packet 2 maker qualification remains bounded ancestry / contrast truth, not
+    current implementation pickup
 - core-frame restoration dependency: `complete`
 - timing spine hardening dependency: `complete`
 - watched peak-hours paper confirmation dependency: `materially achieved`
@@ -94,9 +109,9 @@ Board law:
   thread to relock without inventing philosophy
 
 ## Packet Status Board
-- Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `closed / bounded-live-test ready`
-- Packet 2 `Maker-Live / Economic Trust Qualification`: `active / closeout routed + selector-family truth synced`
-- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `active / wallet guardian implementation in flight`
+- Packet 1 `Taker Live / Economic and Firing Trust Qualification`: `current-code reclosed / taker pre-wallet GO earned / actual wallet hookup still Packet 3-gated`, with follow-on support-authority tribunal queued
+- Packet 2 `Maker-Live / Economic Trust Qualification`: `active diagnosis-first runtime-truth tribunal`
+- Packet 3 `Grip-Live / Wallet Live Trust Qualification`: `dirty downstream body present / active next implementation lane` in the older routing state, now deferred until the maker+taker tribunal pair closes
 - Packet 4 `Bounded Live Hookup / Controlled Arming Qualification`: `sequenced / inactive`
 - Packet 5 `Immediate-Performance Proof`: `sequenced / inactive`
 
@@ -110,11 +125,12 @@ Board law:
 
 ## Jin Self-Hardening Status
 - current status:
-  `current for Packet 3 wallet guardian implementation, residue retirement, and anti-drift relock`
+  `current for Packet 1 taker restoration carry-forward, Packet 3 downstream relock, and anti-drift routing discipline`
 - BRO-wide anti-drift relock front door:
   - `docs/JIN_RELOCK_PACK_2026-05-12.md`
 - active packet-local lock card:
-  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md`
 - required packet-local lock card:
   - mission lock
   - doctrine lock
@@ -132,10 +148,12 @@ Board law:
   contradictory
 - packet-local work is also `NO-GO` if the BRO-wide relock controller has not
   established a clean owner map, scorecard, and anti-drift legality call first
-- current packet-local verdict:
-  - `GO` for truth-owner demotion, proof-language repair, selection-family
-    reclassification, diagnostic-surface hardening, support-tool fencing,
-    history-only quarantine, and anti-drift closeout hardening
+  - current packet-local verdict:
+  - `GO` for Packet 2 maker runtime-truth tribunal as the active lane
+  - `GO` for Packet 1 taker support-authority tribunal as the immediate follow-on lane
+  - `GO` for Packet 3 wallet live-truth qualification only after the tribunal pair is synced
+  - `NO-GO` for actual wallet hookup, generic tuning, or performance-overclaim
+    beyond the taker restoration proof that was actually earned
   - materialized board stack now exists for:
     - authority census
     - gate legitimacy
@@ -160,8 +178,8 @@ Board law:
       false blockers
     - recovery and dust = quiet in current Packet 2 specimen set, but no
       longer treated as keep-now maker steel
-    - current doctrine timing chain = maker opens at `15s`, taker handoff at
-      `7s`
+    - current doctrine timing chain = maker opens at `10s`, taker handoff at
+      `5s`
     - the older `15-20 / 15` watched split is pre-correction ancestry only and
       no longer defines current doctrine
     - current timing support-surface warning:
@@ -174,9 +192,12 @@ Board law:
     1. current-code replay on canon specimen `4f843da4...` proved the first
        blocker-ledger cut, and fresh watched specimen `187f3031...` tightened
        the live read:
-       - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
-       - `quote_quality_skip_queue_depth` = `keep-now steel`
-       - `sizing_reject` = active runtime patient on the fresh watched specimen
+       - `launch_safe_selection_insufficient_depth_multiple` = provisional
+         blueprint steel
+       - `quote_quality_skip_queue_depth` = earlier specimen-local steel call
+         later reopened by hostile downstream-maker tribunal
+       - `sizing_reject` = specimen-local patient only; current hostile reread
+         now elevates quote-quality authority above it
        - `maker_blocker_ledger.json` = current owner artifact for blocker truth
     2. `support-shadow / probe family`
        - report-side de-fat and no-outrank fence after the blocker verdict
@@ -250,7 +271,7 @@ Current board use:
 | LA-001 | maker low raw hit-rate vs acceptable expectancy | live capital safety depends on loss shape, not only hit rate | open |
 | LA-002 | taker semantically coherent vs taker economically trustworthy | semantic cleanliness alone does not justify live arming | open |
 | LA-003 | wallet can connect vs wallet can be trusted to arm | hookup success is weaker than authority trust | open |
-| LA-004 | bounded live hookup vs whole-fighter live readiness | successful canary does not automatically certify clone/scale | open |
+| LA-004 | bounded live hookup vs full-system live readiness | successful canary does not automatically certify clone/scale | open |
 | LA-005 | market-truth substrate looks serviceable vs genuinely clean enough for capital trust | upstream truth pollution can fake healthy economics | open |
 | LA-006 | taker reads like one doctrine lane on the board but still carries inherited split-brain relay ancestry in runtime semantics | live fire trust cannot close cleanly if one lane still behaves like multiple competing brains | open |
 | LA-007 | taker may carry true owner-law, valid interlocks, and obsolete scar tissue from inherited sniper-era lineage | later surgery must not cut muscle while removing bullshit | open |
@@ -291,7 +312,7 @@ Current board use:
 | Jin Self-Hardening | every packet starts from current doctrine/truth and keeps heartbeat commentary alive | packet-local lock card and rehardening output | not yet recorded on this lane |
 
 ## Current Lane Call
-- Whole fighter still `Needs Work`.
+- Full system still `Needs Work`.
 - `pilot_live` remains the active phase.
 - Packet 2 `Maker-Live` is now active in post-surgery maker runtime reread:
   - the historical repeated tiny-bleed recovery lineage appears cut on current
@@ -322,9 +343,9 @@ Current board use:
     - cancel-only cleanup = intended fail-closed replacement for open unfilled
       orders
   - current doctrine timing chain:
-    - maker gate opens at `15s`
-    - taker handoff opens at `7s`
-    - effective maker new-risk submit window remains `(7.0, 15.0]`
+    - maker gate band `8-12s`
+    - taker gate band `8-12s`
+    - effective maker new-risk submit window remains `[8.0, 12.0]`
   - historical packet-era `50-60 / 50` maker timing posture belongs to
     dirty-tree run manifests and is quarantined as ancestry only
   - current legal residual order is:
@@ -336,7 +357,8 @@ Current board use:
     - recovery / unwind compatibility archaeology + ignored dead-key support
       extinction
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
-- Packet 1 `Taker Live` now closes `bounded-live-test ready`:
+- Historical Packet 1 closeout snapshot on the narrower earlier disease set
+  closed `bounded-live-test ready`:
   - one-brain owner collapse is materially achieved on current code
   - recovery/handoff owner classification is now explicitly keep-now dead power
   - raw-root taker gate-posture replay now truthfully classifies gate-only
@@ -378,14 +400,15 @@ Current board use:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
   - optional later Packet 2 recovery / unwind archaeology artifact is:
     - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
-    `$20` taker shot for proving
+    fixed `$5` taker shot for early-live proving
   - that same external audit now explicitly keeps the inherited taker
     fire-condition subtree under challenge:
     - hard `<=7s` taker commitment lane
-    - canonical top-level `taker.min_edge=0.11`
+    - canonical top-level `taker.min_edge=0.18`
     - `multi_oracle_edge_threshold_abs` as boost-only logic
     - `min_visible_fill_ratio`
-    - lack of a hard taker-only peak-window whitelist
+    - external taker-only peak-window whitelist intentionally not adopted in
+      current doctrine/runtime posture
   - Packet 1 now takes the stronger null-hypothesis removal posture:
     - inherited taker subtree is not presumed to survive
     - canonical taker runtime now ignores the first-cut dormant overlays:
@@ -400,7 +423,7 @@ Current board use:
     - `build_taker_competitiveness_policy(...)`
     - `TakerCompetitivenessEngine`
   - the current first bounded taker-commitment live-behavior slice is now:
-    - canonical top-level `taker.min_edge=0.11`
+    - canonical top-level `taker.min_edge=0.18`
     - no dynamic-size authority on canonical taker target sizing
     - no conviction-owned candidate ranking authority on the canonical taker
       path
@@ -469,20 +492,23 @@ Current board use:
       - deleting multi-oracle size caps changes boosted-size authority
       - deleting shot-size owners changes canonical taker geometry
   - bounded-live-test readiness is not earned yet
-- The current next macro move is no longer “another generic peak-hours paper
-  run.”
-- The current next macro move is to finish Packet 2 on the current dirty tree
-  by cutting the maker timing-authority collision and then rerunning watched
-  proof:
+- Historical next macro move in the earlier closeout snapshot was no longer
+  “another generic peak-hours paper run.”
+- Historical next macro move in that earlier closeout snapshot was to finish
+  Packet 2 on the current dirty tree by cutting the maker timing-authority
+  collision and then rerunning watched proof:
   - keep active pickup routing honest
   - keep the major body-surgery carry-forward honest
   - cut the impossible maker selection timing window
   - then remeasure the real surviving maker blockers before opening smaller
     downstream families
-- Packet 1 remains closed `bounded-live-test ready`.
-- Packet 2 remains closeout-routed and no longer owns the active implementation body.
-- Packet 3 is now the active implementation body.
-- Packet 4 through Packet 5 remain sequenced behind Packet 3.
+- Historical snapshot only:
+  - Packet 1 remained closed `bounded-live-test ready` on the narrower earlier
+    disease set
+  - Packet 2 remained closeout-routed and no longer owned the active
+    implementation body
+  - Packet 3 was the active implementation body in that older snapshot
+  - Packet 4 through Packet 5 remained sequenced behind Packet 3
 - Every packet in this lane must include:
   - forward semantics sweep
   - reverse semantics sweep
@@ -491,21 +517,25 @@ Current board use:
   - combat timing doctrine verification
   - gate legitimacy sweep
 
-## Current Packet Recommendation
-Current packet:
+## Historical Packet Recommendation Snapshot
+This section is ancestry only and is superseded by the current lane-status
+surfaces near the top of this board sink.
+
+Historical packet recommendation:
 - Packet 3 `Grip-Live / Wallet Live Trust Qualification`
-- active artifact:
+- historical active artifact:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
 
-Why this is first:
-- Packet 2 execution-lane surgery is no longer the main patient
-- the active runtime/doctrine body is now wallet live-truth hardening
-- Packet 3 owns the current owner/mechanics/law migration and live-truth
-  separation work
-- Packet 1 is already closed `bounded-live-test ready`, and Packet 2 is now
-  closeout truth plus bounded ancestry rather than the live implementation lane
+Why it was first in that older snapshot:
+- Packet 2 execution-lane surgery was no longer the main patient
+- the active runtime/doctrine body had shifted to wallet live-truth hardening
+- Packet 3 owned the current owner/mechanics/law migration and live-truth
+  separation work in that older routing state
+- Packet 1 was then being treated as already closed `bounded-live-test ready`,
+  and Packet 2 was being treated as closeout truth plus bounded ancestry rather
+  than the live implementation lane
 
-Follow-on order:
+Historical follow-on order from that earlier snapshot:
 1. Packet 3 `Grip-Live`
 2. Packet 4 `Bounded Live Hookup`
 3. Packet 5 `Immediate-Performance Proof`

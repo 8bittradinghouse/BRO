@@ -1,0 +1,87 @@
+{
+  "broctl_returncode": 0,
+  "completed_at_utc": "2026-05-27T04:45:48.223204+00:00",
+  "conditions": {
+    "0x2691c76677160c1dc92fb80882a3c6b30681ccba2bc59fd1eed6b8e0cd1b7852": {
+      "dir": "/home/odah/bro/base/tmp/bro_parallel_live_watch/20260527T043447Z/market_3_btc-updown-5m-1779856800",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-27T04:43:35.451873+00:00",
+      "last_snapshot_utc": "2026-05-27T04:45:47.714451+00:00",
+      "market_slug": "btc-updown-5m-1779856800",
+      "owned_market_ref": "0x2691c76677160c1dc92fb80882a3c6b30681ccba2bc59fd1eed6b8e0cd1b7852|2026-05-27T04:45:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 27, 12:40AM-12:45AM ET",
+      "snapshots": 26,
+      "tokens": [
+        "82157164988152982011655482168636832575494462148177687898423244743855469842963",
+        "20281866110065820496611051896842685860194541435071280953455647809565047309398"
+      ]
+    },
+    "0x83973ca4dc6245658faf81bd162adad936f6b580f632f2daf08da374545a7ad4": {
+      "dir": "/home/odah/bro/base/tmp/bro_parallel_live_watch/20260527T043447Z/market_2_btc-updown-5m-1779856500",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-27T04:38:35.672357+00:00",
+      "last_snapshot_utc": "2026-05-27T04:41:32.524779+00:00",
+      "market_slug": "btc-updown-5m-1779856500",
+      "owned_market_ref": "0x83973ca4dc6245658faf81bd162adad936f6b580f632f2daf08da374545a7ad4|2026-05-27T04:40:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 27, 12:35AM-12:40AM ET",
+      "snapshots": 34,
+      "tokens": [
+        "101785100890498449498337592293075304673995089686342497059131016163897657487849",
+        "72416495916931685380227262552140106330765390591621085060569192264432527540890"
+      ]
+    },
+    "0xb64135ac31878399ef36306a7d7143c63cc0d2404ff3dafe104b6fcb3c47942b": {
+      "dir": "/home/odah/bro/base/tmp/bro_parallel_live_watch/20260527T043447Z/market_1_btc-updown-5m-1779856200",
+      "first_event_type": "lifecycle_phase_transition",
+      "first_seen_utc": "2026-05-27T04:34:58.803591+00:00",
+      "last_snapshot_utc": "2026-05-27T04:36:33.318241+00:00",
+      "market_slug": "btc-updown-5m-1779856200",
+      "owned_market_ref": "0xb64135ac31878399ef36306a7d7143c63cc0d2404ff3dafe104b6fcb3c47942b|2026-05-27T04:35:00.000Z|na",
+      "question": "Bitcoin Up or Down - May 27, 12:30AM-12:35AM ET",
+      "snapshots": 19,
+      "tokens": [
+        "28687727777338700489691855751839363595077533873830785828453404554759153043825",
+        "36237254321163371138587965979981480144631384291251832832607676900497924200201"
+      ]
+    }
+  },
+  "events_files": [
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-20.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-21.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-22.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-23.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-24.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-25.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-26.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-27.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-28.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-29.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-04-30.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-03.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-04.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-05.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-06.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-07.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-08.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-09.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-10.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-11.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-12.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-14.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-16.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-17.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-18.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-19.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-20.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-21.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-22.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-23.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-25.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-26.jsonl",
+    "/home/odah/bro/base/logs_exec/paper_universal/events_2026-05-27.jsonl"
+  ],
+  "manifest_path": "/home/odah/bro/base/logs_exec/paper_universal/run_manifest_6b0cbcdf-b197-4992-9e81-f9d27262dd2b.json",
+  "out_dir": "/home/odah/bro/base/tmp/bro_parallel_live_watch/20260527T043447Z",
+  "run_id": "6b0cbcdf-b197-4992-9e81-f9d27262dd2b",
+  "started_at_utc": "2026-05-27T04:34:47.462522+00:00"
+}

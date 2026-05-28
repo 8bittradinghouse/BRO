@@ -42,10 +42,14 @@ Downstream BRO-Specific Policy Surfaces
   - Design/pathway truth only; not runtime authority by itself.
 - `docs/GALAXY_MEGA_MAKER_CANNON_DOCTRINE_PROPOSAL_2026-04-28.md`
   - BRO-local intended maker-weapon doctrine anchor.
-  - It defines the intended late-window maker posture (maker gate at `15s`,
-    taker handoff at `7s`) for doctrine cleanup and support-surface alignment.
-  - It is not automatic proof that current runtime already matches that
-    posture.
+  - It preserves the earlier late-window maker posture target (maker gate at
+    `15s`, taker handoff at `7s`) for doctrine ancestry and support-surface
+    alignment.
+  - Current active paper OG-tight alignment packet is owned by
+    `docs/DOCTRINE_RUNBOOK.md` and the active Packet 2 truth surfaces:
+    maker gate band `8-12s`, taker gate band `8-12s`.
+  - It is not automatic proof that current runtime or current experiment
+    should remain identical to that older anchor.
 - `docs/BRO_WEAPON_NOMENCLATURE.md`
   - Mnemonic alias surface only.
 

@@ -1,0 +1,22 @@
+{
+  "asks": [
+    {
+      "price": "0.16",
+      "size": "25"
+    },
+    {
+      "price": "0.01",
+      "size": "5"
+    }
+  ],
+  "asset_id": "31729626361573922134266199912792931681283067561325993998791108931045490215896",
+  "bids": [],
+  "hash": "0c17bfdf1e69915bab7852bdf8da2eecf55b1158",
+  "last_trade_price": "",
+  "market": "0xd79eecc4f161250298dec26a69fe20a246bcb27042f9fdce68eac7cfe0839b2e",
+  "min_order_size": "5",
+  "neg_risk": false,
+  "status_code": 200,
+  "tick_size": "0.01",
+  "timestamp": "1779871341179"
+}

@@ -344,6 +344,7 @@ class GatewayLiveWalletTruthSource:
             pol_balance=pol_balance,
             usdc_balance=max(0.0, usdc),
             locked_usdc=0.0,
+            provider_locked_usdc_semantics="unknown",
             protected_reserve_usdc=0.0,
             deployable_usdc=0.0,
             ts_utc=utc_iso(),

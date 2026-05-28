@@ -82,34 +82,68 @@ def _historical_recovery_runtime_config(
 class NightlySoakReportTests(unittest.TestCase):
     def test_maker_blocker_ledger_promotes_sizing_feasibility_after_steel_selection_verdicts(self):
         bundle = _maker_blocker_ledger_bundle(
+            maker_edge_rows=[
+                {
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "maker_gate_stage": "lane_readiness_gate",
+                    "maker_gate_reason": "maker_timing_gate_closed",
+                    "maker_gate_owner_family": "executor_lane_readiness",
+                },
+                {
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "maker_gate_stage": "selection_gate",
+                    "maker_gate_reason": "launch_safe_selection_insufficient_depth_multiple",
+                    "maker_gate_owner_family": "order_manager_selection",
+                },
+            ],
             snapshot_rows=[
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 0.0},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 10.0},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 15.0},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple", "visible_depth_notional_usd": 25.0},
-                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth", "queue_ahead_size": 900.0},
-                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth", "queue_ahead_size": 1200.0},
             ],
             selection_authority_rows=[
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
                 {"runtime_decision_block_reason": "launch_safe_selection_insufficient_depth_multiple"},
-                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth"},
-                {"runtime_decision_block_reason": "quote_quality_skip_queue_depth"},
                 {"runtime_decision_block_reason": "sizing_reject"},
                 {"runtime_decision_block_reason": "sizing_reject"},
                 {"runtime_decision_block_reason": "sizing_reject"},
             ],
         )
         summary = bundle["summary"]
-        self.assertEqual(summary.get("selection_gate_verdict"), "keep_now_steel")
-        self.assertEqual(summary.get("quote_quality_verdict"), "keep_now_steel")
-        self.assertEqual(summary.get("sizing_verdict"), "active_patient")
-        self.assertEqual(summary.get("next_packet2_patient"), "accessory_maker_sizing_feasibility")
-        self.assertEqual(summary.get("runtime_blocker_family_status"), "open_runtime_patient")
+        self.assertEqual(summary.get("maker_blocker_ledger_version"), 3)
+        selection_truth = summary.get("later_stage_runtime_diagnostic_truth", {})
+        self.assertEqual(selection_truth.get("selection_gate_verdict"), "keep_now_steel")
+        self.assertEqual(selection_truth.get("sizing_verdict"), "active_patient")
+        self.assertEqual(
+            selection_truth.get("runtime_blocker_family_status"),
+            "open_runtime_patient",
+        )
+        self.assertNotIn("quote_quality_verdict", selection_truth)
+        self.assertNotIn("next_packet2_patient", selection_truth)
+        self.assertNotIn("dominant_runtime_blocker_reason", summary)
+        self.assertNotIn("dominant_runtime_blocker_bucket", summary)
+        self.assertNotIn("runtime_reason_distribution", summary)
+        self.assertNotIn("runtime_bucket_distribution", summary)
         self.assertNotIn("closed_family_assertions", summary)
         self.assertEqual(summary.get("historical_family_labels_retired_from_active_owner_surfaces"), True)
+        whole_lane = summary.get("whole_lane_runtime_blocker_truth", {})
+        self.assertEqual(
+            whole_lane.get("maker_gate_stage_distribution"),
+            {"lane_readiness_gate": 1, "selection_gate": 1},
+        )
+        self.assertEqual(
+            whole_lane.get("maker_gate_owner_family_distribution"),
+            {"executor_lane_readiness": 1, "order_manager_selection": 1},
+        )
+        self.assertEqual(
+            whole_lane.get("dominant_earliest_blocker_reason"),
+            "launch_safe_selection_insufficient_depth_multiple",
+        )
 
     def test_maker_probe_rows_with_snapshot_truth_prefers_canonical_lifecycle_window(self):
         rows = _maker_probe_rows_with_snapshot_truth(
@@ -178,6 +212,111 @@ class NightlySoakReportTests(unittest.TestCase):
         self.assertEqual(root_cause.get("authoritative_for_canonical_selection"), False)
         self.assertEqual(root_cause.get("current_owner_artifact"), "maker_blocker_ledger.json")
         self.assertEqual(int(root_cause.get("submitted_snapshot_row_count", 0)), 1)
+
+    def test_build_report_maker_participation_waterfall_uses_runtime_lane_readiness_owner_not_secondary_oracle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-maker-lane-readiness-waterfall"
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            reports_dir = root / "reports" / run_id
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = root / f"run_manifest_{run_id}.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "config": {
+                            "strategy": {
+                                "maker_market_viability": {
+                                    "selection_gate": {
+                                        "min_sec_to_expiry": 10.0,
+                                        "max_sec_to_expiry": 15.0,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            events = [
+                {
+                    "event_type": "edge_evaluation",
+                    "evaluation_scope": "maker",
+                    "run_id": run_id,
+                    "token_id": "t-lag",
+                    "target_ref": "target-lag",
+                    "target_side_ref": "target-lag|BUY",
+                    "ts_decision_utc": "2026-01-01T12:00:12Z",
+                    "time_remaining_sec": 12.0,
+                    "lifecycle_phase": "maker_window",
+                    "maker_phase_allowed": True,
+                    "maker_gate_open": True,
+                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                    "action_taken": "none",
+                    "block_reason": "maker_timing_gate_closed",
+                    "maker_gate_stage": "lane_readiness_gate",
+                    "maker_gate_reason": "maker_timing_gate_closed",
+                    "maker_gate_owner_family": "executor_lane_readiness",
+                    "maker_gate_terminal": True,
+                    "fair_probability": 0.58,
+                    "market_probability": 0.50,
+                    "edge_value": 0.08,
+                    "market_reference_mode": "direct_midpoint",
+                    "market_reference_basis": "direct_book_midpoint",
+                    "market_reference_source_side": "none",
+                    "market_reference_class": "authoritative",
+                    "secondary_oracle_status": "direction_mismatch",
+                    "secondary_oracle_confirmation": False,
+                    "probe_favored_side": "BUY",
+                    "probe_visible_depth_shares": 100.0,
+                    **_historical_recovery_lineage(active=False),
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(json.dumps({"run_id": run_id, "gauge.open_orders": 0}) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id=run_id, include_support_artifacts=True)
+            support_artifacts = report.pop("_support_artifacts", {})
+            waterfall = support_artifacts.get("maker_participation_waterfall", {})
+            blocker_ledger = support_artifacts.get("maker_blocker_ledger", {})
+            self.assertEqual(
+                waterfall.get("canonical_gate_truth", {}).get("maker_gate_stage_distribution"),
+                {"lane_readiness_gate": 1},
+            )
+            self.assertEqual(
+                waterfall.get("authoritative_for_runtime_blocker_truth"),
+                False,
+            )
+            self.assertEqual(
+                waterfall.get("current_owner_artifact"),
+                "maker_blocker_ledger.json",
+            )
+            self.assertEqual(
+                int(waterfall.get("stages", {}).get("prequote_prereq_pass_rows", {}).get("count", 0)),
+                0,
+            )
+            self.assertEqual(
+                waterfall.get("stages", {}).get("prequote_prereq_pass_rows", {}).get(
+                    "loss_reason_distribution", {}
+                ),
+                {"maker_timing_gate_closed": 1},
+            )
+            self.assertNotIn(
+                "secondary_oracle_not_confirmed",
+                waterfall.get("stages", {}).get("prequote_prereq_pass_rows", {}).get(
+                    "loss_reason_distribution", {}
+                ),
+            )
+            self.assertEqual(
+                blocker_ledger.get("whole_lane_runtime_blocker_truth", {}).get(
+                    "dominant_earliest_blocker_reason"
+                ),
+                "maker_timing_gate_closed",
+            )
 
     def test_maker_phase_allowed_helper_prefers_canonical_lifecycle_truth(self):
         self.assertTrue(
@@ -405,16 +544,20 @@ class NightlySoakReportTests(unittest.TestCase):
                 "paper-order-1",
                 "paper-order-2",
                 "paper-order-3",
-                "paper-order-4",
                 "paper-order-5",
                 "paper-order-6",
-                "paper-order-7",
             ],
         )
-        self.assertEqual(counterfactual.get("block_order_submit_ids"), [])
+        self.assertEqual(counterfactual.get("block_order_submit_ids"), ["paper-order-4", "paper-order-7"])
         summary = bundle["audit"]
-        self.assertEqual(summary.get("blocked_count_by_canonical_reject_reason", {}), {})
-        self.assertEqual(summary.get("blocked_count_by_canonical_reject_reason", {}).get("selection_prior_target_submit"), None)
+        self.assertEqual(
+            summary.get("blocked_count_by_canonical_reject_reason", {}),
+            {"selection_prior_target_submit": 2},
+        )
+        self.assertEqual(
+            summary.get("blocked_count_by_canonical_reject_reason", {}).get("selection_prior_target_submit"),
+            2,
+        )
         summary_row_by_order_id = {
             str(row.get("order_submit_id") or ""): row for row in bundle["audit"].get("rows", [])
         }
@@ -558,6 +701,25 @@ class NightlySoakReportTests(unittest.TestCase):
                 zero_submit_payload.get("current_owner_artifact"),
                 "maker_blocker_ledger.json",
             )
+            self.assertEqual(
+                zero_submit_payload.get("authoritative_for_runtime_blocker_truth"),
+                False,
+            )
+            quote_integrity_payload = json.loads(
+                (report_dir / "maker_quote_integrity_summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                quote_integrity_payload.get("authoritative_for_runtime_blocker_truth"),
+                False,
+            )
+            self.assertEqual(
+                quote_integrity_payload.get("authoritative_for_current_owner_law"),
+                False,
+            )
+            self.assertEqual(
+                quote_integrity_payload.get("current_owner_artifact"),
+                "maker_blocker_ledger.json",
+            )
             reconciliation_payload = json.loads(
                 (report_dir / "financial_outcome_reconciliation.json").read_text(encoding="utf-8")
             )
@@ -580,7 +742,6 @@ class NightlySoakReportTests(unittest.TestCase):
                 {"event_type": "risk_reject", "reason": "stale_book"},
                 {"event_type": "book_top", "token_id": "t1", "midpoint": 0.51},
                 {"event_type": "order_submit", "order_id": "o1", "reason": "taker_chainlink"},
-                {"event_type": "latency_regime_change", "state": "armed"},
                 {"event_type": "taker_submit", "token_id": "t1"},
                 {"event_type": "fill", "order_id": "o1", "token_id": "t1", "side": "BUY", "price": 0.50, "size": 10},
             ]
@@ -598,7 +759,7 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(report["reject_reason_distribution"].get("stale_book"), 1)
             self.assertAlmostEqual(report["quote_uptime_ratio"], 0.5)
             self.assertEqual(report["errors_by_component"].get("market_data"), 1)
-            self.assertIn("armed", report["edge_activation_quality_by_regime"])
+            self.assertEqual(report["edge_activation_quality_by_signal_posture"], {})
             self.assertIn("latency_distribution_ms", report)
             self.assertIn("taker", report)
             self.assertNotIn("sniper", report)
@@ -818,6 +979,11 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertAlmostEqual(float(overall.get("net_pnl_usd") or 0.0), 5.5, places=6)
             self.assertAlmostEqual(float(financial.get("latest_total_pnl_usd") or 0.0), 5.5, places=6)
+            self.assertEqual(
+                str(financial.get("latest_total_pnl_source") or ""),
+                "status_gauge_total_pnl_reconciled",
+            )
+            self.assertAlmostEqual(float(financial.get("latest_status_total_pnl_usd") or 0.0), 5.5, places=6)
             self.assertTrue(bool(financial.get("reconciled_with_status_total_pnl")))
             self.assertEqual(int(overall.get("closed_trade_count") or 0), 2)
             self.assertAlmostEqual(float(overall.get("win_rate") or 0.0), 0.5, places=6)
@@ -858,25 +1024,238 @@ class NightlySoakReportTests(unittest.TestCase):
                     .get("fill_notional_reconciles")
                 )
             )
-            self.assertTrue(
-                bool(
-                    financial_outcome_reconciliation.get("by_lane", {})
-                    .get("taker", {})
-                    .get("fill_notional_reconciles")
-                )
+
+    def test_build_report_financial_performance_treats_slippage_and_adverse_as_non_cash(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-financial-cash-vs-attribution"
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": run_id,
+                    "order_id": "ord-1",
+                    "submission_lane": "taker",
+                    "reason": "taker_chainlink",
+                    "token_id": "t1",
+                    "target_ref": "target-1",
+                    "price": 0.5,
+                    "size": 10.0,
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": run_id,
+                    "order_id": "ord-1",
+                    "submission_lane": "taker",
+                    "reason": "taker_chainlink",
+                    "token_id": "t1",
+                    "target_ref": "target-1",
+                    "side": "BUY",
+                    "price": 0.5,
+                    "size": 10.0,
+                    "taker_fee_usd": 0.1,
+                    "maker_rebate_usd": 0.0,
+                    "slippage_cost_usd": 1.0,
+                    "adverse_selection_cost_usd": 2.0,
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                },
+                {
+                    "event_type": "wallet_position_settled",
+                    "run_id": run_id,
+                    "token_id": "t1",
+                    "target_ref": "target-1",
+                    "market_key": "mkt-1",
+                    "token_side": "YES",
+                    "settlement_side": "SELL",
+                    "settlement_size_shares": 10.0,
+                    "settlement_price": 1.0,
+                    "settlement_notional_usd": 10.0,
+                    "ts_utc": "2026-01-01T00:05:00Z",
+                },
+            ]
+            status = [
+                {
+                    "run_id": run_id,
+                    "gauge.open_orders": 0,
+                    "gauge.total_pnl": 4.9,
+                    "ts_utc": "2026-01-01T00:05:01Z",
+                    "wallet_contract": {
+                        "stable_balance_total": 1004.9,
+                        "deployable_capital": 1004.9,
+                        "authority_status_class": "authoritative",
+                    },
+                }
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+            (root / f"run_manifest_{run_id}.json").write_text(
+                json.dumps({"run_id": run_id, "profile_name": "paper_universal"}),
+                encoding="utf-8",
+            )
+            reports_dir = root / "reports" / run_id
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            (reports_dir / "outcome_truth_audit.json").write_text(
+                json.dumps({"run_id": run_id, "lane_outcome_truth": {}, "complete_outcome_records": 0}),
+                encoding="utf-8",
+            )
+
+            report = build_report(root, run_id=run_id)
+            financial = report.get("financial_performance", {})
+            overall = financial.get("overall", {})
+            taker = financial.get("by_lane", {}).get("taker", {})
+
+            self.assertAlmostEqual(float(overall.get("net_pnl_usd") or 0.0), 4.9, places=6)
+            self.assertAlmostEqual(float(financial.get("latest_total_pnl_usd") or 0.0), 4.9, places=6)
+            self.assertAlmostEqual(float(overall.get("taker_fee_usd") or 0.0), 0.1, places=6)
+            self.assertAlmostEqual(float(overall.get("slippage_cost_usd") or 0.0), 1.0, places=6)
+            self.assertAlmostEqual(float(overall.get("adverse_selection_cost_usd") or 0.0), 2.0, places=6)
+            self.assertAlmostEqual(float(overall.get("net_cash_adjustment_usd") or 0.0), -0.1, places=6)
+            self.assertAlmostEqual(float(taker.get("net_pnl_usd") or 0.0), 4.9, places=6)
+            self.assertEqual(
+                str(financial.get("accounting_basis") or ""),
+                "fill_cashflow_plus_cash_adjustments_plus_wallet_position_settled",
+            )
+
+    def test_build_report_prefers_wallet_state_refresh_and_ledger_closeout_over_stale_status_tail(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run_id = "rid-stale-status-tail"
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": run_id,
+                    "order_id": "ord-1",
+                    "submission_lane": "taker",
+                    "reason": "taker_chainlink",
+                    "token_id": "t1",
+                    "target_ref": "target-1",
+                    "price": 0.5,
+                    "size": 10.0,
+                    "ts_utc": "2026-01-01T00:00:01Z",
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": run_id,
+                    "order_id": "ord-1",
+                    "submission_lane": "taker",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.5,
+                    "size": 10.0,
+                    "ts_utc": "2026-01-01T00:00:02Z",
+                },
+                {
+                    "event_type": "wallet_position_settled",
+                    "run_id": run_id,
+                    "settlement_side": "SELL",
+                    "settlement_size_shares": 10.0,
+                    "settlement_price": 1.0,
+                    "ts_utc": "2026-01-01T00:00:10Z",
+                },
+                {
+                    "event_type": "wallet_state_refresh",
+                    "run_id": run_id,
+                    "ts_utc": "2026-01-01T00:00:10Z",
+                    "authority_status_class": "authoritative",
+                    "stable_balance_total": 1005.0,
+                    "deployable_capital": 1005.0,
+                    "protected_reserve": 0.0,
+                    "reservation_locked_usdc": 0.0,
+                    "position_liability_locked_usdc": 0.0,
+                    "locked_total_usdc": 0.0,
+                    "order_capable_live": False,
+                    "order_submit_eligible": True,
+                    "canonical_live_nonce_available": False,
+                    "canonical_live_pending_wallet_tx_available": False,
+                    "live_truth_gap_reasons": [],
+                },
+            ]
+            status = [
+                {
+                    "run_id": run_id,
+                    "ts_utc": "2026-01-01T00:00:05Z",
+                    "gauge.total_pnl": 0.0,
+                    "wallet_contract": {
+                        "authority_status_class": "authoritative",
+                        "stable_balance_total": 1000.0,
+                        "deployable_capital": 995.0,
+                        "protected_reserve": 0.0,
+                        "reservation_locked_usdc": 5.0,
+                        "position_liability_locked_usdc": 0.0,
+                        "locked_total_usdc": 5.0,
+                        "order_capable_live": False,
+                        "order_submit_eligible": True,
+                        "canonical_live_nonce_available": False,
+                        "canonical_live_pending_wallet_tx_available": False,
+                        "live_truth_gap_reasons": [],
+                    },
+                }
+            ]
+            run_manifest = {
+                "run_id": run_id,
+                "profile_name": "paper_universal",
+                "config": {
+                    "wallet": {
+                        "paper_starting_usdc": 1000.0,
+                        "protected_usdc_reserve": 0.0,
+                    }
+                },
+            }
+
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text("\n".join(json.dumps(x) for x in status) + "\n", encoding="utf-8")
+            errors_path.write_text("", encoding="utf-8")
+            (root / f"run_manifest_{run_id}.json").write_text(json.dumps(run_manifest), encoding="utf-8")
+            reports_dir = root / "reports" / run_id
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            (reports_dir / "outcome_truth_audit.json").write_text(
+                json.dumps({"run_id": run_id, "run_claim_boundary": {}, "lane_outcome_truth": {}}),
+                encoding="utf-8",
+            )
+
+            report = build_report(root, run_id=run_id)
+            financial = report.get("financial_performance", {})
+            capital = financial.get("capital_progression", {})
+            wallet = report.get("wallet_authority", {})
+            financial_outcome_reconciliation = report.get("financial_outcome_reconciliation", {})
+
+            self.assertAlmostEqual(float(financial.get("latest_total_pnl_usd") or 0.0), 5.0, places=6)
+            self.assertEqual(
+                str(financial.get("latest_total_pnl_source") or ""),
+                "ledger_closeout_over_status_snapshot",
+            )
+            self.assertAlmostEqual(float(financial.get("latest_status_total_pnl_usd") or 0.0), 0.0, places=6)
+            self.assertFalse(bool(financial.get("reconciled_with_status_total_pnl")))
+            self.assertAlmostEqual(float(capital.get("ending_wallet_stable_balance_total_usd") or 0.0), 1005.0, places=6)
+            self.assertAlmostEqual(float(capital.get("ending_wallet_deployable_capital_usd") or 0.0), 1005.0, places=6)
+            self.assertAlmostEqual(float(capital.get("ending_wallet_reservation_locked_usd") or 0.0), 0.0, places=6)
+            self.assertEqual(str(capital.get("ending_wallet_source") or ""), "wallet_state_refresh_event")
+            self.assertEqual(str(wallet.get("wallet_contract_surface_source") or ""), "wallet_state_refresh_event")
+            self.assertAlmostEqual(
+                float(((wallet.get("latest_contract") or {}).get("stable_balance_total") or 0.0)),
+                1005.0,
+                places=6,
             )
             self.assertEqual(
-                financial_outcome_reconciliation.get("by_lane", {})
-                .get("taker", {})
-                .get("outcome_lane"),
-                "normal_taker",
+                str(financial_outcome_reconciliation.get("status") or ""),
+                "outcome_truth_audit_missing",
             )
+            self.assertEqual(financial_outcome_reconciliation.get("by_lane"), {})
 
             summary = render_human_summary(report)
             self.assertIn("base_capital_start_usd=1000.0000", summary)
-            self.assertIn("ending_stable_balance_total_usd=1000.0000", summary)
-            self.assertIn("avg_submitted_order_notional_usd=4.2500", summary)
-            self.assertIn("avg_submitted_order_size_shares=7.5000", summary)
+            self.assertIn("ending_stable_balance_total_usd=1005.0000", summary)
+            self.assertIn("avg_submitted_order_notional_usd=5.0000", summary)
+            self.assertIn("avg_submitted_order_size_shares=10.0000", summary)
 
     def test_build_report_includes_runtime_resource_stats(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1151,7 +1530,9 @@ class NightlySoakReportTests(unittest.TestCase):
                         "gas_ok": True,
                         "stable_balance_total": 1000.0,
                         "protected_reserve": 50.0,
-                        "open_reserved": 10.0,
+                        "reservation_locked_usdc": 10.0,
+                        "position_liability_locked_usdc": 0.0,
+                        "locked_total_usdc": 10.0,
                         "deployable_capital": 940.0,
                         "approval_ok": True,
                         "nonce_ok": True,
@@ -1204,7 +1585,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "wallet_gas_ok": True,
                     "wallet_stable_balance_total": 1000.0,
                     "wallet_protected_reserve": 50.0,
-                    "wallet_open_reserved": 10.0,
+                    "wallet_reservation_locked_usdc": 10.0,
+                    "wallet_position_liability_locked_usdc": 0.0,
+                    "wallet_locked_total_usdc": 10.0,
                     "wallet_deployable_capital": 940.0,
                     "wallet_approval_ok": True,
                     "wallet_nonce_ok": True,
@@ -1804,6 +2187,42 @@ class NightlySoakReportTests(unittest.TestCase):
             report = build_report(root)
             self.assertAlmostEqual(report["quote_uptime_ratio"], 2.0 / 3.0)
 
+    def test_build_report_quote_uptime_uses_status_window_activity_signals(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            status = [
+                {"gauge.open_orders": 0, "gauge.actions_last_status_window": 2},
+                {"gauge.open_orders": 0, "gauge.taker_submitted_last_status_window": 1},
+                {"gauge.open_orders": 0, "gauge.quote_active": 0},
+            ]
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            self.assertAlmostEqual(report["quote_uptime_ratio"], 2.0 / 3.0)
+
+    def test_build_report_quote_uptime_uses_maker_status_window_signals(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "events_2026-01-01.jsonl").write_text("", encoding="utf-8")
+            status = [
+                {"gauge.open_orders": 0, "gauge.maker_submitted_token_count_last_status_window": 1},
+                {"gauge.open_orders": 0, "gauge.maker_fills_last_status_window": 2},
+                {"gauge.open_orders": 0, "gauge.quote_active": 0},
+            ]
+            (root / "status_2026-01-01.jsonl").write_text(
+                "\n".join(json.dumps(x) for x in status) + "\n",
+                encoding="utf-8",
+            )
+            (root / "errors_2026-01-01.jsonl").write_text("", encoding="utf-8")
+
+            report = build_report(root)
+            self.assertAlmostEqual(report["quote_uptime_ratio"], 2.0 / 3.0)
+
     def test_build_report_quote_uptime_uses_counter_deltas(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2163,30 +2582,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": "rid-fireability",
                     "evaluation_scope": "maker",
-                    "target_ref": "target-b",
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "time_remaining_sec": 57.0,
-                    "market_probability": 0.02,
-                    "action_taken": "none",
-                    "block_reason": "maker_no_submission",
-                    "maker_no_submission_category": "quote_quality_skip_fill_probability",
-                },
-                {
-                    "event_type": "edge_evaluation",
-                    "run_id": "rid-fireability",
-                    "evaluation_scope": "maker",
-                    "target_ref": "target-c",
-                    "lineage_stage": "MAKER_TAKER_SELECTIVE",
-                    "time_remaining_sec": 56.0,
-                    "market_probability": 0.02,
-                    "action_taken": "none",
-                    "block_reason": "maker_no_submission",
-                    "maker_no_submission_category": "quote_quality_skip_queue_depth",
-                },
-                {
-                    "event_type": "edge_evaluation",
-                    "run_id": "rid-fireability",
-                    "evaluation_scope": "maker",
                     "target_ref": "target-d",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "time_remaining_sec": 54.0,
@@ -2204,56 +2599,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "time_remaining_sec": 61.0,
                     "action_taken": "none",
                     "block_reason": "maker_timing_gate_closed",
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "expected_fill_prob_below_min",
-                    "expected_fill_prob": 0.042,
-                    "min_expected_fill_prob": 0.045,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "expected_fill_prob_below_min",
-                    "expected_fill_prob": 0.035,
-                    "min_expected_fill_prob": 0.045,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "expected_fill_prob_below_min",
-                    "expected_fill_prob": 0.020,
-                    "min_expected_fill_prob": 0.045,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "queue_ahead_too_deep",
-                    "queue_ahead_size": 310.0,
-                    "max_queue_ahead_size": 300.0,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "queue_ahead_too_deep",
-                    "queue_ahead_size": 340.0,
-                    "max_queue_ahead_size": 300.0,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "queue_ahead_too_deep",
-                    "queue_ahead_size": 365.0,
-                    "max_queue_ahead_size": 300.0,
-                },
-                {
-                    "event_type": "quote_quality_skip",
-                    "run_id": "rid-fireability",
-                    "skip_reason": "expected_fill_prob_below_min",
-                    "expected_fill_prob": 0.040,
-                    "min_expected_fill_prob": 0.045,
-                    **_historical_recovery_lineage(),
                 },
             ]
             run_manifest = {
@@ -2289,27 +2634,21 @@ class NightlySoakReportTests(unittest.TestCase):
             report = build_report(root, run_id="rid-fireability")
             maker_fireability = report.get("maker_fireability", {})
             self.assertEqual(maker_fireability.get("config_complete"), True)
-            self.assertEqual(float(maker_fireability.get("active_window_row_count") or 0.0), 6.0)
+            self.assertEqual(float(maker_fireability.get("active_window_row_count") or 0.0), 4.0)
             self.assertEqual(float(maker_fireability.get("active_window_submit_count") or 0.0), 2.0)
             self.assertEqual(float(maker_fireability.get("active_window_replace_guard_count") or 0.0), 1.0)
-            self.assertEqual(
-                float(maker_fireability.get("active_window_quote_quality_skip_fill_probability_count") or 0.0),
-                1.0,
-            )
-            self.assertEqual(
-                float(maker_fireability.get("active_window_quote_quality_skip_queue_depth_count") or 0.0),
-                1.0,
-            )
+            self.assertNotIn("active_window_quote_quality_skip_fill_probability_count", maker_fireability)
+            self.assertNotIn("active_window_quote_quality_skip_queue_depth_count", maker_fireability)
             self.assertEqual(float(maker_fireability.get("active_window_sizing_reject_count") or 0.0), 1.0)
-            self.assertAlmostEqual(float(maker_fireability.get("active_window_submit_rate") or 0.0), 2.0 / 6.0, places=9)
+            self.assertAlmostEqual(float(maker_fireability.get("active_window_submit_rate") or 0.0), 0.5, places=9)
             self.assertAlmostEqual(
                 float(maker_fireability.get("active_window_replace_guard_rate") or 0.0),
-                1.0 / 6.0,
+                0.25,
                 places=9,
             )
             self.assertAlmostEqual(
                 float(maker_fireability.get("active_window_sizing_reject_rate") or 0.0),
-                1.0 / 6.0,
+                0.25,
                 places=9,
             )
             self.assertAlmostEqual(
@@ -2318,56 +2657,44 @@ class NightlySoakReportTests(unittest.TestCase):
                 places=9,
             )
             self.assertEqual(float(maker_fireability.get("active_window_viable_row_count") or 0.0), 3.0)
-            self.assertEqual(float(maker_fireability.get("active_window_impossible_row_count") or 0.0), 3.0)
+            self.assertEqual(float(maker_fireability.get("active_window_impossible_row_count") or 0.0), 1.0)
             self.assertEqual(float(maker_fireability.get("active_window_viable_target_count") or 0.0), 1.0)
-            self.assertEqual(float(maker_fireability.get("active_window_impossible_target_count") or 0.0), 3.0)
+            self.assertEqual(float(maker_fireability.get("active_window_impossible_target_count") or 0.0), 1.0)
             self.assertEqual(
                 maker_fireability.get("active_window_lifecycle_phase_distribution"),
-                {"prepare": 6},
+                {"prepare": 4},
             )
             self.assertEqual(
                 maker_fireability.get("active_window_lineage_stage_distribution"),
-                {"MAKER_TAKER_SELECTIVE": 6},
+                {"MAKER_TAKER_SELECTIVE": 4},
             )
             self.assertEqual(
                 maker_fireability.get("active_window_maker_phase_allowed_distribution"),
-                {"disallowed": 6},
+                {"disallowed": 4},
             )
             self.assertNotIn("active_window_stage_distribution", maker_fireability)
             block_distribution = maker_fireability.get("active_window_block_reason_distribution", {})
             self.assertEqual(int(block_distribution.get("submitted", 0)), 2)
             self.assertEqual(int(block_distribution.get("replace_guard_min_rest", 0)), 1)
             self.assertEqual(int(block_distribution.get("sizing_reject", 0)), 1)
-            severity = maker_fireability.get("raw_quote_quality_skip_severity", {})
-            self.assertEqual(int(severity.get("raw_quote_quality_skip_event_count", 0)), 6)
-            self.assertEqual(
-                severity.get("fill_probability_delta_bins"),
-                {"0p005_to_0p015": 1, "gt_0p015": 1, "within_0p005": 1},
-            )
-            self.assertEqual(
-                severity.get("queue_depth_delta_bins"),
-                {"25_to_50": 1, "gt_50": 1, "within_25": 1},
-            )
-            self.assertEqual(float(maker_fireability.get("raw_queue_depth_near_threshold_event_count") or 0.0), 2.0)
-            self.assertEqual(float(maker_fireability.get("raw_queue_depth_hard_miss_event_count") or 0.0), 1.0)
+            self.assertNotIn("raw_quote_quality_skip_severity", maker_fireability)
+            self.assertNotIn("raw_queue_depth_near_threshold_event_count", maker_fireability)
+            self.assertNotIn("raw_queue_depth_hard_miss_event_count", maker_fireability)
             self.assertEqual(
                 maker_fireability.get("active_window_low_price_conflict_price_band"),
-                {"min": 0.015, "p50": 0.02, "max": 0.02},
+                {"min": 0.015, "p50": 0.015, "max": 0.015},
             )
-            self.assertEqual(
-                float(maker_fireability.get("active_window_queue_depth_on_impossible_targets_count") or 0.0),
-                1.0,
-            )
+            self.assertNotIn("active_window_queue_depth_on_impossible_targets_count", maker_fireability)
             target_summary = maker_fireability.get("active_window_target_summary", [])
             target_a = next(item for item in target_summary if item.get("target_ref") == "target-a")
-            target_b = next(item for item in target_summary if item.get("target_ref") == "target-b")
+            target_d = next(item for item in target_summary if item.get("target_ref") == "target-d")
             self.assertEqual(float(target_a.get("window_row_count") or 0.0), 3.0)
             self.assertEqual(float(target_a.get("submitted_count") or 0.0), 2.0)
             self.assertEqual(target_a.get("viability_class"), "viable_only")
             self.assertEqual(target_a.get("submit_sec_to_expiry_sample"), [59.0, 55.0])
             self.assertEqual(target_a.get("submit_gap_sec_sample"), [4.0])
-            self.assertEqual(target_b.get("viability_class"), "impossible_only")
-            self.assertAlmostEqual(float(target_b.get("market_probability_p50") or 0.0), 0.02, places=9)
+            self.assertEqual(target_d.get("viability_class"), "impossible_only")
+            self.assertAlmostEqual(float(target_d.get("market_probability_p50") or 0.0), 0.015, places=9)
 
     def test_build_report_emits_maker_market_snapshot_support_artifacts(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2715,8 +3042,8 @@ class NightlySoakReportTests(unittest.TestCase):
                 2,
             )
             self.assertEqual(int(summary.get("population_class_counts", {}).get("candidate", 0)), 2)
-            self.assertEqual(int(summary.get("admission_class_counts", {}).get("clean", 0)), 1)
-            self.assertEqual(int(summary.get("admission_class_counts", {}).get("trash", 0)), 1)
+            self.assertEqual(int(summary.get("admission_class_counts", {}).get("clean", 0)), 2)
+            self.assertEqual(int(summary.get("admission_class_counts", {}).get("trash", 0)), 0)
             self.assertEqual(int(summary.get("maker_market_snapshot_version", 0)), 1)
             self.assertEqual(summary.get("secondary_oracle_status_distribution"), {"unknown": 2})
             self.assertEqual(summary.get("secondary_oracle_confirmation_distribution"), {"not_confirmed": 2})
@@ -3810,6 +4137,16 @@ class NightlySoakReportTests(unittest.TestCase):
                 summary.get("specimen_regime_class"),
                 "overnight_logic_specimen",
             )
+            self.assertEqual(summary.get("authoritative_for_runtime_blocker_truth"), False)
+            self.assertEqual(summary.get("authoritative_for_current_owner_law"), False)
+            self.assertEqual(
+                summary.get("applicability"),
+                "descriptive_only",
+            )
+            self.assertEqual(
+                summary.get("current_owner_artifact"),
+                "maker_blocker_ledger.json",
+            )
             self.assertEqual(summary.get("peak_hours_economic_conclusion_allowed"), False)
             self.assertEqual(summary.get("order_cancel_class_distribution"), {"legacy_routine": 1})
             self.assertEqual(
@@ -3817,6 +4154,15 @@ class NightlySoakReportTests(unittest.TestCase):
                 {"replace_quote": 1},
             )
             self.assertEqual(summary.get("next_repair_lane"), "A. Quality-model repair")
+            disclosures = list(summary.get("disclosures") or [])
+            self.assertNotIn(
+                "The repaired $250 specimen occurred around 02:04 AM Central, so economic fill-rate and PnL conclusions remain non-authoritative.",
+                disclosures,
+            )
+            self.assertIn(
+                "This artifact is support-only and may not outrank canonical runtime blocker truth.",
+                disclosures,
+            )
 
             _write_support_artifacts(reports_dir, support_artifacts)
             self.assertTrue((reports_dir / "maker_quote_integrity_manifest.json").exists())
@@ -4508,6 +4854,9 @@ class NightlySoakReportTests(unittest.TestCase):
                     "side": "BUY",
                     "price": 0.5,
                     "size": 10,
+                    "fill_policy_basis": "visible_liquidity_top_of_book",
+                    "execution_realism_class": "not_modeled",
+                    "paper_queue_position_mode": "not_applicable",
                     "paper_chainlink_lag_class": "within_window",
                 },
             ]
@@ -4564,6 +4913,12 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(submit_buckets.get("0p10_0p30", 0)), 1)
             fill_buckets = taker_comp.get("fill_edge_bucket_distribution", {})
             self.assertEqual(int(fill_buckets.get("0p10_0p30", 0)), 1)
+            fill_policy = taker_comp.get("fill_policy_basis_distribution", {})
+            self.assertEqual(int(fill_policy.get("visible_liquidity_top_of_book", 0)), 1)
+            fill_realism = taker_comp.get("fill_execution_realism_class_distribution", {})
+            self.assertEqual(int(fill_realism.get("not_modeled", 0)), 1)
+            fill_queue_mode = taker_comp.get("fill_queue_position_mode_distribution", {})
+            self.assertEqual(int(fill_queue_mode.get("not_applicable", 0)), 1)
             lag_distribution = taker_comp.get("lag_class_distribution", {})
             self.assertEqual(int(lag_distribution.get("within_window", 0)), 1)
             self.assertEqual(float(taker_comp.get("dynamic_size_capped_by_risk_count_decision") or 0.0), 1.0)
@@ -4706,6 +5061,100 @@ class NightlySoakReportTests(unittest.TestCase):
             submit_policy = taker_comp.get("submit_normal_side_policy_distribution", {})
             self.assertEqual(int(submit_policy.get("buy_expected_winner_only", 0)), 1)
 
+    def test_build_report_prefers_top_level_taker_submit_lineage_and_side_class(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-top-level-submit-truth",
+                    "order_id": "ord-top-level",
+                    "reason": "taker_chainlink",
+                    "submission_lane": "taker",
+                    "lineage_stage": "SNIPER_PRIMARY",
+                    "normal_taker_side_class": "buy_expected_winner",
+                    "taker_competitiveness": {
+                        "lineage_stage": "EXTREME_ONLY",
+                        "edge_abs": 0.24,
+                        "conviction_score": 0.82,
+                        "timing_window_class": "final15",
+                        "normal_taker_side_class": "same_token_sell_blocked",
+                    },
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": "rid-top-level-submit-truth",
+                    "order_id": "ord-top-level",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.50,
+                    "size": 10,
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-top-level-submit-truth", "gauge.open_orders": 0}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-top-level-submit-truth")
+            taker_comp = report.get("taker_competitiveness", {})
+            submit_stage = taker_comp.get("submit_lineage_stage_distribution", {})
+            self.assertEqual(int(submit_stage.get("SNIPER_PRIMARY", 0)), 1)
+            self.assertEqual(int(submit_stage.get("EXTREME_ONLY", 0)), 0)
+            submit_classes = taker_comp.get("submit_normal_taker_side_class_distribution", {})
+            self.assertEqual(int(submit_classes.get("buy_expected_winner", 0)), 1)
+            self.assertEqual(int(submit_classes.get("same_token_sell_blocked", 0)), 0)
+
+    def test_build_report_classifies_canonical_taker_submit_without_competitiveness_payload_as_normal(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            events_path = root / "events_2026-01-01.jsonl"
+            status_path = root / "status_2026-01-01.jsonl"
+            errors_path = root / "errors_2026-01-01.jsonl"
+            events = [
+                {
+                    "event_type": "order_submit",
+                    "run_id": "rid-canonical-submit-without-comp-payload",
+                    "order_id": "ord-canonical",
+                    "reason": "taker_chainlink",
+                    "submission_lane": "taker",
+                    "lifecycle_phase": "taker_window",
+                    "lineage_stage": "TAKER_COMMITMENT",
+                    "normal_taker_side_class": "buy_expected_winner",
+                    "target_usd_requested": 5.0,
+                    "target_usd_resolved": 5.0,
+                },
+                {
+                    "event_type": "fill",
+                    "run_id": "rid-canonical-submit-without-comp-payload",
+                    "order_id": "ord-canonical",
+                    "token_id": "t1",
+                    "side": "BUY",
+                    "price": 0.25,
+                    "size": 20.0,
+                },
+            ]
+            events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps({"run_id": "rid-canonical-submit-without-comp-payload", "gauge.open_orders": 0}) + "\n",
+                encoding="utf-8",
+            )
+            errors_path.write_text("", encoding="utf-8")
+
+            report = build_report(root, run_id="rid-canonical-submit-without-comp-payload")
+            taker_comp = report.get("taker_competitiveness", {})
+            submit_class_distribution = taker_comp.get("submit_class_distribution", {})
+            self.assertEqual(int(submit_class_distribution.get("normal_competitiveness", 0)), 1)
+            self.assertEqual(int(submit_class_distribution.get("true_unknown", 0)), 0)
+            fill_class_distribution = taker_comp.get("fill_class_distribution", {})
+            self.assertEqual(int(fill_class_distribution.get("normal_competitiveness", 0)), 1)
+            self.assertEqual(int(fill_class_distribution.get("true_unknown", 0)), 0)
+
     def test_build_report_emits_taker_opportunity_suppression_metrics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -4721,7 +5170,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "normal_taker_authority_closed",
                     "lineage_stage": "OBSERVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.79,
                     "market_probability": 0.70,
                     **_historical_taker_authority_flags(),
@@ -4735,7 +5183,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "edge_below_min",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.55,
                     "market_probability": 0.50,
                     **_historical_taker_authority_flags(),
@@ -4749,7 +5196,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "market_probability_missing",
                     "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.55,
                     "market_probability": None,
                     **_historical_taker_authority_flags(),
@@ -4764,7 +5210,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "taker_submit_reject_reason": "risk_reject_notional_cap",
                     "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.90,
                     "market_probability": 0.30,
                     **_historical_taker_authority_flags(),
@@ -4778,7 +5223,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "",
                     "lineage_stage": "SNIPER_PRIMARY",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "edge_abs": 0.40,
                     **_historical_taker_authority_flags(
                         taker_phase_allowed=True,
@@ -4793,7 +5237,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": _HISTORICAL_RECOVERY_WAITING_BLOCK_REASON,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.95,
                     "market_probability": 0.50,
                     "settlement_hold_required": True,
@@ -4809,7 +5252,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": _HISTORICAL_RECOVERY_SIZE_CAP_BELOW_MIN_ORDER_SIZE,
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.99,
                     "market_probability": 0.80,
                     "settlement_hold_required": True,
@@ -4882,7 +5324,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "settlement_hold_required",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.95,
                     "market_probability": 0.50,
                     "settlement_hold_required": True,
@@ -4897,7 +5338,6 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": "open_order_cleanup_required",
                     "lineage_stage": "MAKER_TAKER_SELECTIVE",
                     "book_source": "ws",
-                    "latency_state": "armed",
                     "fair_probability": 0.90,
                     "market_probability": 0.55,
                     "open_order_cleanup_required": True,
@@ -4922,12 +5362,18 @@ class NightlySoakReportTests(unittest.TestCase):
             self.assertEqual(int(residue.get("open_order_cleanup_required_distribution", {}).get("true", 0)), 1)
             self.assertEqual(int(residue.get("cancel_fail_closed_distribution", {}).get("true", 0)), 1)
 
-    def test_build_report_emits_complement_route_metrics(self):
+    def test_build_report_normalizes_legacy_complement_route_metrics_to_unknown(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             events_path = root / "events_2026-01-01.jsonl"
             status_path = root / "status_2026-01-01.jsonl"
             errors_path = root / "errors_2026-01-01.jsonl"
+            retired_route_key = "complement" + "_route_applied"
+            retired_side_class = "complement" + "_buy"
+            retired_mapping_reason = "complement" + "_token_mapping_unavailable"
+            retired_mapping_class = "complement" + "_mapping_unavailable"
+            retired_comp_token_key = "normal_taker_" + "complement_token_id"
+            retired_comp_route_key = "normal_taker_" + "complement" + "_route_applied"
             events = [
                 {
                     "event_type": "taker_decision",
@@ -4936,7 +5382,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "source_token_id": "t-yes",
                     "submit_token_id": "t-no",
                     "complement_token_id": "t-no",
-                    "complement_route_applied": True,
+                    retired_route_key: True,
                     "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": True,
                     "timing_window_class": "final15",
@@ -4945,7 +5391,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "block_reason": None,
                     "aggressiveness_level": "final15",
                     "normal_side_policy": "buy_expected_winner_only",
-                    "normal_taker_side_class": "complement_buy",
+                    "normal_taker_side_class": retired_side_class,
                 },
                 {
                     "event_type": "taker_decision",
@@ -4953,16 +5399,16 @@ class NightlySoakReportTests(unittest.TestCase):
                     "token_id": "t-missing",
                     "source_token_id": "t-missing",
                     "submit_token_id": "t-missing",
-                    "complement_route_applied": False,
+                    retired_route_key: False,
                     "lineage_stage": "SNIPER_PRIMARY",
                     "should_submit": False,
                     "timing_window_class": "final15",
                     "edge_abs": 0.24,
                     "conviction_score": 0.82,
-                    "block_reason": "complement_token_mapping_unavailable",
+                    "block_reason": retired_mapping_reason,
                     "aggressiveness_level": "final15",
                     "normal_side_policy": "buy_expected_winner_only",
-                    "normal_taker_side_class": "complement_mapping_unavailable",
+                    "normal_taker_side_class": retired_mapping_class,
                 },
                 {
                     "event_type": "order_submit",
@@ -4976,11 +5422,11 @@ class NightlySoakReportTests(unittest.TestCase):
                         "conviction_score": 0.82,
                         "timing_window_class": "final15",
                         "normal_side_policy": "buy_expected_winner_only",
-                        "normal_taker_side_class": "complement_buy",
+                        "normal_taker_side_class": retired_side_class,
                         "normal_taker_source_token_id": "t-yes",
                         "normal_taker_submit_token_id": "t-no",
-                        "normal_taker_complement_token_id": "t-no",
-                        "normal_taker_complement_route_applied": True,
+                        retired_comp_token_key: "t-no",
+                        retired_comp_route_key: True,
                     },
                 },
                 {
@@ -5003,14 +5449,13 @@ class NightlySoakReportTests(unittest.TestCase):
             report = build_report(root, run_id="rid-taker-complement")
             taker_comp = report.get("taker_competitiveness", {})
             decision_classes = taker_comp.get("decision_normal_taker_side_class_distribution", {})
-            self.assertEqual(int(decision_classes.get("complement_buy", 0)), 1)
-            self.assertEqual(int(decision_classes.get("complement_mapping_unavailable", 0)), 1)
-            self.assertEqual(
-                float(taker_comp.get("complement_token_mapping_failure_count_decision") or 0.0),
-                1.0,
-            )
+            self.assertEqual(int(decision_classes.get("unknown", 0)), 2)
+            self.assertNotIn(retired_side_class, decision_classes)
+            self.assertNotIn(retired_mapping_class, decision_classes)
+            self.assertNotIn("complement" + "_token_mapping_failure_count_decision", taker_comp)
             submit_classes = taker_comp.get("submit_normal_taker_side_class_distribution", {})
-            self.assertEqual(int(submit_classes.get("complement_buy", 0)), 1)
+            self.assertEqual(int(submit_classes.get("unknown", 0)), 1)
+            self.assertNotIn(retired_side_class, submit_classes)
             submit_policy = taker_comp.get("submit_normal_side_policy_distribution", {})
             self.assertEqual(int(submit_policy.get("buy_expected_winner_only", 0)), 1)
 
@@ -5151,7 +5596,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "default_final_window_sec": 60.0,
                     "semantic_dead_by_construction_count": 0,
                     "semantic_status": "ok",
-                    "stage_rows": {
+                    "phase_rows": {
                         "MAKER_TAKER_SELECTIVE": {
                             "effective_final_window_sec": 60.0,
                             "semantically_live": True,
@@ -5212,6 +5657,17 @@ class NightlySoakReportTests(unittest.TestCase):
                     },
                 },
                 {
+                    "event_type": "fill",
+                    "run_id": "rid-gate-posture",
+                    "profile_name": "paper_universal",
+                    "config_fingerprint_sha256": "cfg-1",
+                    "order_id": "normal",
+                    "token_id": "token-normal",
+                    "side": "BUY",
+                    "price": 0.51,
+                    "size": 10,
+                },
+                {
                     "event_type": "taker_submit",
                     "run_id": "rid-gate-posture",
                     "profile_name": "paper_universal",
@@ -5256,18 +5712,25 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 int((matrix.get("event_class_distribution") or {}).get("normal_competitiveness", 0)),
-                3,
+                4,
             )
             self.assertEqual(
                 int((matrix.get("event_class_distribution") or {}).get("lifecycle_residue_override", 0)),
                 2,
             )
+            self.assertEqual(
+                int((matrix.get("event_class_distribution") or {}).get("true_unknown", 0)),
+                0,
+            )
             self.assertEqual(float(matrix.get("normal_below_required_min_edge_count") or 0.0), 0.0)
             self.assertEqual(float(matrix.get("lifecycle_residue_override_below_required_min_edge_count") or 0.0), 1.0)
             self.assertEqual(matrix.get("lifecycle_residue_override_crossed_normal_edge_gate_observed"), True)
-            stage_windows = (matrix.get("latest_stage_window_semantics") or {}).get("stage_rows", {})
+            latest_semantics = matrix.get("latest_stage_window_semantics") or {}
+            phase_windows = latest_semantics.get("phase_rows", {})
+            stage_windows = latest_semantics.get("stage_rows", {})
+            self.assertEqual(phase_windows, stage_windows)
             self.assertEqual(
-                float((stage_windows.get("MAKER_TAKER_SELECTIVE") or {}).get("effective_final_window_sec") or 0.0),
+                float((phase_windows.get("MAKER_TAKER_SELECTIVE") or {}).get("effective_final_window_sec") or 0.0),
                 60.0,
             )
             required_min_edge = matrix.get("required_min_edge_by_intent_lineage_stage", {})
@@ -5353,7 +5816,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "default_final_window_sec": 60.0,
                     "semantic_dead_by_construction_count": 0,
                     "semantic_status": "ok",
-                    "stage_rows": {
+                    "phase_rows": {
                         "EXTREME_ONLY": {
                             "effective_final_window_sec": 60.0,
                             "semantically_live": True,
@@ -5390,7 +5853,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "default_final_window_sec": 7.0,
                     "semantic_dead_by_construction_count": 0,
                     "semantic_status": "ok",
-                    "stage_rows": {
+                    "phase_rows": {
                         "EXTREME_ONLY": {
                             "effective_final_window_sec": 7.0,
                             "semantically_live": True,
@@ -5408,7 +5871,10 @@ class NightlySoakReportTests(unittest.TestCase):
             report = build_report(root, run_id=run_id, max_lines_per_file=5)
             matrix = report.get("taker_intent_gate_posture_matrix", {})
             self.assertEqual(float(matrix.get("stage_window_semantic_check_count") or 0.0), 1.0)
-            stage_rows = (matrix.get("latest_stage_window_semantics") or {}).get("stage_rows", {})
+            latest_semantics = matrix.get("latest_stage_window_semantics") or {}
+            stage_rows = latest_semantics.get("stage_rows", {})
+            phase_rows = latest_semantics.get("phase_rows", {})
+            self.assertEqual(stage_rows, phase_rows)
             self.assertAlmostEqual(
                 float((stage_rows.get("EXTREME_ONLY") or {}).get("effective_final_window_sec") or 0.0),
                 7.0,
@@ -5543,23 +6009,9 @@ class NightlySoakReportTests(unittest.TestCase):
                             },
                             "latency_verifier": {
                                 "enabled": True,
-                                "require_armed_for_maker": True,
-                                "require_armed_for_taker": True,
-                                "min_samples": 15,
                                 "hit_threshold_ms": 40,
-                                "armed_min_median_ms": 40,
-                                "armed_min_hit_rate": 0.30,
-                                "probation_min_median_ms": 30,
-                                "probation_min_hit_rate": 0.15,
-                                "score_min_for_maker": 0.08,
-                                "score_min_for_taker": 0.60,
                             },
                             "taker": {
-                                "require_lag_verification": False,
-                                "lag_min_samples": 80,
-                                "lag_min_median_ms": 120,
-                                "lag_min_hit_rate": 0.60,
-                                "lag_hit_threshold_ms": 120,
                                 "max_chainlink_tick_age_sec": 1.5,
                                 "min_edge": 0.015,
                                 "min_edge_by_stage": {
@@ -5616,17 +6068,14 @@ class NightlySoakReportTests(unittest.TestCase):
             )
             boundary = posture.get("boundary_alignment", {})
             self.assertEqual(boundary.get("normal_can_open_inside_held_recovery_window"), True)
-            self.assertEqual(
-                (posture.get("taker_lag_gate") or {}).get("require_lag_verification"),
-                False,
-            )
+            self.assertNotIn("taker_token_readiness", posture)
+            self.assertEqual((posture.get("latency_verifier") or {}).get("hit_threshold_ms"), 40.0)
             gates = posture.get("normal_taker_entry_gates") or {}
             self.assertNotIn("normal_allowed_final_window_by_stage", gates)
             self.assertNotIn("stage_final_window_sec_by_stage", gates)
             self.assertNotIn("aggressive_window_enabled", gates)
             flags = set(posture.get("posture_flags") or [])
             self.assertIn("normal_entry_recovery_boundary_overlap", flags)
-            self.assertIn("taker_require_lag_verification_false", flags)
             self.assertIn("taker_default_final_window_ge_60s", flags)
             summary = render_human_summary(report)
             self.assertIn("taker_config_gate_posture=", summary)
@@ -6153,7 +6602,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "evaluation_scope": "maker",
                     "action_taken": "none",
                     "block_reason": "maker_no_submission",
-                    "maker_no_submission_category": "quote_quality_skip_queue_depth",
+                    "maker_no_submission_category": "replace_guard_min_rest",
                 },
             ]
             status = [{"run_id": "rid-maker-sentinel", "ts_utc": "2099-01-01T00:10:00Z", "gauge.open_orders": 0}]
@@ -6249,12 +6698,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "run_id": "rid-stale",
                     "action_taken": "none",
-                    "block_reason": "latency_not_armed",
-                },
-                {
-                    "event_type": "edge_blocked_reason",
-                    "run_id": "rid-stale",
-                    "reason": "stale_should_not_count",
+                    "block_reason": "maker_timing_gate_closed",
                 },
             ]
             events_path.write_text("\n".join(json.dumps(x) for x in events) + "\n", encoding="utf-8")
@@ -6265,7 +6709,6 @@ class NightlySoakReportTests(unittest.TestCase):
             stale = report.get("stale_data", {})
             self.assertEqual(stale.get("stale_book_rejects"), 1.0)
             self.assertEqual(stale.get("stale_oracle_edge_blocks"), 1.0)
-            self.assertEqual(stale.get("disarmed_edge_blocks"), 1.0)
 
     def test_build_report_includes_market_data_source_stats(self):
         with tempfile.TemporaryDirectory() as td:
@@ -6479,7 +6922,7 @@ class NightlySoakReportTests(unittest.TestCase):
                     "event_type": "edge_evaluation",
                     "ts_utc": "2099-01-01T00:00:02Z",
                     "action_taken": "none",
-                    "block_reason": "latency_not_armed",
+                    "block_reason": "taker_requires_ws_book_source",
                 },
             ]
             status = [

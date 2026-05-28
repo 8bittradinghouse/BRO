@@ -75,6 +75,23 @@ class ExecutionStackTests(unittest.TestCase):
         return rows
 
     @staticmethod
+    def _latency_snapshot(
+        *,
+        sample_count: int,
+        token_count: int,
+        median_lag_ms: float,
+        hit_rate: float,
+    ) -> LatencySnapshot:
+        return LatencySnapshot(
+            sample_count=int(sample_count),
+            token_count=int(token_count),
+            median_lag_ms=float(median_lag_ms),
+            p90_lag_ms=float(median_lag_ms),
+            p95_lag_ms=float(median_lag_ms),
+            hit_rate=float(hit_rate),
+        )
+
+    @staticmethod
     def _historical_recovery_lineage_stage_info(
         *,
         lineage_stage: str = "MAKER_TAKER_SELECTIVE",
@@ -213,6 +230,11 @@ class ExecutionStackTests(unittest.TestCase):
             max_same_target_side_submit_count_prior
         )
         cfg["lifecycle"]["phase"]["taker_window_open_sec"] = (
+            float(min_sec_to_expiry)
+            if isinstance(min_sec_to_expiry, (int, float))
+            else None
+        )
+        cfg["lifecycle"]["phase"]["maker_window_close_sec"] = (
             float(min_sec_to_expiry)
             if isinstance(min_sec_to_expiry, (int, float))
             else None
@@ -364,13 +386,14 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertNotIn(self._HISTORICAL_PREEXPIRY_EMERGENCY_WINDOW_SEC_FIELD, runtime)
         self.assertNotIn("terminal_unwind_halt_new_risk_sec", runtime)
         self.assertTrue(bool(runtime.get("require_lifecycle_context_for_decisions", False)))
-        self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 15.0, places=9)
+        self.assertAlmostEqual(float(risk.get("min_sec_to_expiry_for_new_exposure") or 0.0), 12.0, places=9)
         lane_overrides = dict(risk.get("min_sec_to_expiry_for_new_exposure_by_lane") or {})
-        self.assertAlmostEqual(float(lane_overrides.get("maker")), 7.0, places=9)
-        self.assertAlmostEqual(float(lane_overrides.get("taker")), 0.0, places=9)
+        self.assertAlmostEqual(float(lane_overrides.get("maker")), 8.0, places=9)
+        self.assertAlmostEqual(float(lane_overrides.get("taker")), 8.0, places=9)
         taker = dict(cfg.get("taker") or {})
         competitiveness = dict(taker.get("competitiveness") or {})
-        self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 7.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("final_window_sec") or 0.0), 12.0, places=9)
+        self.assertAlmostEqual(float(competitiveness.get("final_window_floor_sec") or 0.0), 8.0, places=9)
         self.assertNotIn("stage_final_window_sec_by_stage", competitiveness)
         execution_quality = dict(strategy.get("execution_quality") or {})
         sizing = dict(cfg.get("sizing") or {})
@@ -382,25 +405,27 @@ class ExecutionStackTests(unittest.TestCase):
         lifecycle = dict(cfg.get("lifecycle") or {})
         selection = dict(lifecycle.get("selection") or {})
         phase = dict(lifecycle.get("phase") or {})
-        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 15.0, places=9)
-        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 7.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_open_sec") or 0.0), 12.0, places=9)
+        self.assertAlmostEqual(float(phase.get("maker_window_close_sec") or 0.0), 8.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_open_sec") or 0.0), 12.0, places=9)
+        self.assertAlmostEqual(float(phase.get("taker_window_close_sec") or 0.0), 8.0, places=9)
         self.assertEqual(bool(selection.get("enabled")), True)
         self.assertNotIn("allowed_stages", selection_gate)
         self.assertEqual(bool(selection.get("require_secondary_oracle_confirmation")), True)
         self.assertNotIn("require_one_sided_active", selection)
         self.assertAlmostEqual(float(selection.get("cannon_target_notional_usd") or 0.0), 100.0, places=9)
-        self.assertAlmostEqual(float(selection.get("maker_min_depth_multiple") or 0.0), 1.45, places=9)
+        self.assertAlmostEqual(float(selection.get("maker_min_depth_multiple") or 0.0), 1.5, places=9)
         self.assertEqual(
             list(selection.get("maker_min_depth_multiple_band") or []),
-            [1.45, 1.5],
+            [1.5, 1.5],
         )
         self.assertEqual(
             int(float(selection.get("max_same_target_submit_count_prior"))),
-            1,
+            0,
         )
         self.assertEqual(
             int(float(selection.get("max_same_target_side_submit_count_prior"))),
-            1,
+            0,
         )
         self.assertAlmostEqual(float(sizing.get("target_usd") or 0.0), 100.0, places=9)
         self.assertAlmostEqual(float(sizing.get("max_usd") or 0.0), 101.0, places=9)
@@ -428,9 +453,9 @@ class ExecutionStackTests(unittest.TestCase):
                 cfg["strategy"],
                 sizing_cfg=cfg.get("sizing", {}),
             )
-            self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 7.0, places=9)
-            self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 15.0, places=9)
-            self.assertAlmostEqual(float(manager.maker_selection_gate_min_depth_multiple or 0.0), 1.45, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_min_sec_to_expiry or 0.0), 8.0, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_max_sec_to_expiry or 0.0), 12.0, places=9)
+            self.assertAlmostEqual(float(manager.maker_selection_gate_min_depth_multiple or 0.0), 1.5, places=9)
             self.assertAlmostEqual(
                 float(manager.maker_selection_gate_depth_multiple_ceiling or 0.0),
                 1.5,
@@ -439,6 +464,226 @@ class ExecutionStackTests(unittest.TestCase):
         finally:
             events.close()
             tmp.cleanup()
+
+    def test_runner_prunes_hard_pinned_and_single_market_double_expression(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+
+        hard_pinned_books = {
+            "t_yes": BookTop(
+                token_id="t_yes",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.99,
+                best_bid_size=100.0,
+                best_ask_price=None,
+                best_ask_size=None,
+            ),
+            "t_no": BookTop(
+                token_id="t_no",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=None,
+                best_bid_size=None,
+                best_ask_price=0.01,
+                best_ask_size=100.0,
+            ),
+        }
+        hard_pinned_lifecycle = {
+            "t_yes": {"owned_market_ref": "market-hard"},
+            "t_no": {"owned_market_ref": "market-hard"},
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_yes", "t_no"},
+            books=hard_pinned_books,
+            lifecycle_info_by_token=hard_pinned_lifecycle,
+            maker_competitiveness_profiles_by_token={},
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_yes"), "window_geometry_hard_pinned")
+        self.assertEqual(reasons.get("t_no"), "window_geometry_hard_pinned")
+
+        near_pinned_books = {
+            "t_yes": BookTop(
+                token_id="t_yes",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.985,
+                best_bid_size=100.0,
+                best_ask_price=0.99,
+                best_ask_size=50.0,
+            ),
+            "t_no": BookTop(
+                token_id="t_no",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.01,
+                best_bid_size=50.0,
+                best_ask_price=0.02,
+                best_ask_size=100.0,
+            ),
+        }
+        near_pinned_lifecycle = {
+            "t_yes": {"owned_market_ref": "market-near"},
+            "t_no": {"owned_market_ref": "market-near"},
+        }
+        profiles = {
+            "t_yes": {"context": {"edge_abs": 0.24}},
+            "t_no": {"context": {"edge_abs": 0.11}},
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_yes", "t_no"},
+            books=near_pinned_books,
+            lifecycle_info_by_token=near_pinned_lifecycle,
+            maker_competitiveness_profiles_by_token=profiles,
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_yes"), "window_geometry_near_pinned")
+        self.assertEqual(reasons.get("t_no"), "window_geometry_near_pinned")
+
+    def test_runner_prunes_hard_pinned_when_only_rich_side_is_still_eligible(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+
+        hard_pinned_books = {
+            "t_yes": BookTop(
+                token_id="t_yes",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.99,
+                best_bid_size=100.0,
+                best_ask_price=None,
+                best_ask_size=None,
+            ),
+            "t_no": BookTop(
+                token_id="t_no",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=None,
+                best_bid_size=None,
+                best_ask_price=0.01,
+                best_ask_size=100.0,
+            ),
+        }
+        hard_pinned_lifecycle = {
+            "t_yes": {"owned_market_ref": "market-hard"},
+            "t_no": {"owned_market_ref": "market-hard"},
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_yes"},
+            books=hard_pinned_books,
+            lifecycle_info_by_token=hard_pinned_lifecycle,
+            maker_competitiveness_profiles_by_token={},
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_yes"), "window_geometry_hard_pinned")
+
+    def test_runner_prunes_dead_book_sentinel_encoding_as_hard_pinned(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+
+        books = {
+            "t_yes": BookTop(
+                token_id="t_yes",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.99,
+                best_bid_size=100.0,
+                best_ask_price=1.0,
+                best_ask_size=1.0,
+            ),
+            "t_no": BookTop(
+                token_id="t_no",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.0,
+                best_bid_size=1.0,
+                best_ask_price=0.01,
+                best_ask_size=100.0,
+            ),
+        }
+        lifecycle = {
+            "t_yes": {"owned_market_ref": "market-sentinel"},
+            "t_no": {"owned_market_ref": "market-sentinel"},
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_yes", "t_no"},
+            books=books,
+            lifecycle_info_by_token=lifecycle,
+            maker_competitiveness_profiles_by_token={},
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_yes"), "window_geometry_hard_pinned")
+        self.assertEqual(reasons.get("t_no"), "window_geometry_hard_pinned")
+
+    def test_runner_prunes_later_opposite_token_when_market_already_has_maker_expression(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.tx_manager = mock.Mock()
+        runner.tx_manager.get_open_orders.return_value = []
+        runner.risk = mock.Mock()
+        runner.risk.positions = {
+            "t_yes": Position(token_id="t_yes", net_shares=-5.0),
+            "t_no": Position(token_id="t_no", net_shares=0.0),
+        }
+
+        books = {
+            "t_no": BookTop(
+                token_id="t_no",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.44,
+                best_bid_size=120.0,
+                best_ask_price=0.45,
+                best_ask_size=120.0,
+            )
+        }
+        lifecycle = {
+            "t_yes": {"owned_market_ref": "market-live"},
+            "t_no": {"owned_market_ref": "market-live"},
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_no"},
+            books=books,
+            lifecycle_info_by_token=lifecycle,
+            maker_competitiveness_profiles_by_token={"t_no": {"context": {"edge_abs": 0.22}}},
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_no"), "maker_single_market_expression_pruned")
+
+    def test_runner_prunes_maker_when_one_sided_conviction_is_inactive(self):
+        runner = ExecutionRunner.__new__(ExecutionRunner)
+        runner.tx_manager = mock.Mock()
+        runner.tx_manager.get_open_orders.return_value = []
+        runner.risk = mock.Mock()
+        runner.risk.positions = {}
+
+        books = {
+            "t_yes": BookTop(
+                token_id="t_yes",
+                ts_utc=utc_iso(),
+                source="ws",
+                best_bid_price=0.61,
+                best_bid_size=120.0,
+                best_ask_price=0.62,
+                best_ask_size=120.0,
+            )
+        }
+        lifecycle = {
+            "t_yes": {"owned_market_ref": "market-edge"},
+        }
+        profiles = {
+            "t_yes": {
+                "posture_contract": {
+                    "one_sided_active": False,
+                    "edge_abs": 0.13,
+                }
+            }
+        }
+        remaining, reasons = runner._prune_maker_eligible_tokens(  # pylint: disable=protected-access
+            maker_eligible_tokens={"t_yes"},
+            books=books,
+            lifecycle_info_by_token=lifecycle,
+            maker_competitiveness_profiles_by_token=profiles,
+        )
+        self.assertEqual(remaining, set())
+        self.assertEqual(reasons.get("t_yes"), "maker_edge_below_min")
 
     def test_order_manager_lifecycle_selection_gate_uses_phase_window_not_market_admission_ceiling(self):
         runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
@@ -559,6 +804,15 @@ class ExecutionStackTests(unittest.TestCase):
         cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
         cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 90.0
         cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 60.0
+        with self.assertRaises(ValueError):
+            validate_execution_config(cfg)
+
+    def test_config_rejects_new_exposure_expiry_gate_below_taker_timing_min(self):
+        cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+        cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+        cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {"taker": 4.0}
+        cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+        cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
         with self.assertRaises(ValueError):
             validate_execution_config(cfg)
 
@@ -1273,7 +1527,7 @@ class ExecutionStackTests(unittest.TestCase):
             risk_cfg = self._risk_cfg_without_expiry_gate()
             risk_cfg["max_book_age_sec"] = 100.0
             risk_cfg["global_exposure_guard"]["enabled"] = True
-            risk_cfg["global_exposure_guard"]["max_global_notional_usd"] = 30.0
+            risk_cfg["global_exposure_guard"]["max_global_capital_usd"] = 30.0
 
             gateway = PaperGateway()
             events = EventLogger(Path(tmp.name))
@@ -2436,6 +2690,73 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
+    def test_order_manager_viability_rejects_maker_below_one_sided_threshold(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            strategy_cfg["execution_quality"]["enabled"] = False
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            risk = RiskEngine(self._risk_cfg_without_expiry_gate(), {"t1": Position(token_id="t1")})
+            manager = OrderManager(
+                gateway,
+                object(),
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+            )
+            viability = manager._build_maker_market_viability_event(  # pylint: disable=protected-access
+                token_id="t1",
+                side="BUY",
+                competitiveness_context={
+                    "lifecycle_phase": "maker_window",
+                    "maker_phase_allowed": True,
+                    "one_sided_edge_threshold_abs": 0.20,
+                    "posture_contract": {
+                        "market_reference_class": "authoritative",
+                        "market_reference_mode": "direct_midpoint",
+                        "fair_probability": 0.60,
+                        "market_probability": 0.49,
+                        "edge_signed": 0.11,
+                        "edge_abs": 0.11,
+                        "secondary_oracle_status": "confirmed",
+                        "secondary_oracle_confirmation": True,
+                        "side_policy": "TWO_SIDED",
+                        "one_sided_active": False,
+                    },
+                },
+                snapshot_event={
+                    "lifecycle_phase": "maker_window",
+                    "maker_phase_allowed": True,
+                    "maker_gate_open": True,
+                    "fair_probability": 0.60,
+                    "market_probability": 0.49,
+                    "edge_value": 0.11,
+                    "edge_abs": 0.11,
+                    "side_policy": "TWO_SIDED",
+                    "one_sided_active": False,
+                },
+                selection_facts={
+                    "applied": True,
+                    "repeat_target_calm": True,
+                    "repeat_target_side_calm": True,
+                    "cannon_depth_requirement_met": True,
+                },
+                desired_quote_present=True,
+            )
+            self.assertFalse(bool(viability.get("viability_allowed")))
+            self.assertEqual(str(viability.get("primary_reject_reason") or ""), "maker_edge_below_min")
+            self.assertIn("maker_edge_below_min", list(viability.get("reject_reasons") or []))
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
     def test_order_manager_ignores_dead_reduce_only_size_cap_hint_on_submit(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
@@ -2896,7 +3217,15 @@ class ExecutionStackTests(unittest.TestCase):
                 )
                 runner._emit_maker_edge_evaluations(
                     books={"t1": top},
-                    lifecycle_info_by_token={"t1": {"lineage_stage": "MAKER_TAKER_SELECTIVE", "sec_to_expiry": 12.0}},
+                    lifecycle_info_by_token={
+                        "t1": {
+                            "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                            "lifecycle_phase": "maker_window",
+                            "maker_phase_allowed": True,
+                            "maker_gate_open": True,
+                            "sec_to_expiry": 12.0,
+                        }
+                    },
                     maker_eval_token_ids={"t1"},
                     maker_submitted_token_ids=set(),
                     maker_submitted_order_ids_by_token={},
@@ -2918,7 +3247,6 @@ class ExecutionStackTests(unittest.TestCase):
                         }
                     },
                     oracle_tick_age_sec=0.0,
-                    latency_state="armed",
                     cycle_index=7,
                 )
                 runner.events.close()
@@ -2934,6 +3262,72 @@ class ExecutionStackTests(unittest.TestCase):
                 self.assertEqual(int(float(row.get("open_maker_orders_total") or 0.0)), 0)
                 self.assertAlmostEqual(float(row.get("chainlink_spot_price") or 0.0), 100125.0, places=9)
                 self.assertAlmostEqual(float(row.get("secondary_oracle_spot_price") or 0.0), 100118.0, places=9)
+                self.assertEqual(str(row.get("maker_gate_stage") or ""), "submit_path_gate")
+                self.assertEqual(str(row.get("maker_gate_reason") or ""), "maker_no_submission")
+                self.assertEqual(str(row.get("maker_gate_owner_family") or ""), "submit_path")
+                self.assertEqual(bool(row.get("maker_gate_terminal")), True)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+
+    def test_runner_maker_edge_evaluation_classifies_truth_reference_stage_from_preclassified_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=120.0,
+                    best_ask_price=0.51,
+                    best_ask_size=180.0,
+                )
+                runner._emit_maker_edge_evaluations(
+                    books={"t1": top},
+                    lifecycle_info_by_token={
+                        "t1": {
+                            "lineage_stage": "MAKER_TAKER_SELECTIVE",
+                            "lifecycle_phase": "maker_window",
+                            "maker_phase_allowed": True,
+                            "maker_gate_open": True,
+                            "sec_to_expiry": 12.0,
+                        }
+                    },
+                    maker_eval_token_ids={"t1"},
+                    maker_submitted_token_ids=set(),
+                    maker_submitted_order_ids_by_token={},
+                    maker_no_submission_reason_by_token={"t1": "market_reference_not_authoritative"},
+                    maker_no_submission_category_by_token={"t1": "market_reference_not_authoritative"},
+                    maker_prereq_failure_by_token={},
+                    fair_probability_by_token={"t1": 0.60},
+                    oracle_tick_age_sec=0.0,
+                    cycle_index=7,
+                )
+                runner.events.close()
+                edge_rows = self._read_event_rows(Path(td), event_type="edge_evaluation")
+                maker_rows = [row for row in edge_rows if str(row.get("evaluation_scope") or "") == "maker"]
+                self.assertEqual(len(maker_rows), 1)
+                row = maker_rows[0]
+                self.assertEqual(str(row.get("maker_gate_stage") or ""), "truth_reference_gate")
+                self.assertEqual(
+                    str(row.get("maker_gate_reason") or ""),
+                    "market_reference_not_authoritative",
+                )
+                self.assertEqual(
+                    str(row.get("maker_gate_owner_family") or ""),
+                    "executor_truth_reference",
+                )
+                self.assertEqual(bool(row.get("maker_gate_terminal")), True)
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -3274,7 +3668,7 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
-    def test_quote_quality_skip_emits_effective_thresholds(self):
+    def test_maker_quote_quality_thresholds_do_not_block_or_emit_skip_event(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -3348,11 +3742,12 @@ class ExecutionStackTests(unittest.TestCase):
                 )
             }
             summary = manager.step({"t1": top}, competitiveness_context_by_token=context)
-            self.assertEqual(summary["open_orders"], 0)
+            self.assertEqual(summary["open_orders"], 1)
             events.close()
             events = None
             quote_skip_rows: list[dict] = []
             snapshot_rows: list[dict] = []
+            order_submit_rows: list[dict] = []
             for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
                 for line in path.read_text(encoding="utf-8").splitlines():
                     if not line.strip():
@@ -3362,20 +3757,31 @@ class ExecutionStackTests(unittest.TestCase):
                         quote_skip_rows.append(payload)
                     if str(payload.get("event_type") or "") == "maker_market_snapshot":
                         snapshot_rows.append(payload)
-            self.assertTrue(quote_skip_rows)
+                    if str(payload.get("event_type") or "") == "order_submit":
+                        order_submit_rows.append(payload)
+            self.assertEqual(quote_skip_rows, [])
             self.assertTrue(snapshot_rows)
-            self.assertEqual(
+            self.assertTrue(order_submit_rows)
+            self.assertNotEqual(
                 str(snapshot_rows[-1].get("decision_block_reason") or ""),
                 "quote_quality_skip_queue_depth",
             )
+            self.assertNotEqual(
+                str(snapshot_rows[-1].get("decision_block_reason") or ""),
+                "quote_quality_skip_fill_probability",
+            )
+            self.assertNotEqual(
+                str(snapshot_rows[-1].get("decision_block_reason") or ""),
+                "no_desired_quote",
+            )
             self.assertIsNone(snapshot_rows[-1].get("selection_gate_primary_reject_reason"))
             self.assertEqual(snapshot_rows[-1].get("selection_gate_all_reject_reasons"), [])
-            row = quote_skip_rows[-1]
-            self.assertEqual(str(row.get("skip_reason") or ""), "queue_ahead_too_deep")
-            self.assertAlmostEqual(float(row.get("default_max_queue_ahead_size") or 0.0), 100.0, places=9)
-            self.assertAlmostEqual(float(row.get("effective_max_queue_ahead_size") or 0.0), 100.0, places=9)
-            self.assertAlmostEqual(float(row.get("default_min_expected_fill_prob") or 0.0), 0.06, places=9)
-            self.assertAlmostEqual(float(row.get("effective_min_expected_fill_prob") or 0.0), 0.06, places=9)
+            self.assertNotIn("default_max_queue_ahead_size", snapshot_rows[-1])
+            self.assertNotIn("effective_max_queue_ahead_size", snapshot_rows[-1])
+            self.assertNotIn("default_min_expected_fill_prob", snapshot_rows[-1])
+            self.assertNotIn("effective_min_expected_fill_prob", snapshot_rows[-1])
+            self.assertIn("expected_fill_prob", snapshot_rows[-1])
+            self.assertIn("queue_ahead_size", snapshot_rows[-1])
         finally:
             if events is not None:
                 events.close()
@@ -4673,7 +5079,7 @@ class ExecutionStackTests(unittest.TestCase):
             wallet_status = manager.wallet.status()
             self.assertEqual(float(wallet_status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
             self.assertEqual(float(wallet_status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
-            self.assertGreaterEqual(float(wallet_status.get("locked_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status.get("locked_total_usdc", 0.0) or 0.0), 0.0)
             self.assertGreaterEqual(float(telemetry.counters.get("order_submit_no_ack", 0)), 1.0)
 
             events.close()
@@ -4697,7 +5103,7 @@ class ExecutionStackTests(unittest.TestCase):
             wallet_status_after_retry = manager.wallet.status()
             self.assertEqual(float(wallet_status_after_retry.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
             self.assertEqual(float(wallet_status_after_retry.get("order_lock_usdc", 0.0) or 0.0), 0.0)
-            self.assertGreaterEqual(float(wallet_status_after_retry.get("locked_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status_after_retry.get("locked_total_usdc", 0.0) or 0.0), 0.0)
         finally:
             if events is not None:
                 events.close()
@@ -4762,7 +5168,7 @@ class ExecutionStackTests(unittest.TestCase):
             wallet_status = manager.wallet.status()
             self.assertEqual(float(wallet_status.get("pending_lock_usdc", 0.0) or 0.0), 0.0)
             self.assertEqual(float(wallet_status.get("order_lock_usdc", 0.0) or 0.0), 0.0)
-            self.assertGreaterEqual(float(wallet_status.get("locked_usdc", 0.0) or 0.0), 0.0)
+            self.assertGreaterEqual(float(wallet_status.get("locked_total_usdc", 0.0) or 0.0), 0.0)
         finally:
             if events is not None:
                 events.close()
@@ -5698,7 +6104,7 @@ class ExecutionStackTests(unittest.TestCase):
                 events.close()
             tmp.cleanup()
 
-    def test_low_quality_quotes_are_skipped(self):
+    def test_low_quality_quotes_no_longer_block_maker(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -5731,14 +6137,14 @@ class ExecutionStackTests(unittest.TestCase):
                 {"t1": top},
                 competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=12.0)},
             )
-            self.assertEqual(summary["open_orders"], 0)
-            self.assertGreaterEqual(telemetry.counters.get("low_quality_quote_skips", 0), 1)
+            self.assertEqual(summary["open_orders"], 2)
+            self.assertEqual(telemetry.counters.get("low_quality_quote_skips", 0), 0)
         finally:
             if events is not None:
                 events.close()
             tmp.cleanup()
 
-    def test_deep_queue_quotes_are_skipped_by_queue_cap(self):
+    def test_deep_queue_quotes_no_longer_block_maker(self):
         tmp = tempfile.TemporaryDirectory()
         events = None
         try:
@@ -5771,8 +6177,8 @@ class ExecutionStackTests(unittest.TestCase):
                 {"t1": top},
                 competitiveness_context_by_token={"t1": self._maker_window_context(sec_to_expiry=12.0)},
             )
-            self.assertEqual(summary["open_orders"], 0)
-            self.assertGreaterEqual(telemetry.counters.get("low_quality_quote_skips", 0), 1)
+            self.assertEqual(summary["open_orders"], 2)
+            self.assertEqual(telemetry.counters.get("low_quality_quote_skips", 0), 0)
         finally:
             if events is not None:
                 events.close()
@@ -5928,6 +6334,18 @@ class ExecutionStackTests(unittest.TestCase):
                 best_ask_size=100,
             )
             gateway.on_book(top)
+            competitiveness_context = self._active_lifecycle_info(
+                lifecycle_phase="taker_window",
+                lineage_stage="EXTREME_ONLY",
+                sec_to_expiry=5.0,
+            )
+            competitiveness_context.update(
+                {
+                    "source_token_id": "t1",
+                    "submit_token_id": "t1",
+                    "normal_taker_side_class": "buy_expected_winner",
+                }
+            )
             outcome = manager.place_taker_order_with_outcome(
                 token_id="t1",
                 side="BUY",
@@ -5939,33 +6357,111 @@ class ExecutionStackTests(unittest.TestCase):
                 lifecycle_phase="taker_window",
                 lineage_stage="EXTREME_ONLY",
                 decision_reference_ts_utc="2026-01-01T00:00:00.000Z",
-                competitiveness_context=self._active_lifecycle_info(
-                    lifecycle_phase="taker_window",
-                    lineage_stage="EXTREME_ONLY",
-                    sec_to_expiry=5.0,
-                ),
+                competitiveness_context=competitiveness_context,
             )
             self.assertTrue(bool(outcome.get("submitted", False)))
             events.close()
             events = None
 
-            stage_values: list[str] = []
-            decision_to_submit_latency_ms: list[float] = []
-            for path in sorted(Path(tmp.name).glob("events_*.jsonl")):
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    row = json.loads(line)
-                    if str(row.get("event_type") or "") != "order_submit":
-                        continue
-                    if str(row.get("reason") or "").strip().lower() != TAKER_CHAINLINK_REASON:
-                        continue
-                    stage_values.append(str(row.get("lifecycle_phase") or ""))
-                    decision_to_submit_latency_ms.append(float(row.get("decision_to_submit_latency_ms") or 0.0))
+            submit_rows = [
+                row
+                for row in self._read_event_rows(Path(tmp.name), event_type="order_submit")
+                if str(row.get("reason") or "").strip().lower() == TAKER_CHAINLINK_REASON
+            ]
+            fill_rows = self._read_event_rows(Path(tmp.name), event_type="fill")
+            self.assertEqual(len(submit_rows), 1)
+            self.assertEqual(len(fill_rows), 1)
+            submit_row = submit_rows[0]
+            fill_row = fill_rows[0]
+            retired_route_key = "complement" + "_route_applied"
 
-            self.assertEqual(stage_values, ["taker_window"])
-            self.assertEqual(len(decision_to_submit_latency_ms), 1)
-            self.assertGreater(decision_to_submit_latency_ms[0], 0.0)
+            self.assertEqual(str(submit_row.get("lifecycle_phase") or ""), "taker_window")
+            self.assertEqual(str(submit_row.get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertTrue(str(submit_row.get("source_token_id") or "").strip())
+            self.assertEqual(
+                str(submit_row.get("source_token_id") or ""),
+                str(submit_row.get("submit_token_id") or ""),
+            )
+            self.assertNotIn(retired_route_key, submit_row)
+            self.assertEqual(str(submit_row.get("normal_taker_side_class") or ""), "buy_expected_winner")
+            self.assertGreater(float(submit_row.get("decision_to_submit_latency_ms") or 0.0), 0.0)
+
+            self.assertEqual(str(fill_row.get("lifecycle_phase") or ""), "taker_window")
+            self.assertEqual(str(fill_row.get("lineage_stage") or ""), "EXTREME_ONLY")
+            self.assertEqual(str(fill_row.get("submission_lane") or ""), "taker")
+            self.assertTrue(str(fill_row.get("source_token_id") or "").strip())
+            self.assertEqual(
+                str(fill_row.get("source_token_id") or ""),
+                str(fill_row.get("submit_token_id") or ""),
+            )
+            self.assertNotIn(retired_route_key, fill_row)
+            self.assertEqual(str(fill_row.get("normal_taker_side_class") or ""), "buy_expected_winner")
+        finally:
+            if events is not None:
+                events.close()
+            tmp.cleanup()
+
+    def test_taker_notional_sizing_uses_executable_price_not_midpoint(self):
+        tmp = tempfile.TemporaryDirectory()
+        events = None
+        try:
+            runtime_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["runtime"])
+            strategy_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["strategy"])
+            risk_cfg = self._risk_cfg_without_expiry_gate()
+            sizing_cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG["sizing"])
+            sizing_cfg["mode"] = "notional"
+            sizing_cfg["min_usd"] = 1.0
+            sizing_cfg["max_usd"] = 20.0
+            sizing_cfg["target_usd"] = 20.0
+            sizing_cfg["rounding"] = "floor"
+            sizing_cfg["price_source"] = "mid"
+            sizing_cfg["share_step"] = 1.0
+            strategy_cfg["max_order_size"] = 5000.0
+            risk_cfg["max_order_size"] = 5000.0
+            risk_cfg["max_book_age_sec"] = 100.0
+
+            gateway = PaperGateway()
+            events = EventLogger(Path(tmp.name))
+            telemetry = Telemetry()
+            positions = {"t1": Position(token_id="t1")}
+            risk = RiskEngine(risk_cfg, positions)
+            strategy = MarketMakingStrategy(strategy_cfg)
+            manager = OrderManager(
+                gateway,
+                strategy,
+                risk,
+                events,
+                telemetry,
+                runtime_cfg,
+                strategy_cfg,
+                sizing_cfg=sizing_cfg,
+            )
+
+            top = BookTop(
+                token_id="t1",
+                ts_utc=utc_iso(),
+                source="test",
+                best_bid_price=0.00,
+                best_bid_size=100,
+                best_ask_price=0.01,
+                best_ask_size=100,
+            )
+            sized, details = manager._resolve_order_size_shares_with_details(  # pylint: disable=protected-access
+                OrderIntent(
+                    token_id="t1",
+                    side="BUY",
+                    price=0.01,
+                    size=25.0,
+                    tif="IOC",
+                    post_only=False,
+                ),
+                top,
+                notional_target_usd=20.0,
+            )
+            self.assertEqual(float(sized or 0.0), 2000.0)
+            self.assertEqual(str(details.get("price_source") or ""), "taker_executable_price")
+            self.assertAlmostEqual(float(details.get("price_used") or 0.0), 0.01, places=9)
+            self.assertAlmostEqual(float(details.get("resolved_notional_usd") or 0.0), 20.0, places=9)
         finally:
             if events is not None:
                 events.close()
@@ -6341,6 +6837,114 @@ class ExecutionStackTests(unittest.TestCase):
         self.assertGreaterEqual(sum(fill.size for fill in fills), 10.0)
         self.assertTrue(all(str(fill.fill_policy_basis or "") == "synthetic_touch_fill" for fill in fills))
         self.assertTrue(all(str(fill.execution_realism_class or "") == "not_modeled" for fill in fills))
+        self.assertTrue(all(abs(float(fill.price) - 0.49) < 1e-9 for fill in fills))
+
+    def test_paper_gateway_passive_touch_fill_keeps_resting_buy_price(self):
+        gateway = PaperGateway(
+            {
+                "paper_passive_touch_fill_enabled": True,
+                "paper_passive_touch_fill_ratio": 1.0,
+                "paper_passive_min_rest_sec": 0.0,
+                "paper_passive_min_fill_size": 0.01,
+            }
+        )
+        initial = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.30,
+            best_bid_size=200.0,
+            best_ask_price=0.90,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(initial)
+        gateway.place_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.809, size=10.0, tif="GTC", post_only=True),
+            client_order_id="cid-touch-buy-price",
+        )
+        touched = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.31,
+            best_bid_size=200.0,
+            best_ask_price=0.89,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(touched)
+        fills = gateway.poll_fills()
+        self.assertTrue(fills)
+        self.assertTrue(all(abs(float(fill.price) - 0.809) < 1e-9 for fill in fills))
+        self.assertTrue(all(str(fill.fill_policy_basis or "") == "synthetic_touch_fill" for fill in fills))
+
+    def test_paper_gateway_resting_cross_keeps_resting_buy_price(self):
+        gateway = PaperGateway()
+        initial = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.30,
+            best_bid_size=200.0,
+            best_ask_price=0.90,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(initial)
+        gateway.place_order(
+            OrderIntent(token_id="t1", side="BUY", price=0.80, size=10.0, tif="GTC", post_only=True),
+            client_order_id="cid-cross-buy-price",
+        )
+        crossed = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.79,
+            best_bid_size=200.0,
+            best_ask_price=0.31,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(crossed)
+        fills = gateway.poll_fills()
+        self.assertEqual(len(fills), 1)
+        self.assertAlmostEqual(float(fills[0].price), 0.80, places=9)
+        self.assertEqual(str(fills[0].fill_policy_basis or ""), "visible_liquidity_top_of_book")
+
+    def test_paper_gateway_passive_touch_fill_keeps_resting_sell_price(self):
+        gateway = PaperGateway(
+            {
+                "paper_passive_touch_fill_enabled": True,
+                "paper_passive_touch_fill_ratio": 1.0,
+                "paper_passive_min_rest_sec": 0.0,
+                "paper_passive_min_fill_size": 0.01,
+            }
+        )
+        initial = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.10,
+            best_bid_size=200.0,
+            best_ask_price=0.90,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(initial)
+        gateway.place_order(
+            OrderIntent(token_id="t1", side="SELL", price=0.68, size=10.0, tif="GTC", post_only=True),
+            client_order_id="cid-touch-sell-price",
+        )
+        touched = BookTop(
+            token_id="t1",
+            ts_utc=utc_iso(),
+            source="test",
+            best_bid_price=0.11,
+            best_bid_size=200.0,
+            best_ask_price=0.69,
+            best_ask_size=200.0,
+        )
+        gateway.on_book(touched)
+        fills = gateway.poll_fills()
+        self.assertTrue(fills)
+        self.assertTrue(all(abs(float(fill.price) - 0.68) < 1e-9 for fill in fills))
+        self.assertTrue(all(str(fill.fill_policy_basis or "") == "synthetic_touch_fill" for fill in fills))
 
     def test_paper_gateway_rejects_post_only_crossing_order(self):
         gateway = PaperGateway()
@@ -7596,6 +8200,111 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
+    def test_active_target_ws_missing_suppressed_during_book_feed_bootstrap(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["yes-token", "no-token"]
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                with mock.patch.object(
+                    runner, "_ws_slo_bootstrap_guard_active", return_value=True
+                ), mock.patch.object(
+                    runner.book_feed,
+                    "status",
+                    return_value={
+                        "token_count": 2,
+                        "cached_books": 0,
+                        "subscription_state": "reconfigure_pending",
+                        "connected": False,
+                        "transport_connected": False,
+                        "primed": False,
+                        "worker_usable": False,
+                    },
+                ), mock.patch.object(runner, "_refresh_targets") as refresh_mock:
+                    outcome = runner._handle_ws_missing_or_unusable_tokens(  # pylint: disable=protected-access
+                        missing_or_unusable_tokens=["yes-token", "no-token"],
+                        held_exposure_tokens=set(),
+                    )
+                refresh_mock.assert_not_called()
+                self.assertEqual(
+                    outcome,
+                    {
+                        "forced_refresh_tokens": [],
+                        "suppressed_held_tokens": [],
+                    },
+                )
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_suppressed_ws_bootstrap_missing_or_unusable", 0)),
+                    1,
+                )
+                self.assertEqual(int(runner.telemetry.counters.get("target_refresh_forced_ws_missing_or_unusable", 0)), 0)
+                rows = self._read_event_rows(Path(td), event_type="target_refresh_suppressed_ws_bootstrap_missing_or_unusable")
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(sorted(rows[0].get("token_ids") or []), ["no-token", "yes-token"])
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_active_target_ws_missing_refreshes_after_book_feed_bootstrap(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["yes-token", "no-token"]
+            cfg["targets"]["discovery"]["enabled"] = True
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                with mock.patch.object(
+                    runner, "_ws_slo_bootstrap_guard_active", return_value=True
+                ), mock.patch.object(
+                    runner.book_feed,
+                    "status",
+                    return_value={
+                        "token_count": 2,
+                        "cached_books": 2,
+                        "subscription_state": "active",
+                        "connected": True,
+                        "transport_connected": True,
+                        "primed": True,
+                        "worker_usable": True,
+                    },
+                ), mock.patch.object(runner, "_refresh_targets") as refresh_mock:
+                    outcome = runner._handle_ws_missing_or_unusable_tokens(  # pylint: disable=protected-access
+                        missing_or_unusable_tokens=["yes-token"],
+                        held_exposure_tokens=set(),
+                    )
+                refresh_mock.assert_called_once_with(force=True)
+                self.assertEqual(
+                    outcome,
+                    {
+                        "forced_refresh_tokens": ["yes-token"],
+                        "suppressed_held_tokens": [],
+                    },
+                )
+                self.assertEqual(int(runner.telemetry.counters.get("target_refresh_forced_ws_missing_or_unusable", 0)), 1)
+                self.assertEqual(
+                    int(runner.telemetry.counters.get("target_refresh_suppressed_ws_bootstrap_missing_or_unusable", 0)),
+                    0,
+                )
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
     def test_runner_valuation_state_tags_ws_missing_or_unusable_on_hard_degraded_reason(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
@@ -8011,14 +8720,7 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_strike_by_token"] = {"t1": 65000.0}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["taker"]["require_lag_verification"] = True
-            cfg["latency_verifier"]["min_samples"] = 1
             cfg["latency_verifier"]["hit_threshold_ms"] = 1.0
-            cfg["latency_verifier"]["armed_min_median_ms"] = 1.0
-            cfg["latency_verifier"]["armed_min_hit_rate"] = 1.0
-            cfg["latency_verifier"]["probation_min_median_ms"] = 1.0
-            cfg["latency_verifier"]["probation_min_hit_rate"] = 1.0
-            cfg["latency_verifier"]["arm_consecutive_cycles"] = 1
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["order_size"] = 5.0
@@ -8063,7 +8765,6 @@ class ExecutionStackTests(unittest.TestCase):
                     lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="prepare", lineage_stage="EXTREME_ONLY", sec_to_expiry=18.0)},
                     oracle_tick_age_sec=0.0,
                     latency_snapshot=latency_snapshot,
-                    lag_verified_token_ids=["t1"],
                 )
                 self.assertEqual(out_closed["submitted"], 0)
                 out_live = runner._run_taker(
@@ -8073,7 +8774,6 @@ class ExecutionStackTests(unittest.TestCase):
                     lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                     oracle_tick_age_sec=0.0,
                     latency_snapshot=latency_snapshot,
-                    lag_verified_token_ids=["t1"],
                 )
                 self.assertGreaterEqual(out_live["submitted"], 1)
             finally:
@@ -8083,7 +8783,119 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_taker_fair_probability_map_does_not_inherit_maker_lag_gate(self):
+    def test_runner_taker_blocks_outside_final_window_in_executor_even_if_phase_claims_taker_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval), mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("executor should block outside-final-window taker before submit"),
+                ):
+                    out = runner._run_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={"t1": 0.80},
+                        token_ids=["t1"],
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=25.0,
+                            )
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("taker_outside_final_window", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_blocks_edge_below_min_in_executor_before_competitiveness(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.18
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.49,
+                    best_bid_size=100.0,
+                    best_ask_price=0.51,
+                    best_ask_size=100.0,
+                )
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval), mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("executor should block below-min-edge taker before submit"),
+                ):
+                    out = runner._run_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={"t1": 0.56},
+                        token_ids=["t1"],
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=5.0,
+                            )
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("edge_below_min", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_taker_fair_probability_map_is_independent_of_token_readiness(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -8097,8 +8909,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_strike_by_token"] = {"t-maker": 65000.0, "t-taker": 65000.0}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["require_armed_for_maker"] = True
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8126,36 +8936,25 @@ class ExecutionStackTests(unittest.TestCase):
                     )
                     for token_id in ["t-maker", "t-taker"]
                 }
-                latency_snapshot = LatencySnapshot(
-                    state="armed",
-                    previous_state="armed",
-                    changed=False,
-                    reason="ok",
-                    sample_count=runner.latency_verifier.min_samples,
+                latency_snapshot = self._latency_snapshot(
+                    sample_count=1,
                     token_count=2,
-                    median_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    hit_rate=runner.latency_verifier.armed_min_hit_rate,
-                    armed=True,
-                    probation=False,
-                    disarmed=False,
+                    median_lag_ms=10.0,
+                    hit_rate=1.0,
+                )
+                maker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
+                    books,
+                    latency_snapshot=latency_snapshot,
+                    scope="maker",
+                )
+                taker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
+                    books,
+                    latency_snapshot=latency_snapshot,
+                    scope="taker",
                 )
 
-                with mock.patch.object(runner, "_lag_verified", side_effect=lambda token_id: token_id == "t-maker"):
-                    maker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
-                        books,
-                        latency_snapshot=latency_snapshot,
-                        scope="maker",
-                    )
-                    taker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
-                        books,
-                        latency_snapshot=latency_snapshot,
-                        scope="taker",
-                    )
-
                 self.assertIn("t-maker", maker_fair)
-                self.assertNotIn("t-taker", maker_fair)
+                self.assertIn("t-taker", maker_fair)
                 self.assertIn("t-maker", taker_fair)
                 self.assertIn("t-taker", taker_fair)
             finally:
@@ -8177,7 +8976,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_strike_by_token"] = {"t1": 65000.0}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8206,20 +9004,11 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_size=100,
                     )
                 }
-                latency_snapshot = LatencySnapshot(
-                    state="armed",
-                    previous_state="armed",
-                    changed=False,
-                    reason="ok",
-                    sample_count=runner.latency_verifier.min_samples,
+                latency_snapshot = self._latency_snapshot(
+                    sample_count=1,
                     token_count=1,
-                    median_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    hit_rate=runner.latency_verifier.armed_min_hit_rate,
-                    armed=True,
-                    probation=False,
-                    disarmed=False,
+                    median_lag_ms=10.0,
+                    hit_rate=1.0,
                 )
 
                 taker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
@@ -8247,7 +9036,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_strike_by_token"] = {"t1": float(expiry_dt.timestamp() - 300.0)}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8274,20 +9062,11 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_size=100,
                     )
                 }
-                latency_snapshot = LatencySnapshot(
-                    state="armed",
-                    previous_state="armed",
-                    changed=False,
-                    reason="ok",
-                    sample_count=runner.latency_verifier.min_samples,
+                latency_snapshot = self._latency_snapshot(
+                    sample_count=1,
                     token_count=1,
-                    median_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    hit_rate=runner.latency_verifier.armed_min_hit_rate,
-                    armed=True,
-                    probation=False,
-                    disarmed=False,
+                    median_lag_ms=10.0,
+                    hit_rate=1.0,
                 )
                 taker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
                     books,
@@ -8313,7 +9092,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_side_by_token"] = {"t1": "YES"}
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8351,20 +9129,11 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_size=100,
                     )
                 }
-                latency_snapshot = LatencySnapshot(
-                    state="armed",
-                    previous_state="armed",
-                    changed=False,
-                    reason="ok",
-                    sample_count=runner.latency_verifier.min_samples,
+                latency_snapshot = self._latency_snapshot(
+                    sample_count=1,
                     token_count=1,
-                    median_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.armed_min_median_ms,
-                    hit_rate=runner.latency_verifier.armed_min_hit_rate,
-                    armed=True,
-                    probation=False,
-                    disarmed=False,
+                    median_lag_ms=10.0,
+                    hit_rate=1.0,
                 )
                 taker_fair = runner._build_fair_probability_map(  # pylint: disable=protected-access
                     books,
@@ -8428,7 +9197,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["min_edge"] = 0.001
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8474,7 +9242,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t2": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1", "t2"],
                     )
                 self.assertEqual(out["submitted"], 1)
                 self.assertEqual(picked, ["t2"])
@@ -8496,7 +9263,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8527,10 +9293,9 @@ class ExecutionStackTests(unittest.TestCase):
                         token_ids=["t1"],
                         lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
-                self.assertIn("complement_token_mapping_unavailable", emitted_block_reasons)
+                self.assertIn("normal_taker_same_token_sell_forbidden", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -8538,27 +9303,29 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_routes_negative_edge_to_complement_buy(self):
+    def test_runner_taker_blocks_negative_edge_direct_only(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["token_ids"] = ["t_yes"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
             runner = ExecutionRunner(cfg)
             try:
-                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                runner.token_side_by_token = {"t_yes": "YES"}
                 runner.token_market_key_by_token = {
                     "t_yes": "cond-1|2026-04-24T00:05:00Z|95000|YES",
-                    "t_no": "cond-1|2026-04-24T00:05:00Z|95000|NO",
                 }
                 books = {
                     "t_yes": BookTop(
@@ -8570,23 +9337,9 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_price=0.71,
                         best_ask_size=100.0,
                     ),
-                    "t_no": BookTop(
-                        token_id="t_no",
-                        ts_utc=utc_iso(),
-                        source="ws",
-                        best_bid_price=0.44,
-                        best_bid_size=100.0,
-                        best_ask_price=0.46,
-                        best_ask_size=100.0,
-                    ),
                 }
-                fair = {"t_yes": 0.40, "t_no": 0.60}
-                placed: list[dict[str, object]] = []
+                fair = {"t_yes": 0.40}
                 edge_evals: list[dict[str, object]] = []
-
-                def _fake_place_taker_order_with_outcome(**kwargs):
-                    placed.append(dict(kwargs))
-                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t-no"}
 
                 def _capture_edge_eval(**kwargs):
                     edge_evals.append(dict(kwargs))
@@ -8594,39 +9347,28 @@ class ExecutionStackTests(unittest.TestCase):
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=_fake_place_taker_order_with_outcome,
+                    side_effect=AssertionError("direct-only taker must abstain on negative edge"),
                 ), mock.patch.object(runner, "_emit_edge_evaluation", side_effect=_capture_edge_eval):
                     out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
-                        token_ids=["t_yes", "t_no"],
+                        token_ids=["t_yes"],
                         lifecycle_info_by_token={
-                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
-                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=9.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
-                self.assertEqual(out["submitted"], 1)
-                self.assertEqual(out["submitted_token_ids"], ["t_no"])
-                self.assertEqual(len(placed), 1)
-                self.assertEqual(str(placed[0].get("token_id") or ""), "t_no")
-                self.assertEqual(str(placed[0].get("side") or ""), "BUY")
-                self.assertEqual(
-                    str(placed[0].get("target_ref") or ""),
-                    str(runner._target_ref_for_token("t_no") or ""),
-                )
+                self.assertEqual(out["submitted"], 0)
                 self.assertTrue(
                     any(
-                        str(payload.get("token_id") or "") == "t_no"
-                        and str(payload.get("action_taken") or "") == "taker"
+                        str(payload.get("token_id") or "") == "t_yes"
+                        and str(payload.get("block_reason") or "") == "normal_taker_same_token_sell_forbidden"
                         for payload in edge_evals
                     )
                 )
                 self.assertTrue(
                     any(
-                        str(payload.get("token_id") or "") == "t_no"
-                        and str(payload.get("target_ref") or "") == str(runner._target_ref_for_token("t_no") or "")
+                        str(payload.get("token_id") or "") == "t_yes"
                         and str(payload.get("source_target_ref") or "") == str(runner._target_ref_for_token("t_yes") or "")
                         for payload in edge_evals
                     )
@@ -8650,7 +9392,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["per_token_cooldown_sec"] = 0.0
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8686,7 +9427,6 @@ class ExecutionStackTests(unittest.TestCase):
                         token_ids=["t1"],
                         lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                     second = runner._run_taker(
                         books={"t1": top},
@@ -8694,7 +9434,6 @@ class ExecutionStackTests(unittest.TestCase):
                         token_ids=["t1"],
                         lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
 
                 self.assertEqual(first["submitted"], 1)
@@ -8712,23 +9451,21 @@ class ExecutionStackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["token_ids"] = ["t_yes"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
             runner = ExecutionRunner(cfg)
             try:
-                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                runner.token_side_by_token = {"t_yes": "YES"}
                 runner.token_market_key_by_token = {
                     "t_yes": "cond-1|2026-04-24T00:05:00Z|95000|YES",
-                    "t_no": "cond-1|2026-04-24T00:05:00Z|95000|NO",
                 }
                 books = {
                     "t_yes": BookTop(
@@ -8773,7 +9510,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
 
                 self.assertEqual(out["submitted"], 1)
@@ -8789,14 +9525,13 @@ class ExecutionStackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["token_ids"] = ["t_yes"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -8851,7 +9586,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
                 self.assertEqual(out["submitted"], 1)
             finally:
@@ -8861,7 +9595,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_blocks_complement_buy_when_route_disabled(self):
+    def test_runner_taker_blocks_negative_edge_with_competitiveness_disabled(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -8872,17 +9606,14 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = False
-            cfg["taker"]["competitiveness"]["allow_complement_buy_route"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
             runner = ExecutionRunner(cfg)
             try:
-                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                runner.token_side_by_token = {"t_yes": "YES"}
                 runner.token_market_key_by_token = {
                     "t_yes": "cond-1|2026-04-24T00:05:00Z|95000|YES",
-                    "t_no": "cond-1|2026-04-24T00:05:00Z|95000|NO",
                 }
                 books = {
                     "t_yes": BookTop(
@@ -8894,26 +9625,12 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_price=0.71,
                         best_ask_size=100.0,
                     ),
-                    "t_no": BookTop(
-                        token_id="t_no",
-                        ts_utc=utc_iso(),
-                        source="ws",
-                        best_bid_price=0.44,
-                        best_bid_size=100.0,
-                        best_ask_price=0.46,
-                        best_ask_size=100.0,
-                    ),
                 }
-                fair = {"t_yes": 0.40, "t_no": 0.60}
+                fair = {"t_yes": 0.40}
                 emitted_block_reasons: list[str] = []
-                placed: list[dict[str, object]] = []
 
                 def _capture_edge_eval(**kwargs):
                     emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
-
-                def _fake_place_taker_order_with_outcome(**kwargs):
-                    placed.append(dict(kwargs))
-                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-direct"}
 
                 with mock.patch.object(
                     runner,
@@ -8922,23 +9639,19 @@ class ExecutionStackTests(unittest.TestCase):
                 ), mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=_fake_place_taker_order_with_outcome,
+                    side_effect=AssertionError("direct-only taker must not submit on negative edge"),
                 ):
                     out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
-                        token_ids=["t_yes", "t_no"],
+                        token_ids=["t_yes"],
                         lifecycle_info_by_token={
                             "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
-                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
-                self.assertIn("complement_route_disabled_pending_validation", emitted_block_reasons)
-                if placed:
-                    self.assertEqual(str(placed[0].get("token_id") or ""), "t_no")
-                    self.assertEqual(str(placed[0].get("side") or ""), "BUY")
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("normal_taker_same_token_sell_forbidden", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -8946,7 +9659,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_routes_negative_edge_to_complement_buy_with_competitiveness_enabled(self):
+    def test_runner_taker_blocks_negative_edge_with_competitiveness_enabled(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -8957,9 +9670,12 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["competitiveness"]["enabled"] = True
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
 
             runner = ExecutionRunner(cfg)
             try:
@@ -8989,12 +9705,7 @@ class ExecutionStackTests(unittest.TestCase):
                     ),
                 }
                 fair = {"t_yes": 0.40, "t_no": 0.60}
-                placed: list[dict[str, object]] = []
                 decision_rows: list[dict[str, object]] = []
-
-                def _fake_place_taker_order_with_outcome(**kwargs):
-                    placed.append(dict(kwargs))
-                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-t-no"}
 
                 original_log_event = runner.events.log_event
 
@@ -9006,7 +9717,7 @@ class ExecutionStackTests(unittest.TestCase):
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=_fake_place_taker_order_with_outcome,
+                    side_effect=AssertionError("negative-edge taker must not remap or submit"),
                 ), mock.patch.object(
                     runner.events,
                     "log_event",
@@ -9017,23 +9728,19 @@ class ExecutionStackTests(unittest.TestCase):
                         fair_probability_by_token=fair,
                         token_ids=["t_yes", "t_no"],
                         lifecycle_info_by_token={
-                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
-                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=9.0),
+                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=9.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
-                self.assertGreaterEqual(out["submitted"], 0)
+                self.assertEqual(out["submitted"], 0)
                 self.assertTrue(
                     any(
-                        str(row.get("token_id") or "") == "t_no"
-                        and str(row.get("normal_taker_side_class") or "") == "complement_buy"
+                        str(row.get("token_id") or "") == "t_yes"
+                        and str(row.get("normal_taker_side_class") or "") == "same_token_sell_blocked"
                         for row in decision_rows
                     )
                 )
-                if placed:
-                    self.assertEqual(str(placed[0].get("token_id") or ""), "t_no")
-                    self.assertEqual(str(placed[0].get("side") or ""), "BUY")
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -9041,7 +9748,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_complement_buy_uses_source_token_score(self):
+    def test_runner_taker_direct_only_block_does_not_require_token_score_surface(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -9053,12 +9760,14 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["max_orders_per_cycle"] = 1
             cfg["taker"]["target_usd"] = 150.0
             cfg["taker"]["competitiveness"]["enabled"] = True
-            cfg["taker"]["competitiveness"]["allow_complement_buy_route"] = True
             cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 20.0
             cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
-            cfg["latency_verifier"]["score_enabled"] = True
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
 
             runner = ExecutionRunner(cfg)
             try:
@@ -9077,35 +9786,10 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_price=0.71,
                         best_ask_size=100.0,
                     ),
-                    "t_no": BookTop(
-                        token_id="t_no",
-                        ts_utc=utc_iso(),
-                        source="ws",
-                        best_bid_price=0.44,
-                        best_bid_size=100.0,
-                        best_ask_price=0.46,
-                        best_ask_size=100.0,
-                    ),
                 }
-                fair = {"t_yes": 0.40, "t_no": 0.60}
-                placed: list[dict[str, object]] = []
+                fair = {"t_yes": 0.40}
                 emitted_block_reasons: list[str] = []
                 decision_rows: list[dict[str, object]] = []
-
-                def _fake_place_taker_order_with_outcome(**kwargs):
-                    placed.append(dict(kwargs))
-                    competitiveness_context = dict(kwargs.get("competitiveness_context") or {})
-                    self.assertAlmostEqual(
-                        float(competitiveness_context.get("normal_taker_source_token_score") or 0.0),
-                        0.95,
-                        places=9,
-                    )
-                    self.assertAlmostEqual(
-                        float(competitiveness_context.get("normal_taker_submit_token_score") or 0.0),
-                        0.0,
-                        places=9,
-                    )
-                    return {"submitted": True, "fills_accepted": 0, "order_id": "ord-complement"}
 
                 def _capture_edge_eval(**kwargs):
                     emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
@@ -9117,13 +9801,10 @@ class ExecutionStackTests(unittest.TestCase):
                         decision_rows.append(dict(payload))
                     return original_log_event(event_type, payload)
 
-                def _fake_token_score(token_id: str) -> float:
-                    return 0.95 if str(token_id or "") == "t_yes" else 0.0
-
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
-                    side_effect=_fake_place_taker_order_with_outcome,
+                    side_effect=AssertionError("negative-edge taker must not submit"),
                 ), mock.patch.object(
                     runner,
                     "_emit_edge_evaluation",
@@ -9132,45 +9813,28 @@ class ExecutionStackTests(unittest.TestCase):
                     runner.events,
                     "log_event",
                     side_effect=_capture_log_event,
-                ), mock.patch.object(
-                    runner.latency_verifier,
-                    "token_score",
-                    side_effect=_fake_token_score,
                 ):
                     out = runner._run_taker(
                         books=books,
                         fair_probability_by_token=fair,
-                        token_ids=["t_yes", "t_no"],
+                        token_ids=["t_yes"],
                         lifecycle_info_by_token={
-                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
-                            "t_no": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0),
+                            "t_yes": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=9.0),
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t_yes", "t_no"],
                     )
-                self.assertEqual(out["submitted"], 1)
-                self.assertEqual(len(placed), 1)
-                self.assertEqual(str(placed[0].get("token_id") or ""), "t_no")
-                self.assertEqual(str(placed[0].get("side") or ""), "BUY")
+                self.assertEqual(out["submitted"], 0)
                 self.assertNotIn("token_score_below_taker_min", emitted_block_reasons)
-                complement_rows = [
+                blocked_rows = [
                     row
                     for row in decision_rows
-                    if str(row.get("token_id") or "") == "t_no"
-                    and str(row.get("normal_taker_side_class") or "") == "complement_buy"
+                    if str(row.get("token_id") or "") == "t_yes"
+                    and str(row.get("normal_taker_side_class") or "") == "same_token_sell_blocked"
                 ]
-                self.assertTrue(bool(complement_rows))
-                self.assertAlmostEqual(float(complement_rows[-1].get("confidence_score") or 0.0), 0.95, places=9)
-                self.assertAlmostEqual(
-                    float(complement_rows[-1].get("normal_taker_source_token_score") or 0.0),
-                    0.95,
-                    places=9,
-                )
-                self.assertAlmostEqual(
-                    float(complement_rows[-1].get("normal_taker_submit_token_score") or 0.0),
-                    0.0,
-                    places=9,
-                )
+                self.assertTrue(bool(blocked_rows))
+                self.assertNotIn("normal_taker_source_token_score", blocked_rows[-1])
+                self.assertNotIn("normal_taker_submit_token_score", blocked_rows[-1])
+                self.assertIn("normal_taker_same_token_sell_forbidden", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -9199,9 +9863,12 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 150.0
             cfg["taker"]["competitiveness"]["final_window_sec"] = 60.0
             cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 0.5
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
 
             runner = ExecutionRunner(cfg)
             try:
@@ -9216,50 +9883,203 @@ class ExecutionStackTests(unittest.TestCase):
                         best_ask_size=6.0,
                     )
                 }
-                decision_rows: list[dict[str, object]] = []
+                emitted_block_reasons: list[str] = []
 
-                def _capture_log_event(event_type, payload):
-                    if str(event_type) == EVENT_TAKER_DECISION:
-                        decision_rows.append(dict(payload))
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
 
                 with mock.patch.object(
                     runner.manager,
                     "place_taker_order_with_outcome",
                     side_effect=AssertionError("tiny visible fill should be blocked before submit"),
                 ), mock.patch.object(
-                    runner.events,
-                    "log_event",
-                    side_effect=_capture_log_event,
+                    runner,
+                    "_emit_edge_evaluation",
+                    side_effect=_capture_edge_eval,
                 ):
                     out = runner._run_taker(
                         books=books,
                         fair_probability_by_token={"t1": 0.999},
                         token_ids=["t1"],
-                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=5.0)},
+                        lifecycle_info_by_token={"t1": self._active_lifecycle_info(lifecycle_phase="taker_window", lineage_stage="EXTREME_ONLY", sec_to_expiry=9.0)},
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
-                self.assertTrue(
-                    any(
-                        str(row.get("block_reason") or "") == "taker_visible_fill_ratio_below_min"
-                        for row in decision_rows
-                    )
-                )
+                self.assertIn("taker_visible_fill_ratio_below_min", emitted_block_reasons)
                 blocked_rows = [
-                    row
-                    for row in decision_rows
-                    if str(row.get("block_reason") or "") == "taker_visible_fill_ratio_below_min"
+                    row for row in emitted_block_reasons if str(row or "") == "taker_visible_fill_ratio_below_min"
                 ]
                 self.assertTrue(bool(blocked_rows))
-                self.assertAlmostEqual(float(blocked_rows[-1].get("visible_fill_notional_usd") or 0.0), 3.84, places=9)
-                self.assertGreater(float(blocked_rows[-1].get("target_usd_resolved") or 0.0), 0.0)
-                self.assertAlmostEqual(
-                    float(blocked_rows[-1].get("visible_fill_ratio") or 0.0),
-                    float(blocked_rows[-1].get("visible_fill_notional_usd") or 0.0)
-                    / float(blocked_rows[-1].get("target_usd_resolved") or 1.0),
-                    places=9,
-                )
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_blocks_hard_pinned_window_geometry(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 25.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                books = {
+                    "t_yes": BookTop(
+                        token_id="t_yes",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.99,
+                        best_bid_size=100.0,
+                        best_ask_price=None,
+                        best_ask_size=None,
+                    ),
+                    "t_no": BookTop(
+                        token_id="t_no",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=None,
+                        best_bid_size=None,
+                        best_ask_price=0.01,
+                        best_ask_size=100.0,
+                    ),
+                }
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("hard-pinned taker window must block before submit"),
+                ), mock.patch.object(
+                    runner,
+                    "_emit_edge_evaluation",
+                    side_effect=_capture_edge_eval,
+                ):
+                    out = runner._run_taker(
+                        books=books,
+                        fair_probability_by_token={"t_yes": 0.999, "t_no": 0.001},
+                        token_ids=["t_yes", "t_no"],
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=9.0,
+                                owned_market_ref="market-hard",
+                            ),
+                            "t_no": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=9.0,
+                                owned_market_ref="market-hard",
+                            ),
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("window_geometry_hard_pinned", emitted_block_reasons)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_blocks_near_pinned_window_geometry(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.001
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 25.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["lifecycle"]["phase"]["maker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["maker_window_close_sec"] = 8.0
+            cfg["lifecycle"]["phase"]["taker_window_open_sec"] = 12.0
+            cfg["lifecycle"]["phase"]["taker_window_close_sec"] = 8.0
+
+            runner = ExecutionRunner(cfg)
+            try:
+                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                books = {
+                    "t_yes": BookTop(
+                        token_id="t_yes",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.985,
+                        best_bid_size=100.0,
+                        best_ask_price=0.99,
+                        best_ask_size=50.0,
+                    ),
+                    "t_no": BookTop(
+                        token_id="t_no",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.01,
+                        best_bid_size=50.0,
+                        best_ask_price=0.02,
+                        best_ask_size=100.0,
+                    ),
+                }
+                emitted_block_reasons: list[str] = []
+
+                def _capture_edge_eval(**kwargs):
+                    emitted_block_reasons.append(str(kwargs.get("block_reason") or ""))
+
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("near-pinned taker window must block before submit"),
+                ), mock.patch.object(
+                    runner,
+                    "_emit_edge_evaluation",
+                    side_effect=_capture_edge_eval,
+                ):
+                    out = runner._run_taker(
+                        books=books,
+                        fair_probability_by_token={"t_yes": 0.999, "t_no": 0.001},
+                        token_ids=["t_yes", "t_no"],
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=9.0,
+                                owned_market_ref="market-near",
+                            ),
+                            "t_no": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="EXTREME_ONLY",
+                                sec_to_expiry=9.0,
+                                owned_market_ref="market-near",
+                            ),
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(out["submitted"], 0)
+                self.assertIn("window_geometry_near_pinned", emitted_block_reasons)
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -9277,7 +10097,7 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
+            cfg["taker"]["competitiveness"]["enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9313,7 +10133,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 1)
                 self.assertEqual(out["fills_accepted"], 0)
@@ -9325,7 +10144,417 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_respects_lag_verification_when_dead_recovery_hints_are_present(self):
+    def test_runner_keeps_taker_target_usd_independent_from_global_notional_ramp_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["sizing"]["mode"] = "notional"
+            cfg["sizing"]["target_usd"] = 100.0
+            cfg["ramp"]["enabled"] = False
+            cfg["ramp"]["max_usd"] = 20.0
+            cfg["taker"]["target_usd"] = 5.0
+
+            runner = ExecutionRunner(cfg)
+            try:
+                self.assertAlmostEqual(runner.manager.sizing_target_usd, 20.0)
+                self.assertAlmostEqual(runner.taker_target_usd, 5.0)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_five_dollar_commitment_survives_into_submit_fill_truth(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["sizing"]["mode"] = "notional"
+            cfg["sizing"]["target_usd"] = 100.0
+            cfg["sizing"]["max_usd"] = 20.0
+            cfg["ramp"]["enabled"] = False
+            cfg["ramp"]["max_usd"] = 20.0
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.18
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 5.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 5.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["multi_oracle_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["final_window_sec"] = 7.0
+            cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 1.5
+            cfg["strategy"]["max_order_size"] = 10000.0
+            cfg["wallet"]["max_notional_per_order_usdc"] = 10000.0
+            cfg["risk"]["max_order_size"] = 10000.0
+            cfg["risk"]["max_abs_position_shares"] = 10000.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
+
+            runner = ExecutionRunner(cfg)
+            try:
+                raw_rows: list[dict[str, object]] = []
+                original_log_event = runner.events.log_event
+
+                def _capture_log_event(event_type: str, payload: dict[str, object]):
+                    row = {"event_type": str(event_type)}
+                    row.update(dict(payload))
+                    raw_rows.append(row)
+                    return original_log_event(event_type, payload)
+
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.00,
+                    best_bid_size=1000.0,
+                    best_ask_price=0.01,
+                    best_ask_size=1000.0,
+                )
+                runner.gateway.on_book(top)
+                with mock.patch.object(runner.events, "log_event", side_effect=_capture_log_event):
+                    outcome = runner._run_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={"t1": 0.25},
+                        token_ids=["t1"],
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="TAKER_COMMITMENT",
+                                sec_to_expiry=5.0,
+                            )
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(int(outcome.get("submitted") or 0), 1)
+                self.assertEqual(int(outcome.get("fills_accepted") or 0), 1)
+
+                decision_rows = [row for row in raw_rows if str(row.get("event_type") or "") == "taker_decision"]
+                submit_truth_rows = [row for row in raw_rows if str(row.get("event_type") or "") == "taker_submit"]
+                order_submit_rows = [
+                    row
+                    for row in raw_rows
+                    if str(row.get("event_type") or "") == "order_submit"
+                    and str(row.get("reason") or "").strip().lower() == TAKER_CHAINLINK_REASON
+                ]
+                fill_rows = [row for row in raw_rows if str(row.get("event_type") or "") == "fill"]
+
+                self.assertTrue(bool(decision_rows))
+                self.assertEqual(len(submit_truth_rows), 1)
+                self.assertEqual(len(order_submit_rows), 1)
+                self.assertEqual(len(fill_rows), 1)
+
+                decision_row = decision_rows[-1]
+                submit_truth = submit_truth_rows[-1]
+                order_submit = order_submit_rows[-1]
+                fill_row = fill_rows[-1]
+                retired_route_key = "complement" + "_route_applied"
+
+                self.assertEqual(str(decision_row.get("lineage_stage") or ""), "TAKER_COMMITMENT")
+                self.assertAlmostEqual(float(decision_row.get("target_usd_requested") or 0.0), 5.0, places=9)
+                self.assertAlmostEqual(float(decision_row.get("target_usd_resolved") or 0.0), 5.0, places=9)
+
+                self.assertEqual(str(submit_truth.get("lifecycle_phase") or ""), "taker_window")
+                self.assertEqual(str(submit_truth.get("lineage_stage") or ""), "TAKER_COMMITMENT")
+                self.assertAlmostEqual(float(submit_truth.get("target_usd_requested") or 0.0), 5.0, places=9)
+                self.assertAlmostEqual(float(submit_truth.get("target_usd_resolved") or 0.0), 5.0, places=9)
+                self.assertEqual(str(submit_truth.get("source_token_id") or ""), "t1")
+                self.assertEqual(str(submit_truth.get("submit_token_id") or ""), "t1")
+                self.assertNotIn(retired_route_key, submit_truth)
+                self.assertEqual(str(submit_truth.get("normal_taker_side_class") or ""), "buy_expected_winner")
+
+                self.assertEqual(str(order_submit.get("lifecycle_phase") or ""), "taker_window")
+                self.assertEqual(str(order_submit.get("lineage_stage") or ""), "TAKER_COMMITMENT")
+                self.assertEqual(str(order_submit.get("source_token_id") or ""), "t1")
+                self.assertEqual(str(order_submit.get("submit_token_id") or ""), "t1")
+                self.assertNotIn(retired_route_key, order_submit)
+                self.assertEqual(str(order_submit.get("normal_taker_side_class") or ""), "buy_expected_winner")
+                self.assertEqual(
+                    str((order_submit.get("size_resolution") or {}).get("price_source") or ""),
+                    "taker_executable_price",
+                )
+                self.assertAlmostEqual(
+                    float((order_submit.get("size_resolution") or {}).get("resolved_notional_usd") or 0.0),
+                    5.0,
+                    places=9,
+                )
+                self.assertLessEqual(
+                    float(order_submit.get("price") or 0.0) * float(order_submit.get("size") or 0.0),
+                    5.0 + 1e-9,
+                )
+
+                self.assertEqual(str(fill_row.get("lineage_stage") or ""), "TAKER_COMMITMENT")
+                self.assertEqual(str(fill_row.get("submission_lane") or ""), "taker")
+                self.assertEqual(str(fill_row.get("source_token_id") or ""), "t1")
+                self.assertEqual(str(fill_row.get("submit_token_id") or ""), "t1")
+                self.assertNotIn(retired_route_key, fill_row)
+                self.assertEqual(str(fill_row.get("normal_taker_side_class") or ""), "buy_expected_winner")
+                self.assertLessEqual(
+                    float(fill_row.get("price") or 0.0) * float(fill_row.get("size") or 0.0),
+                    5.0 + 1e-9,
+                )
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_requires_secondary_oracle_confirmation_before_submit(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.18
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 5.0
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 5.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["multi_oracle_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["min_visible_fill_ratio"] = 1.5
+            cfg["strategy"]["max_order_size"] = 10000.0
+            cfg["wallet"]["max_notional_per_order_usdc"] = 10000.0
+            cfg["risk"]["max_order_size"] = 10000.0
+            cfg["risk"]["max_abs_position_shares"] = 10000.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
+            cfg["lifecycle"]["selection"]["require_secondary_oracle_confirmation"] = True
+
+            runner = ExecutionRunner(cfg)
+            try:
+                raw_rows: list[dict[str, object]] = []
+                original_log_event = runner.events.log_event
+
+                def _capture_log_event(event_type: str, payload: dict[str, object]):
+                    row = {"event_type": str(event_type)}
+                    row.update(dict(payload))
+                    raw_rows.append(row)
+                    return original_log_event(event_type, payload)
+
+                top = BookTop(
+                    token_id="t1",
+                    ts_utc=utc_iso(),
+                    source="ws",
+                    best_bid_price=0.23,
+                    best_bid_size=1000.0,
+                    best_ask_price=0.24,
+                    best_ask_size=1000.0,
+                )
+                runner.gateway.on_book(top)
+                with mock.patch.object(
+                    runner.manager,
+                    "place_taker_order_with_outcome",
+                    side_effect=AssertionError("submit must stay blocked without oracle confirmation"),
+                ), mock.patch.object(runner.events, "log_event", side_effect=_capture_log_event):
+                    outcome = runner._run_taker(
+                        books={"t1": top},
+                        fair_probability_by_token={"t1": 0.55},
+                        secondary_fair_probability_by_token={"t1": 0.10},
+                        secondary_oracle_base_status="available",
+                        token_ids=["t1"],
+                        lifecycle_info_by_token={
+                            "t1": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="TAKER_COMMITMENT",
+                                sec_to_expiry=5.0,
+                            )
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(int(outcome.get("submitted") or 0), 0)
+                taker_blocks = [
+                    row
+                    for row in raw_rows
+                    if str(row.get("event_type") or "") == "edge_evaluation"
+                    and str(row.get("evaluation_scope") or "") == "taker"
+                ]
+                self.assertTrue(bool(taker_blocks))
+                self.assertEqual(str(taker_blocks[-1].get("block_reason") or ""), "secondary_oracle_not_confirmed")
+                self.assertEqual(str(taker_blocks[-1].get("secondary_oracle_status") or ""), "direction_mismatch")
+                self.assertEqual(bool(taker_blocks[-1].get("secondary_oracle_confirmation")), False)
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_direct_winner_route_preserves_submit_contract_without_score_bias(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t_yes", "t_no"]
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+            cfg["sizing"]["mode"] = "notional"
+            cfg["sizing"]["target_usd"] = 100.0
+            cfg["sizing"]["max_usd"] = 20.0
+            cfg["ramp"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["taker"]["min_edge"] = 0.18
+            cfg["taker"]["max_orders_per_cycle"] = 1
+            cfg["taker"]["target_usd"] = 5.0
+            cfg["taker"]["normal_side_policy"] = "buy_expected_winner_only"
+            cfg["taker"]["competitiveness"]["enabled"] = True
+            cfg["taker"]["competitiveness"]["hard_min_target_usd"] = 5.0
+            cfg["taker"]["competitiveness"]["dynamic_size_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["multi_oracle_target_usd_cap"] = 5.0
+            cfg["taker"]["competitiveness"]["final_window_sec"] = 7.0
+            cfg["strategy"]["max_order_size"] = 10000.0
+            cfg["wallet"]["max_notional_per_order_usdc"] = 10000.0
+            cfg["risk"]["max_order_size"] = 10000.0
+            cfg["risk"]["max_abs_position_shares"] = 10000.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure"] = 0.0
+            cfg["risk"]["min_sec_to_expiry_for_new_exposure_by_lane"] = {}
+
+            runner = ExecutionRunner(cfg)
+            try:
+                raw_rows: list[dict[str, object]] = []
+                original_log_event = runner.events.log_event
+                runner.token_side_by_token = {"t_yes": "YES", "t_no": "NO"}
+                runner.token_market_key_by_token = {
+                    "t_yes": "cond-1|2026-04-24T00:05:00Z|95000|YES",
+                    "t_no": "cond-1|2026-04-24T00:05:00Z|95000|NO",
+                }
+
+                def _capture_log_event(event_type: str, payload: dict[str, object]):
+                    row = {"event_type": str(event_type)}
+                    row.update(dict(payload))
+                    raw_rows.append(row)
+                    return original_log_event(event_type, payload)
+
+                books = {
+                    "t_yes": BookTop(
+                        token_id="t_yes",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.69,
+                        best_bid_size=1000.0,
+                        best_ask_price=0.71,
+                        best_ask_size=1000.0,
+                    ),
+                    "t_no": BookTop(
+                        token_id="t_no",
+                        ts_utc=utc_iso(),
+                        source="ws",
+                        best_bid_price=0.29,
+                        best_bid_size=1000.0,
+                        best_ask_price=0.31,
+                        best_ask_size=1000.0,
+                    ),
+                }
+                for top in books.values():
+                    runner.gateway.on_book(top)
+                with mock.patch.object(runner.events, "log_event", side_effect=_capture_log_event):
+                    outcome = runner._run_taker(
+                        books=books,
+                        fair_probability_by_token={"t_yes": 0.40, "t_no": 0.60},
+                        token_ids=["t_yes", "t_no"],
+                        lifecycle_info_by_token={
+                            "t_yes": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="TAKER_COMMITMENT",
+                                sec_to_expiry=5.0,
+                            ),
+                            "t_no": self._active_lifecycle_info(
+                                lifecycle_phase="taker_window",
+                                lineage_stage="TAKER_COMMITMENT",
+                                sec_to_expiry=5.0,
+                            ),
+                        },
+                        oracle_tick_age_sec=0.0,
+                    )
+                self.assertEqual(int(outcome.get("submitted") or 0), 1)
+
+                submit_truth_rows = [row for row in raw_rows if str(row.get("event_type") or "") == "taker_submit"]
+                order_submit_rows = [
+                    row
+                    for row in raw_rows
+                    if str(row.get("event_type") or "") == "order_submit"
+                    and str(row.get("reason") or "").strip().lower() == TAKER_CHAINLINK_REASON
+                ]
+                fill_rows = [row for row in raw_rows if str(row.get("event_type") or "") == "fill"]
+
+                self.assertEqual(len(submit_truth_rows), 1)
+                self.assertEqual(len(order_submit_rows), 1)
+                self.assertEqual(len(fill_rows), 1)
+
+                submit_truth = submit_truth_rows[-1]
+                order_submit = order_submit_rows[-1]
+                fill_row = fill_rows[-1]
+                retired_route_key = "complement" + "_route_applied"
+
+                for row in (submit_truth, order_submit, fill_row):
+                    self.assertEqual(str(row.get("lineage_stage") or ""), "TAKER_COMMITMENT")
+                    self.assertEqual(str(row.get("source_token_id") or ""), "t_no")
+                    self.assertEqual(str(row.get("submit_token_id") or ""), "t_no")
+                    self.assertNotIn(retired_route_key, row)
+                    self.assertEqual(str(row.get("normal_taker_side_class") or ""), "buy_expected_winner")
+
+                self.assertAlmostEqual(float(submit_truth.get("target_usd_requested") or 0.0), 5.0, places=9)
+                self.assertLessEqual(
+                    float(order_submit.get("price") or 0.0) * float(order_submit.get("size") or 0.0),
+                    5.0 + 1e-9,
+                )
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_window_prefers_canonical_active_tokens_over_near_window_shell(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
+            cfg["mode"] = "paper"
+            cfg["targets"]["token_ids"] = ["t1"]
+            cfg["targets"]["token_expiry_utc_by_token"] = {
+                "t1": utc_iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=6))
+            }
+            cfg["targets"]["discovery"]["enabled"] = False
+            cfg["chainlink"]["enabled"] = False
+            cfg["taker"]["enabled"] = True
+            cfg["storage"]["log_dir"] = td
+            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
+
+            runner = ExecutionRunner(cfg)
+            try:
+                taker_ctx = runner._taker_context()  # pylint: disable=protected-access
+                self.assertEqual(taker_ctx.get("token_ids"), ["t1"])
+                self.assertEqual(taker_ctx.get("near_token_ids"), ["t1"])
+                self.assertEqual(
+                    runner._taker_window_token_ids(  # pylint: disable=protected-access
+                        taker_ctx=taker_ctx,
+                        taker_phase_tokens=["t1"],
+                    ),
+                    ["t1"],
+                )
+            finally:
+                runner.events.close()
+                runner.gateway.close()
+                runner.discovery.close()
+                runner.chainlink.stop()
+                runner.alerts.close()
+
+    def test_runner_taker_no_longer_blocks_on_retired_token_readiness_when_dead_recovery_hints_are_present(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -9335,8 +10564,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["taker"]["require_lag_verification"] = True
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9376,11 +10603,10 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=[],
                     )
-                self.assertEqual(out["submitted"], 0)
-                self.assertEqual(submitted_sides, [])
-                self.assertIn("token_lag_not_verified", emitted_block_reasons)
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["BUY"])
+                self.assertNotIn("token_readiness_samples_insufficient", emitted_block_reasons)
                 self.assertNotIn(self._HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED, emitted_block_reasons)
             finally:
                 runner.events.close()
@@ -9399,7 +10625,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9440,7 +10665,6 @@ class ExecutionStackTests(unittest.TestCase):
                         },
                         mode_state=MODE_CAUTIOUS,
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertEqual(submitted_sides, [])
@@ -9463,7 +10687,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9504,7 +10727,6 @@ class ExecutionStackTests(unittest.TestCase):
                         },
                         mode_state=MODE_CAUTIOUS,
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertIn("operating_mode_non_normal", emitted_block_reasons)
@@ -9525,7 +10747,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.5  # should be bypassed in recovery mode
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9565,7 +10786,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertEqual(submitted_sides, [])
@@ -9587,7 +10807,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9625,7 +10844,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertEqual(submitted_sides, [])
@@ -9638,7 +10856,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.chainlink.stop()
                 runner.alerts.close()
 
-    def test_runner_taker_token_score_gate_is_not_bypassed_by_dead_recovery_hints(self):
+    def test_runner_taker_does_not_block_on_removed_token_score_gate(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
             cfg["mode"] = "paper"
@@ -9647,8 +10865,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = True
-            cfg["latency_verifier"]["score_min_for_taker"] = 0.95
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9681,10 +10897,6 @@ class ExecutionStackTests(unittest.TestCase):
                     runner,
                     "_emit_edge_evaluation",
                     side_effect=_capture_edge_eval,
-                ), mock.patch.object(
-                    runner.latency_verifier,
-                    "token_score",
-                    return_value=0.0,
                 ):
                     out = runner._run_taker(
                         books={"t1": top},
@@ -9697,11 +10909,10 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
-                self.assertEqual(out["submitted"], 0)
-                self.assertEqual(submitted_sides, [])
-                self.assertIn("token_score_below_taker_min", emitted_block_reasons)
+                self.assertEqual(out["submitted"], 1)
+                self.assertEqual(submitted_sides, ["BUY"])
+                self.assertNotIn("token_score_below_taker_min", emitted_block_reasons)
                 self.assertNotIn(self._HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED, emitted_block_reasons)
             finally:
                 runner.events.close()
@@ -9719,7 +10930,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["chainlink"]["enabled"] = False
             cfg["taker"]["enabled"] = True
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9757,7 +10967,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
                 self.assertEqual(submitted_sides, [])
@@ -9818,7 +11027,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9852,10 +11060,9 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 0)
-                self.assertIn("complement_token_mapping_unavailable", emitted_block_reasons)
+                self.assertIn("normal_taker_same_token_sell_forbidden", emitted_block_reasons)
                 self.assertNotIn(self._HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED, emitted_block_reasons)
             finally:
                 runner.events.close()
@@ -9874,7 +11081,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9905,7 +11111,6 @@ class ExecutionStackTests(unittest.TestCase):
                             "t1": self._historical_recovery_lineage_stage_info()
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
 
                 self.assertEqual(out["submitted"], 0)
@@ -9932,7 +11137,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -9970,7 +11174,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={},
                     )
@@ -9995,7 +11198,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10039,7 +11241,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={"t1": "risk_reject"},
                     )
@@ -10063,7 +11264,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10108,7 +11308,6 @@ class ExecutionStackTests(unittest.TestCase):
                                 )
                             },
                             oracle_tick_age_sec=0.0,
-                            lag_verified_token_ids=["t1"],
                             maker_submitted_token_ids=set(),
                             maker_no_submission_reason_by_token={"t1": "risk_reject"},
                         )
@@ -10132,7 +11331,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10187,7 +11385,6 @@ class ExecutionStackTests(unittest.TestCase):
                                 )
                             },
                             oracle_tick_age_sec=0.0,
-                            lag_verified_token_ids=[token_id],
                             maker_submitted_token_ids=set(),
                             maker_no_submission_reason_by_token={token_id: "risk_reject"},
                         )
@@ -10211,7 +11408,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10245,7 +11441,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={"t1": "maker_timing_gate_closed"},
                     )
@@ -10268,7 +11463,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10312,7 +11506,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={"t1": "maker_timing_gate_closed"},
                     )
@@ -10336,7 +11529,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10375,7 +11567,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={"t1": "risk_reject"},
                     )
@@ -10399,7 +11590,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10440,7 +11630,6 @@ class ExecutionStackTests(unittest.TestCase):
                             }
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 1)
                 self.assertEqual(out["fills_accepted"], 0)
@@ -10462,7 +11651,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10507,7 +11695,6 @@ class ExecutionStackTests(unittest.TestCase):
                             }
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t2"],
                     )
                 self.assertEqual(out["submitted"], 1)
                 self.assertEqual(len(placed_orders), 1)
@@ -10529,7 +11716,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10584,7 +11770,6 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                         maker_submitted_token_ids=set(),
                         maker_no_submission_reason_by_token={"t1": "no_desired_quote"},
                     )
@@ -10609,7 +11794,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["taker"]["enabled"] = True
             cfg["taker"]["min_edge"] = 0.001
             cfg["taker"]["max_orders_per_cycle"] = 1
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -10654,98 +11838,11 @@ class ExecutionStackTests(unittest.TestCase):
                             )
                         },
                         oracle_tick_age_sec=0.0,
-                        lag_verified_token_ids=["t1"],
                     )
                 self.assertEqual(out["submitted"], 1)
                 self.assertEqual(submitted_sides, ["BUY"])
                 self.assertEqual(len(captured_contexts), 1)
                 self.assertNotIn(self._HISTORICAL_MAKER_TO_TAKER_HANDOFF_DISABLED, emitted_block_reasons)
-            finally:
-                runner.events.close()
-                runner.gateway.close()
-                runner.discovery.close()
-                runner.chainlink.stop()
-                runner.alerts.close()
-
-    def test_disarmed_signal_ignored_when_chainlink_disabled(self):
-        with tempfile.TemporaryDirectory() as td:
-            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-            cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t1"]
-            cfg["targets"]["discovery"]["enabled"] = False
-            cfg["chainlink"]["enabled"] = False
-            cfg["storage"]["log_dir"] = td
-            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
-            runner = ExecutionRunner(cfg)
-            try:
-                snap = runner.latency_verifier.snapshot(active_tokens=["t1"])
-                self.assertFalse(runner._disarmed_cycle_signal(snap))
-            finally:
-                runner.events.close()
-                runner.gateway.close()
-                runner.discovery.close()
-                runner.chainlink.stop()
-                runner.alerts.close()
-
-    def test_disarmed_signal_ignored_for_non_fault_lag_edge_absence(self):
-        with tempfile.TemporaryDirectory() as td:
-            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-            cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t1"]
-            cfg["targets"]["discovery"]["enabled"] = False
-            cfg["storage"]["log_dir"] = td
-            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
-            runner = ExecutionRunner(cfg)
-            try:
-                snap = LatencySnapshot(
-                    state="disarmed",
-                    previous_state="probation",
-                    changed=True,
-                    reason="lag_edge_not_present",
-                    sample_count=runner.latency_verifier.min_samples,
-                    token_count=1,
-                    median_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    hit_rate=max(0.0, runner.latency_verifier.probation_min_hit_rate - 0.01),
-                    armed=False,
-                    probation=False,
-                    disarmed=True,
-                )
-                self.assertFalse(runner._disarmed_cycle_signal(snap))
-            finally:
-                runner.events.close()
-                runner.gateway.close()
-                runner.discovery.close()
-                runner.chainlink.stop()
-                runner.alerts.close()
-
-    def test_disarmed_signal_retained_for_fault_disarm(self):
-        with tempfile.TemporaryDirectory() as td:
-            cfg = copy.deepcopy(DEFAULT_EXECUTION_CONFIG)
-            cfg["mode"] = "paper"
-            cfg["targets"]["token_ids"] = ["t1"]
-            cfg["targets"]["discovery"]["enabled"] = False
-            cfg["storage"]["log_dir"] = td
-            cfg["storage"]["state_path"] = str(Path(td) / "state.json")
-            runner = ExecutionRunner(cfg)
-            try:
-                snap = LatencySnapshot(
-                    state="disarmed",
-                    previous_state="armed",
-                    changed=True,
-                    reason="armed_thresholds_lost",
-                    sample_count=runner.latency_verifier.min_samples,
-                    token_count=1,
-                    median_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    p90_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    p95_lag_ms=runner.latency_verifier.probation_min_median_ms,
-                    hit_rate=max(0.0, runner.latency_verifier.probation_min_hit_rate - 0.01),
-                    armed=False,
-                    probation=False,
-                    disarmed=True,
-                )
-                self.assertTrue(runner._disarmed_cycle_signal(snap))
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -11490,8 +12587,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["held-preexpiry"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["require_armed_for_maker"] = True
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -11504,7 +12599,7 @@ class ExecutionStackTests(unittest.TestCase):
                 runner.token_strike_by_token[token_id] = 50000.0
                 runner.token_market_key_by_token[token_id] = "mk-held-preexpiry"
                 runner.risk.positions[token_id] = Position(token_id=token_id, net_shares=2.0)
-                latency_snapshot = mock.Mock(armed=True)
+                latency_snapshot = mock.Mock()
 
                 default_reason = runner._maker_prereq_failure_reason(  # pylint: disable=protected-access
                     token_id,
@@ -11512,7 +12607,7 @@ class ExecutionStackTests(unittest.TestCase):
                     latency_snapshot=latency_snapshot,
                     oracle_fresh=True,
                 )
-                self.assertEqual(default_reason, "token_lag_not_verified_for_maker")
+                self.assertEqual(default_reason, "")
 
                 recovery_reason = runner._maker_prereq_failure_reason(  # pylint: disable=protected-access
                     token_id,
@@ -11520,7 +12615,7 @@ class ExecutionStackTests(unittest.TestCase):
                     latency_snapshot=latency_snapshot,
                     oracle_fresh=True,
                 )
-                self.assertEqual(recovery_reason, "token_lag_not_verified_for_maker")
+                self.assertEqual(recovery_reason, "")
             finally:
                 runner.events.close()
                 runner.gateway.close()
@@ -11535,8 +12630,6 @@ class ExecutionStackTests(unittest.TestCase):
             cfg["targets"]["token_ids"] = ["t1"]
             cfg["targets"]["discovery"]["enabled"] = False
             cfg["chainlink"]["enabled"] = False
-            cfg["latency_verifier"]["require_armed_for_maker"] = False
-            cfg["latency_verifier"]["score_enabled"] = False
             cfg["storage"]["log_dir"] = td
             cfg["storage"]["state_path"] = str(Path(td) / "state.json")
 
@@ -11562,7 +12655,7 @@ class ExecutionStackTests(unittest.TestCase):
                 reason = runner._maker_prereq_failure_reason(  # pylint: disable=protected-access
                     token_id,
                     fair_probability_by_token={token_id: 0.55},
-                    latency_snapshot=mock.Mock(armed=True),
+                    latency_snapshot=mock.Mock(),
                     oracle_fresh=True,
                 )
                 self.assertEqual(reason, "")

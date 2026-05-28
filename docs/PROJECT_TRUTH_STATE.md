@@ -4,12 +4,12 @@
 - This is the repo-level broad truth screen for BRO.
 - It is the front-of-house current-truth surface for active operator use.
 - It must be backed by explicit run artifacts, fingerprints, and report paths.
-- It is not the active Packet 2 maker-local pickup owner.
-- Active Packet 2 maker-local pickup belongs to:
+- It is not the active packet-local pickup owner.
+- Active live-trust packet-local pickup belongs to:
   - `docs/OPEN_LIMITATIONS.md`
   - `docs/NEXT_PACKET_PLAN.md`
   - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
-  - current `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_*` owner boards
+  - current packet owner boards
 - `docs/CURRENT_BASELINE.md` remains a baseline/reference/history surface and
   does not replace this file as the current truth screen.
 
@@ -29,8 +29,160 @@
 - Latest current-code lane-specific closeout report dir: `logs_exec/paper_universal/reports/6957087b-488e-4bbb-b8b9-1f215b5e33d0`
 - Latest current-code lane-specific closeout session dir: `logs_exec/paper_universal/sessions/2c374032-023d-4563-aa19-cfc648d676f5`
 - Current G-frame restoration status: `complete`
-- Current whole-fighter completion status: `still open`
+- Current full-system completion status: `still open`
 - Latest completed post-restoration hardening lane: `timing spine hardening`
+- Latest Packet 1 taker restoration proof anchor:
+  `9eca7bdf-defb-4db3-a2f0-f4d728092228`
+  - current-code watched taker shot preserved `TAKER_COMMITMENT`
+  - requested/resolved taker target stayed `5.0 / 5.0`
+  - actual filled spend reconciled at `4.9992`
+  - report fill-lineage distribution stayed `TAKER_COMMITMENT: 1`
+  - Packet 1 earns pre-wallet taker `GO`; actual wallet hookup remains
+    downstream Packet 3 work
+- Packet 2B full armed-family excision is materially landed in the current
+  dirty tree:
+  - current maker/taker runtime authority no longer uses `armed`,
+    `token_lag_not_verified*`, `token_score_below_*`, or
+    `fair_probability_unavailable` as live blocker law
+  - post-excision watched/runtime proof is now closed on
+    `a9a6a62d-e544-4130-b4fb-002bef86bc2b`
+  - Packet 2C shared latency-authority family excision is now materially
+    landed and watched-proof validated on:
+    - `4ee0cf47-dec6-44b9-bdd2-764abf2c3b47`
+    - `runtime_classification=VALID_ACTIVE`
+    - `promotion_eligible=true`
+    - `highest_passing_stage=paper`
+    - `blocking_stage=pilot_live`
+  - current runtime/report truth no longer emits:
+    - `token_readiness_*`
+    - `aggregate_signal_*`
+    - `latency_signal_posture`
+    - `latency_signal_degraded`
+    - `signal_degraded_ratio`
+  - the shared maker+taker readiness choke is no longer the current patient:
+    - maker submitted `3` orders and produced `4` fill events on the watched
+      proof
+    - taker produced no submits and blocked honestly on `edge_below_min`
+    - no current runtime row died on the excised latency family
+  - hostile downstream-maker tribunal is now closed through:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_DOWNSTREAM_MAKER_FILTER_HOSTILE_TRIBUNAL_2026-05-26.md`
+  - lifecycle pair verdict:
+    - `open_order_cleanup_required`
+    - `settlement_hold_required`
+    - remain explicit resolve-phase lifecycle/state truth
+    - are demoted from `next active maker patient` authority
+  - downstream maker filter verdict:
+    - `launch_safe_selection_insufficient_depth_multiple` = provisional
+      blueprint steel
+    - `non_actionable_geometry` = blueprint-aligned early actionability truth
+      pending leaf-specific reread
+    - `quote_quality_skip_queue_depth` = Packet 2D excised; not accepted live
+      maker steel
+    - `quote_quality_skip_fill_probability` = same Packet 2D excision family;
+      excised from active-path maker authority
+  - Packet 2D watched proof is now closed on
+    `ef021ded-99b3-4b56-ac55-7f12592a67e0`:
+    - maker produced `2` viability rows, `2` snapshots, and `2` submits
+    - zero current runtime rows emitted `quote_quality_skip_queue_depth`,
+      `quote_quality_skip_fill_probability`, or stealth `no_desired_quote`
+    - maker snapshots retained only descriptive `expected_fill_prob` and
+      `queue_ahead_size` fields from the old family
+  - current bounded next packet candidate is downstream maker selection /
+    feasibility reread, with `launch_safe_selection_insufficient_depth_multiple`
+    currently dominant and `non_actionable_geometry` secondary in the later
+    downstream runtime truth
+  - broader maker truth call after Packet 2D:
+    - the maker lane is no longer primarily trapped in fake blocker /
+      semantics / report-authority slag
+    - the remaining work is better described as maker product-fit /
+      launch-engineering hardening than as generic tuning
+    - the active maker question is whether the machine behaves like a coherent
+      live maker engine:
+      - market selection sensor
+      - actionability / geometry law
+      - submit / rest / cancel / settle lifecycle control
+      - and resting-order economics
+      working together at the right times without residue dominating the next
+      cycle
+    - current maker hardening goals therefore are:
+      - lifecycle cleanliness and rapid return to a clean ready state
+      - better actionable opportunity yield for the intended maker cannon and
+        timing band
+      - real resting-order economic proof rather than submit-only proof
+      - a thinner launch-grade maker scoreboard from candidate through
+        economics
+    - overnight live-aligned watcher proof is now real:
+      - memo owner:
+        `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_OVERNIGHT_WATCHER_AUDIT_MEMO_2026-05-27.md`
+      - integrated scorecard + hardening owner:
+        `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_WATCHER_ERA_SCORECARD_AND_HARDENING_MEMO_2026-05-27.md`
+      - strongest clean specimen:
+        `fe093fad-8cb9-483c-a014-22dd054ad2a7`
+      - clean read:
+        - fully pinned overnight `0.99 / 0.01` books can already exist at
+          maker open
+        - maker may abstain honestly there
+        - taker may still exploit cheap-side late extremes
+    - current active paper OG-tight alignment packet after the watcher-era
+      baseline:
+        - maker gate band `8-12s`
+        - taker gate band `8-12s`
+        - hard regime filter active on both lanes:
+          `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
+        - pinned and near-pinned market windows are now fail-closed for both
+          lanes on `window_geometry_hard_pinned` /
+          `window_geometry_near_pinned`
+        - maker now fails closed below the `0.20` one-sided conviction floor
+          on `maker_edge_below_min`
+        - maker same-target repeat tolerance is now `0` prior submits
+        - maker same-market expression is now single-op only; weaker
+          complementary candidates are pruned on
+          `maker_single_market_expression_pruned`
+        - daily loss hard pause active at `$280`
+        - deliberate size exceptions remain active:
+          maker `~$100`, taker `$25`
+        - the eight-specimen watcher scorecard is pre-alignment evidence, not
+          post-change closure
+    - taker complement-route behavior is no longer accepted current truth:
+      - direct-path expression only
+      - forbidden same-token short thesis now blocks on
+        `normal_taker_same_token_sell_forbidden`
+      - older packet claims supporting complement expression remain on disk
+        as ancestry only and are explicitly superseded by current doctrine
+    - money-truth hardening has now crossed from read-only diagnosis into
+      current-code implementation:
+      - taker fee truth is no longer fee-blind and now uses share-based
+        `size * p * (1-p) * fee_rate`
+      - binary short deployable-capital truth now holds gross `$1/share`
+        liability rather than `price * size`
+      - canonical runtime / report pnl is cash-truth only:
+        fill cashflow + exact cash adjustments + settlement
+      - slippage / adverse-selection stay visible as attribution rather than
+        mutating wallet cash
+      - maker rebates remain fail-closed to `0` in canonical runtime money
+        truth until an exact payout source exists
+      - interpreted wallet truth now uses explicit lock surfaces:
+        `reservation_locked_usdc`, `position_liability_locked_usdc`,
+        `locked_total_usdc`
+      - raw provider `wallet_snapshot.locked_usdc` remains provider-native and
+        is separated from interpreted BRO wallet truth by
+        `provider_locked_usdc_semantics`
+      - reservation mismatch is now semantics-aware and only authoritative
+        when provider lock semantics are explicit and compatible
+      - fee authority now resolves in this order:
+        verified market metadata, category/tag mapping, explicit paper/profile
+        override, else fail-closed non-authoritative
+    - earlier watcher-attached specimens can inform intuition about possible
+      complementary extreme-edge behavior, but they remain discovery support
+      only until more final-standard specimens accumulate
+    - the next bounded packet remains downstream maker selection / feasibility
+      reread, but it is now part of that larger product-fit hardening lane
+  - keep taker parked unless a stronger live contradiction beats the current
+    `edge_below_min` reading
+  - current owner-surface follow-through requires
+    `maker_blocker_ledger.json` top-level truth to stay whole-lane only; any
+    surviving selection diagnostics belong only under
+    `later_stage_runtime_diagnostic_truth`
 - Current next proof frontier: `pilot_live` authority proof
 - Current active macro lane inside that frontier: `live trust qualification`
 - Latest timing-spine closeout proof: `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`
@@ -51,16 +203,24 @@
   - latest timing closeout / lane-closeout / smoke / contrast artifacts remain locally readable
   - the referenced broad clean-anchor `7bbde42c-003a-4f57-b59a-7ce138224075` report/session path is not currently present on disk in this workspace
   - current belief in that anchor is therefore doc-backed and fingerprint-backed, not directly artifact-readable locally
-- Current packet state: peak-hours paper confirmation is materially achieved on
-  current proof; Packet 1 now closes `bounded-live-test ready` on watched
-  proof `6957087b-488e-4bbb-b8b9-1f215b5e33d0`; the bounded `pilot_live`
-  lane has moved beyond emergency execution-lane surgery and is now in an
-  active Packet 3 wallet-guardian implementation body after Packet 2
-  closeout-routing / selector-family truth-sync; this file stays broad
-  whole-repo truth only while packet-local pickup still lives in the packet
-  queue, board sink, and packet owner boards; verify current tree cleanliness
-  with `git status` instead of reading older continuity wording as
-  present-tense truth:
+- Current packet state: peak-hours paper confirmation remains materially
+  achieved on current proof, and Packet 1 taker truth has now been restored on
+  current code strongly enough to earn a pre-wallet `GO` gate. Current
+  direct-open truth is:
+  - Packet 1 historical closeout on `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
+    remains ancestry only
+  - Packet 1 current-code restoration proof on
+    `9eca7bdf-defb-4db3-a2f0-f4d728092228` is the stronger taker authority
+  - current tree still contains a dirty Packet 3 wallet body plus the maker /
+    taker runtime hardening body; active downstream pickup does not return to
+    Packet 3 yet
+  - current active downstream pickup is the maker quote-quality authority
+    tribunal / surgery packet, with Packet 3 wallet work still deferred until
+    maker/taker runtime truth is cleaner
+  - this file stays broad whole-repo truth only while packet-local pickup still
+    lives in the packet queue, board sink, and packet owner boards; verify
+    current tree cleanliness with `git status` instead of reading older
+    continuity wording as present-tense truth:
   - companion deep relock audit:
     - `docs/BRO_PILOT_LIVE_RUNTIME_BACKCHECK_RELOCK_AUDIT_2026-05-08.md`
 
@@ -99,10 +259,44 @@
   - maker stayed selective with `0 submits`
   - this specimen is shoulder-band structural truth, not a maker-lane failure anchor
 - Current immediate move is:
-  - keep Packet 3 wallet guardian proof and routing honest
-  - reclose the current Packet 3 body to a clean commit boundary
-  - preserve strict live-wallet fail-closed posture until approved hookup proof
-  - bounded live qualification remains downstream after Packet 3 closes cleanly
+  - Packet 1 taker architecture restoration is current-code reclosed on
+    `9eca7bdf-defb-4db3-a2f0-f4d728092228`
+  - the older straight-line pickup to Packet 3 is now temporarily overridden by
+    a diagnosis-first lane pair:
+    1. Packet 2 maker runtime-truth tribunal
+    2. Packet 1 taker support-authority tribunal
+    3. then return to Packet 3 wallet live-truth qualification and
+       approved-hookup preparation
+  - preserve strict live-wallet fail-closed posture until Packet 3 closes its
+    own canonical live-wallet blocker family
+
+## Current Addendum (2026-05-25)
+- operator-authorized diagnosis-first override is now active:
+  - maker first through:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_RUNTIME_TRUTH_TRIBUNAL_2026-05-25.md`
+  - taker second through:
+    - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SUPPORT_AUTHORITY_TRIBUNAL_2026-05-25.md`
+  - wallet live-truth returns only after that tribunal pair is synced
+- fresh watched substrate specimen:
+  - `17fe07e3-32ec-43e7-950f-2481ac05b9ff`
+  - structural answer only:
+    - `quote_active=0`
+    - `book_feed_connected=0`
+    - `target_count=0`
+    - `fair_probability_token_count=0`
+  - do not read this as maker selectivity proof or taker no-fire proof
+- fresh watched taker behavior specimen:
+  - `316e34b5-d291-4ade-82b8-04cf345a911c`
+  - structural answer:
+    - real mixed maker+taker behavior observed
+    - `2` taker decisions
+    - `1` visible-fill reject
+    - `1` taker submit / fill chain
+    - strongest fresh taker proof still points to hygiene, not rescue surgery
+- current broad repo truth call:
+  - Packet 1 taker runtime core stays restored
+  - Packet 2 maker still carries the stronger active patient family
+  - Packet 3 wallet lane remains downstream and fail-closed
 - Current operator rule now enforced in doctrine/docs is:
   1. ask whether the lane is alive
   2. ask whether it is producing valid action and some success
@@ -128,7 +322,7 @@
   `config_fingerprint_sha256=6d4b4950bc89856f619325fbb8ec07fc5cc43ab78eaaf92671f3bd7be19356bc`,
   `highest_passing_stage=paper`, `blocking_stage=pilot_live`, and
   `runtime_classification=VALID_ACTIVE`.
-- Clean-anchor core-fighter re-audit on
+- Clean-anchor core-system re-audit on
   `7bbde42c-003a-4f57-b59a-7ce138224075` now proves there is no active
   unexplained maker-core choke on the clean release anchor; that proof moved
   the open work first to timing spine hardening and now, after timing closeout,
@@ -143,14 +337,31 @@
   - `maker_selection_authority_audit.json` says:
     - `current_decision_distribution={"selection_rejected":8,"submit_rejected":16,"submitted":2}`
     - `blocked_count_by_canonical_reject_reason={"secondary_oracle_not_confirmed":8}`
-  - `maker_quote_integrity_summary.json` says:
-    - logic findings from quote certification, launch mutation,
-      execution-quality semantics, and submit-to-cancel survival remain
-      authoritative
-    - its `next_repair_lane="D. Peak-hours confirmation specimen"` and
-      `peak_hours_economic_conclusion_allowed=false` outputs are now historical
-      specimen-local conclusions, not the active board call after later watched
-      current-code peak-hours evidence
+  - `maker_quote_integrity_summary.json` is now support-only:
+    - quote certification, launch mutation, execution-quality semantics, and
+      submit-to-cancel survival remain useful descriptive evidence
+    - it does **not** own runtime blocker truth or current owner law
+    - its old `next_repair_lane="D. Peak-hours confirmation specimen"` line is
+      specimen-local historical teaching, not the active board call after
+      later watched current-code evidence
+  - Packet 2A closeout specimen `bac209a8-a1d4-42ef-8ada-3950266decf3` now
+    proves the ordered maker gate contract is live on current code:
+    - `canonical_paper_validation.json` says:
+      - `status=pass`
+      - `runtime_classification=VALID_ACTIVE`
+      - `promotion_eligible=true`
+    - `maker_blocker_ledger.json` says:
+      - whole-lane earliest blocker remains `phase_disallow_maker`
+      - historical pre-2B maker-window earliest live blocker was the retired
+        lag-family bucket; the interim Packet 2B direct
+        `token_readiness_*` bridge is now historical too after Packet 2C
+        full excision
+      - later-stage selection diagnostics remain
+        `launch_safe_selection_insufficient_depth_multiple`
+    - `maker_participation_waterfall.json` is now support-only and reports
+      the historical pre-2B retired lag-family bucket instead of inventing
+      upstream `secondary_oracle_not_confirmed`; current runtime/report truth
+      now routes through the Packet 2B excision semantics
 - Post-restoration timing spine hardening is now closed on current proof on
   watched authoritative run `4b60bf3e-63c9-4fb0-a47d-69cfb76216d0`:
   - `canonical_paper_validation.json` says:
@@ -512,7 +723,8 @@
     - `canonical_live_pending_wallet_tx_available=false`
   - live status rows keep that corrected contract through the run:
     - `wallet_order_submit_eligible=true`
-    - `wallet_open_reserved` returned to `0.0`
+    - `wallet_reservation_locked_usdc` returned to `0.0`
+    - `wallet_locked_total_usdc` returned to `0.0`
     - `wallet_deployable_capital=3996.4366`
     - reservation mismatch remained false throughout
   - live wallet events keep local/derived surfaces fenced:
@@ -530,7 +742,7 @@
 
 ## VERIFIED_OPEN
 - G-frame restoration is complete on current truth.
-- Whole-fighter completion remains open on the post-restoration `pilot_live`
+- Full-system completion remains open on the post-restoration `pilot_live`
   authority frontier.
 - BRO remains paper-stage only.
 - Additional watched peak-hours canonical paper specimens are no longer the
@@ -578,17 +790,18 @@
   - completed G-frame packet artifacts remain important historical closure and
     substrate-lineage records, but they do not own the current Packet 2 pickup
     unless active `pilot_live` owners explicitly route through them
-- current Packet 1 live-trust verdict:
-  - `bounded-live-test ready`
-  - one-brain owner collapse is materially achieved on current code
-  - recovery/handoff owner classification is now explicitly keep-now dead power
-  - legacy `EXTREME_ONLY` lineage-cleanup packet now enters through
+- historical Packet 1 closeout snapshot:
+  - older closeout verdict: `bounded-live-test ready`
+  - one-brain owner collapse was materially achieved on that narrower disease
+    set
+  - recovery/handoff owner classification was explicitly keep-now dead power
+  - legacy `EXTREME_ONLY` lineage-cleanup packet entered through
     `docs/EXTREME_ONLY_SELF_HARDENING_PACK_2026-05-08.md`
-  - current raw late-window lineage bucket is `LINEAGE_ONLY_0_TO_20S`; it is
+  - the raw late-window lineage bucket became `LINEAGE_ONLY_0_TO_20S`; it is
     explicit ancestry only and carries zero live taker authority
-  - current first bounded paper slice is:
-    - canonical top-level `taker.min_edge=0.11`
-    - fixed `$20` taker proving shot remains active
+  - the first bounded paper slice in that closeout snapshot was:
+    - canonical top-level `taker.min_edge=0.18`
+    - fixed `$5` taker early-live proving shot remains active
     - no dynamic-size authority on canonical taker target sizing
     - no conviction-owned candidate ranking authority on the canonical taker
       path
@@ -597,7 +810,8 @@
     - taker one-sided ws market reference now fail-closes without midpoint;
       current doctrine/runtime uses midpoint-backed `direct_midpoint` or
       explicit `market_probability_missing`
-  - latest watched 10-minute current-tree specimen is now:
+  - latest watched 10-minute current-tree specimen in that closeout snapshot
+    was:
     - `6957087b-488e-4bbb-b8b9-1f215b5e33d0`
     - stored `validation_summary.json`: `ok=true`, `overall_exit_code=0`, all
       validator and replay-validator exits `0`
@@ -607,12 +821,16 @@
       - maker `1/0 non_ws`
       - taker `1/0 non_ws`
     - real accepted taker fire occurred at:
-      - `edge_value=0.2735337456282695`
-      against canonical `required_min_edge=0.11`
-  - immediate next move from that proof is:
+    - `edge_value=0.2735337456282695`
+    against the tighter current canonical `required_min_edge=0.18`
+  - immediate next move from that proof was:
     - lock Packet 1 closeout truth
     - open Packet 2 Maker-Live from the clean Packet 1 truth anchor
     - keep whole `pilot_live` phase explicit as still open above packet level
+- current Packet 1 owner truth is now the reopened taker surgery family:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md`
 - maker/taker remain diagnostic-only for tuning/aggression work, but
   maker and taker live-trust qualification are authorized as
   diagnostic proof work
@@ -749,7 +967,7 @@
   achieved on fresh downstream specimen
   `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`.
 - Grip current-code truth closure is now materially achieved on
-  `33e30bd8-e416-488e-83ce-f99c8665e7fc`; clean-anchor core-fighter re-audit is
+  `33e30bd8-e416-488e-83ce-f99c8665e7fc`; clean-anchor core-system re-audit is
   now complete and the highest-ROI next macro frontier is post-restoration
   `pilot_live` authority proof.
 - The latest watched post-restoration contrast specimen

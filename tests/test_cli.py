@@ -124,6 +124,30 @@ class BroCtlTests(unittest.TestCase):
                     cli.main()
                 self.assertEqual(ex.exception.code, 124)
 
+    def test_paper_runs_without_generic_broctl_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td).resolve()
+            calls = []
+
+            def _fake_run(*args, **kwargs):  # noqa: ANN001
+                calls.append({"args": list(args), "kwargs": dict(kwargs)})
+                return mock.Mock(returncode=0)
+
+            with mock.patch("prodesk.cli.resolve_repo_root", return_value=repo_root), mock.patch(
+                "subprocess.run", side_effect=_fake_run
+            ), mock.patch(
+                "prodesk.cli._assert_canonical_paper_target"
+            ), mock.patch(
+                "prodesk.cli._assert_paper_setup_lock"
+            ), mock.patch("sys.argv", ["broctl", "paper", "--", "--active-minutes", "60", "--wait-sec", "25"]):
+                with self.assertRaises(SystemExit) as ex:
+                    cli.main()
+                self.assertEqual(ex.exception.code, 0)
+
+            self.assertEqual(len(calls), 1)
+            kwargs = calls[0]["kwargs"]
+            self.assertNotIn("timeout", kwargs)
+
 
 class ProfilePathResolutionTests(unittest.TestCase):
     def test_paper_universal_paths_resolve_to_repo_runtime_dirs(self):

@@ -2,8 +2,8 @@
 
 > Doc Class: `Reference`
 > Authority: supporting packet proof ledger only; front-of-house repo current
-> truth is maintained in `docs/PROJECT_TRUTH_STATE.md`, and fighter-specific
-> runtime policy is maintained in `docs/DOCTRINE_RUNBOOK.md`.
+> truth is maintained in `docs/PROJECT_TRUTH_STATE.md`, and runtime policy is
+> maintained in `docs/DOCTRINE_RUNBOOK.md`.
 > Current public canonical paper start path is
 > `broctl paper -- --active-minutes <minutes> --wait-sec 25`.
 > Historical packet proof commands below may invoke backend engine surfaces

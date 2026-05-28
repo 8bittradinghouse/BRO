@@ -401,7 +401,12 @@ gas_reserve_min
 gas_ok
 stable_balance_total
 protected_reserve
-open_reserved
+pending_lock_usdc
+order_lock_usdc
+reservation_locked_usdc
+position_liability_locked_usdc
+locked_total_usdc
+provider_locked_usdc_semantics
 deployable_capital
 approval_ok
 approval_target_identity_verified
@@ -411,6 +416,8 @@ nonce_ok
 reconcile_ok
 wallet_health_ok
 wallet_health_reasons
+reservation_mismatch_evaluable
+reservation_mismatch_semantics
 
 That way the rest of BRO never has to guess.
 

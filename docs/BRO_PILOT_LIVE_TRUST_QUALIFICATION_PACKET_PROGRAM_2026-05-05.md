@@ -11,7 +11,7 @@ spine hardening:
 - first bounded tools: `prelive_gate` and `live_canary`
 - final authority: observed truth under real conditions, not gate-green alone
 
-This is not a generic prelive checklist. It is the whole-fighter trust program
+This is not a generic prelive checklist. It is the full-system trust program
 for:
 
 1. taker live trust
@@ -73,19 +73,34 @@ Ancestor-frame graduation bar:
 - clone / descendant scale remains blocked until that bar is real
 
 ## Current Program Lock
-- `Packet 1` has now closed `bounded-live-test ready` on current watched proof.
-- `Packet 2` remains active, but the body has moved beyond emergency
-  support-shadow cleanup. Current work is closeout routing, selector-family
-  truth-sync, and transition prep for `Packet 3` after owner collapse,
-  false-authority cleanup, report seam cleanup, and healthy maker/taker proof
-  materially landed.
-- `Packet 3` through `Packet 5` remain sequenced and inactive.
+- historical `Packet 1` closeout on watched proof remains ancestry only.
+- current Packet 1 owner truth has now been restored on current code through
+  watched specimen `9eca7bdf-defb-4db3-a2f0-f4d728092228`, which earns the
+  taker pre-wallet `GO` gate.
+- actual wallet hookup remains separate and still blocked on Packet 3 wallet
+  live-truth / approved-hookup proof.
+- `Packet 2` remains important bounded ancestry / contrast truth.
+- current immediate implementation order is now:
+  1. `Packet 2` maker runtime-truth tribunal
+  2. `Packet 1` taker support-authority tribunal
+  3. return to the dirty `Packet 3` wallet live-truth body after the tribunal
+     pair is synced
+- `Packet 4` and `Packet 5` remain sequenced and inactive.
 - The live working Packet 1 authority artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_QUALIFICATION_2026-05-06.md`
+- The live working Packet 1 surgery artifacts are:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_ARCHITECTURE_SURGERY_2026-05-22.md`
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SURGERY_SELF_HARDENING_PACK_2026-05-22.md`
+- The live working Packet 3 entry artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_3_WALLET_GUARDIAN_SURGICAL_CUT_PLAN_2026-05-21.md`
 - The live working Packet 2 entry artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_QUALIFICATION_2026-05-10.md`
+- The live working Packet 2 tribunal artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_RUNTIME_TRUTH_TRIBUNAL_2026-05-25.md`
 - The live working Packet 2 recovery / unwind closeout artifact is:
   - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_ROOT_DEATH_SURGERY_PLAN_2026-05-13.md`
+- The live working Packet 1 support-authority tribunal artifact is:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_1_TAKER_SUPPORT_AUTHORITY_TRIBUNAL_2026-05-25.md`
 - The current Packet 2 landed-closeout order is:
   1. truth-owner demotion + Packet 2 pickup reroute
   2. starvation proof correction + steady-state WS grading repair
@@ -112,15 +127,18 @@ Ancestor-frame graduation bar:
     - owned markets stayed inside the final `90s`
     - current-code replay closes the archived gate-accounting false blockers
     - first blocker-ledger cut:
-      - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
-      - `quote_quality_skip_queue_depth` = `keep-now steel`
+      - `launch_safe_selection_insufficient_depth_multiple` = provisional
+        blueprint steel
+      - `quote_quality_skip_queue_depth` = earlier specimen-local steel call
+        later reopened by hostile downstream-maker tribunal
       - `sizing_reject` = `minor residue`
       - `maker_blocker_ledger.json` = current blocker-truth owner artifact
   - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a`:
     - `runtime_classification=VALID_ACTIVE`
     - owned markets still stayed inside the final `90s`
     - selection depth multiple remains `keep-now steel`
-    - queue-depth quote quality remains `keep-now steel`
+    - queue-depth quote quality is no longer treated as settled steel; current
+      hostile reread reopens it as suspicious live downstream authority
     - `sizing_reject` reopened as the active runtime patient
 - Current taker hardening truths that this program must preserve:
   - inherited `SNIPER_PRIMARY` / `EXTREME_ONLY` family surfaces must not retain
@@ -155,7 +173,7 @@ Carry-forward philosophy:
 - valid safety interlocks stay; fake authority and compensator fat do not
 
 Required packet-entry replay:
-1. reload current whole-fighter and lane-local owners before reading historical
+1. reload current full-system and lane-local owners before reading historical
    packets
 2. trace the lane from doctrine roots through runtime emitters, validators,
    reports, operator consumers, and back into the strongest current owner
@@ -261,7 +279,7 @@ Hard rules:
 The running lane-local board sink is:
 - `docs/BRO_PILOT_LIVE_TRUST_BOARD_SINK_2026-05-05.md`
 
-The whole-fighter board still lives at:
+The full-system board still lives at:
 - `docs/PROJECT_TRUTH_STATE.md`
 - `docs/BRO_GFRAME_CORE_FIGHTER_AUDIT_2026-05-01.md`
 
@@ -487,9 +505,9 @@ A packet must pause and reclassify if any appear:
 Dependency law:
 - Packet 1 is the first live-fire weapon-trust seam and must collapse the
   inherited taker split-brain map before later trust closure claims are accepted
-- Packet 1 has now closed honestly on watched proof; Packet 2 is already active
-  in post-audit truth-owner / proof-semantics closeout and Packet 3 through
-  Packet 5 remain sequenced behind it
+- historical Packet 1 closeout remains real ancestry, but current Packet 1 is
+  reopened on deeper taker architecture disease and now owns the active next
+  surgery family
 - Packet 1 and Packet 2 are diagnostic proof work and are meant to end
   `bounded-live-test ready` if the proof is clean
 - Packet 3 is foundational for live hookup and must close the real live wallet
@@ -661,6 +679,6 @@ Forbidden here:
 This program is not complete until:
 - Packet 1-5 all have explicit verdicts
 - live-trust board sink is current
-- whole-fighter board owners carry the updated truth
+- full-system board owners carry the updated truth
 - residual risks are explicit
 - no lane is being called “safe enough” by implication alone

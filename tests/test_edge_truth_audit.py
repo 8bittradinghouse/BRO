@@ -56,8 +56,8 @@ class EdgeTruthAuditTests(unittest.TestCase):
             ):
                 sec_value = out.get("time_remaining_sec")
                 sec = float(sec_value) if isinstance(sec_value, (int, float)) else None
-                out["maker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 15.0 + 1e-9 and sec > 7.0 + 1e-9)
-                out["taker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 7.0 + 1e-9)
+                out["maker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 10.0 + 1e-9 and sec > 5.0 + 1e-9)
+                out["taker_phase_allowed"] = bool(sec is not None and 0.0 <= sec <= 5.0 + 1e-9)
                 out["open_order_cleanup_required"] = False
                 out["settlement_hold_required"] = False
                 out["unresolved_lifecycle_obligation"] = False

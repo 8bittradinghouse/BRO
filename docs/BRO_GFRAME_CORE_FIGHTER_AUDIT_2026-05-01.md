@@ -1,8 +1,8 @@
-# BRO G-Frame Core Fighter Audit
+# BRO G-Frame Core System Audit
 
 ## Classification
 - `current owner`
-- this is the active G-frame / whole-fighter board sink
+- this is the active G-frame / full-system board sink
 - legacy stage-family terms may appear only as bounded historical evidence, not
   as current lifecycle doctrine
 
@@ -11,25 +11,25 @@ This packet answers two linked questions without collapsing them into one muddy
 label:
 
 - Is core-frame G-frame restoration complete on current truth?
-- Is `BRO` a `Completed G-Frame / 8bit-worthy` whole fighter?
+- Is `BRO` a `Completed G-Frame / 8bit-worthy` full system?
 
-Whole-fighter binary rule:
+Full-system binary rule:
 - `Completed G-Frame / 8bit-worthy`
 - `Needs Work`
 
 Split-close rule:
-- core-frame G-frame restoration may be complete even while whole-fighter
+- core-frame G-frame restoration may be complete even while full-system
   completion remains open on a later macro proof frontier
 
 No allowed substitutes:
 - close enough
 - mostly done
 - passed once historically
-- harness is fine so the fighter is fine
+- harness is fine so the system is fine
 - weapon symptom means weapon packet
 
 Historical-active boundary note:
-- this audit remains the supporting G-frame / whole-fighter board sink
+- this audit remains the supporting G-frame / full-system board sink
 - it does not own the active `pilot_live` packet pickup
 - it does not own active Packet 2 `Maker-Live` sequencing
 - completed G-frame packet artifacts remain important historical closure and
@@ -60,7 +60,7 @@ Authority locks:
 This document is the canonical live G-frame board sink.
 
 Board ownership rules:
-- this doc owns the running whole-fighter board state
+- this doc owns the running full-system board state
 - packet docs are supporting forensic evidence records
 - packet-local findings do not become live board truth until reflected here
 - `NEXT_PACKET_PLAN.md` may preserve pickup continuity, but it does not outrank
@@ -89,7 +89,7 @@ Provisional-status law:
 - `COMPLETE` Packet 1 packet-local drift and ambiguity deltas carried into the
   live board sink
 - `COMPLETE` Packet 2 board answer carried into the live board sink:
-  - canonical-path transport is healthy enough to expose the fighter honestly
+  - canonical-path transport is healthy enough to expose the system honestly
   - the historical choke is upstream truth/readiness starvation
   - clean-anchor re-audit now reclassifies the live board above Packet 2:
     no active maker-core choke remains on `7bbde...`; the remaining blocker is
@@ -137,7 +137,7 @@ Provisional-status law:
     doctrine or board truth
 
 ## Core Module Model
-Core fighter modules:
+Core system modules:
 1. Brain
 2. Spinal cord
 3. Rack / paper harness
@@ -151,14 +151,14 @@ Weapons:
 
 Weapon rule:
 - weapons may be used as diagnostic probes
-- weapons are not authorized as primary optimization work while the whole-fighter
+- weapons are not authorized as primary optimization work while the full-system
   board still `Needs Work`
 
 ## G-Frame Verdict Board
 ### 1. Brain
 Verdict:
 - `Completed` for current-code source-layer semantic-ownership closure
-- whole-fighter closure remains subordinate to the board sink and the
+- full-system closure remains subordinate to the board sink and the
   post-restoration `pilot_live` authority proof frontier
 
 Authoritative sources:
@@ -238,7 +238,8 @@ Current evidence:
       - `market_reference_basis=report_book_top_pair_backfill`
       - runtime `unknown/not_confirmed` -> report `confirmed/true`
 - `scripts/bro_metric_harvest.py` propagates both canonical and mirrored downstream distributions from nightly/report summary surfaces.
-- runtime `maker_fight_admission_shadow` remains a separate emitted shadow
+- runtime `maker_snapshot_support_surface` remains a separate emitted support
+  surface
   surface from `prodesk/order_manager.py`:
   - it is allowed to stay narrow as a runtime selection-shadow artifact
   - fresh live tape on `bc4...` does **not** reconfirm the stronger prior
@@ -248,7 +249,7 @@ Current evidence:
       `secondary_oracle_*` and non-null `secondary_fair_probability`
     - the same-time null-oracle duplicates are taker-scope
       `phase_disallow_taker` rows, not a proven maker-scope owner split
-    - `maker_fight_admission_shadow` matches the maker-scope rows on this
+    - `maker_snapshot_support_surface` matches the maker-scope rows on this
       specimen
   - that means the highest currently-proven Brain breach returns to
     `nightly_soak_report.py` report-side mutation; any broader runtime
@@ -316,7 +317,7 @@ Open contradictions:
   - the earlier stronger runtime-owner split claim still remains unproven:
   - same-time null rows in the maker band on `bc4...` are taker-scope
     `phase_disallow_taker` evaluations
-  - maker-scope `edge_evaluation` and `maker_fight_admission_shadow` align on
+  - maker-scope `edge_evaluation` and `maker_snapshot_support_surface` align on
     that specimen
 - the remaining open downstream consumer-chain questions now belong to the
   Nervous-system lane, not to a still-live Brain owner breach
@@ -351,7 +352,7 @@ Closure criteria:
 ### 2. Spinal Cord
 Verdict:
 - `Completed` for current-code canonical paper-stage closure
-- whole-fighter closure remains subordinate to the board sink and the
+- full-system closure remains subordinate to the board sink and the
   post-restoration `pilot_live` authority proof frontier
 
 Authoritative sources:
@@ -432,7 +433,7 @@ Current evidence:
       - `dominant_reject_reason=market_reference_not_authoritative`
 - Packet 2 on the active anchor confirms:
   - canonical-path transport is structurally healthy enough to expose the
-    fighter honestly
+    system honestly
   - the prior live choke was upstream lane-actionability collapse before
     quoteable or meaningful participation emerged
   - clean-anchor re-audit now retires that active owner call on `7bbde...`:
@@ -566,8 +567,8 @@ Current evidence:
   - current choke classified above the harness floor in runtime behavior
 
 Open contradictions:
-- rack is stronger, but current-code fighter still fails above it at `pilot_live`
-- rack cannot certify the whole fighter complete while live authority, semantic,
+- rack is stronger, but current-code system still fails above it at `pilot_live`
+- rack cannot certify the full system complete while live authority, semantic,
   and clean-anchor blockers remain open
 - canonical harness grade and nightly exercised realism diverge across
   rack/report surfaces (`100` in `paper_harness_audit` vs
@@ -578,20 +579,20 @@ Pass 1 finding:
 - proving-lane semantics, lineage, and connector boundaries are much stronger
 
 Pass 2 finding:
-- the rack currently appears to tell the truth about the fighter rather than fabricate a green state
-- the remaining rack seam is descriptive-grade ambiguity, not fighter-health
+- the rack currently appears to tell the truth about the system rather than fabricate a green state
+- the remaining rack seam is descriptive-grade ambiguity, not system-health
   overclaim
 
 Closure criteria:
 - rack remains the sole canonical proving lane
 - proving-lineage tuple is complete and authoritative on the current-code anchor
 - watched canonical run confirms rack, runtime, and operator-visible truth stay aligned
-- no connector or audit surface silently misstates current fighter health
+- no connector or audit surface silently misstates current system health
 
 ### 4. Grip / Wallet Authority
 Verdict:
 - `Completed` for current-code grip truth closure
-- whole-fighter closure remains subordinate to the board sink and the
+- full-system closure remains subordinate to the board sink and the
   post-restoration `pilot_live` authority proof frontier
 
 Authoritative sources:
@@ -697,7 +698,7 @@ Closure criteria:
 ### 5. Nervous System
 Verdict:
 - `Completed` for current-code consumer-truth closure
-- whole-fighter closure remains subordinate to the board sink and the
+- full-system closure remains subordinate to the board sink and the
   post-restoration `pilot_live` authority proof frontier
 
 Authoritative sources:
@@ -801,7 +802,7 @@ Closure criteria:
 ### 6. Bones / Identity / Release Truth
 Verdict:
 - `Completed` for current clean current-code release-anchor closure
-- whole-fighter closure remains subordinate to the board sink and the
+- full-system closure remains subordinate to the board sink and the
   post-restoration `pilot_live` authority proof frontier
 
 Authoritative sources:
@@ -826,7 +827,7 @@ Current evidence:
     `13fd56b5-3f12-48ec-a07d-04b7d83d07ac` remains supporting current-code proof
     on the earlier active anchor
 - current broad current-code proof `7bbde...` now preserves present
-  current-fighter truth on a clean release anchor:
+  current-system truth on a clean release anchor:
   - `status=pass`
   - `runtime_classification=VALID_ACTIVE`
   - `highest_passing_stage=paper`
@@ -870,7 +871,7 @@ Current evidence:
   - `maker_quote_integrity_summary.specimen_regime_class=overnight_logic_specimen`
   - `maker_quote_integrity_summary.next_repair_lane="D. Peak-hours confirmation specimen"`
 - latest lane-specific closeout proof `33e3...` materially closes bounded
-  paper-stage Grip truth without promoting whole-fighter closure:
+  paper-stage Grip truth without promoting full-system closure:
   - current-mode paper-stage authority is bounded and honest
   - live authority remains explicitly phase-gated
 - historical Packet 1 host-time seam specimen
@@ -899,7 +900,7 @@ Current evidence:
 
 Open contradictions:
 - clean release-anchor truth is now present on the current runtime fingerprint
-- whole-fighter closure still cannot be called while the board remains blocked
+- full-system closure still cannot be called while the board remains blocked
   above the paper / `pilot_live` frontier and `pilot_live` authority proof
   remains unearned
 - fresh watched post-restoration specimen `6e2826...` failed the
@@ -918,7 +919,7 @@ Pass 2 finding:
 - the latest watched post-restoration miss now reads like overnight
   specimen-quality / peak-hours-confirmation debt, not a runtime or authority
   collapse
-- whole-fighter overclaim and post-restoration frontier overclaim remain the
+- full-system overclaim and post-restoration frontier overclaim remain the
   active release-truth risks
 - packet-time dirty counts must not be reused later as if they were timeless
   board truth
@@ -934,7 +935,7 @@ Closure criteria:
     auditable on the active runtime fingerprint
   - the clean-anchor proving seam is fail-closed against overlapping-session
     self-sabotage
-- whole-fighter closure remains outside this module row and stays owned by the
+- full-system closure remains outside this module row and stays owned by the
   live board sink
 
 ## Drift Register
@@ -960,11 +961,11 @@ G-Frame Packet 1 program-locked rehardening delta:
 | D-012 | Continuity drift | Bones / identity, planning surfaces | baseline/reference anchors competing with current-truth authority | medium | yes |
 | D-013 | Scope drift | whole board | later packets acting as if Packet 1 already certified the truth anchor | high | yes |
 | D-014 | Probe-to-weapon drift | whole board | zero maker submits misread as weapon-tuning authorization | high | yes |
-| D-015 | Report/runtime drift | Spinal cord, nervous system | structurally healthy validator transport mistaken for fighter health | high | yes |
+| D-015 | Report/runtime drift | Spinal cord, nervous system | structurally healthy validator transport mistaken for system health | high | yes |
 | D-016 | Scope drift | whole board | selector/economics work displacing the core-frame choke | high | yes |
 | D-017 | Momentum drift | whole board | ignoring `no_timing_change` truth in favor of familiar tuning motion | medium | yes |
 | D-018 | Operator-interpretation drift | Rack / proving lane | descriptive realism metadata can be skimmed like authority | medium | yes |
-| D-019 | Rack-overclaim drift | Rack / proving lane | strong proving-lane integrity mistaken for whole-fighter health | high | yes |
+| D-019 | Rack-overclaim drift | Rack / proving lane | strong proving-lane integrity mistaken for full-system health | high | yes |
 | D-020 | Stage-authority drift | Grip / wallet authority | authoritative paper wallet contract mistaken for live-readiness closure | high | yes |
 | D-021 | Ownership drift | Grip / wallet authority | local/derived wallet surfaces mistaken for canonical live nonce/pending truth | high | yes |
 | D-022 | Report/runtime drift | Grip / wallet authority, nervous system | paper-mode empty live-gap reasons or fallback reporting skimmed as no live gap | medium | yes |
@@ -990,21 +991,21 @@ G-Frame Packet 1 program-locked rehardening delta:
 
 | Term | Exact Definition | Forbidden Misread | Authoritative Owner |
 | --- | --- | --- | --- |
-| core complete | every core module is `Completed G-Frame / 8bit-worthy` on current truth, not historical glow | one strong subsystem means the whole fighter is done | this audit + `docs/PROJECT_TRUTH_STATE.md` |
+| core complete | every core module is `Completed G-Frame / 8bit-worthy` on current truth, not historical glow | one strong subsystem means the full system is done | this audit + `docs/PROJECT_TRUTH_STATE.md` |
 | weapon work | optimization/tuning/aggression work on maker/taker lanes | diagnostic use of a weapon path means weapon tuning is authorized | this audit |
 | diagnostic probe | bounded use of a weapon path to expose core-frame truth | proof that the weapon lane itself is now the main objective | this audit |
 | supporting current-code proof | the artifact truthfully describes current current-code behavior and may support bounded lane calls | it certifies final closure | G-Frame Packet 1 + this audit + `docs/PROJECT_TRUTH_STATE.md` |
 | closure-certifying clean release truth | the artifact is strong enough to support a final G-frame claim | any complete lineage chain automatically earns it | G-Frame Packet 1 + this audit |
 | clean release anchor | current-code proof with deterministic identity and strong release/worktree truth | any dirty current-code run with useful diagnostics is authoritative closure proof | this audit + `docs/PROJECT_TRUTH_STATE.md` |
 | clean current-code anchor | current doctrine plus clean release posture on the same current-code proof | same commit as an older clean anchor is enough | G-Frame Packet 1 + this audit |
-| lane-specific closeout proof | the artifact can close a bounded lane on current code without closing the whole fighter | bounded closure automatically promotes to father-frame closure | G-Frame Packet 1 + this audit + lane-specific packet docs |
+| lane-specific closeout proof | the artifact can close a bounded lane on current code without closing the full system | bounded closure automatically promotes to father-frame closure | G-Frame Packet 1 + this audit + lane-specific packet docs |
 | historical contrast evidence | an older or packet-local specimen is preserved to explain a defect, hardening step, or semantic seam after current authority has moved on | it owns the current pickup or present closure claim | G-Frame Packet 1 + this audit |
-| harness closure | proving rack is semantically honest and not the primary blocker | the whole fighter is complete because the harness connectors are strong | `docs/BRO_PAPER_HARNESS_DIAGNOSTIC_AUDIT_2026-04-30.md` |
-| canonical path healthy | validator/replay transport is functioning honestly | the fighter is healthy | G-Frame Packet 2 + this audit |
+| harness closure | proving rack is semantically honest and not the primary blocker | the full system is complete because the harness connectors are strong | `docs/BRO_PAPER_HARNESS_DIAGNOSTIC_AUDIT_2026-04-30.md` |
+| canonical path healthy | validator/replay transport is functioning honestly | the system is healthy | G-Frame Packet 2 + this audit |
 | upstream starvation | rows die before quoteable or meaningful participation emerges | mere lack of aggression | G-Frame Packet 2 + this audit |
 | core-frame maker issue | maker is exposing a frame/readiness defect on the canonical path | maker optimization is authorized | G-Frame Packet 2 + this audit |
-| rack truthful | the proving lane honestly reports the current fighter state | the fighter is therefore complete | G-Frame Packet 3 + this audit |
-| harness_realism_grade | descriptive, non-gating, non-authoritative realism lens | a specific grade certifies or denies fighter closure | `BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt` + G-Frame Packet 3 |
+| rack truthful | the proving lane honestly reports the current system state | the system is therefore complete | G-Frame Packet 3 + this audit |
+| harness_realism_grade | descriptive, non-gating, non-authoritative realism lens | a specific grade certifies or denies system closure | `BRO_PAPER_HARNESS_REALISM_DOCTRINE.txt` + G-Frame Packet 3 |
 | authoritative (wallet/startup) | wallet contract is authoritative for the current mode and passed startup/health/reconcile boundaries | live submissions are ready | G-Frame Packet 4 + this audit |
 | startup_authority_ready | startup authority refresh succeeded for the current mode | downstream `order_submit_eligible` must also be true | G-Frame Packet 4 + this audit |
 | order_capable_live | live submission is explicitly enabled and doctrinal live prerequisites are in force | paper authority is strong | G-Frame Packet 4 + this audit |
@@ -1034,7 +1035,7 @@ G-Frame Packet 1 program-locked rehardening delta:
 - rack/proving lane looks materially stronger
 - current-code proving path now reaches the paper / pilot-live frontier on
   current truth
-- rack still cannot certify the whole fighter complete while whole-fighter
+- rack still cannot certify the full system complete while full-system
   re-audit remains open above the clean current-code release anchor
 
 ### Grip -> Submit / Readiness
@@ -1055,7 +1056,7 @@ G-Frame Packet 1 program-locked rehardening delta:
 ### Bones -> Closure Claim
 - current truth surfaces are explicit
 - current-code clean release anchor now exists on `7bbde...`
-- therefore final fighter closure claims remain weak only if the board is
+- therefore final system closure claims remain weak only if the board is
   overread beyond what the clean anchor actually certifies
 
 ### Weapon Path Masking Risk
@@ -1068,10 +1069,10 @@ G-Frame Packet 1 program-locked rehardening delta:
 - do not authorize weapon optimization while the post-restoration `pilot_live`
   authority proof frontier remains open
 - do not let historical green anchors outrank current-code failing proof
-- do not let harness strength be used to claim whole-fighter strength
+- do not let harness strength be used to claim full-system strength
 - do not let report/readout semantics outrank emitted runtime truth
 - do not let the clean current-code release anchor be spoken about like
-  automatic whole-fighter completion
+  automatic full-system completion
 
 ## Closure Matrix
 Packet 7 regrade delta:
@@ -1084,7 +1085,7 @@ Packet 7 regrade delta:
 | --- | --- | --- | --- |
 | Brain | one-language law survives from doctrine to the first downstream report/metric persistence layer without owner rewrite | current-code runtime + probe-row replay + downstream harvest agreement | achieved on `656c9d42-070c-4f82-84cf-34aa333a9e7f`; downstream consumer/readout closure is now separately achieved in Nervous System on `13fd56b5-3f12-48ec-a07d-04b7d83d07ac` |
 | Spinal cord | current-code canonical proving path passes cleanly | current-code canonical paper-stage pass | achieved on `8a389b34-5df7-4d78-a750-3e2b909f17c8`; reconfirmed on `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`; active frontier moved to `pilot_live` |
-| Rack / paper harness | rack truthfully proves current fighter without connector drift | watched canonical run + lineage-complete audit/gate outputs | achieved on clean Packet 1 release anchor `7bbde42c-003a-4f57-b59a-7ce138224075`; preserved peak-session keeper pack corroborates active-window frame health without reopening a core-frame choke; the remaining `pilot_live` authority proof frontier is post-restoration whole-fighter work, not open frame-restoration work |
+| Rack / paper harness | rack truthfully proves current system without connector drift | watched canonical run + lineage-complete audit/gate outputs | achieved on clean Packet 1 release anchor `7bbde42c-003a-4f57-b59a-7ce138224075`; preserved peak-session keeper pack corroborates active-window frame health without reopening a core-frame choke; the remaining `pilot_live` authority proof frontier is post-restoration full-system work, not open frame-restoration work |
 | Grip / wallet authority | paper-stage authority is honest and bounded, and current-mode submit readiness no longer contradicts that authority; future live claims remain explicitly fail-closed until live truth exists | wallet authority evidence without hidden surrogate surfaces; corrected current-mode submit contract on active paper specimen; live-mode authority proof for live claims | achieved for current paper-stage grip truth closure on `33e30bd8-e416-488e-83ce-f99c8665e7fc`; the active unresolved now lives in the `pilot_live` lane: hookup truth must be separated cleanly from order-capable live truth, and canonical live nonce / pending-wallet-tx truth must exist before bounded live arming |
 | Nervous system | consumers no longer mutate runtime ownership or language | aligned audits/reports/readouts without mirror confusion | achieved on `13fd56b5-3f12-48ec-a07d-04b7d83d07ac` with aligned late/mid probes, readiness/soak frontier agreement, paper-harness alignment, and harvest replay bundle `packet6_13fd56b5` |
 | Bones / identity | closure claims anchored to clean release truth | clean release anchor or authorized equivalent | achieved on clean release anchor `7bbde42c-003a-4f57-b59a-7ce138224075` |
@@ -1098,7 +1099,7 @@ after the G-frame program closes:
 Interpretation law:
 - core-frame G-frame restoration is complete on current truth
 - rack / paper harness no longer stands as an open core-module blocker
-- the remaining open work is whole-fighter proof above paper on the clean
+- the remaining open work is full-system proof above paper on the clean
   Packet 1 anchor, not unfinished Packet 1-7 restoration work
 
 ## Weapon Authorization Gate
@@ -1133,7 +1134,7 @@ Packet 7 reaffirmation:
 
 Weapon work becomes authorized only when all of the following are true:
 1. current-code canonical runtime proof passes the intended paper-stage gate
-2. rack/paper harness is proving the current fighter honestly and cleanly
+2. rack/paper harness is proving the current system honestly and cleanly
 3. wallet/live authority gaps are closed or explicitly proven non-blocking for the claimed phase
 4. downstream nervous-system surfaces no longer materially reinterpret runtime truth
 5. closure claims rest on a clean release anchor or an explicitly authorized equivalent with equal truth quality
@@ -1143,7 +1144,7 @@ Core frame restoration:
 - `Complete`
 
 ## Final Board Verdict
-Whole fighter:
+Full system:
 - `Needs Work`
 
 Whole-board reason:
@@ -1159,7 +1160,7 @@ Whole-board reason:
 - preserved peak-session keeper packs corroborate healthy active-window frame
   behavior without replacing clean-anchor closure proof
 - post-restoration timing spine hardening is now closed on current proof
-- the active current-code fighter still needs `pilot_live` authority proof
+- the active current-code system still needs `pilot_live` authority proof
   above paper as the next proof frontier
 - peak-hours economic conclusions also remain deferred because the clean-anchor
   specimen is an overnight logic specimen
@@ -1168,7 +1169,7 @@ Whole-board reason:
 - the highest-ROI next move is no longer another default peak-hours paper
   specimen; it is the bounded `pilot_live` live-trust qualification lane
 
-That means `BRO` is not yet a `Completed G-Frame / 8bit-worthy` fighter.
+That means `BRO` is not yet a `Completed G-Frame / 8bit-worthy` system.
 
 ## Next Packet Recommendation
 Next packet type:
@@ -1243,7 +1244,7 @@ Highest-ROI next board move:
     surfaces
 - Packet 7 completed as its own bounded work section:
   - `COMPLETE`
-  - whole-fighter regrade issued from current authority-ranked truth
+  - full-system regrade issued from current authority-ranked truth
   - weapon gate remains diagnostic-only for tuning/aggression work
 - Packet 1-5 inspection closeout:
   - `COMPLETE`
@@ -1252,7 +1253,7 @@ Highest-ROI next board move:
   - module closure status:
     - packet-scope closeout block is materially complete through Packet 6 on
       current code
-    - whole-fighter final closure is now blocked above the clean Packet 1
+    - full-system final closure is now blocked above the clean Packet 1
       release anchor by missing `pilot_live` authority proof, not by an active
       maker-core choke on the clean paper specimen
   - clone-readiness contribution:
@@ -1277,7 +1278,7 @@ Highest-ROI next board move:
   - Packet 2 spinal-cord current-code canonical paper-stage blocker is now
     materially closed on `8a389b34-5df7-4d78-a750-3e2b909f17c8` and reconfirmed
     on fresh live specimen `d30b1c7c-ab05-494e-bfd1-3c5ac1205051`
-  - clean-anchor core-fighter re-audit on `7bbde42c-003a-4f57-b59a-7ce138224075`
+  - clean-anchor core-system re-audit on `7bbde42c-003a-4f57-b59a-7ce138224075`
     is now materially complete:
     - `promotion_eligible=true`
     - `recommended_next_stage=pilot_live`
@@ -1290,14 +1291,14 @@ Highest-ROI next board move:
     live specimen `656c9d42-070c-4f82-84cf-34aa333a9e7f`
   - Packet 6 Nervous-system consumer-truth closure is now materially closed on
     fresh live specimen `13fd56b5-3f12-48ec-a07d-04b7d83d07ac`
-  - current macro restoration queue now starts at core fighter re-audit on the
+  - current macro restoration queue now starts at core system re-audit on the
     clean current-code release anchor, not a return to maker-surface spinal
     forensics
 - G-frame packet-program status:
   - `COMPLETE` through Packet 7 as a handoff-grade board-call block
   - no further serial G-frame packet remains inside this program
 - current next move if operator approves re-entry:
-  - re-audit the core fighter on clean release anchor
+  - re-audit the core system on clean release anchor
     `7bbde42c-003a-4f57-b59a-7ce138224075`
   - consume Packet 2 through Packet 6 as the authority map for that re-audit
   - keep any future maker-surface work fenced unless a new current-code spinal

@@ -23,8 +23,8 @@ Supporting BRO-local control doctrine:
 - `docs/BRO_WALLET_DOCTRINE.md`
 
 Board stays locked:
-- whole fighter still `Needs Work`
-- core-frame G-frame restoration may close complete before whole-fighter proof
+- full system still `Needs Work`
+- core-frame G-frame restoration may close complete before full-system proof
   does
 - `Maker`, `Taker`, and `Sniper` are weapons
 - `Wallet` and the canonical paper harness rack are core modules
@@ -38,7 +38,7 @@ Program-wide no-drift locks:
 - no “close enough”
 - no “mostly done”
 - no “it passed once”
-- no “the harness is clean so the fighter is clean”
+- no “the harness is clean so the system is clean”
 - no “weapon symptom means weapon packet”
 - no “report looks fine” when runtime/current proof disagrees
 - no runtime or behavior mutation hidden inside packet investigation
@@ -92,7 +92,7 @@ The live G-frame board state is owned by:
 
 Board-sink law:
 - packet docs are packet-local forensic evidence records
-- packet docs do not independently own the running whole-fighter board state
+- packet docs do not independently own the running full-system board state
 - a packet is not complete until the audit board sink is updated
 
 Minimum required board-sink updates after each packet:
@@ -188,9 +188,9 @@ Dependency law:
 
 Why this order is locked:
 - Bones decides what truth can certify anything else.
-- Spinal cord decides whether the fighter is actually traversing the proving
+- Spinal cord decides whether the system is actually traversing the proving
   path.
-- Rack then proves whether the harness is honestly describing that fighter.
+- Rack then proves whether the harness is honestly describing that system.
 - Grip determines whether authority/core control is stage-worthy.
 - Brain and nervous system close language ownership and consumer-truth only
   after the frame’s identity and proving posture are clear.
@@ -231,7 +231,7 @@ Questions to answer:
 - where exactly does the active proof collapse?
 - is the failure in runtime posture, decision path, validation chain, or
   cross-layer coupling?
-- is the canonical path itself healthy while the fighter is failing inside it,
+- is the canonical path itself healthy while the system is failing inside it,
   or is the path reporting layer itself suspect?
 
 Investigation scope:
@@ -249,20 +249,20 @@ Required outputs:
 Exit criteria:
 - one explicit failure chain with no unexplained hop
 - one authoritative choke point
-- clean statement on whether this remains fighter-core work
+- clean statement on whether this remains system-core work
 
 ### Packet 3: Rack
-- prove the harness tells the truth about the current fighter
+- prove the harness tells the truth about the current system
 - include canonical watched-run truth alignment
 
 Questions to answer:
-- is the rack synced to the current fighter, or only historically hardened?
+- is the rack synced to the current system, or only historically hardened?
 - are descriptive-only semantics staying bounded?
 - is any connector/gate/report surface silently turning rack health into
-  fighter-health overclaim?
+  system-health overclaim?
 
 Investigation scope:
-- current fighter truth vs rack truth on the same current-code anchor
+- current system truth vs rack truth on the same current-code anchor
 - proving-lineage tuple integrity
 - realism / claim-boundary semantics
 - canonical 10-minute watched run as truth-sync evidence, not wrapper theater
@@ -271,12 +271,12 @@ Required outputs:
 - rack truth-sync verdict
 - proving-lineage integrity verdict
 - watched-run truth alignment notes
-- explicit answer to whether the rack overstates current fighter health
+- explicit answer to whether the rack overstates current system health
 
 Exit criteria:
 - rack is confirmed as the sole canonical proving lane
-- watched canonical run can be used as honest evidence for the current fighter
-- no connector surface silently upgrades the fighter’s health claim
+- watched canonical run can be used as honest evidence for the current system
+- no connector surface silently upgrades the system’s health claim
 
 ### Packet 4: Grip
 - classify wallet/live-authority gaps by paper-stage vs live-stage criticality
@@ -303,7 +303,7 @@ Required outputs:
 Exit criteria:
 - all paper-stage-critical wallet gaps are either closed or explicitly proven
   non-blocking
-- no substitute authority path is carrying the fighter
+- no substitute authority path is carrying the system
 - grip semantics remain fail-closed and truthful
 
 ### Packet 5: Brain
@@ -368,7 +368,7 @@ Exit criteria:
 
 Questions to answer:
 - is the G-frame frame-restoration block complete on current truth?
-- is `BRO` now a `Completed G-Frame / 8bit-worthy` fighter?
+- is `BRO` now a `Completed G-Frame / 8bit-worthy` system?
 - or does the remaining open work now live only in a post-restoration macro
   proof frontier?
 - are weapons still diagnostic-only, or finally authorized as primary work?
@@ -382,7 +382,7 @@ Required outputs:
 
 Weapon authorization requirements:
 - current-code canonical proof passes the intended paper-stage gate
-- rack truthfully proves the current fighter on the same anchor
+- rack truthfully proves the current system on the same anchor
 - wallet/core authority is strong enough for the claimed phase
 - report/readout surfaces no longer materially distort runtime truth
 - release-truth posture is strong enough to support a real closure claim
@@ -408,7 +408,7 @@ Weapon authorization requirements:
   - stage collapse localization
   - replay / determinism legitimacy
 - **Rack**
-  - rack truth vs current fighter truth on same anchor
+  - rack truth vs current system truth on same anchor
   - canonical watched run alignment
 - **Grip**
   - live authority gap criticality map

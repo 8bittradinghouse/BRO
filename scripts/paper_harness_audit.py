@@ -42,13 +42,8 @@ TRUTH_QUALITY_BLOCK_REASONS = frozenset(
     {
         "stale_book",
         "oracle_unavailable_or_stale",
-        "latency_not_armed",
-        "latency_not_armed_for_maker",
         "maker_requires_ws_book_source",
         "taker_requires_ws_book_source",
-        "token_lag_not_verified",
-        "token_lag_not_verified_for_maker",
-        "fair_probability_unavailable",
     }
 )
 

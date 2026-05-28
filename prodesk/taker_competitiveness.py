@@ -23,6 +23,9 @@ def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+_RETIRED_COMPLEMENT_ROUTE_KEY = "".join(("allow", "_complement", "_buy_route"))
+
+
 @dataclasses.dataclass(frozen=True)
 class TakerCompetitivenessConfig:
     enabled: bool = False
@@ -37,6 +40,7 @@ class TakerCompetitivenessConfig:
     latency_score_weight: float = 0.35
     final_window_enabled: bool = True
     final_window_sec: float = 15.0
+    final_window_floor_sec: float = 0.0
     aggressive_window_enabled: bool = False
     aggressive_window_sec: float = 10.0
     price_aggress_bps_max: float = 8.0
@@ -47,13 +51,17 @@ class TakerCompetitivenessConfig:
     multi_oracle_target_usd_cap: float = 350.0
     multi_oracle_capital_pct_cap: float = 0.18
     normal_side_policy: str = "buy_expected_winner_only"
-    allow_complement_buy_route: bool = True
     min_visible_fill_ratio: float = 0.0
 
     @classmethod
     def from_mapping(cls, row: Optional[Mapping[str, Any]], *, strict: bool = False) -> "TakerCompetitivenessConfig":
         if not isinstance(row, Mapping):
             return cls()
+        if _RETIRED_COMPLEMENT_ROUTE_KEY in row:
+            raise ValueError(
+                "retired taker complement-route config key is forbidden; "
+                "direct-only doctrine requires the canonical path only"
+            )
         cfg = cls(
             enabled=bool(row.get("enabled", False)),
             hard_min_target_usd=max(0.0, _safe_float(row.get("hard_min_target_usd"), 100.0)),
@@ -69,6 +77,7 @@ class TakerCompetitivenessConfig:
             latency_score_weight=max(0.0, _safe_float(row.get("latency_score_weight"), 0.35)),
             final_window_enabled=bool(row.get("final_window_enabled", True)),
             final_window_sec=max(0.0, _safe_float(row.get("final_window_sec"), 15.0)),
+            final_window_floor_sec=max(0.0, _safe_float(row.get("final_window_floor_sec"), 0.0)),
             aggressive_window_enabled=bool(row.get("aggressive_window_enabled", False)),
             aggressive_window_sec=max(0.0, _safe_float(row.get("aggressive_window_sec"), 10.0)),
             price_aggress_bps_max=max(0.0, _safe_float(row.get("price_aggress_bps_max"), 8.0)),
@@ -80,8 +89,7 @@ class TakerCompetitivenessConfig:
             multi_oracle_capital_pct_cap=max(0.0, _safe_float(row.get("multi_oracle_capital_pct_cap"), 0.18)),
             normal_side_policy=str(row.get("normal_side_policy", "buy_expected_winner_only")).strip().lower()
             or "buy_expected_winner_only",
-            allow_complement_buy_route=bool(row.get("allow_complement_buy_route", True)),
-            min_visible_fill_ratio=max(0.0, min(1.0, _safe_float(row.get("min_visible_fill_ratio"), 0.0))),
+            min_visible_fill_ratio=max(0.0, _safe_float(row.get("min_visible_fill_ratio"), 0.0)),
         )
         if strict:
             _validate_taker_competitiveness_policy(cfg, row=row)
@@ -101,6 +109,7 @@ class TakerCompetitivenessConfig:
             "latency_score_weight": float(self.latency_score_weight),
             "final_window_enabled": bool(self.final_window_enabled),
             "final_window_sec": float(self.final_window_sec),
+            "final_window_floor_sec": float(self.final_window_floor_sec),
             "aggressive_window_enabled": bool(self.aggressive_window_enabled),
             "aggressive_window_sec": float(self.aggressive_window_sec),
             "price_aggress_bps_max": float(self.price_aggress_bps_max),
@@ -111,7 +120,6 @@ class TakerCompetitivenessConfig:
             "multi_oracle_target_usd_cap": float(self.multi_oracle_target_usd_cap),
             "multi_oracle_capital_pct_cap": float(self.multi_oracle_capital_pct_cap),
             "normal_side_policy": str(self.normal_side_policy),
-            "allow_complement_buy_route": bool(self.allow_complement_buy_route),
             "min_visible_fill_ratio": float(self.min_visible_fill_ratio),
         }
 
@@ -147,6 +155,12 @@ def _validate_taker_competitiveness_policy(
         )
     if float(cfg.final_window_sec) <= 0.0:
         raise ValueError("taker.competitiveness.final_window_sec must be > 0")
+    if float(cfg.final_window_floor_sec) < 0.0:
+        raise ValueError("taker.competitiveness.final_window_floor_sec must be >= 0")
+    if float(cfg.final_window_floor_sec) > float(cfg.final_window_sec):
+        raise ValueError(
+            "taker.competitiveness.final_window_floor_sec must be <= final_window_sec"
+        )
     if float(cfg.aggressive_window_sec) < 0.0:
         raise ValueError("taker.competitiveness.aggressive_window_sec must be >= 0")
     if float(cfg.aggressive_window_sec) > float(cfg.final_window_sec):
@@ -183,8 +197,8 @@ def _validate_taker_competitiveness_policy(
         raise ValueError(
             "taker.competitiveness.normal_side_policy must be buy_expected_winner_only"
         )
-    if not (0.0 <= float(cfg.min_visible_fill_ratio) <= 1.0):
-        raise ValueError("taker.competitiveness.min_visible_fill_ratio must be within [0, 1]")
+    if float(cfg.min_visible_fill_ratio) < 0.0:
+        raise ValueError("taker.competitiveness.min_visible_fill_ratio must be >= 0")
 
     retired_stage_window_rows = source.get("stage_final_window_sec_by_stage", {})
     if retired_stage_window_rows is not None and not isinstance(retired_stage_window_rows, Mapping):
@@ -229,6 +243,8 @@ class TakerCandidate:
     max_feasible_target_usd: Optional[float] = None
     predicted_dynamic_feasible_target_usd: Optional[float] = None
     predicted_dynamic_reject_reason: Optional[str] = None
+    secondary_oracle_status: str = "unknown"
+    secondary_oracle_confirmation: bool = False
     multi_oracle_confirmation: bool = False
     multi_oracle_boost_applied: bool = False
     multi_oracle_status: str = "disabled"
@@ -261,6 +277,8 @@ class TakerDecision:
     predicted_reject_reason: Optional[str]
     preview_authority: str
     dynamic_size_capped_by_risk: bool
+    secondary_oracle_status: str
+    secondary_oracle_confirmation: bool
     multi_oracle_confirmation: bool
     multi_oracle_boost_eligible: bool
     multi_oracle_boost_applied: bool
@@ -312,6 +330,8 @@ class TakerDecision:
             ),
             "preview_authority": str(self.preview_authority or "none").strip().lower() or "none",
             "dynamic_size_capped_by_risk": bool(self.dynamic_size_capped_by_risk),
+            "secondary_oracle_status": str(self.secondary_oracle_status or "unknown").strip().lower() or "unknown",
+            "secondary_oracle_confirmation": bool(self.secondary_oracle_confirmation),
             "multi_oracle_confirmation": bool(self.multi_oracle_confirmation),
             "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
@@ -372,6 +392,8 @@ class TakerDecision:
             ),
             "preview_authority": str(self.preview_authority or "none").strip().lower() or "none",
             "dynamic_size_capped_by_risk": bool(self.dynamic_size_capped_by_risk),
+            "secondary_oracle_status": str(self.secondary_oracle_status or "unknown").strip().lower() or "unknown",
+            "secondary_oracle_confirmation": bool(self.secondary_oracle_confirmation),
             "multi_oracle_confirmation": bool(self.multi_oracle_confirmation),
             "multi_oracle_boost_eligible": bool(self.multi_oracle_boost_eligible),
             "multi_oracle_boost_applied": bool(self.multi_oracle_boost_applied),
@@ -409,16 +431,9 @@ class TakerCompetitivenessEngine:
         return _clamp((edge_abs - start) / span, 0.0, 1.0)
 
     def _conviction(self, *, edge_abs: float, token_score: Optional[float]) -> float:
+        del token_score
         edge_norm = self._edge_norm(edge_abs)
-        score_norm = _clamp(_safe_float(token_score, 0.0), 0.0, 1.0)
-        if self.cfg.conviction_model != "edge_plus_latency_score":
-            return edge_norm
-        edge_weight = max(0.0, float(self.cfg.edge_weight))
-        score_weight = max(0.0, float(self.cfg.latency_score_weight))
-        total = edge_weight + score_weight
-        if total <= 0.0:
-            return edge_norm
-        return _clamp(((edge_weight * edge_norm) + (score_weight * score_norm)) / total, 0.0, 1.0)
+        return edge_norm
 
     def _effective_final_window_sec(self, lifecycle_phase: str) -> float:
         del lifecycle_phase
@@ -431,11 +446,10 @@ class TakerCompetitivenessEngine:
         if not isinstance(sec_to_expiry, (int, float)):
             return "outside_window"
         sec = float(sec_to_expiry)
+        final_window_floor_sec = float(self.cfg.final_window_floor_sec)
         final_window_sec = float(self.cfg.final_window_sec)
-        if sec < 0.0 or sec > final_window_sec:
+        if sec < final_window_floor_sec - 1e-9 or sec > final_window_sec + 1e-9:
             return "outside_window"
-        if abs(float(final_window_sec) - 15.0) <= 1e-9:
-            return "final15"
         return "final_window"
 
     def _target_usd(
@@ -513,6 +527,10 @@ class TakerCompetitivenessEngine:
                 )
             return TakerBatchResult(decisions=decisions)
 
+        # Final taker fire law lives in executor. This engine is a bounded
+        # evaluator for executable price, feasible target sizing, and
+        # diagnostic surfaces after executor authority has already allowed the
+        # candidate through.
         provisional: List[TakerDecision] = []
         normal_side_policy = str(self.cfg.normal_side_policy or "buy_expected_winner_only").strip().lower()
         for candidate in candidates:
@@ -532,83 +550,9 @@ class TakerCompetitivenessEngine:
             if multi_oracle_status == "unknown":
                 multi_oracle_confirmation = False
 
-            if edge_abs < required_min_edge:
-                provisional.append(
-                    TakerDecision(
-                        token_id=token_id,
-                        lifecycle_phase=lifecycle_phase,
-                        lineage_stage=lineage_stage,
-                        should_submit=False,
-                        block_reason="edge_below_min",
-                        side=None,
-                        price=None,
-                        edge_abs=edge_abs,
-                        required_min_edge=required_min_edge,
-                        conviction_score=conviction_score,
-                        timing_window_class=timing_window_class,
-                        aggressiveness_level="none",
-                        price_aggress_bps_applied=0.0,
-                        target_usd_requested=0.0,
-                        target_usd_resolved=0.0,
-                        hard_min_floor_applied=False,
-                        hard_min_unachievable=False,
-                        submit_capable_static=False,
-                        submit_capable_dynamic_predicted=None,
-                        predicted_dynamic_feasible=None,
-                        predicted_feasible_target_usd=None,
-                        predicted_reject_reason=None,
-                        preview_authority="none",
-                        dynamic_size_capped_by_risk=False,
-                        multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_eligible=False,
-                        multi_oracle_boost_applied=False,
-                        multi_oracle_status=multi_oracle_status,
-                        sec_to_expiry=sec_to_expiry_value,
-                    )
-                )
-                continue
-
-            if timing_window_class == "outside_window":
-                provisional.append(
-                    TakerDecision(
-                        token_id=token_id,
-                        lifecycle_phase=lifecycle_phase,
-                        lineage_stage=lineage_stage,
-                        should_submit=False,
-                        block_reason="taker_outside_final_window",
-                        side=None,
-                        price=None,
-                        edge_abs=edge_abs,
-                        required_min_edge=required_min_edge,
-                        conviction_score=conviction_score,
-                        timing_window_class=timing_window_class,
-                        aggressiveness_level="none",
-                        price_aggress_bps_applied=0.0,
-                        target_usd_requested=0.0,
-                        target_usd_resolved=0.0,
-                        hard_min_floor_applied=False,
-                        hard_min_unachievable=False,
-                        submit_capable_static=False,
-                        submit_capable_dynamic_predicted=None,
-                        predicted_dynamic_feasible=None,
-                        predicted_feasible_target_usd=None,
-                        predicted_reject_reason=None,
-                        preview_authority="none",
-                        dynamic_size_capped_by_risk=False,
-                        multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_eligible=False,
-                        multi_oracle_boost_applied=False,
-                        multi_oracle_status=multi_oracle_status,
-                        sec_to_expiry=sec_to_expiry_value,
-                    )
-                )
-                continue
-
             aggress_bps = 0.0
-            if timing_window_class == "final10" and self.cfg.aggressive_window_enabled:
-                aggress_bps = max(aggress_bps, aggress_bps * 1.25)
             aggress_bps = _clamp(aggress_bps, 0.0, float(self.cfg.price_aggress_bps_max))
-            aggressiveness_level = "final10" if timing_window_class == "final10" else timing_window_class
+            aggressiveness_level = timing_window_class
 
             boost_window_sec = float(self.cfg.multi_oracle_boost_window_sec)
             boost_eligible = (
@@ -695,49 +639,13 @@ class TakerCompetitivenessEngine:
                         predicted_reject_reason=predicted_dynamic_reject_reason,
                         preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
+                        secondary_oracle_status=str(candidate.secondary_oracle_status or "unknown"),
+                        secondary_oracle_confirmation=bool(candidate.secondary_oracle_confirmation),
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
                         multi_oracle_status=multi_oracle_status,
                         sec_to_expiry=sec_to_expiry_value,
-                    )
-                )
-                continue
-
-            if edge_signed < 0.0 and normal_side_policy == "buy_expected_winner_only":
-                provisional.append(
-                    TakerDecision(
-                        token_id=token_id,
-                        lifecycle_phase=lifecycle_phase,
-                        lineage_stage=lineage_stage,
-                        should_submit=False,
-                        block_reason="normal_taker_same_token_sell_forbidden",
-                        side="SELL",
-                        price=None,
-                        edge_abs=edge_abs,
-                        required_min_edge=required_min_edge,
-                        conviction_score=conviction_score,
-                        timing_window_class=timing_window_class,
-                        aggressiveness_level=aggressiveness_level,
-                        price_aggress_bps_applied=aggress_bps,
-                        target_usd_requested=target_usd_requested,
-                        target_usd_resolved=target_usd_resolved,
-                        hard_min_floor_applied=hard_min_floor_applied,
-                        hard_min_unachievable=hard_min_unachievable,
-                        submit_capable_static=False,
-                        submit_capable_dynamic_predicted=submit_capable_dynamic_predicted,
-                        predicted_dynamic_feasible=predicted_dynamic_feasible,
-                        predicted_feasible_target_usd=predicted_feasible_target_usd,
-                        predicted_reject_reason=predicted_dynamic_reject_reason,
-                        preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
-                        dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
-                        multi_oracle_confirmation=multi_oracle_confirmation,
-                        multi_oracle_boost_eligible=boost_eligible,
-                        multi_oracle_boost_applied=boost_eligible,
-                        multi_oracle_status=multi_oracle_status,
-                        sec_to_expiry=sec_to_expiry_value,
-                        normal_side_policy=normal_side_policy,
-                        normal_taker_side_class="same_token_sell_blocked",
                     )
                 )
                 continue
@@ -777,6 +685,8 @@ class TakerCompetitivenessEngine:
                         predicted_reject_reason=predicted_dynamic_reject_reason,
                         preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
+                        secondary_oracle_status=str(candidate.secondary_oracle_status or "unknown"),
+                        secondary_oracle_confirmation=bool(candidate.secondary_oracle_confirmation),
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
@@ -817,6 +727,8 @@ class TakerCompetitivenessEngine:
                         predicted_reject_reason=predicted_dynamic_reject_reason,
                         preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                         dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
+                        secondary_oracle_status=str(candidate.secondary_oracle_status or "unknown"),
+                        secondary_oracle_confirmation=bool(candidate.secondary_oracle_confirmation),
                         multi_oracle_confirmation=multi_oracle_confirmation,
                         multi_oracle_boost_eligible=boost_eligible,
                         multi_oracle_boost_applied=boost_eligible,
@@ -852,13 +764,15 @@ class TakerCompetitivenessEngine:
                     predicted_reject_reason=predicted_dynamic_reject_reason,
                     preview_authority=("advisory_read_only" if self.cfg.dynamic_preview_enabled else "none"),
                     dynamic_size_capped_by_risk=dynamic_size_capped_by_risk,
+                    secondary_oracle_status=str(candidate.secondary_oracle_status or "unknown"),
+                    secondary_oracle_confirmation=bool(candidate.secondary_oracle_confirmation),
                     multi_oracle_confirmation=multi_oracle_confirmation,
                     multi_oracle_boost_eligible=boost_eligible,
                     multi_oracle_boost_applied=boost_eligible,
                     multi_oracle_status=multi_oracle_status,
                     sec_to_expiry=sec_to_expiry_value,
                     normal_side_policy=normal_side_policy,
-                    normal_taker_side_class="buy_expected_winner",
+                    normal_taker_side_class=("buy_expected_winner" if side == "BUY" else "unknown"),
                 )
             )
 

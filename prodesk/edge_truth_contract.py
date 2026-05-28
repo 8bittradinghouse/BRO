@@ -54,8 +54,6 @@ EDGE_INPUT_REASON_CODES: Tuple[str, ...] = (
     "oracle_tick_age_sec_missing",
     "oracle_tick_age_sec_invalid",
     "oracle_tick_stale",
-    "latency_state_missing",
-    "latency_state_invalid",
     "edge_value_invalid",
 )
 
@@ -67,25 +65,18 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "missing_threshold_metadata",
     "missing_side_metadata",
     "oracle_unavailable_or_stale",
-    "latency_not_armed_for_maker",
-    "token_lag_not_verified_for_maker",
-    "token_score_below_maker_min",
-    "fair_probability_unavailable",
     "maker_timing_gate_closed",
     "taker_disabled",
     "taker_budget_disabled",
     "operating_mode_maker_only",
     "operating_mode_safe_stop",
     "operating_mode_non_normal",
-    "latency_not_armed",
     "ramp_taker_disabled",
-    "token_lag_not_verified",
     "normal_taker_authority_closed",
     "phase_disallow_taker",
     "taker_requires_ws_book_source",
     "edge_below_min",
     "taker_token_cooldown",
-    "token_score_below_taker_min",
     "taker_order_budget_exhausted",
     "taker_outside_final_window",
     "taker_window_already_submitted",
@@ -94,11 +85,12 @@ EDGE_EXECUTION_BLOCK_REASONS: Tuple[str, ...] = (
     "taker_visible_fill_ratio_below_min",
     "taker_price_unavailable",
     "taker_competitiveness_disabled",
+    "secondary_oracle_not_confirmed",
     "normal_taker_same_token_sell_forbidden",
-    "complement_route_disabled_pending_validation",
-    "complement_token_mapping_unavailable",
-    "complement_token_fair_probability_unavailable",
-    "complement_token_price_unavailable",
+    "window_geometry_hard_pinned",
+    "window_geometry_near_pinned",
+    "maker_edge_below_min",
+    "maker_single_market_expression_pruned",
     "open_order_cleanup_required",
     "settlement_hold_required",
     "taker_submit_rejected",
@@ -108,15 +100,6 @@ EDGE_BLOCK_REASONS: Tuple[str, ...] = tuple(
     sorted(set(EDGE_INPUT_REASON_CODES).union(set(EDGE_EXECUTION_BLOCK_REASONS)))
 )
 _EDGE_BLOCK_REASON_SET = {item.lower() for item in EDGE_BLOCK_REASONS}
-
-LATENCY_STATE_DISARMED = "disarmed"
-LATENCY_STATE_PROBATION = "probation"
-LATENCY_STATE_ARMED = "armed"
-LATENCY_STATES: Tuple[str, ...] = (
-    LATENCY_STATE_DISARMED,
-    LATENCY_STATE_PROBATION,
-    LATENCY_STATE_ARMED,
-)
 
 STAGE_OBSERVE = "OBSERVE"
 STAGE_EVALUATE = "EVALUATE"
@@ -152,10 +135,143 @@ EDGE_MAKER_PHASE_ALLOWED_FIELD = "maker_phase_allowed"
 EDGE_TAKER_PHASE_ALLOWED_FIELD = "taker_phase_allowed"
 EDGE_MAKER_GATE_OPEN_FIELD = "maker_gate_open"
 EDGE_TAKER_GATE_OPEN_FIELD = "taker_gate_open"
+EDGE_MAKER_GATE_STAGE_FIELD = "maker_gate_stage"
+EDGE_MAKER_GATE_REASON_FIELD = "maker_gate_reason"
+EDGE_MAKER_GATE_OWNER_FAMILY_FIELD = "maker_gate_owner_family"
+EDGE_MAKER_GATE_TERMINAL_FIELD = "maker_gate_terminal"
 EDGE_LIFECYCLE_OPEN_ORDER_CLEANUP_REQUIRED_FIELD = "open_order_cleanup_required"
 EDGE_LIFECYCLE_SETTLEMENT_HOLD_REQUIRED_FIELD = "settlement_hold_required"
 EDGE_LIFECYCLE_UNRESOLVED_OBLIGATION_FIELD = "unresolved_lifecycle_obligation"
 EDGE_LIFECYCLE_CANCEL_FAIL_CLOSED_FIELD = "cancel_fail_closed"
+MAKER_GATE_STAGE_PHASE = "phase_gate"
+MAKER_GATE_STAGE_TRUTH_REFERENCE = "truth_reference_gate"
+MAKER_GATE_STAGE_LANE_READINESS = "lane_readiness_gate"
+MAKER_GATE_STAGE_SELECTION = "selection_gate"
+MAKER_GATE_STAGE_FEASIBILITY = "feasibility_gate"
+MAKER_GATE_STAGE_SHARED_SAFETY = "shared_safety_lifecycle_gate"
+MAKER_GATE_STAGE_QUOTE_QUALITY = "quote_quality_gate"
+MAKER_GATE_STAGE_SUBMIT_PATH = "submit_path_gate"
+MAKER_GATE_STAGE_SUBMITTED = "submitted"
+MAKER_GATE_STAGE_FILLED = "filled"
+MAKER_GATE_STAGES: Tuple[str, ...] = (
+    MAKER_GATE_STAGE_PHASE,
+    MAKER_GATE_STAGE_TRUTH_REFERENCE,
+    MAKER_GATE_STAGE_LANE_READINESS,
+    MAKER_GATE_STAGE_SELECTION,
+    MAKER_GATE_STAGE_FEASIBILITY,
+    MAKER_GATE_STAGE_SHARED_SAFETY,
+    MAKER_GATE_STAGE_QUOTE_QUALITY,
+    MAKER_GATE_STAGE_SUBMIT_PATH,
+    MAKER_GATE_STAGE_SUBMITTED,
+    MAKER_GATE_STAGE_FILLED,
+)
+MAKER_GATE_OWNER_PHASE = "lifecycle_phase"
+MAKER_GATE_OWNER_TRUTH_REFERENCE = "executor_truth_reference"
+MAKER_GATE_OWNER_LANE_READINESS = "executor_lane_readiness"
+MAKER_GATE_OWNER_SELECTION = "order_manager_selection"
+MAKER_GATE_OWNER_FEASIBILITY = "order_manager_feasibility"
+MAKER_GATE_OWNER_SHARED_SAFETY = "shared_lifecycle_safety"
+MAKER_GATE_OWNER_QUOTE_QUALITY = "order_manager_quote_quality"
+MAKER_GATE_OWNER_SUBMIT_PATH = "submit_path"
+MAKER_GATE_OWNER_SUBMITTED = "submitted_population"
+MAKER_GATE_OWNER_FILLED = "filled_population"
+MAKER_GATE_OWNER_FAMILIES: Tuple[str, ...] = (
+    MAKER_GATE_OWNER_PHASE,
+    MAKER_GATE_OWNER_TRUTH_REFERENCE,
+    MAKER_GATE_OWNER_LANE_READINESS,
+    MAKER_GATE_OWNER_SELECTION,
+    MAKER_GATE_OWNER_FEASIBILITY,
+    MAKER_GATE_OWNER_SHARED_SAFETY,
+    MAKER_GATE_OWNER_QUOTE_QUALITY,
+    MAKER_GATE_OWNER_SUBMIT_PATH,
+    MAKER_GATE_OWNER_SUBMITTED,
+    MAKER_GATE_OWNER_FILLED,
+)
+_MAKER_GATE_STAGE_SET = set(MAKER_GATE_STAGES)
+_MAKER_GATE_OWNER_SET = set(MAKER_GATE_OWNER_FAMILIES)
+_MAKER_GATE_STAGE_OWNER_BY_STAGE: Dict[str, str] = {
+    MAKER_GATE_STAGE_PHASE: MAKER_GATE_OWNER_PHASE,
+    MAKER_GATE_STAGE_TRUTH_REFERENCE: MAKER_GATE_OWNER_TRUTH_REFERENCE,
+    MAKER_GATE_STAGE_LANE_READINESS: MAKER_GATE_OWNER_LANE_READINESS,
+    MAKER_GATE_STAGE_SELECTION: MAKER_GATE_OWNER_SELECTION,
+    MAKER_GATE_STAGE_FEASIBILITY: MAKER_GATE_OWNER_FEASIBILITY,
+    MAKER_GATE_STAGE_SHARED_SAFETY: MAKER_GATE_OWNER_SHARED_SAFETY,
+    MAKER_GATE_STAGE_QUOTE_QUALITY: MAKER_GATE_OWNER_QUOTE_QUALITY,
+    MAKER_GATE_STAGE_SUBMIT_PATH: MAKER_GATE_OWNER_SUBMIT_PATH,
+    MAKER_GATE_STAGE_SUBMITTED: MAKER_GATE_OWNER_SUBMITTED,
+    MAKER_GATE_STAGE_FILLED: MAKER_GATE_OWNER_FILLED,
+}
+_MAKER_GATE_PHASE_REASONS = frozenset({"phase_disallow_maker"})
+_MAKER_GATE_TRUTH_REFERENCE_REASONS = frozenset(
+    {
+        "maker_requires_ws_book_source",
+        "market_reference_not_authoritative",
+        "oracle_unavailable_or_stale",
+        "missing_expiry_metadata",
+        "missing_threshold_metadata",
+        "missing_side_metadata",
+    }
+)
+_MAKER_GATE_LANE_READINESS_REASONS = frozenset(
+    {
+        "maker_timing_gate_closed",
+    }
+)
+_MAKER_GATE_SELECTION_REASONS = frozenset(
+    {
+        "secondary_oracle_not_confirmed",
+        "launch_safe_selection_insufficient_depth_multiple",
+        "selection_prior_target_submit",
+        "selection_prior_same_side_submit",
+        "maker_edge_below_min",
+        "maker_single_market_expression_pruned",
+        "maker_market_viability_reject",
+    }
+)
+_MAKER_GATE_FEASIBILITY_REASONS = frozenset(
+    {
+        "window_geometry_hard_pinned",
+        "window_geometry_near_pinned",
+        "non_actionable_geometry",
+        "sizing_reject",
+        "maker_hard_min_notional_failed_after_rounding",
+        "maker_hard_max_notional_failed_after_rounding",
+        "global_notional_bounds_after_rounding",
+        "rounded_shares_nonpositive",
+        "price_unavailable",
+        "wallet_reject",
+    }
+)
+_MAKER_GATE_SHARED_SAFETY_REASONS = frozenset(
+    {
+        "settlement_hold_required",
+        "open_order_cleanup_required",
+        "maker_commitment_hold_active",
+        "unresolved_lifecycle_obligation",
+        "cancel_fail_closed",
+        "maker_commitment_context_missing",
+    }
+)
+_MAKER_GATE_QUOTE_QUALITY_REASONS = frozenset(
+    {
+        "no_desired_quote",
+    }
+)
+_MAKER_GATE_SUBMIT_PATH_REASONS = frozenset(
+    {
+        "action_budget_exhausted",
+        "replace_guard_min_rest",
+        "replace_cancel_unavailable",
+        "quote_unchanged",
+        "post_only_reject",
+        "order_submit_exception",
+        "submit_rejected",
+        "taker_submit_rejected",
+        "pre_submit_cross_guarded",
+        "soft_throttle",
+        "maker_viability_context_missing",
+    }
+)
 CANONICAL_LIFECYCLE_PHASE_POLICY: Dict[str, Tuple[bool, bool]] = {
     LIFECYCLE_PHASE_SCAN: (False, False),
     LIFECYCLE_PHASE_PREPARE: (False, False),
@@ -278,16 +394,22 @@ def normalize_edge_scope(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
-def normalize_latency_state(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
 def normalize_edge_action(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
 def normalize_block_reason(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def normalize_maker_gate_stage(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in _MAKER_GATE_STAGE_SET else ""
+
+
+def normalize_maker_gate_owner_family(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in _MAKER_GATE_OWNER_SET else ""
 
 
 def normalize_event_type(value: Any) -> str:
@@ -342,6 +464,125 @@ def is_canonical_block_reason(value: Any) -> bool:
     return reason in _EDGE_BLOCK_REASON_SET
 
 
+def maker_gate_owner_family_for_stage(stage: Any) -> str:
+    normalized_stage = normalize_maker_gate_stage(stage)
+    if not normalized_stage:
+        return ""
+    return _MAKER_GATE_STAGE_OWNER_BY_STAGE.get(normalized_stage, "")
+
+
+def _canonicalize_maker_gate_reason(value: Any) -> str:
+    normalized = normalize_block_reason(value)
+    if normalized == "insufficient_depth_multiple":
+        return "launch_safe_selection_insufficient_depth_multiple"
+    if normalized.startswith("submit_rejected_"):
+        return normalized
+    return normalized
+
+
+def _maker_gate_reason_from_payload(payload: Mapping[str, Any]) -> str:
+    placeholder_reasons = {"", "unknown", "unspecified", "none", "null"}
+    saw_maker_no_submission = False
+    for field_name in (
+        EDGE_MAKER_GATE_REASON_FIELD,
+        "runtime_decision_block_reason",
+        "decision_block_reason",
+        "primary_reject_reason",
+        "selection_gate_primary_reject_reason",
+        "block_reason",
+    ):
+        reason = _canonicalize_maker_gate_reason(payload.get(field_name))
+        if reason and reason != "maker_no_submission":
+            return reason
+        if reason == "maker_no_submission":
+            saw_maker_no_submission = True
+            break
+    for field_name in ("maker_no_submission_cause", "maker_no_submission_category"):
+        reason = _canonicalize_maker_gate_reason(payload.get(field_name))
+        if reason and reason not in placeholder_reasons:
+            return reason
+    if saw_maker_no_submission:
+        return "maker_no_submission"
+    return ""
+
+
+def maker_gate_contract_from_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    explicit_stage = normalize_maker_gate_stage(payload.get(EDGE_MAKER_GATE_STAGE_FIELD))
+    explicit_owner = normalize_maker_gate_owner_family(
+        payload.get(EDGE_MAKER_GATE_OWNER_FAMILY_FIELD)
+    )
+    explicit_reason = _canonicalize_maker_gate_reason(payload.get(EDGE_MAKER_GATE_REASON_FIELD))
+    if explicit_stage:
+        owner_family = explicit_owner or maker_gate_owner_family_for_stage(explicit_stage)
+        terminal_value = payload.get(EDGE_MAKER_GATE_TERMINAL_FIELD)
+        terminal = bool(terminal_value) if terminal_value is not None else True
+        return {
+            EDGE_MAKER_GATE_STAGE_FIELD: explicit_stage,
+            EDGE_MAKER_GATE_REASON_FIELD: explicit_reason or explicit_stage,
+            EDGE_MAKER_GATE_OWNER_FAMILY_FIELD: owner_family or explicit_stage,
+            EDGE_MAKER_GATE_TERMINAL_FIELD: bool(terminal),
+        }
+
+    event_type = normalize_event_type(payload.get("event_type"))
+    submission_lane = str(payload.get("submission_lane") or "").strip().lower()
+    filled_flag = bool(payload.get("filled"))
+    if event_type == "fill" and submission_lane == EDGE_ACTION_MAKER:
+        filled_flag = True
+    if filled_flag:
+        return {
+            EDGE_MAKER_GATE_STAGE_FIELD: MAKER_GATE_STAGE_FILLED,
+            EDGE_MAKER_GATE_REASON_FIELD: "filled",
+            EDGE_MAKER_GATE_OWNER_FAMILY_FIELD: MAKER_GATE_OWNER_FILLED,
+            EDGE_MAKER_GATE_TERMINAL_FIELD: True,
+        }
+
+    submitted_flag = bool(payload.get("submitted"))
+    action_taken = normalize_edge_action(payload.get("action_taken"))
+    decision_result = str(payload.get("decision_result") or "").strip().lower()
+    if submission_lane == EDGE_ACTION_MAKER and event_type == "order_submit":
+        submitted_flag = True
+    if str(payload.get("order_submit_id") or "").strip():
+        submitted_flag = True
+    if decision_result == "submitted":
+        submitted_flag = True
+    if action_taken == EDGE_ACTION_MAKER and str(payload.get("order_id") or "").strip():
+        submitted_flag = True
+    if submitted_flag:
+        return {
+            EDGE_MAKER_GATE_STAGE_FIELD: MAKER_GATE_STAGE_SUBMITTED,
+            EDGE_MAKER_GATE_REASON_FIELD: "submitted",
+            EDGE_MAKER_GATE_OWNER_FAMILY_FIELD: MAKER_GATE_OWNER_SUBMITTED,
+            EDGE_MAKER_GATE_TERMINAL_FIELD: True,
+        }
+
+    reason = _maker_gate_reason_from_payload(payload)
+    if reason in _MAKER_GATE_PHASE_REASONS:
+        stage = MAKER_GATE_STAGE_PHASE
+    elif reason in _MAKER_GATE_TRUTH_REFERENCE_REASONS:
+        stage = MAKER_GATE_STAGE_TRUTH_REFERENCE
+    elif reason in _MAKER_GATE_LANE_READINESS_REASONS:
+        stage = MAKER_GATE_STAGE_LANE_READINESS
+    elif reason in _MAKER_GATE_SELECTION_REASONS:
+        stage = MAKER_GATE_STAGE_SELECTION
+    elif reason in _MAKER_GATE_FEASIBILITY_REASONS:
+        stage = MAKER_GATE_STAGE_FEASIBILITY
+    elif reason in _MAKER_GATE_SHARED_SAFETY_REASONS:
+        stage = MAKER_GATE_STAGE_SHARED_SAFETY
+    elif reason in _MAKER_GATE_QUOTE_QUALITY_REASONS:
+        stage = MAKER_GATE_STAGE_QUOTE_QUALITY
+    elif reason in _MAKER_GATE_SUBMIT_PATH_REASONS:
+        stage = MAKER_GATE_STAGE_SUBMIT_PATH
+    else:
+        stage = MAKER_GATE_STAGE_SUBMIT_PATH if reason else ""
+    owner_family = maker_gate_owner_family_for_stage(stage)
+    return {
+        EDGE_MAKER_GATE_STAGE_FIELD: stage or None,
+        EDGE_MAKER_GATE_REASON_FIELD: reason or None,
+        EDGE_MAKER_GATE_OWNER_FAMILY_FIELD: owner_family or None,
+        EDGE_MAKER_GATE_TERMINAL_FIELD: bool(stage),
+    }
+
+
 def _parse_prob(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -376,7 +617,6 @@ class EdgeInputSnapshot:
     market_probability: Optional[float] = None
     time_remaining_sec: Optional[float] = None
     oracle_tick_age_sec: Optional[float] = None
-    latency_state: Optional[str] = None
     lifecycle_phase: Optional[str] = None
     lineage_stage: Optional[str] = None
     evaluation_scope: str = ""
@@ -436,7 +676,6 @@ def validate_edge_inputs(
     snapshot: EdgeInputSnapshot,
     *,
     oracle_max_tick_age_sec: float,
-    require_latency_state: bool,
 ) -> EdgeInputValidation:
     scope = normalize_edge_scope(snapshot.evaluation_scope)
     if scope not in EDGE_EVAL_SCOPES:
@@ -474,12 +713,6 @@ def validate_edge_inputs(
             "oracle_tick_stale",
             f"tick_age_sec={oracle_tick_age:.6f}>max={float(max(0.0, oracle_max_tick_age_sec)):.6f}",
         )
-
-    latency_state = normalize_latency_state(snapshot.latency_state)
-    if require_latency_state and not latency_state:
-        return _invalid("latency_state_missing")
-    if latency_state and latency_state not in LATENCY_STATES:
-        return _invalid("latency_state_invalid", f"latency_state={latency_state}")
 
     edge_value = compute_edge_value(fair_probability=fair, market_probability=market)
     if edge_value is None:

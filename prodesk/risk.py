@@ -22,6 +22,11 @@ from .exposure_classifier import (
     EXPOSURE_CLASS_MEANINGFUL,
     is_flat_position,
 )
+from .money_math import (
+    binary_order_capital_usd,
+    binary_position_capital_usd,
+    canonical_net_cash_adjustment_usd,
+)
 from .models import BookTop, FillEvent, OrderIntent, Position, RiskDecision
 
 
@@ -33,11 +38,13 @@ class RiskEngine:
         config: Dict[str, float],
         positions: Dict[str, Position],
         *,
+        simulation_cfg: Optional[Dict[str, Any]] = None,
         monotonic_fn: Optional[Callable[[], float]] = None,
         utc_now_fn: Optional[Callable[[], dt.datetime]] = None,
     ):
         self.cfg = config
         self.positions = positions
+        self.simulation_cfg = dict(simulation_cfg or {})
         self.kill_switch = False
         self.kill_reason = ""
         self._monotonic = monotonic_fn or time.monotonic
@@ -149,7 +156,11 @@ class RiskEngine:
             if remaining <= 0.0:
                 continue
             pending_shares += remaining
-            pending_notional += remaining * self._order_price(order, fallback=fallback_price)
+            pending_notional += binary_order_capital_usd(
+                side=side,
+                price=self._order_price(order, fallback=fallback_price),
+                size_shares=remaining,
+            )
         return pending_shares, pending_notional
 
     @staticmethod
@@ -318,24 +329,25 @@ class RiskEngine:
         if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
             return {
                 "enabled": False,
-                "projected_total_notional": 0.0,
+                "projected_total_capital_usd": 0.0,
                 "projected_to_cap_ratio": 0.0,
                 "within_cap": True,
             }
 
-        base_cap = max(0.0, float(cfg.get("max_global_notional_usd", 0.0)))
+        base_cap = max(0.0, float(cfg.get("max_global_capital_usd", 0.0)))
         effective_cap = float(base_cap * max(0.0, float(effective_multiplier)))
         context = risk_context if isinstance(risk_context, dict) else {}
         submission_lane = str(context.get("submission_lane") or "unknown").strip().lower()
-        taker_reserved_notional_usd = max(0.0, float(cfg.get("taker_reserved_notional_usd", 0.0) or 0.0))
+        taker_reserved_capital_usd = max(0.0, float(cfg.get("taker_reserved_capital_usd", 0.0) or 0.0))
         reserve_applied = False
-        if taker_reserved_notional_usd > 0.0:
+        if taker_reserved_capital_usd > 0.0:
             if submission_lane == "taker":
-                effective_cap = max(0.0, float(effective_cap - taker_reserved_notional_usd))
+                effective_cap = max(0.0, float(effective_cap - taker_reserved_capital_usd))
                 reserve_applied = True
         near_cap_ratio = max(0.0, float(cfg.get("near_cap_ratio", 0.85)))
 
-        position_notional = 0.0
+        position_capital = 0.0
+        short_position_liability = 0.0
         unknown_position_tokens: List[str] = []
         for token_id, pos in self.positions.items():
             px = self._safe_float(reference_mid_by_token.get(token_id))
@@ -349,9 +361,11 @@ class RiskEngine:
             if px is None or px <= 0.0:
                 unknown_position_tokens.append(str(token_id))
                 continue
-            position_notional += abs(float(pos.net_shares)) * float(px)
+            position_capital += binary_position_capital_usd(net_shares=float(pos.net_shares), reference_price=float(px))
+            short_position_liability += float(max(0.0, -float(pos.net_shares)))
 
-        resting_notional = 0.0
+        resting_capital = 0.0
+        resting_short_liability = 0.0
         for order in open_orders_all:
             remaining = self._order_remaining_size(order)
             if remaining <= 0.0:
@@ -360,25 +374,39 @@ class RiskEngine:
             fallback_price = self._safe_float(reference_mid_by_token.get(order_token))
             if fallback_price is None or fallback_price <= 0.0:
                 fallback_price = float(intent.price if order_token == intent.token_id else 0.0)
-            resting_notional += remaining * self._order_price(order, fallback=float(fallback_price))
+            order_side = self._order_side(order)
+            resting_capital += binary_order_capital_usd(
+                side=order_side,
+                price=self._order_price(order, fallback=float(fallback_price)),
+                size_shares=remaining,
+            )
+            if order_side == "SELL":
+                resting_short_liability += float(remaining)
 
-        incoming_notional = abs(float(intent.size) * float(intent.price))
-        projected_total = float(position_notional + resting_notional + incoming_notional)
+        incoming_capital = binary_order_capital_usd(
+            side=str(intent.side or "").strip().upper(),
+            price=float(intent.price),
+            size_shares=float(intent.size),
+        )
+        projected_total = float(position_capital + resting_capital + incoming_capital)
         ratio = (projected_total / effective_cap) if effective_cap > 0.0 else math.inf
         within_cap = bool(effective_cap > 0.0 and projected_total <= effective_cap + 1e-9)
         return {
             "enabled": True,
+            "capital_semantics": "binary_liability_adjusted",
             "base_cap_usd": float(base_cap),
             "effective_cap_usd": float(effective_cap),
-            "taker_reserved_notional_usd": float(taker_reserved_notional_usd),
+            "taker_reserved_capital_usd": float(taker_reserved_capital_usd),
             "taker_reserve_applied": bool(reserve_applied),
             "taker_reserve_scope": "taker_only",
             "near_cap_ratio": float(near_cap_ratio),
-            "projected_total_notional": float(projected_total),
+            "projected_total_capital_usd": float(projected_total),
             "projected_to_cap_ratio": float(ratio if math.isfinite(ratio) else 0.0),
-            "position_notional": float(position_notional),
-            "resting_open_order_notional": float(resting_notional),
-            "incoming_intent_notional": float(incoming_notional),
+            "position_capital_usd": float(position_capital),
+            "short_position_liability_usd": float(short_position_liability),
+            "resting_open_order_capital_usd": float(resting_capital),
+            "resting_short_order_liability_usd": float(resting_short_liability),
+            "incoming_intent_capital_usd": float(incoming_capital),
             "unknown_position_tokens": sorted(set(unknown_position_tokens)),
             "within_cap": within_cap,
             "near_cap": bool(effective_cap > 0.0 and ratio >= near_cap_ratio),
@@ -536,6 +564,10 @@ class RiskEngine:
             pos.net_shares -= fill.size
             pos.sell_shares += fill.size
             pos.sold_notional += fill.size * fill.price
+        pos.taker_fee_usd += max(0.0, float(fill.taker_fee_usd or 0.0))
+        pos.maker_rebate_usd += max(0.0, float(fill.maker_rebate_usd or 0.0))
+        pos.slippage_cost_usd += max(0.0, float(fill.slippage_cost_usd or 0.0))
+        pos.adverse_selection_cost_usd += max(0.0, float(fill.adverse_selection_cost_usd or 0.0))
 
     def settle_binary_position(self, *, token_id: str, settlement_price: float) -> Optional[Dict[str, Any]]:
         token = str(token_id or "").strip()
@@ -876,13 +908,13 @@ class RiskEngine:
                         "sec_to_expiry": None,
                     },
                 )
-            if float(sec_to_expiry) <= (min_sec_to_expiry_for_new_exposure + 1e-9):
+            if float(sec_to_expiry) + 1e-9 < min_sec_to_expiry_for_new_exposure:
                 return RiskDecision(
                     False,
                     "new_exposure_expiry_gate_blocked",
                     (
                         f"sec_to_expiry={float(sec_to_expiry):.6f}"
-                        f"<=min_sec_to_expiry_for_new_exposure={min_sec_to_expiry_for_new_exposure:.6f}"
+                        f"<min_sec_to_expiry_for_new_exposure={min_sec_to_expiry_for_new_exposure:.6f}"
                     ),
                     basis={
                         **basis_base,
@@ -923,10 +955,13 @@ class RiskEngine:
             )
 
         exposure_cap_mode = str(self.cfg.get("exposure_cap_mode", "per_market_total")).strip().lower()
-        projected_notional = abs(projected * intent.price)
+        projected_notional = binary_position_capital_usd(net_shares=projected, reference_price=float(intent.price))
         if exposure_cap_mode == "per_side":
-            projected_long = max(0.0, projected) * intent.price
-            projected_short = max(0.0, -projected) * intent.price
+            projected_long = binary_position_capital_usd(
+                net_shares=max(0.0, projected),
+                reference_price=float(intent.price),
+            )
+            projected_short = float(max(0.0, -projected))
             if intent.side == "BUY" and projected_long > max_notional_effective:
                 return RiskDecision(
                     False,
@@ -976,8 +1011,8 @@ class RiskEngine:
                     False,
                     "global_exposure_cap",
                     (
-                        "projected_global_notional="
-                        + f"{float(global_snapshot.get('projected_total_notional', 0.0)):.2f},"
+                        "projected_global_capital="
+                        + f"{float(global_snapshot.get('projected_total_capital_usd', 0.0)):.2f},"
                         + "effective_global_cap="
                         + f"{float(global_snapshot.get('effective_cap_usd', 0.0)):.2f}"
                     ),
@@ -1028,7 +1063,7 @@ class RiskEngine:
         total = 0.0
         for token_id, pos in self.positions.items():
             mid = mid_by_token.get(token_id)
-            realized_cashflow = float(pos.sold_notional - pos.bought_notional)
+            realized_cashflow = float(pos.sold_notional - pos.bought_notional + pos.net_economic_adjustment_usd)
             if mid is None:
                 if not self._is_flat_position(float(pos.net_shares)):
                     exposure_class = str(
@@ -1051,6 +1086,27 @@ class RiskEngine:
             total += pnl
         self._last_mark_to_market_skipped_nonflat_by_class = dict(skipped_nonflat_by_class)
         return total, pnl_by_token
+
+    def economic_adjustment_summary(self) -> Dict[str, float]:
+        taker_fee_usd = 0.0
+        maker_rebate_usd = 0.0
+        slippage_cost_usd = 0.0
+        adverse_selection_cost_usd = 0.0
+        for pos in self.positions.values():
+            taker_fee_usd += max(0.0, float(getattr(pos, "taker_fee_usd", 0.0) or 0.0))
+            maker_rebate_usd += max(0.0, float(getattr(pos, "maker_rebate_usd", 0.0) or 0.0))
+            slippage_cost_usd += max(0.0, float(getattr(pos, "slippage_cost_usd", 0.0) or 0.0))
+            adverse_selection_cost_usd += max(0.0, float(getattr(pos, "adverse_selection_cost_usd", 0.0) or 0.0))
+        return {
+            "taker_fee_usd": float(taker_fee_usd),
+            "maker_rebate_usd": float(maker_rebate_usd),
+            "slippage_cost_usd": float(slippage_cost_usd),
+            "adverse_selection_cost_usd": float(adverse_selection_cost_usd),
+            "net_cash_adjustment_usd": canonical_net_cash_adjustment_usd(
+                maker_rebate_usd=float(maker_rebate_usd),
+                taker_fee_usd=float(taker_fee_usd),
+            ),
+        }
 
     def evaluate_loss_limits(self, mid_by_token: Dict[str, Optional[float]]) -> RiskDecision:
         drawdown_snapshot = self.wallet_guardian_drawdown_snapshot(mid_by_token)

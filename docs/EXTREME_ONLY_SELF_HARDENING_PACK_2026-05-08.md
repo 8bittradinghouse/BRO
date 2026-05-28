@@ -100,7 +100,7 @@ These may remain parseable for compatibility, but they must not be taught as cur
 - no weakened oracle freshness fail-closed
 - no weakening of fully missing ws market-reference fail-closed behavior
 - no weakened ws-book-source fail-closed
-- emitted canonical taker rows show temporary fixed `$20` paper-shot behavior
+- emitted canonical taker rows show temporary fixed `$5` early-live paper-shot behavior
 - emitted canonical taker rows no longer imply dynamic-size or conviction-owned fireability
 - emitted canonical taker rows carry `required_min_edge=0.18` on the paper packet
 - reports and active packet docs tell the same `EXTREME_ONLY` story as runtime

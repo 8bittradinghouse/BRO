@@ -136,6 +136,12 @@ def _status_active_targets_present(status_row: Dict[str, Any]) -> bool:
         "gauge.quote_active",
         "gauge.actions_last_cycle",
         "gauge.actions_last_status_window",
+        "gauge.maker_actions_last_cycle",
+        "gauge.maker_actions_last_status_window",
+        "gauge.maker_fills_last_cycle",
+        "gauge.maker_fills_last_status_window",
+        "gauge.maker_submitted_token_count_last_cycle",
+        "gauge.maker_submitted_token_count_last_status_window",
         "gauge.taker_actions_last_cycle",
         "gauge.taker_actions_last_status_window",
         "gauge.taker_submitted_last_cycle",
@@ -382,6 +388,16 @@ def classify_runtime(
         quote_active = parse_float(row.get("gauge.quote_active"))
         actions_last_cycle = parse_float(row.get("gauge.actions_last_cycle"))
         actions_last_status_window = parse_float(row.get("gauge.actions_last_status_window"))
+        maker_actions_last_cycle = parse_float(row.get("gauge.maker_actions_last_cycle"))
+        maker_actions_last_status_window = parse_float(row.get("gauge.maker_actions_last_status_window"))
+        maker_fills_last_cycle = parse_float(row.get("gauge.maker_fills_last_cycle"))
+        maker_fills_last_status_window = parse_float(row.get("gauge.maker_fills_last_status_window"))
+        maker_submitted_token_count_last_cycle = parse_float(
+            row.get("gauge.maker_submitted_token_count_last_cycle")
+        )
+        maker_submitted_token_count_last_status_window = parse_float(
+            row.get("gauge.maker_submitted_token_count_last_status_window")
+        )
         taker_actions_last_cycle = parse_float(row.get("gauge.taker_actions_last_cycle"))
         taker_actions_last_status_window = parse_float(row.get("gauge.taker_actions_last_status_window"))
         taker_submitted_last_cycle = parse_float(row.get("gauge.taker_submitted_last_cycle"))
@@ -393,6 +409,18 @@ def classify_runtime(
             or (quote_active is not None and quote_active > 0.0)
             or (actions_last_cycle is not None and actions_last_cycle > 0.0)
             or (actions_last_status_window is not None and actions_last_status_window > 0.0)
+            or (maker_actions_last_cycle is not None and maker_actions_last_cycle > 0.0)
+            or (maker_actions_last_status_window is not None and maker_actions_last_status_window > 0.0)
+            or (maker_fills_last_cycle is not None and maker_fills_last_cycle > 0.0)
+            or (maker_fills_last_status_window is not None and maker_fills_last_status_window > 0.0)
+            or (
+                maker_submitted_token_count_last_cycle is not None
+                and maker_submitted_token_count_last_cycle > 0.0
+            )
+            or (
+                maker_submitted_token_count_last_status_window is not None
+                and maker_submitted_token_count_last_status_window > 0.0
+            )
             or (taker_actions_last_cycle is not None and taker_actions_last_cycle > 0.0)
             or (taker_actions_last_status_window is not None and taker_actions_last_status_window > 0.0)
             or (taker_submitted_last_cycle is not None and taker_submitted_last_cycle > 0.0)

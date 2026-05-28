@@ -40,8 +40,13 @@ class TxLifecycleRecord:
     last_update_ts_utc: str
     reserved_nonce: int
     order_id: Optional[str] = None
+    lifecycle_phase: Optional[str] = None
+    lineage_stage: Optional[str] = None
     target_ref: Optional[str] = None
     submission_lane: Optional[str] = None
+    source_token_id: Optional[str] = None
+    submit_token_id: Optional[str] = None
+    normal_taker_side_class: Optional[str] = None
     commitment_hold_active: bool = False
     commitment_hold_reason: Optional[str] = None
     commitment_expiry_ts_utc: Optional[str] = None
@@ -112,10 +117,35 @@ class TransactionManager:
             created_ts_utc=now,
             last_update_ts_utc=now,
             reserved_nonce=reserved_nonce,
+            lifecycle_phase=(
+                str(intent.lifecycle_phase).strip().lower()
+                if str(intent.lifecycle_phase or "").strip()
+                else None
+            ),
+            lineage_stage=(
+                str(intent.lineage_stage).strip().upper()
+                if str(intent.lineage_stage or "").strip()
+                else None
+            ),
             target_ref=(str(intent.target_ref).strip() if str(intent.target_ref or "").strip() else None),
             submission_lane=(
                 str(intent.submission_lane).strip().lower()
                 if str(intent.submission_lane or "").strip()
+                else None
+            ),
+            source_token_id=(
+                str(intent.source_token_id).strip()
+                if str(intent.source_token_id or "").strip()
+                else None
+            ),
+            submit_token_id=(
+                str(intent.submit_token_id).strip()
+                if str(intent.submit_token_id or "").strip()
+                else None
+            ),
+            normal_taker_side_class=(
+                str(intent.normal_taker_side_class).strip()
+                if str(intent.normal_taker_side_class or "").strip()
                 else None
             ),
             commitment_hold_active=bool(intent.commitment_hold_active),
@@ -242,6 +272,18 @@ class TransactionManager:
                 continue
             if not str(fill.target_ref or "").strip() and str(record.target_ref or "").strip():
                 fill.target_ref = str(record.target_ref)
+            if not str(fill.lifecycle_phase or "").strip() and str(record.lifecycle_phase or "").strip():
+                fill.lifecycle_phase = str(record.lifecycle_phase).strip().lower()
+            if not str(fill.lineage_stage or "").strip() and str(record.lineage_stage or "").strip():
+                fill.lineage_stage = str(record.lineage_stage).strip().upper()
+            if not str(fill.submission_lane or "").strip() and str(record.submission_lane or "").strip():
+                fill.submission_lane = str(record.submission_lane).strip().lower()
+            if not str(fill.source_token_id or "").strip() and str(record.source_token_id or "").strip():
+                fill.source_token_id = str(record.source_token_id).strip()
+            if not str(fill.submit_token_id or "").strip() and str(record.submit_token_id or "").strip():
+                fill.submit_token_id = str(record.submit_token_id).strip()
+            if not str(fill.normal_taker_side_class or "").strip() and str(record.normal_taker_side_class or "").strip():
+                fill.normal_taker_side_class = str(record.normal_taker_side_class).strip()
             record.filled_size += max(0.0, float(fill.size))
             if record.filled_size + 1e-9 >= record.size:
                 self._set_state(record, "filled")
@@ -364,9 +406,24 @@ class TransactionManager:
 
     @staticmethod
     def _apply_record_metadata_to_order(order: LiveOrder, record: TxLifecycleRecord) -> None:
+        order.lifecycle_phase = (
+            str(record.lifecycle_phase or "").strip().lower() or None
+        )
+        order.lineage_stage = (
+            str(record.lineage_stage or "").strip().upper() or None
+        )
         order.client_order_id = str(record.client_order_id or "").strip() or order.client_order_id
         order.submission_lane = (
             str(record.submission_lane or "").strip().lower() or None
+        )
+        order.source_token_id = (
+            str(record.source_token_id or "").strip() or None
+        )
+        order.submit_token_id = (
+            str(record.submit_token_id or "").strip() or None
+        )
+        order.normal_taker_side_class = (
+            str(record.normal_taker_side_class or "").strip() or None
         )
         order.commitment_hold_active = bool(record.commitment_hold_active)
         order.commitment_hold_reason = (

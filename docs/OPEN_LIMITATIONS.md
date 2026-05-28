@@ -13,8 +13,64 @@
 - Live order-capable paths remain blocked unless canonical live nonce and pending-wallet-tx truth requirements are satisfied by an approved provider path.
 - `prelive_gate` and `live_canary` are bounded tools inside the live-trust
   lane; they are not final live authority by themselves.
-- no generic weapon tuning or blueprint tuning is authorized while Packet 2
-  maker live-trust qualification remains unresolved.
+- no further generic weapon tuning is authorized while Packet 2 maker
+  live-trust qualification remains unresolved beyond the bounded OG-tight
+  alignment packet now active by explicit operator decision.
+- current active paper OG-tight alignment packet is now:
+  - maker gate band `8-12s`
+  - taker gate band `8-12s`
+  - hard regime filter active on both lanes:
+    `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
+  - pinned and near-pinned market windows are now fail-closed for both maker
+    and taker on `window_geometry_hard_pinned` /
+    `window_geometry_near_pinned`
+  - maker must be one-sided and above the `0.20` conviction floor to submit;
+    below-threshold maker candidates now fail-closed on
+    `maker_edge_below_min`
+  - maker same-target repeat tolerance is now `0` prior submits
+  - maker same-market expression is now single-op only; weaker complementary
+    token candidates are pruned on
+    `maker_single_market_expression_pruned`
+  - daily loss hard pause active at `$280`
+  - deliberate size exceptions remain active:
+    maker `~$100`, taker `$25`
+  - this is the current runtime truth for blueprint-aligned paper proving,
+    not final economic closure
+- taker complement-route behavior is extinct in current code:
+  - direct-path expression only
+  - forbidden same-token short thesis now blocks on
+    `normal_taker_same_token_sell_forbidden`
+  - older packet language that treated complement expression as valid is
+    ancestry only and does not own current truth
+- active paper money truth is now hardened around cash semantics:
+  - canonical runtime / report pnl uses fill cashflow, exact cash adjustments,
+    and `wallet_position_settled`
+  - taker fee modeling is share-based `size * p * (1-p) * fee_rate`, not the
+    old price-squared drift
+  - binary short deployable-capital truth now holds gross `$1/share` short
+    liability instead of `price * size`
+  - slippage and adverse-selection remain visible as attribution, not wallet
+    cash
+  - maker rebates fail closed to `0` in canonical runtime money truth until an
+    exact payout surface exists
+- current remaining money-model limitation:
+  - active paper fee truth now resolves via explicit fee authority precedence,
+    but live per-market fee / reward ingestion is still not first-class
+  - exact maker rebate payout truth is still unavailable, so canonical runtime
+    rebate cash remains fail-closed to `0`
+- maker is no longer blocked mainly by old semantics/authority slag; remaining
+  maker unresolved work is product-fit / launch-engineering hardening:
+  lifecycle cleanliness, actionable opportunity quality, and resting-order
+  economics proof.
+- first live-aligned overnight watcher proof now supports a stronger nuance:
+  - fully pinned overnight books can already exist by maker open
+  - honest maker abstention is therefore a real possibility, not automatic lane
+    failure
+  - taker may still find cheap-side late-window exploitation in the same
+    regime
+- discovery-only watcher runs may hint at complementary extreme-edge behavior,
+  but that remains support context until repeated final-standard watcher
+  specimens confirm it.
 - Reconcile output is an integrity tripwire and must not be represented as full ledger accounting.
 - schoolhouse/toolbox authority must remain zero:
   - schoolhouse means external VPS-level study/tool material, not BRO
@@ -74,8 +130,12 @@
   - high reject volume alone is not authorization for selector retuning
   - no generic maker/taker gate mutation is authorized without blueprint mismatch proof or a proved near-miss opportunity band
 - Current immediate move:
-  - Packet 3 wallet guardian implementation body is now open in current code
-  - owner/mechanics/residue slices through compatibility retirement are in
+  - the older straight-line move back into Packet 3 implementation is now
+    temporarily overridden by:
+    1. Packet 2 maker runtime-truth tribunal
+    2. Packet 1 taker support-authority tribunal
+    3. then return to Packet 3 wallet guardian implementation body
+  - owner/mechanics/residue slices through compatibility retirement remain in
     place
   - strict live wallet truth remains fail-closed until an approved live hookup
     path is configured and proven
@@ -104,7 +164,7 @@
   truth for its lane, not the broad front-door runtime anchor.
 - Current G-frame restoration status remains:
   - `complete`
-- Current whole-fighter completion status remains:
+- Current full-system completion status remains:
   - `still open`
 - Latest completed post-restoration hardening lane remains:
   - `timing spine hardening`
@@ -192,7 +252,7 @@
       `taker_requires_ws_book_source`
 - The earlier current-code pass run `c6019d01-3d4c-45c2-aea8-1c1312b870eb` remains useful as a pre-restoration comparison specimen only. It is no longer the active runtime truth anchor.
 - Packet 1 closes the `soak_maker_submits_too_low` report-policy false-positive path. It does not prove broader maker profitability or justify strategy-aggression changes.
-- Clean-anchor core-fighter re-audit on `7bbde...` demotes the old maker-core
+- Clean-anchor core-system re-audit on `7bbde...` demotes the old maker-core
   choke reading on that specimen:
   - `readiness_gate.runtime_findings=[]`
   - `execution_starvation_mode=none`
@@ -228,13 +288,17 @@
     current Packet 2 timing doctrine
 - Current Packet 2 timing doctrine is now:
   - lifecycle ownership-entry ceiling is `lifecycle.selection.max_sec_to_expiry=90.0`
-  - maker gate opens at `15.0s`
-  - maker risk-increasing authority lives in `(7.0, 15.0]`
-  - taker authority opens at `<=7.0s`
+  - maker gate band is `8.0-12.0s`
+  - taker gate band is `8.0-12.0s`
+  - hard regime filter is active on both lanes:
+    `usa_europe_peak_heuristic`, `asia_dominant_heuristic`
+  - maker risk-increasing authority lives only inside the shared
+    blueprint-aligned `8-12s` band
+  - daily loss hard pause is active at `$280`
 - Current Packet 2 timing collision is explicit in pre-fix Packet 2 lineage:
   - the legacy profile carried the `90s` ownership-entry rule as
     `lifecycle.selection.min_sec_to_expiry=90.0`
-  - `lifecycle.phase.maker_window_open_sec=15.0`
+  - `lifecycle.phase.maker_window_open_sec=10.0`
   - pre-fix `prodesk/order_manager.py` reused those as the maker selection
     gate min/max timing window
   - that can reject authoritative `maker_window` rows as
@@ -316,15 +380,19 @@
   - current-code replay on canon specimen
     `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first blocker-ledger cut:
     - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
-    - `quote_quality_skip_queue_depth` = `keep-now steel`
+    - `quote_quality_skip_queue_depth` = historical specimen-local call only;
+      later hostile tribunal re-opened this family as suspicious live authority
     - `non_actionable_geometry` = clean upstream expression of the old low-price
-      floor/cap infeasibility on that replay specimen
+      floor/cap infeasibility on that replay specimen, pending leaf-specific
+      reread if fixed-shot doctrine changes
     - `maker_blocker_ledger.json` = current owner artifact for blocker truth
-  - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` narrowed the
-    still-open live patient:
-    - selection depth multiple remains `keep-now steel`
-    - queue-depth quote quality remains `keep-now steel`
-    - upstream geometry feasibility is now the active runtime patient
+  - later hostile tribunal on the watched Packet 2C closeout `4ee0cf47...`
+    now outranks the earlier specimen-local call:
+    - selection depth multiple remains provisional blueprint steel
+    - queue-depth quote quality is reopened as the first suspicious live
+      downstream authority
+    - geometry remains blueprint-aligned actionability truth pending
+      leaf-specific reread
   1. `support-shadow / probe family` truth cleanup:
      - `maker_market_snapshot*`
      - late/mid-window probes
@@ -367,7 +435,7 @@
      - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_RECOVERY_UNWIND_HISTORY_COMPAT_EXTINCTION_PACKET_2026-05-14.md`
 - A clean current-code release anchor now exists on
   `7bbde42c-003a-4f57-b59a-7ce138224075`, but that does not remove the
-  `pilot_live` frontier or promote whole-fighter closure by itself.
+  `pilot_live` frontier or promote full-system closure by itself.
 - Pilot-live readiness still remains unproven.
 - Maker/taker remain diagnostic-only for tuning/aggression work, but
   maker and taker live-trust qualification are now active diagnostic

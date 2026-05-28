@@ -98,10 +98,13 @@ Severity rules:
   - current-code replay on canon specimen
     `4f843da4-16ec-4616-948c-c7b19e7f5aea` proved the first clean blocker
     ledger cut:
-    - `launch_safe_selection_insufficient_depth_multiple` = `keep-now steel`
-    - `quote_quality_skip_queue_depth` = `keep-now steel`
+    - `launch_safe_selection_insufficient_depth_multiple` = provisional
+      blueprint steel
+    - `quote_quality_skip_queue_depth` = earlier specimen-local steel call
+      later reopened by hostile downstream-maker tribunal
     - `non_actionable_geometry` = clean upstream expression of the old
-      low-price floor/cap infeasibility on that replay specimen
+      low-price floor/cap infeasibility on that replay specimen, pending
+      leaf-specific reread if fixed-shot doctrine changes
     - `maker_blocker_ledger.json` = current owner artifact for blocker truth
   - fresh watched specimen `187f3031-80da-4744-be2b-923e2731dd8a` tightened the
     current live read:
@@ -109,9 +112,10 @@ Severity rules:
       narrower sense of sizing-feasibility truth, not as a generic blocker
       mystery
     - selection depth multiple remains `keep-now steel`
-    - queue-depth quote quality remains `keep-now steel`
-    - upstream geometry feasibility reopened as the narrower active runtime
-      patient
+    - queue-depth quote quality is no longer treated as settled steel; current
+      hostile reread reopens it as suspicious live downstream authority
+    - upstream geometry feasibility remains blueprint-aligned actionability
+      truth pending leaf-specific reread
     - support-schoolhouse remains subordinate to the blocker ledger
   - the active Packet 2 patient is therefore no longer a generic
     blocker-family mystery; it is support-schoolhouse cleanup plus accessory
@@ -130,6 +134,18 @@ Severity rules:
     5. only then reopen the smaller downstream maker families
   - no broader competitiveness or live-trust economics mutation is authorized
     until the surviving blockers are remeasured on current live truth
+
+## 2026-05-25 Runtime-Truth Tribunal Override
+- `VERIFIED`: the immediate Packet 2 pickup now routes through:
+  - `docs/BRO_PILOT_LIVE_TRUST_PACKET_2_MAKER_RUNTIME_TRUTH_TRIBUNAL_2026-05-25.md`
+- `VERIFIED`: this is a diagnosis-first override, not a tuning override.
+- `VERIFIED`: the tribunal preserves the keep-now steel already recorded here
+  and forces decision-complete verdicts on:
+  - runtime-first blocker ownership
+  - mixed readiness authority
+  - timing-band legality
+  - geometry / feasibility truth
+  - support-schoolhouse deauth
 
 ## Packet-Local Lock Card
 Mission lock:

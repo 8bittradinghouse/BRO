@@ -318,6 +318,23 @@ class RuntimeSemanticsTests(unittest.TestCase):
         self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
         self.assertTrue(out["promotion_eligible"])
 
+    def test_classify_runtime_maker_status_window_counts_as_participation(self):
+        status_rows = [
+            {
+                "ts_utc": "2099-01-01T00:00:00Z",
+                "lifecycle_phase": "prepare",
+                "active_targets_present": True,
+                "market_truth_required": True,
+                "kill_switch": False,
+                "external_guard_active": False,
+                "gauge.maker_submitted_token_count_last_status_window": 2,
+                "book_feed": {"enabled": True, "connected": True, "last_msg_age_sec": 0.3},
+            }
+        ]
+        out = classify_runtime(status_rows=status_rows, events=[{"event_type": "targets_updated"}])
+        self.assertEqual(out["classification"], RUNTIME_CLASS_VALID_ACTIVE)
+        self.assertTrue(out["promotion_eligible"])
+
     def test_classify_runtime_non_promotable_when_active_targets_only_have_control_plane_events(self):
         status_rows = [
             {

@@ -48,7 +48,6 @@ sniper:
   execution_cutoff_sec: 10
   late_fire_priority_band_sec: 5
   allow_without_expiry_metadata: false
-  require_lag_verification: true
   taker:
     enabled: true
     min_edge: 0.015

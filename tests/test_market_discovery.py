@@ -1,5 +1,6 @@
 import copy
 import datetime as dt
+import requests
 import unittest
 from unittest import mock
 
@@ -277,6 +278,80 @@ class MarketDiscoveryTests(unittest.TestCase):
             with mock.patch("prodesk.market_discovery._http_get_json", side_effect=_fake_http_get_json):
                 result = discovery.discover()
             self.assertEqual(result.token_ids, ["yes_fallback", "no_fallback"])
+            self.assertEqual(result.pairs_selected, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_primary_gamma_failure_falls_back_to_event_slug_probe(self):
+        cfg = self._cfg()
+        cfg["targets"]["discovery"]["event_slug_probe_enabled"] = True
+        cfg["targets"]["discovery"]["event_slug_prefix"] = "btc-updown-5m"
+        discovery = MarketDiscovery(cfg)
+
+        fallback_market = {
+            "id": "m_primary_error_fallback",
+            "conditionId": "c_primary_error_fallback",
+            "question": "Bitcoin Up or Down - primary gamma failure fallback",
+            "clobTokenIds": ["yes_primary_error", "no_primary_error"],
+            "outcomes": ["Up", "Down"],
+            "endDateIso": "2030-01-01T00:05:00Z",
+            "active": True,
+        }
+
+        def _fake_http_get_json(_session, url, **kwargs):  # noqa: ANN001
+            params = kwargs.get("params", {})
+            slug = str(params.get("slug", ""))
+            if str(url).endswith("/markets") and not slug:
+                raise requests.HTTPError("403 Client Error")
+            if slug.startswith("btc-updown-5m-"):
+                return [fallback_market]
+            return []
+
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", side_effect=_fake_http_get_json):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, ["yes_primary_error", "no_primary_error"])
+            self.assertEqual(result.pairs_selected, 1)
+        finally:
+            discovery.close()
+
+    def test_discovery_slug_probe_falls_back_to_events_endpoint_when_markets_slug_errors(self):
+        cfg = self._cfg()
+        cfg["targets"]["discovery"]["event_slug_probe_enabled"] = True
+        cfg["targets"]["discovery"]["event_slug_prefix"] = "btc-updown-5m"
+        discovery = MarketDiscovery(cfg)
+
+        fallback_market = {
+            "id": "m_event_fallback",
+            "conditionId": "c_event_fallback",
+            "question": "Bitcoin Up or Down - event fallback",
+            "clobTokenIds": ["yes_event", "no_event"],
+            "outcomes": ["Up", "Down"],
+            "endDateIso": "2030-01-01T00:05:00Z",
+            "active": True,
+        }
+
+        def _fake_http_get_json(_session, url, **kwargs):  # noqa: ANN001
+            params = kwargs.get("params", {})
+            slug = str(params.get("slug", ""))
+            if not slug.startswith("btc-updown-5m-"):
+                return []
+            if str(url).endswith("/markets"):
+                raise requests.HTTPError("500 Server Error")
+            if str(url).endswith("/events"):
+                return [
+                    {
+                        "slug": slug,
+                        "title": "Bitcoin Up or Down - event fallback",
+                        "markets": [fallback_market],
+                    }
+                ]
+            return []
+
+        try:
+            with mock.patch("prodesk.market_discovery._http_get_json", side_effect=_fake_http_get_json):
+                result = discovery.discover()
+            self.assertEqual(result.token_ids, ["yes_event", "no_event"])
             self.assertEqual(result.pairs_selected, 1)
         finally:
             discovery.close()

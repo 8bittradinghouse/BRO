@@ -24,7 +24,6 @@ class SizeRampController:
         self.downshift_stale_oracle_ratio = float(
             cfg.get("downshift_stale_oracle_ratio", cfg.get("downshift_stale_ratio", 0.25))
         )
-        self.downshift_disarmed_ratio = float(cfg.get("downshift_disarmed_ratio", 0.60))
         self.downshift_reconcile_mismatch_ratio = float(cfg.get("downshift_reconcile_mismatch_ratio", 0.05))
         self.disable_taker_on_breach = bool(cfg.get("disable_taker_on_breach", True))
 
@@ -33,7 +32,6 @@ class SizeRampController:
         self._cycles = 0
         self._reject_sum = 0.0
         self._stale_oracle_sum = 0.0
-        self._disarmed_sum = 0.0
         self._reconcile_mismatch_sum = 0.0
 
     def observe_cycle(
@@ -41,7 +39,6 @@ class SizeRampController:
         *,
         reject_ratio: float,
         stale_oracle_ratio: float,
-        disarmed_ratio: float,
         reconcile_mismatch_ratio: float,
     ) -> RampSnapshot:
         if not self.enabled:
@@ -56,7 +53,6 @@ class SizeRampController:
         self._cycles += 1
         self._reject_sum += max(0.0, float(reject_ratio))
         self._stale_oracle_sum += max(0.0, float(stale_oracle_ratio))
-        self._disarmed_sum += max(0.0, float(disarmed_ratio))
         self._reconcile_mismatch_sum += max(0.0, float(reconcile_mismatch_ratio))
         if self._cycles < self.window_cycles:
             return RampSnapshot(
@@ -69,12 +65,10 @@ class SizeRampController:
 
         avg_reject = self._reject_sum / float(self._cycles)
         avg_stale_oracle = self._stale_oracle_sum / float(self._cycles)
-        avg_disarmed = self._disarmed_sum / float(self._cycles)
         avg_reconcile_mismatch = self._reconcile_mismatch_sum / float(self._cycles)
         breached = (
             avg_reject >= self.downshift_reject_ratio
             or avg_stale_oracle >= self.downshift_stale_oracle_ratio
-            or avg_disarmed >= self.downshift_disarmed_ratio
             or avg_reconcile_mismatch >= self.downshift_reconcile_mismatch_ratio
         )
         old_target = self.target_usd
@@ -87,7 +81,6 @@ class SizeRampController:
                 "downshift:"
                 + f"reject={avg_reject:.3f},"
                 + f"stale_oracle={avg_stale_oracle:.3f},"
-                + f"disarmed={avg_disarmed:.3f},"
                 + f"reconcile={avg_reconcile_mismatch:.3f}"
             )
             if self.disable_taker_on_breach:
@@ -99,14 +92,12 @@ class SizeRampController:
                 "upshift:"
                 + f"reject={avg_reject:.3f},"
                 + f"stale_oracle={avg_stale_oracle:.3f},"
-                + f"disarmed={avg_disarmed:.3f},"
                 + f"reconcile={avg_reconcile_mismatch:.3f}"
             )
 
         self._cycles = 0
         self._reject_sum = 0.0
         self._stale_oracle_sum = 0.0
-        self._disarmed_sum = 0.0
         self._reconcile_mismatch_sum = 0.0
         changed = (self.target_usd != old_target) or (self.taker_ramp_enabled != old_taker_ramp_enabled)
         return RampSnapshot(

@@ -71,26 +71,19 @@ CSV_FIELDS = [
     "maker_fills_per_filled_order",
     "maker_timing_gate_blocked_decision",
     "maker_no_submit_total_count",
-    "maker_quote_quality_skip_total_count",
     "maker_sizing_reject_total_count",
     "maker_replace_guard_min_rest_count",
     "maker_window_active_row_count",
     "maker_window_submit_count",
     "maker_window_replace_guard_count",
-    "maker_window_quote_quality_skip_total_count",
     "maker_window_submit_rate",
     "maker_window_replace_guard_rate",
-    "maker_window_quote_quality_skip_rate",
     "maker_window_sizing_reject_count",
     "maker_window_sizing_reject_rate",
     "maker_window_low_price_viability_floor",
     "maker_window_viable_row_count",
     "maker_window_impossible_row_count",
     "maker_min_notional_max_shares_conflict_rows",
-    "maker_window_queue_depth_on_viable_targets_count",
-    "maker_window_queue_depth_on_impossible_targets_count",
-    "maker_raw_queue_depth_near_threshold_event_count",
-    "maker_raw_queue_depth_hard_miss_event_count",
     "maker_cannon_probe_row_count",
     "maker_cannon_probe_candidate_count",
     "maker_cannon_probe_full_candidate_count",
@@ -395,7 +388,6 @@ def _derive_maker_window_viability_target_summary(value: Any) -> list[dict[str, 
                 "impossible_viability_row_count": item.get("impossible_viability_row_count"),
                 "viable_viability_row_count": item.get("viable_viability_row_count"),
                 "unknown_viability_row_count": item.get("unknown_viability_row_count"),
-                "quote_quality_skip_queue_depth_count": item.get("quote_quality_skip_queue_depth_count"),
                 "market_probability_min": item.get("market_probability_min"),
                 "market_probability_p50": item.get("market_probability_p50"),
                 "market_probability_max": item.get("market_probability_max"),
@@ -405,39 +397,6 @@ def _derive_maker_window_viability_target_summary(value: Any) -> list[dict[str, 
         key=lambda item: (
             -float(_coerce_float(item.get("impossible_viability_row_count")) or 0.0),
             -float(_coerce_float(item.get("viable_viability_row_count")) or 0.0),
-            -float(_coerce_float(item.get("window_row_count")) or 0.0),
-            str(item.get("target_ref") or ""),
-        )
-    )
-    return entries[:8]
-
-
-def _derive_maker_window_queue_depth_target_summary(value: Any) -> list[dict[str, Any]] | None:
-    if not isinstance(value, list):
-        return None
-    entries: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        queue_depth_count = float(_coerce_float(item.get("quote_quality_skip_queue_depth_count")) or 0.0)
-        if queue_depth_count <= 0.0:
-            continue
-        entries.append(
-            {
-                "target_ref": item.get("target_ref"),
-                "viability_class": item.get("viability_class"),
-                "quote_quality_skip_queue_depth_count": queue_depth_count,
-                "window_row_count": item.get("window_row_count"),
-                "submitted_count": item.get("submitted_count"),
-                "sizing_reject_count": item.get("sizing_reject_count"),
-                "impossible_viability_row_count": item.get("impossible_viability_row_count"),
-                "viable_viability_row_count": item.get("viable_viability_row_count"),
-                "market_probability_p50": item.get("market_probability_p50"),
-            }
-        )
-    entries.sort(
-        key=lambda item: (
-            -float(_coerce_float(item.get("quote_quality_skip_queue_depth_count")) or 0.0),
             -float(_coerce_float(item.get("window_row_count")) or 0.0),
             str(item.get("target_ref") or ""),
         )
@@ -1210,16 +1169,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
             ("maker_fireability", "active_window_replace_guard_count"),
         ),
         (
-            "maker_window_quote_quality_skip_fill_probability_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_quote_quality_skip_fill_probability_count"),
-        ),
-        (
-            "maker_window_quote_quality_skip_queue_depth_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_quote_quality_skip_queue_depth_count"),
-        ),
-        (
             "maker_window_sizing_reject_count",
             "nightly_soak_report.json",
             ("maker_fireability", "active_window_sizing_reject_count"),
@@ -1270,54 +1219,9 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
             ("maker_fireability", "active_window_low_price_conflict_price_band"),
         ),
         (
-            "maker_window_queue_depth_on_viable_targets_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_queue_depth_on_viable_targets_count"),
-        ),
-        (
-            "maker_window_queue_depth_on_impossible_targets_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_queue_depth_on_impossible_targets_count"),
-        ),
-        (
-            "maker_window_queue_depth_on_mixed_targets_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_queue_depth_on_mixed_targets_count"),
-        ),
-        (
-            "maker_window_queue_depth_on_unknown_targets_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "active_window_queue_depth_on_unknown_targets_count"),
-        ),
-        (
             "maker_window_target_summary",
             "nightly_soak_report.json",
             ("maker_fireability", "active_window_target_summary"),
-        ),
-        (
-            "maker_quote_quality_skip_fill_probability_severity_bins",
-            "nightly_soak_report.json",
-            ("maker_fireability", "raw_quote_quality_skip_severity", "fill_probability_delta_bins"),
-        ),
-        (
-            "maker_quote_quality_skip_queue_depth_severity_bins",
-            "nightly_soak_report.json",
-            ("maker_fireability", "raw_quote_quality_skip_severity", "queue_depth_delta_bins"),
-        ),
-        (
-            "maker_raw_queue_depth_event_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "raw_queue_depth_event_count"),
-        ),
-        (
-            "maker_raw_queue_depth_near_threshold_event_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "raw_queue_depth_near_threshold_event_count"),
-        ),
-        (
-            "maker_raw_queue_depth_hard_miss_event_count",
-            "nightly_soak_report.json",
-            ("maker_fireability", "raw_queue_depth_hard_miss_event_count"),
         ),
         (
             "maker_raw_queue_depth_unknown_severity_event_count",
@@ -1387,8 +1291,37 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         ("wallet_order_submit_eligible", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "order_submit_eligible")),
         ("wallet_deployable_capital", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "deployable_capital")),
         ("wallet_stable_balance_total", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "stable_balance_total")),
-        ("wallet_open_reserved", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "open_reserved")),
+        (
+            "wallet_reservation_locked_usdc",
+            "nightly_soak_report.json",
+            ("wallet_authority", "latest_contract", "reservation_locked_usdc"),
+        ),
+        (
+            "wallet_position_liability_locked_usdc",
+            "nightly_soak_report.json",
+            ("wallet_authority", "latest_contract", "position_liability_locked_usdc"),
+        ),
+        (
+            "wallet_locked_total_usdc",
+            "nightly_soak_report.json",
+            ("wallet_authority", "latest_contract", "locked_total_usdc"),
+        ),
         ("wallet_protected_reserve", "nightly_soak_report.json", ("wallet_authority", "latest_contract", "protected_reserve")),
+        (
+            "wallet_provider_locked_usdc_semantics",
+            "nightly_soak_report.json",
+            ("wallet_authority", "latest_contract", "provider_locked_usdc_semantics"),
+        ),
+        (
+            "wallet_reservation_mismatch_evaluable",
+            "nightly_soak_report.json",
+            ("wallet_authority", "reservation_mismatch_evaluable"),
+        ),
+        (
+            "wallet_reservation_mismatch_semantics",
+            "nightly_soak_report.json",
+            ("wallet_authority", "reservation_mismatch_semantics"),
+        ),
         ("wallet_reservation_mismatch_candidate", "nightly_soak_report.json", ("wallet_authority", "reservation_mismatch_candidate")),
         ("wallet_reservation_mismatch_delta_usdc", "nightly_soak_report.json", ("wallet_authority", "reservation_mismatch_delta_usdc")),
         ("wallet_live_truth_gap_reasons", "nightly_soak_report.json", ("wallet_authority", "live_truth_gap_reasons")),
@@ -1787,17 +1720,30 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         "maker_fills / maker_filled_orders",
     )
     stable_balance = row.get("wallet_stable_balance_total")
-    open_reserved = row.get("wallet_open_reserved")
-    reserved_ratio = None
-    if isinstance(stable_balance, (int, float)) and stable_balance > 0 and isinstance(open_reserved, (int, float)):
-        reserved_ratio = open_reserved / stable_balance
+    reservation_locked = row.get("wallet_reservation_locked_usdc")
+    locked_total = row.get("wallet_locked_total_usdc")
+    reservation_locked_ratio = None
+    locked_total_ratio = None
+    if isinstance(stable_balance, (int, float)) and stable_balance > 0:
+        if isinstance(reservation_locked, (int, float)):
+            reservation_locked_ratio = reservation_locked / stable_balance
+        if isinstance(locked_total, (int, float)):
+            locked_total_ratio = locked_total / stable_balance
     _record_derived(
         row,
         provenance,
-        "wallet_reserved_ratio",
-        reserved_ratio,
+        "wallet_reservation_locked_ratio",
+        reservation_locked_ratio,
         "derived",
-        "wallet_open_reserved / wallet_stable_balance_total",
+        "wallet_reservation_locked_usdc / wallet_stable_balance_total",
+    )
+    _record_derived(
+        row,
+        provenance,
+        "wallet_locked_total_ratio",
+        locked_total_ratio,
+        "derived",
+        "wallet_locked_total_usdc / wallet_stable_balance_total",
     )
     maker_no_submit = row.get("maker_no_submission_cause_distribution")
     _record_derived(
@@ -1807,14 +1753,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         _sum_counter_values(maker_no_submit),
         "derived",
         "sum(maker_no_submission_cause_distribution.values())",
-    )
-    _record_derived(
-        row,
-        provenance,
-        "maker_quote_quality_skip_total_count",
-        _sum_matching_counter_values(maker_no_submit, "submit_rejected_quote_quality_"),
-        "derived",
-        "sum submit_rejected_quote_quality_* maker no-submit causes",
     )
     _record_derived(
         row,
@@ -1835,22 +1773,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
     maker_window_active_rows = row.get("maker_window_active_row_count")
     maker_window_submits = row.get("maker_window_submit_count")
     maker_window_replace_guard = row.get("maker_window_replace_guard_count")
-    maker_window_quote_quality_fill = row.get("maker_window_quote_quality_skip_fill_probability_count")
-    maker_window_quote_quality_queue = row.get("maker_window_quote_quality_skip_queue_depth_count")
-    maker_window_quote_quality_total = None
-    if isinstance(maker_window_quote_quality_fill, (int, float)) or isinstance(maker_window_quote_quality_queue, (int, float)):
-        maker_window_quote_quality_total = float(
-            (maker_window_quote_quality_fill if isinstance(maker_window_quote_quality_fill, (int, float)) else 0.0)
-            + (maker_window_quote_quality_queue if isinstance(maker_window_quote_quality_queue, (int, float)) else 0.0)
-        )
-    _record_derived(
-        row,
-        provenance,
-        "maker_window_quote_quality_skip_total_count",
-        maker_window_quote_quality_total,
-        "derived",
-        "maker_window_quote_quality_skip_fill_probability_count + maker_window_quote_quality_skip_queue_depth_count",
-    )
     _record_derived(
         row,
         provenance,
@@ -1870,14 +1792,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
     _record_derived(
         row,
         provenance,
-        "maker_window_quote_quality_skip_rate",
-        _safe_ratio(maker_window_quote_quality_total, maker_window_active_rows),
-        "derived",
-        "maker_window_quote_quality_skip_total_count / maker_window_active_row_count",
-    )
-    _record_derived(
-        row,
-        provenance,
         "maker_window_sizing_reject_rate",
         _safe_ratio(row.get("maker_window_sizing_reject_count"), maker_window_active_rows),
         "derived",
@@ -1890,14 +1804,6 @@ def normalize_run(run_dir: pathlib.Path) -> tuple[dict[str, Any], dict[str, Any]
         _derive_maker_window_viability_target_summary(row.get("maker_window_target_summary")),
         "derived",
         "derived from maker_window_target_summary viability fields",
-    )
-    _record_derived(
-        row,
-        provenance,
-        "maker_window_queue_depth_target_summary",
-        _derive_maker_window_queue_depth_target_summary(row.get("maker_window_target_summary")),
-        "derived",
-        "derived from maker_window_target_summary queue-depth burden fields",
     )
     risk_reject_reasons = row.get("risk_reject_reason_distribution")
     _record_derived(
@@ -2246,26 +2152,16 @@ def _build_engineer_focus(rows: list[dict[str, Any]], coverage: dict[str, Any]) 
     thin_spots.sort(key=lambda item: (item["present_ratio"], item["field"]))
     return {
         "run_scope": "single_run" if len(rows) == 1 else "corpus",
-        "maker_quote_quality_skip_total_count": sum(row.get("maker_quote_quality_skip_total_count") or 0 for row in rows),
         "maker_sizing_reject_total_count": sum(row.get("maker_sizing_reject_total_count") or 0 for row in rows),
         "maker_replace_guard_min_rest_count": sum(row.get("maker_replace_guard_min_rest_count") or 0 for row in rows),
         "maker_window_active_row_count_total": sum(row.get("maker_window_active_row_count") or 0 for row in rows),
         "maker_window_submit_count_total": sum(row.get("maker_window_submit_count") or 0 for row in rows),
         "maker_window_replace_guard_count_total": sum(row.get("maker_window_replace_guard_count") or 0 for row in rows),
-        "maker_window_quote_quality_skip_total_count": sum(
-            row.get("maker_window_quote_quality_skip_total_count") or 0 for row in rows
-        ),
         "maker_window_sizing_reject_count_total": sum(row.get("maker_window_sizing_reject_count") or 0 for row in rows),
         "maker_window_viable_row_count_total": sum(row.get("maker_window_viable_row_count") or 0 for row in rows),
         "maker_window_impossible_row_count_total": sum(row.get("maker_window_impossible_row_count") or 0 for row in rows),
         "maker_min_notional_max_shares_conflict_rows_total": sum(
             row.get("maker_min_notional_max_shares_conflict_rows") or 0 for row in rows
-        ),
-        "maker_window_queue_depth_on_viable_targets_count_total": sum(
-            row.get("maker_window_queue_depth_on_viable_targets_count") or 0 for row in rows
-        ),
-        "maker_window_queue_depth_on_impossible_targets_count_total": sum(
-            row.get("maker_window_queue_depth_on_impossible_targets_count") or 0 for row in rows
         ),
         "risk_reject_total_count": sum(row.get("risk_reject_total_count") or 0 for row in rows),
         "settlement_hold_required_count_total": sum(row.get("settlement_hold_required_count") or 0 for row in rows),
@@ -2315,22 +2211,14 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     maker_complement_pair_cluster_debt_sums: list[float] = []
     maker_window_submit_rates: list[float] = []
     maker_window_replace_guard_rates: list[float] = []
-    maker_window_quote_quality_skip_rates: list[float] = []
     maker_window_sizing_reject_rates: list[float] = []
     maker_window_active_row_total = 0.0
     maker_window_submit_total = 0.0
     maker_window_replace_guard_total = 0.0
-    maker_window_quote_quality_skip_total = 0.0
     maker_window_sizing_reject_total = 0.0
     maker_window_viable_row_total = 0.0
     maker_window_impossible_row_total = 0.0
     maker_min_notional_max_shares_conflict_total = 0.0
-    maker_window_queue_depth_on_viable_targets_total = 0.0
-    maker_window_queue_depth_on_impossible_targets_total = 0.0
-    maker_raw_queue_depth_near_threshold_total = 0.0
-    maker_raw_queue_depth_hard_miss_total = 0.0
-    maker_quote_quality_skip_fill_probability_severity_bins = Counter()
-    maker_quote_quality_skip_queue_depth_severity_bins = Counter()
     maker_complete_record_total = 0.0
     maker_incomplete_record_total = 0.0
     maker_multifill_complete_total = 0.0
@@ -2488,39 +2376,16 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             maker_window_submit_rates.append(float(row["maker_window_submit_rate"]))
         if isinstance(row.get("maker_window_replace_guard_rate"), (int, float)):
             maker_window_replace_guard_rates.append(float(row["maker_window_replace_guard_rate"]))
-        if isinstance(row.get("maker_window_quote_quality_skip_rate"), (int, float)):
-            maker_window_quote_quality_skip_rates.append(float(row["maker_window_quote_quality_skip_rate"]))
         if isinstance(row.get("maker_window_sizing_reject_rate"), (int, float)):
             maker_window_sizing_reject_rates.append(float(row["maker_window_sizing_reject_rate"]))
         maker_window_active_row_total += float(row.get("maker_window_active_row_count") or 0.0)
         maker_window_submit_total += float(row.get("maker_window_submit_count") or 0.0)
         maker_window_replace_guard_total += float(row.get("maker_window_replace_guard_count") or 0.0)
-        maker_window_quote_quality_skip_total += float(row.get("maker_window_quote_quality_skip_total_count") or 0.0)
         maker_window_sizing_reject_total += float(row.get("maker_window_sizing_reject_count") or 0.0)
         maker_window_viable_row_total += float(row.get("maker_window_viable_row_count") or 0.0)
         maker_window_impossible_row_total += float(row.get("maker_window_impossible_row_count") or 0.0)
         maker_min_notional_max_shares_conflict_total += float(
             row.get("maker_min_notional_max_shares_conflict_rows") or 0.0
-        )
-        maker_window_queue_depth_on_viable_targets_total += float(
-            row.get("maker_window_queue_depth_on_viable_targets_count") or 0.0
-        )
-        maker_window_queue_depth_on_impossible_targets_total += float(
-            row.get("maker_window_queue_depth_on_impossible_targets_count") or 0.0
-        )
-        maker_raw_queue_depth_near_threshold_total += float(
-            row.get("maker_raw_queue_depth_near_threshold_event_count") or 0.0
-        )
-        maker_raw_queue_depth_hard_miss_total += float(
-            row.get("maker_raw_queue_depth_hard_miss_event_count") or 0.0
-        )
-        _merge_counter(
-            maker_quote_quality_skip_fill_probability_severity_bins,
-            row.get("maker_quote_quality_skip_fill_probability_severity_bins"),
-        )
-        _merge_counter(
-            maker_quote_quality_skip_queue_depth_severity_bins,
-            row.get("maker_quote_quality_skip_queue_depth_severity_bins"),
         )
         maker_complete_record_total += float(row.get("maker_complete_record_count") or 0.0)
         maker_incomplete_record_total += float(row.get("maker_incomplete_record_count") or 0.0)
@@ -2781,31 +2646,13 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "maker_window_active_row_count_total": maker_window_active_row_total,
             "maker_window_submit_count_total": maker_window_submit_total,
             "maker_window_replace_guard_count_total": maker_window_replace_guard_total,
-            "maker_window_quote_quality_skip_total_count": maker_window_quote_quality_skip_total,
             "maker_window_sizing_reject_count_total": maker_window_sizing_reject_total,
             "maker_window_submit_rate_summary": _numeric_summary(maker_window_submit_rates),
             "maker_window_replace_guard_rate_summary": _numeric_summary(maker_window_replace_guard_rates),
-            "maker_window_quote_quality_skip_rate_summary": _numeric_summary(maker_window_quote_quality_skip_rates),
             "maker_window_sizing_reject_rate_summary": _numeric_summary(maker_window_sizing_reject_rates),
             "maker_window_viable_row_count_total": maker_window_viable_row_total,
             "maker_window_impossible_row_count_total": maker_window_impossible_row_total,
             "maker_min_notional_max_shares_conflict_rows_total": maker_min_notional_max_shares_conflict_total,
-            "maker_window_queue_depth_on_viable_targets_count_total": (
-                maker_window_queue_depth_on_viable_targets_total
-            ),
-            "maker_window_queue_depth_on_impossible_targets_count_total": (
-                maker_window_queue_depth_on_impossible_targets_total
-            ),
-            "maker_raw_queue_depth_near_threshold_event_count_total": (
-                maker_raw_queue_depth_near_threshold_total
-            ),
-            "maker_raw_queue_depth_hard_miss_event_count_total": maker_raw_queue_depth_hard_miss_total,
-            "maker_quote_quality_skip_fill_probability_severity_bins": dict(
-                maker_quote_quality_skip_fill_probability_severity_bins.most_common()
-            ),
-            "maker_quote_quality_skip_queue_depth_severity_bins": dict(
-                maker_quote_quality_skip_queue_depth_severity_bins.most_common()
-            ),
             "maker_lifecycle_gap_class_counts": dict(maker_lifecycle_gap_classes.most_common()),
             "maker_fill_count_quality_distribution": maker_fill_count_quality_distribution,
             "maker_reference_basis_summary": {
@@ -2972,12 +2819,6 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "valuation_source_counts_degraded_rows": dict(valuation_degraded_sources.most_common()),
             "maker_lifecycle_gap_class_counts": dict(maker_lifecycle_gap_classes.most_common()),
             "maker_fill_count_quality_distribution": maker_fill_count_quality_distribution,
-            "maker_quote_quality_skip_fill_probability_severity_bins": dict(
-                maker_quote_quality_skip_fill_probability_severity_bins.most_common()
-            ),
-            "maker_quote_quality_skip_queue_depth_severity_bins": dict(
-                maker_quote_quality_skip_queue_depth_severity_bins.most_common()
-            ),
         },
         "numeric_ranges": {
             "wallet_deployable_capital": _numeric_summary([row["wallet_deployable_capital"] for row in rows if isinstance(row.get("wallet_deployable_capital"), (int, float))]),
@@ -3003,7 +2844,6 @@ def build_anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "maker_multifill_complete_incorrect_ratio": _numeric_summary(maker_multifill_incorrect_ratios),
             "maker_window_submit_rate": _numeric_summary(maker_window_submit_rates),
             "maker_window_replace_guard_rate": _numeric_summary(maker_window_replace_guard_rates),
-            "maker_window_quote_quality_skip_rate": _numeric_summary(maker_window_quote_quality_skip_rates),
             "taker_fill_rate": _numeric_summary([row["taker_fill_rate"] for row in rows if isinstance(row.get("taker_fill_rate"), (int, float))]),
             "chainlink_down_ratio": _numeric_summary([row["chainlink_down_ratio"] for row in rows if isinstance(row.get("chainlink_down_ratio"), (int, float))]),
             "book_feed_down_ratio": _numeric_summary([row["book_feed_down_ratio"] for row in rows if isinstance(row.get("book_feed_down_ratio"), (int, float))]),
@@ -3042,7 +2882,6 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         row.get("unresolved_lifecycle_obligation_count") or 0 for row in rows
     )
     total_cancel_fail_closed = sum(row.get("cancel_fail_closed_count") or 0 for row in rows)
-    total_maker_quote_quality_skips = sum(row.get("maker_quote_quality_skip_total_count") or 0 for row in rows)
     total_maker_sizing_rejects = sum(row.get("maker_sizing_reject_total_count") or 0 for row in rows)
     total_maker_replace_guard = sum(row.get("maker_replace_guard_min_rest_count") or 0 for row in rows)
     total_risk_rejects = sum(row.get("risk_reject_total_count") or 0 for row in rows)
@@ -3098,7 +2937,6 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         f"- Total maker submits: `{total_maker_submits}`",
         f"- Total maker fills: `{total_maker_fills}`",
         f"- Fills per filled order summary: `{json.dumps(maker_forensics.get('maker_fills_per_filled_order_summary', {}), sort_keys=True)}`",
-        f"- Quote-quality skip total: `{total_maker_quote_quality_skips}`",
         f"- Sizing reject total: `{total_maker_sizing_rejects}`",
         f"- Replace-guard min-rest total: `{total_maker_replace_guard}`",
         *(_format_counter_lines(anomaly_summary["aggregates"]["maker_no_submission_cause_counts"]) or ["- No maker no-submit causes harvested."]),
@@ -3108,12 +2946,8 @@ def build_maker_research_pack(rows: list[dict[str, Any]], anomaly_summary: dict[
         f"- Active-window row total: `{maker_forensics.get('maker_window_active_row_count_total')}`",
         f"- Active-window submit total: `{maker_forensics.get('maker_window_submit_count_total')}`",
         f"- Active-window replace-guard total: `{maker_forensics.get('maker_window_replace_guard_count_total')}`",
-        f"- Active-window quote-quality skip total: `{maker_forensics.get('maker_window_quote_quality_skip_total_count')}`",
         f"- Active-window submit-rate summary: `{json.dumps(maker_forensics.get('maker_window_submit_rate_summary', {}), sort_keys=True)}`",
         f"- Active-window replace-guard-rate summary: `{json.dumps(maker_forensics.get('maker_window_replace_guard_rate_summary', {}), sort_keys=True)}`",
-        f"- Active-window quote-quality-skip-rate summary: `{json.dumps(maker_forensics.get('maker_window_quote_quality_skip_rate_summary', {}), sort_keys=True)}`",
-        f"- Fill-probability severity bins: `{json.dumps(maker_forensics.get('maker_quote_quality_skip_fill_probability_severity_bins', {}), sort_keys=True)}`",
-        f"- Queue-depth severity bins: `{json.dumps(maker_forensics.get('maker_quote_quality_skip_queue_depth_severity_bins', {}), sort_keys=True)}`",
         "",
         "## Maker Outcome / Lifecycle Surfaces",
         f"- Complete maker records total: `{maker_forensics.get('maker_complete_record_count_total')}`",

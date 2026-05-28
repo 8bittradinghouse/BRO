@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import time
 import traceback
@@ -41,6 +42,10 @@ DOCKER_COMPOSE_PS_TIMEOUT_SEC = 30.0
 CANONICAL_CMD_TIMEOUT_SEC = 900.0
 CANONICAL_ACTIVE_VALIDATION_TIMEOUT_SEC = 300.0
 CANONICAL_POSTRUN_VALIDATION_TIMEOUT_SEC = 900.0
+
+
+class SessionTerminationRequested(KeyboardInterrupt):
+    """Raised when the canonical paper session receives an external stop signal."""
 
 
 def utc_now() -> dt.datetime:
@@ -401,32 +406,71 @@ def _recover_abandoned_canonical_session(
         )
         write_run_contract(contract_path, normalized_contract, allow_open=False)
 
-    recovered_payload = dict(payload)
-    recovered_payload["recovered_abandoned_session"] = {
-        "recovered_ts_utc": now_ts,
-        "reason": str(reason),
-        "recovered_by": "phase_start_open_session_recovery",
-        "closed_run_contract_path": str(contract_path) if contract_path is not None else "",
-    }
-    state_path.write_text(json.dumps(recovered_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    recovery_note_path = state_path.parent / "abandoned_session_recovery.json"
-    recovery_note_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "recovered_ts_utc": now_ts,
-                "reason": str(reason),
-                "session_id": str(payload.get("session_id") or state_path.parent.name),
-                "run_id": str(payload.get("run_id") or ""),
-                "state_path": str(state_path),
-                "run_contract_path": str(contract_path) if contract_path is not None else "",
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    _normalize_closed_canonical_session_state(
+        state_path=state_path,
+        payload=payload,
+        contract_path=contract_path,
+        reason=reason,
+        normalized_by="phase_start_open_session_recovery",
+        note_filename="abandoned_session_recovery.json",
+        note_ts=now_ts,
+        include_recovery_alias=True,
     )
+
+
+def _normalize_closed_canonical_session_state(
+    *,
+    state_path: pathlib.Path,
+    payload: Dict[str, Any],
+    contract_path: Optional[pathlib.Path],
+    reason: str,
+    normalized_by: str,
+    note_filename: str,
+    note_ts: Optional[str] = None,
+    include_recovery_alias: bool = False,
+) -> None:
+    now_ts = str(note_ts or utc_iso()).strip() or utc_iso()
+    existing_phase = str(payload.get("phase") or "").strip() or "missing"
+    contract_phase = ""
+    contract_stop_ts = ""
+    if contract_path is not None:
+        contract_payload = _read_json_object(contract_path) or {}
+        contract_phase = str(contract_payload.get("phase") or "").strip()
+        contract_stop_ts = str(contract_payload.get("stop_ts") or "").strip()
+
+    note_payload = {
+        "schema_version": 1,
+        "normalized_ts_utc": now_ts,
+        "reason": str(reason),
+        "normalized_by": str(normalized_by),
+        "session_id": str(payload.get("session_id") or state_path.parent.name),
+        "run_id": str(payload.get("run_id") or ""),
+        "state_path": str(state_path),
+        "run_contract_path": str(contract_path) if contract_path is not None else "",
+        "normalized_from_phase": existing_phase,
+        "normalized_to_phase": "complete",
+        "contract_phase": contract_phase,
+        "contract_stop_ts": contract_stop_ts,
+    }
+
+    normalized_payload = dict(payload)
+    normalized_payload["phase"] = "complete"
+    normalized_payload["runner_pid"] = None
+    normalized_payload["ts_utc"] = now_ts
+    normalized_payload["stop_ts"] = contract_stop_ts or str(payload.get("stop_ts") or "").strip()
+    normalized_payload["terminal_closeout_written"] = True
+    normalized_payload["phase_validation_surface"] = validation_surface_for_phase("complete")
+    normalized_payload["closed_session_normalization"] = dict(note_payload)
+    if include_recovery_alias:
+        normalized_payload["recovered_abandoned_session"] = {
+            "recovered_ts_utc": now_ts,
+            "reason": str(reason),
+            "recovered_by": str(normalized_by),
+            "closed_run_contract_path": str(contract_path) if contract_path is not None else "",
+        }
+    state_path.write_text(json.dumps(normalized_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    note_path = state_path.parent / note_filename
+    note_path.write_text(json.dumps(note_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _stream_jsonl_rows(path: pathlib.Path) -> Iterable[Dict[str, Any]]:
@@ -753,6 +797,7 @@ class SessionContext:
     session_root: pathlib.Path = pathlib.Path()
     session_state_path: pathlib.Path = pathlib.Path()
     report_root: pathlib.Path = pathlib.Path()
+    terminal_closeout_written: bool = False
 
     def initialize_paths(self) -> None:
         self.session_root = (self.log_dir / "sessions" / self.session_id).resolve()
@@ -776,13 +821,25 @@ class SessionRunner:
         run_contract_path_text = ""
         if self.ctx.run_contract_path != pathlib.Path():
             run_contract_path_text = str(self.ctx.run_contract_path)
+        stop_ts_text = str((self.ctx.run_contract_payload or {}).get("stop_ts") or "").strip()
+        if (not stop_ts_text) and run_contract_path_text:
+            try:
+                contract_payload = json.loads(pathlib.Path(run_contract_path_text).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, UnicodeError):
+                contract_payload = {}
+            if isinstance(contract_payload, dict):
+                stop_ts_text = str(contract_payload.get("stop_ts") or "").strip()
+        runner_pid: Optional[int] = int(os.getpid())
+        if self.ctx.current_phase == "complete" or bool(self.ctx.terminal_closeout_written):
+            runner_pid = None
         payload: Dict[str, Any] = {
             "schema_version": 1,
             "session_id": self.ctx.session_id,
-            "runner_pid": int(os.getpid()),
+            "runner_pid": runner_pid,
             "ts_utc": utc_iso(),
             "phase": self.ctx.current_phase,
             "run_id": self.ctx.run_id,
+            "stop_ts": stop_ts_text,
             "session_type": str(self.ctx.session_type or ""),
             "expected_profile_name": str(self.ctx.expected_profile_name or ""),
             "resolved_profile_name": str(self.ctx.resolved_profile_name or ""),
@@ -800,6 +857,7 @@ class SessionRunner:
             "validation_artifact_name": str(self.ctx.validation_artifact_name or ""),
             "run_manifest_path": run_manifest_path_text,
             "run_contract_path": run_contract_path_text,
+            "terminal_closeout_written": bool(self.ctx.terminal_closeout_written),
             "postrun_validation": dict(self.ctx.postrun_validation),
             "phase_validation_surface": (
                 validation_surface_for_phase(self.ctx.current_phase)
@@ -866,6 +924,87 @@ class SessionRunner:
             encoding="utf-8",
         )
 
+    def _sync_open_run_contract_phase(self, *, phase: str) -> None:
+        if not str(self.ctx.run_id or "").strip():
+            return
+        if self.ctx.run_contract_path == pathlib.Path():
+            self.ctx.run_contract_path = run_contract_path(log_dir=self.ctx.log_dir, run_id=self.ctx.run_id)
+        if not self.ctx.run_contract_path.exists():
+            return
+        try:
+            existing = json.loads(self.ctx.run_contract_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            existing = dict(self.ctx.run_contract_payload)
+        if not isinstance(existing, dict):
+            existing = dict(self.ctx.run_contract_payload)
+        if str(existing.get("stop_ts") or "").strip():
+            return
+        start_ts = str(existing.get("start_ts") or self.ctx.run_contract_payload.get("start_ts") or "").strip() or utc_iso()
+        contract = build_run_contract(
+            session_id=str(existing.get("session_id") or self.ctx.session_id),
+            run_id=str(existing.get("run_id") or self.ctx.run_id),
+            phase=phase,
+            session_type=str(existing.get("session_type") or self.ctx.session_type or "paper_canonical"),
+            authority_level=str(existing.get("authority_level") or self.ctx.run_contract_payload.get("authority_level") or "authoritative"),
+            allowed_actions=list(existing.get("allowed_actions") or CANONICAL_AUTHORITATIVE_ALLOWED_ACTIONS),
+            manifest_path=pathlib.Path(str(existing.get("manifest_path") or self.ctx.run_manifest_path)).resolve(),
+            log_root=pathlib.Path(str(existing.get("log_root") or self.ctx.log_dir)).resolve(),
+            state_root=pathlib.Path(str(existing.get("state_root") or self.ctx.state_path.parent)).resolve(),
+            start_ts=start_ts,
+            stop_ts="",
+            evidence_slice_start_ts=str(existing.get("evidence_slice_start_ts") or start_ts).strip() or start_ts,
+            evidence_slice_end_ts="",
+            status_path=str(existing.get("status_path") or self.ctx.run_contract_payload.get("status_path") or ""),
+            events_path=str(existing.get("events_path") or self.ctx.run_contract_payload.get("events_path") or ""),
+            errors_path=str(existing.get("errors_path") or self.ctx.run_contract_payload.get("errors_path") or ""),
+            status_slice_path=str(existing.get("status_slice_path") or ""),
+            events_slice_path=str(existing.get("events_slice_path") or ""),
+            errors_slice_path=str(existing.get("errors_slice_path") or ""),
+            git_commit=str(existing.get("git_commit") or self.ctx.run_contract_payload.get("git_commit") or ""),
+            config_fingerprint_sha256=str(
+                existing.get("config_fingerprint_sha256")
+                or self.ctx.run_contract_payload.get("config_fingerprint_sha256")
+                or ""
+            ),
+            code_fingerprint_sha256=str(
+                existing.get("code_fingerprint_sha256")
+                or self.ctx.run_contract_payload.get("code_fingerprint_sha256")
+                or ""
+            ),
+            code_fingerprint_file_count=(
+                existing.get("code_fingerprint_file_count")
+                or self.ctx.run_contract_payload.get("code_fingerprint_file_count")
+                or ""
+            ),
+        )
+        write_run_contract(self.ctx.run_contract_path, contract, allow_open=True)
+        self.ctx.run_contract_payload = dict(contract)
+
+    def _handle_termination_signal(self, signum: int, _frame: Any) -> None:
+        try:
+            signame = signal.Signals(signum).name
+        except ValueError:
+            signame = f"SIG{signum}"
+        raise SessionTerminationRequested(f"signal:{str(signame).lower()}")
+
+    def _install_signal_handlers(self) -> Dict[int, Any]:
+        previous: Dict[int, Any] = {}
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                previous[int(sig)] = signal.getsignal(sig)
+                signal.signal(sig, self._handle_termination_signal)
+            except (AttributeError, OSError, ValueError):
+                continue
+        return previous
+
+    @staticmethod
+    def _restore_signal_handlers(previous: Mapping[int, Any]) -> None:
+        for signum, handler in dict(previous).items():
+            try:
+                signal.signal(int(signum), handler)
+            except (AttributeError, OSError, ValueError):
+                continue
+
     def _phase_enter(self, phase: str, entry_conditions: List[Dict[str, Any]]) -> None:
         if self.ctx.current_phase:
             assert_valid_phase_transition(self.ctx.current_phase, phase)
@@ -873,6 +1012,9 @@ class SessionRunner:
         self.ctx.phase_history.append(rec)
         self.ctx.current_phase = phase
         self._write_state()
+        if phase in {"active", "validate_active", "stop"}:
+            self._sync_open_run_contract_phase(phase=phase)
+            self._write_state()
 
     def _phase_exit(self, exit_conditions: List[Dict[str, Any]]) -> None:
         if not self.ctx.phase_history:
@@ -1071,7 +1213,19 @@ class SessionRunner:
             json.dumps(failure_note, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        self._write_state()
+        if bool(failure_note.get("run_contract_closeout_ok", False)):
+            self.ctx.terminal_closeout_written = True
+            self.ctx.current_phase = "complete"
+            _normalize_closed_canonical_session_state(
+                state_path=self.ctx.session_state_path,
+                payload=_read_json_object(self.ctx.session_state_path) or {},
+                contract_path=self.ctx.run_contract_path,
+                reason="failure_finalize_closeout",
+                normalized_by="failure_finalize_closeout",
+                note_filename="failure_finalize.closed_session_normalization.json",
+            )
+        else:
+            self._write_state()
 
     def phase_preflight(self) -> None:
         entry = [
@@ -1233,37 +1387,59 @@ class SessionRunner:
                     if isinstance(contract_payload, dict):
                         contract_phase = str(contract_payload.get("phase") or "").strip()
                         contract_stop_ts = str(contract_payload.get("stop_ts") or "").strip()
+                runner_pid_present = bool(str(payload.get("runner_pid") or "").strip())
+                runner_pid_alive = _pid_is_alive(payload.get("runner_pid"))
                 if contract_stop_ts:
+                    if other_phase != "complete" and not runner_pid_alive:
+                        _normalize_closed_canonical_session_state(
+                            state_path=state_path.resolve(),
+                            payload=payload,
+                            contract_path=contract_path,
+                            reason="run_contract_already_closed",
+                            normalized_by="phase_start_closed_session_normalization",
+                            note_filename="closed_session_normalization.json",
+                        )
                     continue
                 if other_phase == "complete":
+                    continue
+                recover_reason = ""
+                if runner_pid_present and not runner_pid_alive:
+                    if other_phase in {"preflight", "start"}:
+                        recover_reason = "runner_pid_dead_prestart"
+                    elif (
+                        contract_phase in {"start", "active", "validate_active", "stop"}
+                        and other_phase in {"active", "validate_active", "stop"}
+                    ):
+                        recover_reason = "runner_pid_dead_open_session"
+                elif (
+                    not runner_pid_present
+                    and other_phase in {"preflight", "start"}
+                ):
+                    state_ts = parse_ts(payload.get("ts_utc"))
+                    state_age_sec = None
+                    if state_ts is not None:
+                        state_age_sec = max(0.0, (utc_now() - state_ts).total_seconds())
+                    if state_age_sec is not None and state_age_sec >= 300.0:
+                        recover_reason = "stale_prestart_session_no_pid"
+                if recover_reason:
+                    _recover_abandoned_canonical_session(
+                        state_path=state_path.resolve(),
+                        payload=payload,
+                        contract_path=contract_path,
+                        reason=recover_reason,
+                    )
                     continue
                 if compose_ps_lines is None:
                     compose_ps_lines = _docker_compose_ps_lines()
                 maker_up = _service_up(compose_ps_lines, "bro-maker")
                 guardian_up = _service_up(compose_ps_lines, "bro-guardian")
-                runner_pid_alive = _pid_is_alive(payload.get("runner_pid"))
-                state_ts = parse_ts(payload.get("ts_utc"))
-                state_age_sec = None
-                if state_ts is not None:
-                    state_age_sec = max(0.0, (utc_now() - state_ts).total_seconds())
-                recover_reason = ""
-                if str(payload.get("runner_pid") or "").strip() and not runner_pid_alive:
-                    if other_phase in {"preflight", "start"}:
-                        recover_reason = "runner_pid_dead_prestart"
-                    elif (not maker_up) and (not guardian_up) and contract_phase == "start":
-                        recover_reason = "runner_pid_dead"
-                elif (
-                    not str(payload.get("runner_pid") or "").strip()
-                    and state_age_sec is not None
-                    and state_age_sec >= 300.0
-                    and other_phase in {"preflight", "start"}
-                ):
-                    recover_reason = "stale_prestart_session_no_pid"
-                elif (not maker_up) and (not guardian_up) and contract_phase == "start":
-                    if str(payload.get("runner_pid") or "").strip() and not runner_pid_alive:
-                        recover_reason = "runner_pid_dead"
-                    elif (
-                        not str(payload.get("runner_pid") or "").strip()
+                if (not maker_up) and (not guardian_up) and contract_phase == "start":
+                    state_ts = parse_ts(payload.get("ts_utc"))
+                    state_age_sec = None
+                    if state_ts is not None:
+                        state_age_sec = max(0.0, (utc_now() - state_ts).total_seconds())
+                    if (
+                        not runner_pid_present
                         and state_age_sec is not None
                         and state_age_sec >= 300.0
                         and other_phase in {"active", "validate_active", "stop"}
@@ -1629,6 +1805,8 @@ class SessionRunner:
         self._phase_enter("validate_active", entry)
         out_dir = (self.ctx.report_root / "validate_active").resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
+        progress_path = out_dir / "command_progress.jsonl"
+        progress_path.write_text("", encoding="utf-8")
 
         actionable_ok = True
         cmds = [
@@ -1702,6 +1880,10 @@ class SessionRunner:
 
         for name, cmd, actionable in cmds:
             timeout_note = ""
+            with progress_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps({"command": name, "started_at_utc": utc_iso(), "status": "started"}) + "\n"
+                )
             try:
                 proc = subprocess.run(
                     cmd,
@@ -1726,6 +1908,19 @@ class SessionRunner:
             if timeout_note:
                 stderr_text = (stderr_text + "\n" if stderr_text else "") + timeout_note
             (out_dir / f"{name}.stderr.log").write_text(stderr_text, encoding="utf-8")
+            with progress_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "command": name,
+                            "finished_at_utc": utc_iso(),
+                            "status": "completed",
+                            "returncode": int(proc.returncode),
+                            "timeout": bool(timeout_note),
+                        }
+                    )
+                    + "\n"
+                )
             if actionable and proc.returncode != 0:
                 actionable_ok = False
 
@@ -2036,6 +2231,7 @@ class SessionRunner:
         self._phase_exit(exit_conditions)
 
     def run(self) -> Dict[str, Any]:
+        previous_signal_handlers = self._install_signal_handlers()
         try:
             self.phase_preflight()
             self.phase_start()
@@ -2048,6 +2244,8 @@ class SessionRunner:
         except BaseException as exc:
             self._finalize_failure_closeout(exc)
             raise
+        finally:
+            self._restore_signal_handlers(previous_signal_handlers)
         return {
             "session_id": self.ctx.session_id,
             "run_id": self.ctx.run_id,
